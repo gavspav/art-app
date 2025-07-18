@@ -1,135 +1,166 @@
-// src/components/Canvas.jsx
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, forwardRef } from 'react';
 import { getPixelRatio } from '../utils/pixelRatio';
+import { createSeededRandom } from '../utils/random';
 
-const Canvas = React.forwardRef(({
-  isFullscreen,
-  speed,
-  variation,
-  numLayers,
-  colors,
-  guideWidth,
-  guideHeight,
-  curviness,
-  noiseAmount,
-  numSides,
-  globalOpacity,
-  blendMode,
-  backgroundColor,
-  layerParams,
-  isFrozen,
-  shapeType
+const Canvas = forwardRef(({ 
+  layers, 
+  isFrozen, 
+  speed, 
+  variation, 
+  backgroundColor, 
+  globalSeed 
 }, ref) => {
-  const localRef = useRef();
-  const canvasRef = ref || localRef;
-  const animationRef = useRef();
+  const animationRef = useRef(null);
   const timeRef = useRef(0);
 
+  // Main animation and drawing effect
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = ref.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    const handleResize = () => {
-      if (isFullscreen) {
-        canvas.style.width = '100vw';
-        canvas.style.height = '100vh';
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-      } else {
-        const size = Math.min(window.innerWidth * 0.8, window.innerHeight * 0.8);
-        canvas.style.width = size + 'px';
-        canvas.style.height = size + 'px';
-        canvas.width = size;
-        canvas.height = size;
-      }
+    // --- Sizing --- 
+    const ratio = getPixelRatio(ctx);
+    const resizeCanvas = () => {
+      const { width, height } = canvas.getBoundingClientRect();
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+      ctx.scale(ratio, ratio);
     };
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
 
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isFullscreen, canvasRef]);
+    // --- Drawing Logic ---
+    const drawShape = (layer) => {
+      const { 
+        shapeType, numSides, curviness, noiseAmount, 
+        centerX, centerY, shapeWidth, shapeHeight, 
+        useGlobalSeed, seed 
+      } = layer;
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+      const currentSeed = useGlobalSeed ? globalSeed : seed;
+      const random = createSeededRandom(currentSeed);
 
-    function drawShape(t, layerParam) {
+      // Calculate noise offsets based on the layer's seed
+      const noiseOffsets = [];
+      for (let i = 0; i < numSides; i++) {
+        noiseOffsets.push({
+          x: (random() - 0.5) * 50, // Base magnitude
+          y: (random() - 0.5) * 50,
+        });
+      }
 
-      
-      // Clear the canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Set basic drawing properties
-      ctx.strokeStyle = 'red';
-      ctx.lineWidth = 2;
-      ctx.fillStyle = 'blue';
-      
+      const { width, height } = canvas.getBoundingClientRect();
+      const finalCenterX = width * centerX;
+      const finalCenterY = height * centerY;
+      const radiusX = (width * shapeWidth) / 2;
+      const radiusY = (height * shapeHeight) / 2;
+
       if (shapeType === 'circle') {
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const radius = 100;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.ellipse(finalCenterX, finalCenterY, radiusX, radiusY, 0, 0, Math.PI * 2);
+        ctx.closePath();
         return;
       }
 
-      // Draw a simple triangle to test
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height / 2;
-      const size = 100;
-      
+      // Polygon drawing logic
+      const points = [];
+      for (let i = 0; i < numSides; i++) {
+        const angle = (i / numSides) * Math.PI * 2 - Math.PI / 2;
+        const noiseX = noiseOffsets[i] ? noiseOffsets[i].x * noiseAmount : 0;
+        const noiseY = noiseOffsets[i] ? noiseOffsets[i].y * noiseAmount : 0;
+        const x = finalCenterX + Math.cos(angle) * radiusX + noiseX;
+        const y = finalCenterY + Math.sin(angle) * radiusY + noiseY;
+        points.push({ x, y });
+      }
+
       ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
 
-      
-      // Always draw straight lines for now to test
-      ctx.moveTo(centerX, centerY - size); // Top
-      ctx.lineTo(centerX - size, centerY + size); // Bottom left  
-      ctx.lineTo(centerX + size, centerY + size); // Bottom right
+      if (curviness !== 0) {
+        for (let i = 0; i < points.length; i++) {
+          const current = points[i];
+          const next = points[(i + 1) % points.length];
+          const midX = (current.x + next.x) / 2;
+          const midY = (current.y + next.y) / 2;
+          const centerToMidX = midX - finalCenterX;
+          const centerToMidY = midY - finalCenterY;
+          const ctrlX = midX - centerToMidX * curviness * 0.5;
+          const ctrlY = midY - centerToMidY * curviness * 0.5;
+          ctx.quadraticCurveTo(ctrlX, ctrlY, next.x, next.y);
+        }
+      } else {
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+      }
       ctx.closePath();
-      
-      ctx.fill();
-      ctx.stroke();
-    }
+    };
 
-    function animate() {
+    // --- Animation Loop ---
+    const animate = () => {
+      const { width, height } = canvas.getBoundingClientRect();
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalCompositeOperation = "source-over";
-      ctx.filter = "blur(1px)";
-      for (let i = 0; i < numLayers; i++) {
-        ctx.globalCompositeOperation = i === 0 ? "source-over" : blendMode;
-        drawShape(timeRef.current, layerParams[i]);
-        const color = colors[i % colors.length];
-        const gradient = ctx.createRadialGradient(
-          canvas.width / 2,
-          canvas.height / 2,
-          0,
-          canvas.width / 2,
-          canvas.height / 2,
-          200 + i * 50
+      ctx.fillRect(0, 0, width, height);
+
+      layers.forEach(layer => {
+        if (!layer.visible) return;
+
+        ctx.globalCompositeOperation = layer.blendMode;
+        ctx.globalAlpha = layer.opacity;
+
+        drawShape(layer);
+
+        // Create a gradient from the layer's colors
+        const { shapeWidth, shapeHeight, centerX, centerY } = layer;
+        const { width, height } = canvas.getBoundingClientRect();
+        const radiusX = (width * shapeWidth) / 2;
+        const radiusY = (height * shapeHeight) / 2;
+        const finalCenterX = width * centerX;
+        const finalCenterY = height * centerY;
+
+        const gradient = ctx.createLinearGradient(
+          finalCenterX - radiusX, 
+          finalCenterY - radiusY, 
+          finalCenterX + radiusX, 
+          finalCenterY + radiusY
         );
-        gradient.addColorStop(
-          0,
-          color + Math.floor(globalOpacity * 255).toString(16).padStart(2, "0")
-        );
-        gradient.addColorStop(
-          1,
-          color + Math.floor(globalOpacity * 180).toString(16).padStart(2, "0")
-        );
+
+        if (layer.colors && layer.colors.length > 0) {
+            if (layer.colors.length === 1) {
+                gradient.addColorStop(0, layer.colors[0]);
+                gradient.addColorStop(1, layer.colors[0]);
+            } else {
+                layer.colors.forEach((color, index) => {
+                    gradient.addColorStop(index / (layer.colors.length - 1), color);
+                });
+            }
+        }
+
         ctx.fillStyle = gradient;
         ctx.fill();
-      }
-      ctx.filter = "none";
-      ctx.globalCompositeOperation = "source-over";
-      timeRef.current += isFrozen ? 0 : speed;
-      animationRef.current = requestAnimationFrame(animate);
-    }
-    animate();
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [speed, variation, numLayers, colors, guideWidth, guideHeight, curviness, noiseAmount, numSides, globalOpacity, blendMode, backgroundColor, layerParams, isFrozen]);
+      });
 
-  return <canvas ref={canvasRef} />;
+      ctx.restore();
+
+      if (!isFrozen) {
+        timeRef.current += speed;
+      }
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    // --- Cleanup ---
+    return () => {
+      cancelAnimationFrame(animationRef.current);
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, [layers, isFrozen, speed, variation, backgroundColor, globalSeed, ref]);
+
+  return <canvas ref={ref} style={{ width: '100%', height: '100%' }} />;
 });
 
 export default Canvas;

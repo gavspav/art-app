@@ -1,17 +1,27 @@
-// src/components/LayerList.jsx
 import React from 'react';
 
-const LayerList = ({ numLayers, colors }) => (
-  <div className="flex gap-1 mt-2">
-    {[...Array(numLayers)].map((_, i) => (
-      <div
-        key={i}
-        className="w-6 h-6 rounded-full border border-white"
-        style={{ backgroundColor: colors[i % colors.length] }}
-        title={`Layer ${i+1}`}
-      />
-    ))}
-  </div>
-);
+const LayerList = ({ layers, selectedLayerIndex, onSelectLayer, onAddLayer, onDeleteLayer }) => {
+  return (
+    <div className="layer-list">
+      <h3>Layers</h3>
+      <ul>
+        {layers.map((layer, index) => (
+          <li 
+            key={index} 
+            className={index === selectedLayerIndex ? 'selected' : ''}
+          >
+            <button className="layer-select-btn" onClick={() => onSelectLayer(index)}>
+              {layer.name}
+            </button>
+            <button className="layer-delete-btn" onClick={() => onDeleteLayer(index)} disabled={layers.length <= 1}>
+              X
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button className="add-layer-btn" onClick={onAddLayer}>+ Add Layer</button>
+    </div>
+  );
+};
 
 export default LayerList;

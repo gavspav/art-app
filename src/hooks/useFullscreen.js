@@ -1,28 +1,29 @@
-// src/hooks/useFullscreen.js
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
-export function useFullscreen(setIsFullscreen) {
+export const useFullscreen = (ref) => {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggle = () => {
+    if (!document.fullscreenElement) {
+      ref.current?.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      const currentlyFullscreen = !!(
-        document.fullscreenElement ||
-        document.webkitFullscreenElement ||
-        document.mozFullScreenElement ||
-        document.msFullscreenElement
-      );
-      setIsFullscreen(currentlyFullscreen);
+    const handleChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
     };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    document.addEventListener('fullscreenchange', handleChange);
 
     return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+      document.removeEventListener('fullscreenchange', handleChange);
     };
-  }, [setIsFullscreen]);
-}
+  }, []);
+
+  return { isFullscreen, toggle };
+};

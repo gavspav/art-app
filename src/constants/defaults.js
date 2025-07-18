@@ -1,24 +1,31 @@
-// src/constants/defaults.js
+export const DEFAULT_LAYER = {
+  name: 'Layer 1',
+  shapeType: 'polygon',
+  numSides: 6,
+  curviness: 0.5,
+  noiseAmount: 0.8,
+  noiseSpeed: 0.005,
+  seed: 1,
+  useGlobalSeed: false,
+  opacity: 1.0,
+  blendMode: 'normal',
+  colors: ["#FFC300", "#FF5733", "#C70039"],
+  selectedColor: 0,
+  centerX: 0.5,
+  centerY: 0.5,
+  shapeWidth: 0.5,
+  shapeHeight: 0.5,
+  visible: true,
+};
+
 export const DEFAULTS = {
-    speed: 0.002,
-    isFrozen: false,
-    variation: 0.2,
-    numLayers: 1,
-    colors: [
-      "#1E3296", "#502CB4", "#6450C8", "#3C64B4",
-      "#6478DC", "#4A0080", "#6600AA", "#8200D4"
-    ],
-    selectedColor: "#1E3296",
-    guideWidth: 250,
-    guideHeight: 250,
-    curviness: 0,
-    noiseAmount: 0.5,
-    numSides: 6,
-    globalOpacity: 0.8,
-    blendMode: "source-over",
-    backgroundColor: "#000000",
-    centerX: 0.5,
-    centerY: 0.5,
-    shapeWidth: 0.4,
-    shapeHeight: 0.4
-  };
+  speed: 0.001,
+  isFrozen: false,
+  variation: 1.5,
+  backgroundColor: '#111111',
+  guideWidth: 0.5,
+  guideHeight: 0.5,
+  globalSeed: 1,
+  layers: [DEFAULT_LAYER],
+  selectedLayerIndex: 0,
+};

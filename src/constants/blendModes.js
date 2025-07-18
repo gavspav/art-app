@@ -1,5 +1,18 @@
-// src/constants/blendModes.js
 export const blendModes = [
-    "source-over", "multiply", "screen", "overlay",
-    "lighter", "soft-light", "hard-light", "color-dodge"
-  ];
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity'
+];
