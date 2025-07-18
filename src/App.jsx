@@ -22,6 +22,7 @@ function App() {
   const [guideWidth, setGuideWidth] = useState(DEFAULTS.guideWidth);
   const [guideHeight, setGuideHeight] = useState(DEFAULTS.guideHeight);
   const [globalSeed, setGlobalSeed] = useState(DEFAULTS.globalSeed);
+  const [globalSpeedMultiplier, setGlobalSpeedMultiplier] = useState(DEFAULTS.globalSpeedMultiplier);
 
   // Layer-specific state
   const [layers, setLayers] = useState(DEFAULTS.layers);
@@ -50,7 +51,7 @@ function App() {
 
   // --- ANIMATION ENGINE --- 
   // This custom hook will contain the animation loop and physics logic
-  useAnimation(setLayers, isFrozen);
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier);
 
   // --- DERIVED STATE ---
   const currentLayer = layers[selectedLayerIndex];
@@ -119,6 +120,40 @@ function App() {
     });
   };
 
+  // Randomizes all layers
+  const handleRandomizeAll = () => {
+    const random = createSeededRandom(Math.random());
+    setLayers(prevLayers => 
+      prevLayers.map(layer => {
+        const newMovementSpeed = random() * 0.02;
+        const newMovementAngle = random() * 360;
+        const angleRad = newMovementAngle * (Math.PI / 180);
+
+        const randomizedProps = {
+          ...layer,
+          opacity: 0.5 + random() * 0.5,
+          blendMode: blendModes[Math.floor(random() * blendModes.length)],
+          colors: palettes[Math.floor(random() * palettes.length)],
+          shapeWidth: 0.2 + random() * 0.8,
+          shapeHeight: 0.2 + random() * 0.8,
+          movementSpeed: newMovementSpeed,
+          movementAngle: newMovementAngle,
+          scaleSpeed: random() * 0.2,
+          vx: Math.cos(angleRad) * newMovementSpeed * 1.0,
+          vy: Math.sin(angleRad) * newMovementSpeed * 1.0,
+        };
+
+        if (layer.layerType === 'shape') {
+          randomizedProps.curviness = random() * 11 - 10; // -10 to 1
+          randomizedProps.noiseAmount = random() * 2;
+          randomizedProps.numSides = 3 + Math.floor(random() * 10);
+        }
+
+        return randomizedProps;
+      })
+    );
+  };
+
   return (
     <div className="App">
       <main>
@@ -135,10 +170,13 @@ function App() {
             currentLayer={currentLayer}
             updateLayer={updateCurrentLayer}
             randomize={randomizeCurrentLayer}
+            randomizeAll={handleRandomizeAll}
             variation={variation}
             setVariation={setVariation}
             isFrozen={isFrozen}
             setIsFrozen={setIsFrozen}
+            globalSpeedMultiplier={globalSpeedMultiplier}
+            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
           />
           <LayerList
             layers={layers}

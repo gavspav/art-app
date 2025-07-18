@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef } from 'react';
+import React, { useRef, useEffect, forwardRef, useState } from 'react';
 import { getPixelRatio } from '../utils/pixelRatio';
 import { createSeededRandom } from '../utils/random';
 
@@ -8,9 +8,23 @@ const Canvas = forwardRef(({
   backgroundColor, 
   globalSeed 
 }, ref) => {
+  const imageCache = useRef(new Map());
+  const [imagesLoaded, setImagesLoaded] = useState(0); // State to trigger re-render on image load
 
   // Main drawing effect
   useEffect(() => {
+    // Pre-load images and trigger re-render when they're ready
+    layers.forEach(layer => {
+      if (layer.layerType === 'image' && layer.imageSrc && !imageCache.current.has(layer.imageSrc)) {
+        const img = new Image();
+        img.onload = () => {
+          setImagesLoaded(prev => prev + 1); // Force re-render
+        };
+        img.src = layer.imageSrc;
+        imageCache.current.set(layer.imageSrc, img);
+      }
+    });
+
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -31,18 +45,17 @@ const Canvas = forwardRef(({
       const { 
         shapeType, numSides, curviness, noiseAmount, 
         x, y, scale, // Use dynamic position and scale
-        shapeWidth, shapeHeight, 
+        shapeWidth, shapeHeight, masterScale = 1,
         useGlobalSeed, seed 
       } = layer;
 
       const currentSeed = useGlobalSeed ? globalSeed : seed;
       const random = createSeededRandom(currentSeed);
 
-      // Calculate noise offsets based on the layer's seed
       const noiseOffsets = [];
       for (let i = 0; i < numSides; i++) {
         noiseOffsets.push({
-          x: (random() - 0.5) * 50, // Base magnitude
+          x: (random() - 0.5) * 50,
           y: (random() - 0.5) * 50,
         });
       }
@@ -50,8 +63,8 @@ const Canvas = forwardRef(({
       const { width, height } = canvas.getBoundingClientRect();
       const finalCenterX = width * x;
       const finalCenterY = height * y;
-      const radiusX = (width * shapeWidth * scale) / 2;
-      const radiusY = (height * shapeHeight * scale) / 2;
+      const radiusX = (width * shapeWidth * masterScale * scale) / 2;
+      const radiusY = (height * shapeHeight * masterScale * scale) / 2;
 
       if (shapeType === 'circle') {
         ctx.beginPath();
@@ -60,20 +73,16 @@ const Canvas = forwardRef(({
         return;
       }
 
-      // Polygon drawing logic
       const points = [];
       for (let i = 0; i < numSides; i++) {
         const angle = (i / numSides) * Math.PI * 2 - Math.PI / 2;
         const staticNoiseX = noiseOffsets[i] ? noiseOffsets[i].x * noiseAmount : 0;
         const staticNoiseY = noiseOffsets[i] ? noiseOffsets[i].y * noiseAmount : 0;
-
-        // Dynamic noise for wobble effect (time is now passed from App)
         const dynamicNoiseX = Math.cos(time + i * 0.5) * variation;
         const dynamicNoiseY = Math.sin(time + i * 0.5) * variation;
-
-        const x = finalCenterX + Math.cos(angle) * radiusX + staticNoiseX + dynamicNoiseX;
-        const y = finalCenterY + Math.sin(angle) * radiusY + staticNoiseY + dynamicNoiseY;
-        points.push({ x, y });
+        const pointX = finalCenterX + Math.cos(angle) * radiusX + staticNoiseX + dynamicNoiseX;
+        const pointY = finalCenterY + Math.sin(angle) * radiusY + staticNoiseY + dynamicNoiseY;
+        points.push({ x: pointX, y: pointY });
       }
 
       ctx.beginPath();
@@ -99,7 +108,7 @@ const Canvas = forwardRef(({
       ctx.closePath();
     };
 
-    // --- Render Loop (called on every state change) ---
+    // --- Render Loop ---
     const render = () => {
       const { width, height } = canvas.getBoundingClientRect();
       ctx.save();
@@ -107,43 +116,49 @@ const Canvas = forwardRef(({
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, width, height);
 
-
-
       layers.forEach(layer => {
         if (!layer.visible) return;
 
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity;
 
-        drawShape(ctx, layer, Date.now() * 0.001); // Pass a simple time value for wobble
-
-        // Create a gradient from the layer's colors
-        const { x, y, scale, shapeWidth, shapeHeight } = layer;
-        const radiusX = (width * shapeWidth * scale) / 2;
-        const radiusY = (height * shapeHeight * scale) / 2;
+        const { x, y, scale, shapeWidth, shapeHeight, masterScale = 1 } = layer;
         const finalCenterX = width * x;
         const finalCenterY = height * y;
+        const finalWidth = width * shapeWidth * masterScale * scale;
+        const finalHeight = height * shapeHeight * masterScale * scale;
 
-        const gradient = ctx.createLinearGradient(
-          finalCenterX - radiusX, 
-          finalCenterY - radiusY, 
-          finalCenterX + radiusX, 
-          finalCenterY + radiusY
-        );
 
-        if (layer.colors && layer.colors.length > 0) {
-            if (layer.colors.length === 1) {
-                gradient.addColorStop(0, layer.colors[0]);
-                gradient.addColorStop(1, layer.colors[0]);
-            } else {
-                layer.colors.forEach((color, index) => {
-                    gradient.addColorStop(index / (layer.colors.length - 1), color);
-                });
-            }
+
+        if (layer.layerType === 'image' && layer.imageSrc) {
+          const img = imageCache.current.get(layer.imageSrc);
+          if (img && img.complete) {
+            ctx.drawImage(img, finalCenterX - finalWidth / 2, finalCenterY - finalHeight / 2, finalWidth, finalHeight);
+          }
+        } else {
+          drawShape(ctx, layer, Date.now() * 0.001);
+
+          const gradient = ctx.createLinearGradient(
+            finalCenterX - finalWidth / 2, 
+            finalCenterY - finalHeight / 2, 
+            finalCenterX + finalWidth / 2, 
+            finalCenterY + finalHeight / 2
+          );
+
+          if (layer.colors && layer.colors.length > 0) {
+              if (layer.colors.length === 1) {
+                  gradient.addColorStop(0, layer.colors[0]);
+                  gradient.addColorStop(1, layer.colors[0]);
+              } else {
+                  layer.colors.forEach((color, index) => {
+                      gradient.addColorStop(index / (layer.colors.length - 1), color);
+                  });
+              }
+          }
+
+          ctx.fillStyle = gradient;
+          ctx.fill();
         }
-
-        ctx.fillStyle = gradient;
-        ctx.fill();
       });
 
       ctx.restore();
@@ -155,7 +170,7 @@ const Canvas = forwardRef(({
     return () => {
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [layers, variation, backgroundColor, globalSeed, ref]);
+  }, [layers, variation, backgroundColor, globalSeed, ref, imagesLoaded]); // Add imagesLoaded to dependency array
 
   return <canvas ref={ref} style={{ width: '100%', height: '100%' }} />;
 });

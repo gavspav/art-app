@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-export const useAnimation = (setLayers, isFrozen) => {
+export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
   const animationFrameId = useRef(null);
 
   const animate = useCallback(() => {
@@ -16,8 +16,8 @@ export const useAnimation = (setLayers, isFrozen) => {
           scaleMin, scaleMax, x, y, vx, vy 
         } = layer;
 
-        let newX = x + vx;
-        let newY = y + vy;
+        let newX = x + vx * globalSpeedMultiplier;
+        let newY = y + vy * globalSpeedMultiplier;
 
         if (movementStyle === 'bounce') {
           if (newX <= 0 || newX >= 1) {
@@ -35,7 +35,7 @@ export const useAnimation = (setLayers, isFrozen) => {
           if (newY < 0) newY = 1;
         }
 
-        let newScale = scale + scaleDirection * scaleSpeed * 0.01;
+        let newScale = scale + scaleDirection * scaleSpeed * 0.01 * globalSpeedMultiplier;
         let newScaleDirection = scaleDirection;
         if (newScale > scaleMax || newScale < scaleMin) {
           newScaleDirection *= -1;
@@ -55,7 +55,7 @@ export const useAnimation = (setLayers, isFrozen) => {
     );
 
     animationFrameId.current = requestAnimationFrame(animate);
-  }, [isFrozen, setLayers]);
+  }, [isFrozen, setLayers, globalSpeedMultiplier]);
 
   useEffect(() => {
     animationFrameId.current = requestAnimationFrame(animate);

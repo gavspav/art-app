@@ -5,10 +5,13 @@ const Controls = ({
   currentLayer, 
   updateLayer, 
   randomize,
+  randomizeAll,
   variation,
   setVariation,
   isFrozen,
-  setIsFrozen
+  setIsFrozen,
+  globalSpeedMultiplier,
+  setGlobalSpeedMultiplier
 }) => {
   if (!currentLayer) {
     return <div>Loading controls...</div>;
@@ -26,48 +29,91 @@ const Controls = ({
     updateLayer({ [key]: isNumber ? parseFloat(value) : value });
   };
 
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        updateLayer({ 
+          layerType: 'image',
+          imageSrc: event.target.result 
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   return (
     <div className="controls">
+      <div className="control-group">
+        <h4>Global Actions</h4>
+        <button onClick={randomizeAll}>Randomize All Layers</button>
+        <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
+        <input 
+          type="range" 
+          min="0" 
+          max="2" 
+          step="0.01" 
+          value={globalSpeedMultiplier} 
+          onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
+        />
+      </div>
+
       <h3>Layer: {currentLayer.name || 'Default'}</h3>
 
       {/* Layer-specific controls */}
       <div className="control-group">
         <h4>Shape</h4>
-        <label>Shape Type</label>
-        <select value={currentLayer.shapeType} onChange={(e) => handleValueChange('shapeType', e.target.value, false)}>
-          <option value="polygon">Polygon</option>
-          <option value="circle">Circle</option>
-        </select>
+        <div className="control-group">
+          <input 
+            type="file" 
+            accept="image/png, image/jpeg" 
+            onChange={handleImageUpload} 
+            style={{ display: 'none' }} 
+            id="image-upload"
+          />
+          <button onClick={() => document.getElementById('image-upload').click()}>Import Image</button>
+        </div>
 
-        <label>Sides: {currentLayer.numSides}</label>
-        <input 
-          type="range" 
-          min="3" 
-          max="30" 
-          step="1" 
-          value={currentLayer.numSides} 
-          onChange={(e) => handleValueChange('numSides', e.target.value)}
-        />
+        {currentLayer.layerType === 'shape' && (
+          <>
+            <label>Shape Type</label>
+            <select value={currentLayer.shapeType} onChange={(e) => handleValueChange('shapeType', e.target.value, false)}>
+              <option value="polygon">Polygon</option>
+              <option value="circle">Circle</option>
+            </select>
 
-        <label>Curviness: {currentLayer.curviness.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="-1" 
-          max="1" 
-          step="0.01" 
-          value={currentLayer.curviness} 
-          onChange={(e) => handleValueChange('curviness', e.target.value)}
-        />
+            <label>Sides: {currentLayer.numSides}</label>
+            <input 
+              type="range" 
+              min="3" 
+              max="30" 
+              step="1" 
+              value={currentLayer.numSides} 
+              onChange={(e) => handleValueChange('numSides', e.target.value)}
+            />
 
-        <label>Noise: {currentLayer.noiseAmount.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="5" 
-          step="0.01" 
-          value={currentLayer.noiseAmount} 
-          onChange={(e) => handleValueChange('noiseAmount', e.target.value)}
-        />
+            <label>Curviness: {currentLayer.curviness.toFixed(2)}</label>
+            <input 
+              type="range" 
+              min="-10" 
+              max="1" 
+              step="0.01" 
+              value={currentLayer.curviness} 
+              onChange={(e) => handleValueChange('curviness', e.target.value)}
+            />
+
+            <label>Noise: {currentLayer.noiseAmount.toFixed(2)}</label>
+            <input 
+              type="range" 
+              min="0" 
+              max="5" 
+              step="0.01" 
+              value={currentLayer.noiseAmount} 
+              onChange={(e) => handleValueChange('noiseAmount', e.target.value)}
+            />
+          </>
+        )}
       </div>
 
       <div className="control-group">
@@ -107,6 +153,9 @@ const Controls = ({
 
       <div className="control-group">
         <h4>Transform</h4>
+        <label>Scale: {currentLayer.masterScale?.toFixed(2) ?? '1.00'}</label>
+        <input type="range" min="0.1" max="5" step="0.01" value={currentLayer.masterScale ?? 1} onChange={(e) => handleValueChange('masterScale', e.target.value)} />
+
         <label>Width: {currentLayer.shapeWidth.toFixed(2)}</label>
         <input type="range" min="0.1" max="2" step="0.01" value={currentLayer.shapeWidth} onChange={(e) => handleValueChange('shapeWidth', e.target.value)} />
         

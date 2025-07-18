@@ -1,8 +1,10 @@
 export const DEFAULT_LAYER = {
   name: 'Layer 1',
+  layerType: 'shape', // 'shape' or 'image'
+  imageSrc: null, // Data URL for imported images
   shapeType: 'polygon',
   numSides: 6,
-  curviness: 0.5,
+  curviness: -0.64,
   noiseAmount: 0.8,
   noiseSpeed: 0.005,
   seed: 1,
@@ -15,13 +17,14 @@ export const DEFAULT_LAYER = {
   centerY: 0.5,
   shapeWidth: 0.5,
   shapeHeight: 0.5,
+  masterScale: 1,
   visible: true,
 
   // New Movement Properties
   movementStyle: 'bounce', // 'bounce' or 'drift'
-  movementSpeed: 0.01,
+  movementSpeed: 0.001,
   movementAngle: 45, // degrees
-  scaleSpeed: 0.1,
+  scaleSpeed: 0.05,
   scaleMin: 0.2,
   scaleMax: 1.5,
 
@@ -35,7 +38,7 @@ export const DEFAULT_LAYER = {
 };
 
 export const DEFAULTS = {
-  speed: 0.001,
+  globalSpeedMultiplier: 1,
   isFrozen: false,
   variation: 1.5,
   backgroundColor: '#111111',
