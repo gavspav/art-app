@@ -1,53 +1,125 @@
-import React, { useState } from 'react';
+import React from 'react';
+import ColorPicker from './ColorPicker';
+import { useParameters } from '../context/ParameterContext.jsx';
 import { blendModes } from '../constants/blendModes';
+
+const DynamicControl = ({ param, currentLayer, updateLayer }) => {
+  const { id, type, min, max, step, label, options } = param;
+  const value = currentLayer[id];
+
+  const handleChange = (e) => {
+    let newValue;
+    switch (type) {
+      case 'slider':
+        newValue = parseFloat(e.target.value);
+        break;
+      case 'dropdown':
+        newValue = e.target.value;
+        break;
+      default:
+        newValue = e.target.value;
+    }
+    updateLayer({ [id]: newValue });
+  };
+
+  // Don't show shape controls for image layers
+  if (currentLayer.layerType === 'image' && param.group === 'Shape') {
+    return null; 
+  }
+
+  switch (type) {
+    case 'slider':
+      return (
+        <>
+          <label>{label}: {Number(value).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}</label>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={handleChange}
+          />
+        </>
+      );
+    case 'dropdown':
+        return (
+            <>
+                <label>{label}:</label>
+                <select value={value} onChange={handleChange}>
+                    {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+            </>
+        )
+    default:
+      return null;
+  }
+};
 
 const Controls = ({ 
   currentLayer, 
   updateLayer, 
-  randomize,
-  randomizeAll,
-  variation,
-  setVariation,
-  isFrozen,
+  randomizeLayer, // Add this prop
+  randomizeAll, 
+  variation, 
+  setVariation, 
+  isFrozen, 
   setIsFrozen,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier
 }) => {
+  const { parameters } = useParameters();
+
   if (!currentLayer) {
-    return <div>Loading controls...</div>;
+    return <div className="controls">Loading...</div>;
   }
 
-  const [selectedColorIndex, setSelectedColorIndex] = useState(0);
-
-  const handleColorChange = (newColor) => {
-    const newColors = [...currentLayer.colors];
-    newColors[selectedColorIndex] = newColor;
+  const handleColorChange = (newColors) => {
     updateLayer({ colors: newColors });
   };
 
-  const handleValueChange = (key, value, isNumber = true) => {
-    updateLayer({ [key]: isNumber ? parseFloat(value) : value });
-  };
-
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
+  const handleImageUpload = (event) => {
+    const file = event.target.files[0];
+    if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        updateLayer({ 
-          layerType: 'image',
-          imageSrc: event.target.result 
-        });
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          updateLayer({ layerType: 'image', image: img, numSides: 0 });
+        };
+        img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const overlayControls = parameters.filter(p => p.showInOverlay);
+  const groupedControls = overlayControls.reduce((acc, param) => {
+    const group = param.group || 'General';
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(param);
+    return acc;
+  }, {});
+
   return (
     <div className="controls">
+      <h2>Controls</h2>
       <div className="control-group">
-        <h4>Global Actions</h4>
-        <button onClick={randomizeAll}>Randomize All Layers</button>
+        <button onClick={randomizeAll}>Randomize All</button>
+        <button onClick={() => setIsFrozen(!isFrozen)}>{isFrozen ? 'Unfreeze' : 'Freeze'}</button>
+      </div>
+
+      <div className="control-group">
+        <h3>Global</h3>
+        <label>Variation: {variation.toFixed(2)}</label>
+        <input 
+          type="range" 
+          min="0" 
+          max="1" 
+          step="0.01" 
+          value={variation} 
+          onChange={(e) => setVariation(parseFloat(e.target.value))} 
+        />
         <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
         <input 
           type="range" 
@@ -55,182 +127,44 @@ const Controls = ({
           max="2" 
           step="0.01" 
           value={globalSpeedMultiplier} 
-          onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
+          onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} 
         />
       </div>
 
-      <h3>Layer: {currentLayer.name || 'Default'}</h3>
-
-      {/* Layer-specific controls */}
       <div className="control-group">
-        <h4>Shape</h4>
-        <div className="control-group">
-          <input 
-            type="file" 
-            accept="image/png, image/jpeg" 
-            onChange={handleImageUpload} 
-            style={{ display: 'none' }} 
-            id="image-upload"
-          />
-          <button onClick={() => document.getElementById('image-upload').click()}>Import Image</button>
-        </div>
-
-        {currentLayer.layerType === 'shape' && (
-          <>
-            <label>Shape Type</label>
-            <select value={currentLayer.shapeType} onChange={(e) => handleValueChange('shapeType', e.target.value, false)}>
-              <option value="polygon">Polygon</option>
-              <option value="circle">Circle</option>
-            </select>
-
-            <label>Sides: {currentLayer.numSides}</label>
-            <input 
-              type="range" 
-              min="3" 
-              max="30" 
-              step="1" 
-              value={currentLayer.numSides} 
-              onChange={(e) => handleValueChange('numSides', e.target.value)}
-            />
-
-            <label>Curviness: {currentLayer.curviness.toFixed(2)}</label>
-            <input 
-              type="range" 
-              min="-10" 
-              max="1" 
-              step="0.01" 
-              value={currentLayer.curviness} 
-              onChange={(e) => handleValueChange('curviness', e.target.value)}
-            />
-
-            <label>Noise: {currentLayer.noiseAmount.toFixed(2)}</label>
-            <input 
-              type="range" 
-              min="0" 
-              max="5" 
-              step="0.01" 
-              value={currentLayer.noiseAmount} 
-              onChange={(e) => handleValueChange('noiseAmount', e.target.value)}
-            />
-          </>
-        )}
-      </div>
-
-      <div className="control-group">
+        <h3>Layer: {currentLayer.name}</h3>
+        
+        {/* --- Special non-dynamic controls --- */}
         <h4>Appearance</h4>
-        <label>Opacity: {currentLayer.opacity.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="1" 
-          step="0.01" 
-          value={currentLayer.opacity} 
-          onChange={(e) => handleValueChange('opacity', e.target.value)}
-        />
-
-        <label>Blend Mode</label>
-        <select value={currentLayer.blendMode} onChange={(e) => handleValueChange('blendMode', e.target.value, false)}>
+        <ColorPicker 
+    label="Colors"
+    colors={currentLayer.colors}
+    onChange={(newColors) => handleLayerChange('colors', newColors)}
+/>
+        <label>Blend Mode:</label>
+        <select value={currentLayer.blendMode} onChange={(e) => updateLayer({ blendMode: e.target.value })}>
           {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
         </select>
 
-        <h4>Colors</h4>
-        <div className="color-palette-swatches">
-          {currentLayer.colors.map((color, index) => (
-            <button
-              key={index}
-              className={`swatch ${index === selectedColorIndex ? 'selected' : ''}`}
-              style={{ backgroundColor: color }}
-              onClick={() => setSelectedColorIndex(index)}
-            />
-          ))}
-        </div>
-        <input
-          type="color"
-          value={currentLayer.colors[selectedColorIndex] || '#000000'}
-          onChange={(e) => handleColorChange(e.target.value)}
-        />
-      </div>
-
-      <div className="control-group">
-        <h4>Transform</h4>
-        <label>Scale: {currentLayer.masterScale?.toFixed(2) ?? '1.00'}</label>
-        <input type="range" min="0.1" max="5" step="0.01" value={currentLayer.masterScale ?? 1} onChange={(e) => handleValueChange('masterScale', e.target.value)} />
-
-        <label>Width: {currentLayer.shapeWidth.toFixed(2)}</label>
-        <input type="range" min="0.1" max="2" step="0.01" value={currentLayer.shapeWidth} onChange={(e) => handleValueChange('shapeWidth', e.target.value)} />
+        <h4>Image</h4>
+        <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
         
-        <label>Height: {currentLayer.shapeHeight.toFixed(2)}</label>
-        <input type="range" min="0.1" max="2" step="0.01" value={currentLayer.shapeHeight} onChange={(e) => handleValueChange('shapeHeight', e.target.value)} />
-
-        <label>Center X: {currentLayer.centerX.toFixed(2)}</label>
-        <input type="range" min="0" max="1" step="0.01" value={currentLayer.centerX} onChange={(e) => handleValueChange('centerX', e.target.value)} />
-
-        <label>Center Y: {currentLayer.centerY.toFixed(2)}</label>
-        <input type="range" min="0" max="1" step="0.01" value={currentLayer.centerY} onChange={(e) => handleValueChange('centerY', e.target.value)} />
-      </div>
-
-      <div className="control-group">
-        <h4>Movement</h4>
-        <label>Style</label>
-        <select value={currentLayer.movementStyle} onChange={(e) => handleValueChange('movementStyle', e.target.value, false)}>
-          <option value="bounce">Bounce</option>
-          <option value="drift">Drift</option>
-        </select>
-
-        <label>Movement Speed: {currentLayer.movementSpeed?.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="0.02" 
-          step="0.001" 
-          value={currentLayer.movementSpeed}
-          onChange={(e) => handleValueChange('movementSpeed', e.target.value)}
-        />
-
-        <label>Movement Angle: {currentLayer.movementAngle}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="360" 
-          step="1" 
-          value={currentLayer.movementAngle}
-          onChange={(e) => handleValueChange('movementAngle', e.target.value)}
-        />
-
-        <label>Scale Speed: {currentLayer.scaleSpeed?.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="1" 
-          step="0.01" 
-          value={currentLayer.scaleSpeed}
-          onChange={(e) => handleValueChange('scaleSpeed', e.target.value)}
-        />
-      </div>
-
-      <div className="control-group">
-        <h4>Seed</h4>
-        <label>Layer Seed: {currentLayer.seed}</label>
-        <input type="range" min="0" max="1000" step="1" value={currentLayer.seed} onChange={(e) => handleValueChange('seed', e.target.value)} />
-        <label>
-          <input type="checkbox" checked={currentLayer.useGlobalSeed} onChange={(e) => handleValueChange('useGlobalSeed', e.target.checked, false)} />
-          Use Global Seed
-        </label>
-      </div>
-
-      <button onClick={randomize}>Randomize Layer</button>
-
-      <hr />
-
-      {/* Global controls */}
-      <h3>Global Settings</h3>
-      <div className="control-group">
-
-
-        <label>Variation: {variation.toFixed(2)}</label>
-        <input type="range" min="0" max="5" step="0.01" value={variation} onChange={(e) => setVariation(parseFloat(e.target.value))} />
-
-        <button onClick={() => setIsFrozen(!isFrozen)}>{isFrozen ? 'Unfreeze' : 'Freeze'}</button>
+        {/* --- Dynamically generated controls --- */}
+        {Object.entries(groupedControls).map(([groupName, params]) => (
+          <React.Fragment key={groupName}>
+            <h4>{groupName}</h4>
+            {params.map(param => (
+              <DynamicControl 
+                key={param.id} 
+                param={param} 
+                currentLayer={currentLayer} 
+                updateLayer={updateLayer} 
+              />
+            ))}
+          </React.Fragment>
+        ))}
+        
+        <button onClick={randomizeLayer} style={{ marginTop: '1rem' }}>Randomize Layer</button>
       </div>
     </div>
   );

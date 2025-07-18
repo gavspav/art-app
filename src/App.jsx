@@ -1,38 +1,38 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route, Link } from 'react-router-dom';
+import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
 import { createSeededRandom } from './utils/random';
-import { getPixelRatio } from './utils/pixelRatio';
 import { useFullscreen } from './hooks/useFullscreen';
-import { useAnimation } from './hooks/useAnimation';
+import { useAnimation } from './hooks/useAnimation.js';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
-import ColorPicker from './components/ColorPicker';
+import BackgroundColorPicker from './components/BackgroundColorPicker';
 import LayerList from './components/LayerList';
+import Settings from './pages/Settings';
 
-function App() {
+// The MainApp component now contains all the core application logic
+const MainApp = () => {
+  const { parameters } = useParameters(); // Get parameters from context
   // --- STATE MANAGEMENT ---
-  // Global settings
-
   const [isFrozen, setIsFrozen] = useState(DEFAULTS.isFrozen);
   const [variation, setVariation] = useState(DEFAULTS.variation);
   const [backgroundColor, setBackgroundColor] = useState(DEFAULTS.backgroundColor);
-  const [guideWidth, setGuideWidth] = useState(DEFAULTS.guideWidth);
-  const [guideHeight, setGuideHeight] = useState(DEFAULTS.guideHeight);
   const [globalSeed, setGlobalSeed] = useState(DEFAULTS.globalSeed);
   const [globalSpeedMultiplier, setGlobalSpeedMultiplier] = useState(DEFAULTS.globalSpeedMultiplier);
-
-  // Layer-specific state
-  const [layers, setLayers] = useState(DEFAULTS.layers);
+  const [layers, setLayers] = useState([{
+    ...DEFAULT_LAYER,
+    position: { ...DEFAULT_LAYER.position }
+  }]);
   const [selectedLayerIndex, setSelectedLayerIndex] = useState(DEFAULTS.selectedLayerIndex);
+  const [isOverlayVisible, setIsOverlayVisible] = useState(true);
 
-  // Refs and Hooks
   const canvasRef = useRef();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(canvasRef);
 
-  // Initialize velocities for default layers on first load
   useEffect(() => {
     setLayers(prevLayers => 
       prevLayers.map(layer => {
@@ -47,24 +47,34 @@ function App() {
         return layer;
       })
     );
-  }, []); // Run only once on mount
+  }, []);
 
-  // --- ANIMATION ENGINE --- 
-  // This custom hook will contain the animation loop and physics logic
+  // Keyboard shortcut for hiding the overlay
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Don't trigger if user is typing in an input
+      if (e.code === 'Space' && e.target.tagName.toLowerCase() !== 'input' && e.target.tagName.toLowerCase() !== 'select') {
+        e.preventDefault();
+        setIsOverlayVisible(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   useAnimation(setLayers, isFrozen, globalSpeedMultiplier);
 
-  // --- DERIVED STATE ---
   const currentLayer = layers[selectedLayerIndex];
 
-  // --- HANDLERS ---
-  // Updates properties of the currently selected layer
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
       const currentLayer = updatedLayers[selectedLayerIndex];
       const updatedLayer = { ...currentLayer, ...newProps };
 
-      // If movement parameters change, recalculate velocity
       if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
         const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
         updatedLayer.vx = Math.cos(angleRad) * updatedLayer.movementSpeed * 1.0;
@@ -76,14 +86,20 @@ function App() {
     });
   };
 
-  // Adds a new layer with default settings
-  const addLayer = () => {
-    let newLayer = { 
-      ...DEFAULT_LAYER, 
+  const addNewLayer = () => {
+    const random = createSeededRandom(Math.random());
+    const newSeed = random();
+    const newLayer = {
+      ...DEFAULT_LAYER,
       name: `Layer ${layers.length + 1}`,
-      seed: Math.floor(Math.random() * 1000), // Give it a new random seed
+      seed: newSeed,
+      noiseSeed: newSeed,
+      position: { 
+        ...DEFAULT_LAYER.position,
+        x: random(),
+        y: random(),
+      }
     };
-    // Calculate initial velocity for the new layer
     const angleRad = newLayer.movementAngle * (Math.PI / 180);
     newLayer.vx = Math.cos(angleRad) * newLayer.movementSpeed * 1.0;
     newLayer.vy = Math.sin(angleRad) * newLayer.movementSpeed * 1.0;
@@ -92,9 +108,8 @@ function App() {
     setSelectedLayerIndex(layers.length);
   };
 
-  // Deletes a layer by its index
   const deleteLayer = (index) => {
-    if (layers.length <= 1) return; // Prevent deleting the last layer
+    if (layers.length <= 1) return;
     const newLayers = layers.filter((_, i) => i !== index);
     setLayers(newLayers);
     if (selectedLayerIndex >= index) {
@@ -102,56 +117,104 @@ function App() {
     }
   };
 
-  // Selects a layer to be edited
   const selectLayer = (index) => {
     setSelectedLayerIndex(index);
   };
 
-  // Randomizes the properties of the currently selected layer
-  const randomizeCurrentLayer = () => {
+  const randomizeLayer = (index, randomizePalette = false) => {
     const random = createSeededRandom(Math.random());
-    updateCurrentLayer({
-      curviness: random() * 2 - 1, // -1 to 1
-      noiseAmount: random() * 2,
-      numSides: 3 + Math.floor(random() * 10),
-      shapeWidth: 0.2 + random() * 0.8,
-      shapeHeight: 0.2 + random() * 0.8,
-      seed: Math.floor(random() * 1000),
+    const randomizableParams = parameters.filter(p => p.isRandomizable);
+    
+    const newProps = {};
+    randomizableParams.forEach(param => {
+        if (currentLayer.layerType === 'image' && param.group === 'Shape') {
+            return; // Skip shape params for image layers
+        }
+        switch (param.type) {
+            case 'slider':
+                newProps[param.id] = param.min + random() * (param.max - param.min);
+                break;
+            case 'palette':
+                newProps[param.id] = palettes[Math.floor(Math.random() * palettes.length)];
+                break;
+            default:
+                if (param.type === 'dropdown' && param.options) {
+                    newProps[param.id] = param.options[Math.floor(random() * param.options.length)];
+                }
+        }
     });
+
+    if (randomizePalette) {
+        newProps.colors = palettes[Math.floor(Math.random() * palettes.length)];
+    }
+
+    const updatedLayer = { ...layers[index], ...newProps };
+
+    if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
+        const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
+        updatedLayer.vx = Math.cos(angleRad) * updatedLayer.movementSpeed * 1.0;
+        updatedLayer.vy = Math.sin(angleRad) * updatedLayer.movementSpeed * 1.0;
+    }
+
+    return updatedLayer;
   };
 
-  // Randomizes all layers
   const handleRandomizeAll = () => {
     const random = createSeededRandom(Math.random());
-    setLayers(prevLayers => 
+    const randomizableParams = parameters.filter(p => p.isRandomizable);
+
+    setLayers(prevLayers =>
       prevLayers.map(layer => {
-        const newMovementSpeed = random() * 0.02;
-        const newMovementAngle = random() * 360;
-        const angleRad = newMovementAngle * (Math.PI / 180);
+        const newProps = {};
+        randomizableParams.forEach(param => {
+          if (layer.layerType === 'image' && param.group === 'Shape') {
+            return; // Skip shape params for image layers
+          }
+          switch (param.type) {
+            case 'slider':
+                newProps[param.id] = param.min + random() * (param.max - param.min);
+                break;
+            case 'palette':
+                newProps[param.id] = palettes[Math.floor(Math.random() * palettes.length)];
+                break;
+            default:
+                if (param.type === 'dropdown' && param.options) {
+                    newProps[param.id] = param.options[Math.floor(random() * param.options.length)];
+                }
+          }
+        });
 
-        const randomizedProps = {
-          ...layer,
-          opacity: 0.5 + random() * 0.5,
-          blendMode: blendModes[Math.floor(random() * blendModes.length)],
-          colors: palettes[Math.floor(random() * palettes.length)],
-          shapeWidth: 0.2 + random() * 0.8,
-          shapeHeight: 0.2 + random() * 0.8,
-          movementSpeed: newMovementSpeed,
-          movementAngle: newMovementAngle,
-          scaleSpeed: random() * 0.2,
-          vx: Math.cos(angleRad) * newMovementSpeed * 1.0,
-          vy: Math.sin(angleRad) * newMovementSpeed * 1.0,
-        };
+        // Also randomize a few non-configurable things for more variety
+        newProps.colors = palettes[Math.floor(Math.random() * palettes.length)];
+        newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
 
-        if (layer.layerType === 'shape') {
-          randomizedProps.curviness = random() * 11 - 10; // -10 to 1
-          randomizedProps.noiseAmount = random() * 2;
-          randomizedProps.numSides = 3 + Math.floor(random() * 10);
-        }
+        // Recalculate velocity if movement params were randomized
+        const finalMovementSpeed = newProps.movementSpeed ?? layer.movementSpeed;
+        const finalMovementAngle = newProps.movementAngle ?? layer.movementAngle;
+        const angleRad = finalMovementAngle * (Math.PI / 180);
+        const vx = Math.cos(angleRad) * finalMovementSpeed * 1.0;
+        const vy = Math.sin(angleRad) * finalMovementSpeed * 1.0;
 
-        return randomizedProps;
+        return { ...layer, ...newProps, vx, vy };
       })
     );
+  };
+
+  const randomizeScene = () => {
+    const newLayers = layers.map((layer, index) => randomizeLayer(index, true));
+    setLayers(newLayers);
+    
+    const randomPalette = palettes[Math.floor(Math.random() * palettes.length)];
+    const randomColor = randomPalette[Math.floor(Math.random() * randomPalette.length)];
+    setBackgroundColor(randomColor);
+  };
+
+  const downloadImage = () => {
+    const canvas = canvasRef.current;
+    const link = document.createElement('a');
+    link.download = 'layered-shape.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
   };
 
   return (
@@ -161,15 +224,15 @@ function App() {
           ref={canvasRef}
           layers={layers}
           isFrozen={isFrozen}
-          variation={variation} // Keep variation for static noise, but speed is now handled in App
+          variation={variation}
           backgroundColor={backgroundColor}
           globalSeed={globalSeed}
         />
-        <div className="controls-container">
+        <div className={`controls-container ${isOverlayVisible ? '' : 'hidden'}`}>
           <Controls
             currentLayer={currentLayer}
             updateLayer={updateCurrentLayer}
-            randomize={randomizeCurrentLayer}
+            randomizeLayer={() => randomizeLayer(selectedLayerIndex)}
             randomizeAll={handleRandomizeAll}
             variation={variation}
             setVariation={setVariation}
@@ -182,21 +245,36 @@ function App() {
             layers={layers}
             selectedLayerIndex={selectedLayerIndex}
             onSelectLayer={selectLayer}
-            onAddLayer={addLayer}
+            onAddLayer={addNewLayer}
             onDeleteLayer={deleteLayer}
           />
         </div>
       </main>
       <footer>
+        <button onClick={downloadImage}>Download as PNG</button>
+        <button onClick={randomizeScene}>Randomize Scene</button>
         <button onClick={toggleFullscreen}>
           {isFullscreen ? 'Exit Fullscreen' : 'Go Fullscreen'}
         </button>
-        <ColorPicker 
-          color={backgroundColor} 
-          onChange={setBackgroundColor} 
-        />
+        <Link to="/settings">Settings</Link>
+        <BackgroundColorPicker
+              color={backgroundColor}
+              onChange={setBackgroundColor}
+            />
       </footer>
     </div>
+  );
+};
+
+// The App component is now the router
+function App() {
+  return (
+    <ParameterProvider>
+      <Routes>
+        <Route path="/" element={<MainApp />} />
+        <Route path="/settings" element={<Settings />} />
+      </Routes>
+    </ParameterProvider>
   );
 }
 
