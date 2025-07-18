@@ -11,10 +11,14 @@ export const DEFAULTS = {
     selectedColor: "#1E3296",
     guideWidth: 250,
     guideHeight: 250,
-    curviness: 0.5,
+    curviness: 0,
     noiseAmount: 0.5,
     numSides: 6,
     globalOpacity: 0.8,
     blendMode: "source-over",
-    backgroundColor: "#000000"
+    backgroundColor: "#000000",
+    centerX: 0.5,
+    centerY: 0.5,
+    shapeWidth: 0.4,
+    shapeHeight: 0.4
   };

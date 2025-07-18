@@ -7,6 +7,8 @@ import { getPixelRatio } from './utils/pixelRatio';
 import { toggleFullScreen } from './utils/fullscreen';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useSeededRandom } from './hooks/useSeededRandom';
+
+
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
 import ColorPicker from './components/ColorPicker';
@@ -14,6 +16,8 @@ import LayerList from './components/LayerList';
 
 
 function App() {
+  // States
+  const [shapeType, setShapeType] = useState('polygon');
   // States
   const [speed, setSpeed] = useState(DEFAULTS.speed);
   const [isFrozen, setIsFrozen] = useState(DEFAULTS.isFrozen);
@@ -29,13 +33,33 @@ function App() {
   const [globalOpacity, setGlobalOpacity] = useState(DEFAULTS.globalOpacity);
   const [blendMode, setBlendMode] = useState(DEFAULTS.blendMode);
   const [backgroundColor, setBackgroundColor] = useState(DEFAULTS.backgroundColor);
+  const [centerX, setCenterX] = useState(DEFAULTS.centerX);
+  const [centerY, setCenterY] = useState(DEFAULTS.centerY);
+  const [shapeWidth, setShapeWidth] = useState(DEFAULTS.shapeWidth);
+  const [shapeHeight, setShapeHeight] = useState(DEFAULTS.shapeHeight);
   const [layerParams, setLayerParams] = useState([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [seed, setSeed] = useState(Math.floor(Math.random() * 10000));
+  const [noiseOffsets, setNoiseOffsets] = useState([]);
 
   // Hooks
   useFullscreen(setIsFullscreen);
+
   const seededRandom = useSeededRandom(seed);
+
+
+  useEffect(() => {
+    const newOffsets = [];
+    const random = seededRandom; // The hook provides a stable function
+    for (let i = 0; i < numSides; i++) {
+      newOffsets.push({
+        // Generate a base noise pattern, unscaled by noiseAmount
+        x: (random() - 0.5) * 50, // Base magnitude of 50
+        y: (random() - 0.5) * 50,
+      });
+    }
+    setNoiseOffsets(newOffsets);
+  }, [numSides, seededRandom]); // Depend on the stable generator function
 
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
@@ -82,13 +106,7 @@ function App() {
   }
 };
 
-// Add this function to create a seeded random number generator
-const createSeededRandom = (seed) => {
-  return () => {
-    seed = (seed * 16807) % 2147483647;
-    return (seed - 1) / 2147483646;
-  };
-};
+
 
 const randomizeAll = () => {
   // Set a new random seed first
@@ -215,72 +233,75 @@ const randomizeAll = () => {
     const ctx = canvas.getContext('2d');
 
     function drawOilShape(t, layerParam) {
-      if (!layerParam) return;
+      // Apply layer-specific variations
+      const layerVariationX = layerParam ? (layerParam.centerOffsetX || 0) * canvas.width : 0;
+      const layerVariationY = layerParam ? (layerParam.centerOffsetY || 0) * canvas.height : 0;
+      const layerRadiusFactor = layerParam ? (layerParam.baseRadiusFactor || 1) : 1;
 
-      const {
-        freq1, freq2, freq3,
-        centerBaseX, centerBaseY,
-        centerOffsetX, centerOffsetY,
-        moveSpeedX, moveSpeedY,
-        radiusBump, baseRadiusFactor
-      } = layerParam;
+      // Use the new state variables for position and size, with variation
+      const finalCenterX = canvas.width * centerX + layerVariationX;
+      const finalCenterY = canvas.height * centerY + layerVariationY;
+      const radiusX = (canvas.width * shapeWidth * layerRadiusFactor) / 2;
+      const radiusY = (canvas.height * shapeHeight * layerRadiusFactor) / 2;
 
-      ctx.beginPath();
+      console.log('Drawing shape:', shapeType, 'curviness:', curviness, 'numSides:', numSides);
+      
+      if (shapeType === 'circle') {
+        // Draw a circle/ellipse
+        ctx.beginPath();
+        // Use ellipse to support separate width and height
+        ctx.ellipse(finalCenterX, finalCenterY, radiusX, radiusY, 0, 0, Math.PI * 2);
+        ctx.closePath();
+        return;
+      }
 
-    const centerX = (canvas.width/2) * centerBaseX +
-  Math.sin(t * moveSpeedX) * 0.1 * canvas.width * variation +
-  centerOffsetX * canvas.width;
-const centerY = (canvas.height/2) * centerBaseY +
-  Math.cos(t * moveSpeedY) * 0.1 * canvas.height * variation +
-  centerOffsetY * canvas.height;
-
+      // Draw polygon
       const sides = numSides;
+      
+      // Calculate polygon vertices
       const points = [];
+      for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2 - Math.PI / 2; // Start from top
+        
+        const noiseX = noiseOffsets[i] ? noiseOffsets[i].x * noiseAmount : 0;
+        const noiseY = noiseOffsets[i] ? noiseOffsets[i].y * noiseAmount : 0;
 
-     for (let i = 0; i < sides; i++) {
-    const angle = (i / sides) * Math.PI * 2;
-
-  // Use curviness as a symmetry factor (1 = more random, 0 = more symmetrical)
-  const symmetryFactor = curviness;
-
-  // Add phase offset for symmetry
-  const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-
-  const n1 = Math.sin(angle * freq1 + t + phase) * Math.sin(t * 0.8 * symmetryFactor);
-  const n2 = Math.cos(angle * freq2 - t * 0.5 + phase) * Math.cos(t * 0.3 * symmetryFactor);
-  const n3 = Math.sin(angle * freq3 + t * 1.5 + phase) * Math.sin(t * 0.6 * symmetryFactor);
-  // Calculate base radius similar to old version
-  const baseRadiusX = Math.min((guideWidth + radiusBump * 20) * baseRadiusFactor, canvas.width * 0.4);
-  const baseRadiusY = Math.min((guideHeight + radiusBump * 20) * baseRadiusFactor, canvas.height * 0.4);
-
-  // Apply symmetry to offsets
-  const offsetX = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
-  const offsetY = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
-
-  const rx = baseRadiusX + offsetX;
-  const ry = baseRadiusY + offsetY;
-
-  const x = centerX + Math.cos(angle) * rx;
-  const y = centerY + Math.sin(angle) * ry;
-
-  points.push({ x, y });
-}
-
-  // Draw smooth curves like in old version
-  const last = points[points.length - 1];
-  const first = points[0];
-  ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
-
-  for (let i = 0; i < points.length; i++) {
-    const current = points[i];
-    const next = points[(i + 1) % points.length];
-    const midX = (current.x + next.x) / 2;
-    const midY = (current.y + next.y) / 2;
-    ctx.quadraticCurveTo(current.x, current.y, midX, midY);
-  }
-
-  ctx.closePath();
-}
+        const x = finalCenterX + Math.cos(angle) * radiusX + noiseX;
+        const y = finalCenterY + Math.sin(angle) * radiusY + noiseY;
+        points.push({ x, y });
+      }
+      
+      // Draw the shape
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      
+      if (curviness !== 0) {
+        // Draw with curved edges
+        for (let i = 0; i < points.length; i++) {
+          const current = points[i];
+          const next = points[(i + 1) % points.length];
+          
+          // Calculate control point for the curve
+          const midX = (current.x + next.x) / 2;
+          const midY = (current.y + next.y) / 2;
+          const centerToMidX = midX - finalCenterX;
+          const centerToMidY = midY - finalCenterY;
+          
+          // Move control point inward by curviness amount
+          const ctrlX = midX - centerToMidX * curviness * 0.5;
+          const ctrlY = midY - centerToMidY * curviness * 0.5;
+          
+          ctx.quadraticCurveTo(ctrlX, ctrlY, next.x, next.y);
+        }
+      } else {
+        // Draw with straight edges - perfect regular polygon
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+      }
+      
+      ctx.closePath();
+    }
 
     function animate() {
       ctx.fillStyle = backgroundColor;
@@ -339,7 +360,11 @@ const centerY = (canvas.height/2) * centerBaseY +
     blendMode,
     backgroundColor,
     layerParams,
-    isFrozen
+    isFrozen,
+    centerX,
+    centerY,
+    shapeWidth,
+    shapeHeight
   ]);
   const replaceColor = (index) => {
     const newColors = [...colors];
@@ -363,6 +388,12 @@ const centerY = (canvas.height/2) * centerBaseY +
         blendModes={blendModes}
         backgroundColor={backgroundColor} setBackgroundColor={setBackgroundColor}
         randomizeAll={randomizeAll}
+        shapeType={shapeType}
+        setShapeType={setShapeType}
+        centerX={centerX} setCenterX={setCenterX}
+        centerY={centerY} setCenterY={setCenterY}
+        shapeWidth={shapeWidth} setShapeWidth={setShapeWidth}
+        shapeHeight={shapeHeight} setShapeHeight={setShapeHeight}
       />
       <ColorPicker
         colors={colors}
@@ -389,6 +420,7 @@ const centerY = (canvas.height/2) * centerBaseY +
           backgroundColor={backgroundColor}
           layerParams={layerParams}
           isFrozen={isFrozen}
+          shapeType={shapeType} // Pass shapeType to Canvas
         />
       </div>
     </div>

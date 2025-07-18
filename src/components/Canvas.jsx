@@ -17,7 +17,8 @@ const Canvas = React.forwardRef(({
   blendMode,
   backgroundColor,
   layerParams,
-  isFrozen
+  isFrozen,
+  shapeType
 }, ref) => {
   const localRef = useRef();
   const canvasRef = ref || localRef;
@@ -27,22 +28,20 @@ const Canvas = React.forwardRef(({
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-    const ratio = getPixelRatio(ctx);
 
     const handleResize = () => {
       if (isFullscreen) {
         canvas.style.width = '100vw';
         canvas.style.height = '100vh';
-        canvas.width = Math.floor(window.innerWidth * ratio);
-        canvas.height = Math.floor(window.innerHeight * ratio);
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
       } else {
         const size = Math.min(window.innerWidth * 0.8, window.innerHeight * 0.8);
         canvas.style.width = size + 'px';
         canvas.style.height = size + 'px';
-        canvas.width = Math.floor(size * ratio);
-        canvas.height = Math.floor(size * ratio);
+        canvas.width = size;
+        canvas.height = size;
       }
-      ctx.scale(ratio, ratio);
     };
 
     handleResize();
@@ -54,52 +53,43 @@ const Canvas = React.forwardRef(({
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
 
-    function drawOilShape(t, layerParam) {
-      if (!layerParam) return;
-      const {
-        freq1, freq2, freq3,
-        centerBaseX, centerBaseY,
-        centerOffsetX, centerOffsetY,
-        moveSpeedX, moveSpeedY,
-        radiusBump, baseRadiusFactor
-      } = layerParam;
+    function drawShape(t, layerParam) {
+
+      
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Set basic drawing properties
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.fillStyle = 'blue';
+      
+      if (shapeType === 'circle') {
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const radius = 100;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+      }
+
+      // Draw a simple triangle to test
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const size = 100;
+      
       ctx.beginPath();
-      const centerX = (canvas.width/2) * centerBaseX +
-        Math.sin(t * moveSpeedX) * 0.1 * canvas.width * variation +
-        centerOffsetX * canvas.width;
-      const centerY = (canvas.height/2) * centerBaseY +
-        Math.cos(t * moveSpeedY) * 0.1 * canvas.height * variation +
-        centerOffsetY * canvas.height;
-      const sides = numSides;
-      const points = [];
-      for (let i = 0; i < sides; i++) {
-        const angle = (i / sides) * Math.PI * 2;
-        const symmetryFactor = curviness;
-        const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-        const n1 = Math.sin(angle * freq1 + t + phase) * Math.sin(t * 0.8 * symmetryFactor);
-        const n2 = Math.cos(angle * freq2 - t * 0.5 + phase) * Math.cos(t * 0.3 * symmetryFactor);
-        const n3 = Math.sin(angle * freq3 + t * 1.5 + phase) * Math.sin(t * 0.6 * symmetryFactor);
-        const baseRadiusX = Math.min((guideWidth + radiusBump * 20) * baseRadiusFactor, canvas.width * 0.4);
-        const baseRadiusY = Math.min((guideHeight + radiusBump * 20) * baseRadiusFactor, canvas.height * 0.4);
-        const offsetX = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
-        const offsetY = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
-        const rx = baseRadiusX + offsetX;
-        const ry = baseRadiusY + offsetY;
-        const x = centerX + Math.cos(angle) * rx;
-        const y = centerY + Math.sin(angle) * ry;
-        points.push({ x, y });
-      }
-      const last = points[points.length - 1];
-      const first = points[0];
-      ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
-      for (let i = 0; i < points.length; i++) {
-        const current = points[i];
-        const next = points[(i + 1) % points.length];
-        const midX = (current.x + next.x) / 2;
-        const midY = (current.y + next.y) / 2;
-        ctx.quadraticCurveTo(current.x, current.y, midX, midY);
-      }
+
+      
+      // Always draw straight lines for now to test
+      ctx.moveTo(centerX, centerY - size); // Top
+      ctx.lineTo(centerX - size, centerY + size); // Bottom left  
+      ctx.lineTo(centerX + size, centerY + size); // Bottom right
       ctx.closePath();
+      
+      ctx.fill();
+      ctx.stroke();
     }
 
     function animate() {
@@ -109,7 +99,7 @@ const Canvas = React.forwardRef(({
       ctx.filter = "blur(1px)";
       for (let i = 0; i < numLayers; i++) {
         ctx.globalCompositeOperation = i === 0 ? "source-over" : blendMode;
-        drawOilShape(timeRef.current, layerParams[i]);
+        drawShape(timeRef.current, layerParams[i]);
         const color = colors[i % colors.length];
         const gradient = ctx.createRadialGradient(
           canvas.width / 2,

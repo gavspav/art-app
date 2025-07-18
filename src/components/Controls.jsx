@@ -14,9 +14,26 @@ const Controls = ({
   blendMode, setBlendMode,
   blendModes,
   backgroundColor, setBackgroundColor,
-  randomizeAll
+  randomizeAll,
+  shapeType, setShapeType,
+  centerX, setCenterX,
+  centerY, setCenterY,
+  shapeWidth, setShapeWidth,
+  shapeHeight, setShapeHeight
 }) => (
   <div className="mb-4 flex gap-4 items-center flex-wrap">
+    {/* Shape Type */}
+    <div>
+      <label className="text-white mr-2">Shape:</label>
+      <select
+        value={shapeType}
+        onChange={e => setShapeType(e.target.value)}
+        className="w-28"
+      >
+        <option value="polygon">Polygon</option>
+        <option value="circle">Circle</option>
+      </select>
+    </div>
     {/* Speed */}
     <div>
       <label className="text-white mr-2">Speed:</label>
@@ -78,19 +95,27 @@ const Controls = ({
         className="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-white"
       >Randomize Seed</button>
     </div>
-    {/* Curviness */}
-    <div>
-      <label className="text-white mr-2">Curviness:</label>
-      <input
-        type="range"
-        min="0"
-        max="1.5"
-        step="0.01"
-        value={curviness}
-        onChange={(e) => setCurviness(parseFloat(e.target.value))}
-        className="w-32"
-      />
-    </div>
+    {/* Curviness (Polygon only) */}
+    {shapeType === 'polygon' && (
+      <div>
+        <label className="text-white mr-2">Curviness:</label>
+        <input
+          type="range"
+          min="-1"
+          max="1"
+          step="0.01"
+          value={curviness}
+          onChange={(e) => setCurviness(parseFloat(e.target.value))}
+          className="w-32"
+        />
+        <span className="text-white ml-2">{curviness.toFixed(2)}</span>
+        <button 
+          onClick={() => setCurviness(0)}
+          className="px-2 py-1 ml-2 bg-gray-700 rounded hover:bg-gray-600 text-white text-xs"
+        >Reset to 0</button>
+      </div>
+    )}
+
     {/* Noise Amount */}
     <div>
       <label className="text-white mr-2">Noise Amount:</label>
@@ -104,20 +129,83 @@ const Controls = ({
         className="w-32"
       />
     </div>
-    {/* Num Sides */}
+    {/* Num Sides (Polygon only) */}
+    {shapeType === 'polygon' && (
+      <div>
+        <label className="text-white mr-2">Sides:</label>
+        <input
+          type="range"
+          min="3"
+          max="20"
+          step="1"
+          value={numSides}
+          onChange={(e) => setNumSides(parseInt(e.target.value))}
+          className="w-32"
+        />
+        <span className="text-white ml-2">{numSides}</span>
+      </div>
+    )}
+
+    {/* Center X */}
     <div>
-      <label className="text-white mr-2">Sides:</label>
+      <label className="text-white mr-2">Center X:</label>
       <input
         type="range"
-        min="3"
-        max="20"
-        step="1"
-        value={numSides}
-        onChange={(e) => setNumSides(parseInt(e.target.value))}
+        min="0"
+        max="1"
+        step="0.01"
+        value={centerX}
+        onChange={(e) => setCenterX(parseFloat(e.target.value))}
         className="w-32"
       />
-      <span className="text-white ml-2">{numSides}</span>
+      <span className="text-white ml-2">{centerX.toFixed(2)}</span>
     </div>
+
+    {/* Center Y */}
+    <div>
+      <label className="text-white mr-2">Center Y:</label>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={centerY}
+        onChange={(e) => setCenterY(parseFloat(e.target.value))}
+        className="w-32"
+      />
+      <span className="text-white ml-2">{centerY.toFixed(2)}</span>
+    </div>
+
+    {/* Shape Width */}
+    <div>
+      <label className="text-white mr-2">Width:</label>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={shapeWidth}
+        onChange={(e) => setShapeWidth(parseFloat(e.target.value))}
+        className="w-32"
+      />
+      <span className="text-white ml-2">{shapeWidth.toFixed(2)}</span>
+    </div>
+
+    {/* Shape Height */}
+    <div>
+      <label className="text-white mr-2">Height:</label>
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={shapeHeight}
+        onChange={(e) => setShapeHeight(parseFloat(e.target.value))}
+        className="w-32"
+      />
+      <span className="text-white ml-2">{shapeHeight.toFixed(2)}</span>
+    </div>
+
     {/* Opacity */}
     <div>
       <label className="text-white mr-2">Opacity:</label>
