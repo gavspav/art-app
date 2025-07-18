@@ -5,7 +5,12 @@ import { blendModes } from '../constants/blendModes';
 
 const DynamicControl = ({ param, currentLayer, updateLayer }) => {
   const { id, type, min, max, step, label, options } = param;
-  const value = currentLayer[id];
+  let value = currentLayer[id];
+
+  // Special mapping for scale - it should update position.scale, not width/height
+  if (id === 'scale') {
+    value = currentLayer.position?.scale || 1;
+  }
 
   const handleChange = (e) => {
     let newValue;
@@ -19,7 +24,13 @@ const DynamicControl = ({ param, currentLayer, updateLayer }) => {
       default:
         newValue = e.target.value;
     }
-    updateLayer({ [id]: newValue });
+    // Custom mapping for scale
+    if (id === 'scale') {
+      // Update position.scale for uniform scaling
+      updateLayer({ position: { ...currentLayer.position, scale: newValue } });
+    } else {
+      updateLayer({ [id]: newValue });
+    }
   };
 
   // Don't show shape controls for image layers
@@ -59,7 +70,7 @@ const DynamicControl = ({ param, currentLayer, updateLayer }) => {
 const Controls = ({ 
   currentLayer, 
   updateLayer, 
-  randomizeLayer, // Add this prop
+  randomizeSeed, // Changed from randomizeLayer to randomizeSeed
   randomizeAll, 
   variation, 
   setVariation, 
@@ -139,7 +150,7 @@ const Controls = ({
         <ColorPicker 
     label="Colors"
     colors={currentLayer.colors}
-    onChange={(newColors) => handleLayerChange('colors', newColors)}
+    onChange={handleColorChange}
 />
         <label>Blend Mode:</label>
         <select value={currentLayer.blendMode} onChange={(e) => updateLayer({ blendMode: e.target.value })}>
@@ -164,7 +175,7 @@ const Controls = ({
           </React.Fragment>
         ))}
         
-        <button onClick={randomizeLayer} style={{ marginTop: '1rem' }}>Randomize Layer</button>
+        <button onClick={randomizeSeed} style={{ marginTop: '1rem' }}>Randomize Seed</button>
       </div>
     </div>
   );

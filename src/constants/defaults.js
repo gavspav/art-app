@@ -14,8 +14,6 @@ export const DEFAULT_LAYER = {
   blendMode: 'normal',
   colors: ["#FFC300", "#FF5733", "#C70039"],
   selectedColor: 0,
-  shapeWidth: 0.5,
-  shapeHeight: 1,
 
   // Animation Control Properties (kept top-level for easy access in Controls.jsx)
   movementStyle: 'bounce', // 'bounce' or 'drift'
@@ -27,6 +25,7 @@ export const DEFAULT_LAYER = {
 
   // Seeding
   seed: 1,
+  noiseSeed: 1,
   useGlobalSeed: false,
 
   // Dynamic state (nested as expected by Canvas.jsx and useAnimation.js)
@@ -39,7 +38,6 @@ export const DEFAULT_LAYER = {
     vy: 0,
     scale: 1.0,
     scaleDirection: 1,
-    masterScale: 1,
   },
   visible: true,
 };

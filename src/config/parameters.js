@@ -63,7 +63,7 @@ export const PARAMETERS = [
 
   // Transform
   {
-    id: 'masterScale',
+    id: 'scale',
     label: 'Scale',
     type: 'slider',
     min: 0.1,
@@ -75,7 +75,7 @@ export const PARAMETERS = [
     group: 'Transform',
   },
   {
-    id: 'shapeWidth',
+    id: 'width',
     label: 'Width',
     type: 'slider',
     min: 0.1,
@@ -87,7 +87,7 @@ export const PARAMETERS = [
     group: 'Transform',
   },
   {
-    id: 'shapeHeight',
+    id: 'height',
     label: 'Height',
     type: 'slider',
     min: 0.1,

@@ -122,8 +122,17 @@ const MainApp = () => {
     setSelectedLayerIndex(index);
   };
 
+  const randomizeSeed = () => {
+    const newSeed = Math.random();
+    const newNoiseSeed = Math.random();
+    
+    updateCurrentLayer({ 
+      seed: newSeed,
+      noiseSeed: newNoiseSeed
+    });
+  };
+
   const randomizeLayer = (index, randomizePalette = false) => {
-    const random = createSeededRandom(Math.random());
     const randomizableParams = parameters.filter(p => p.isRandomizable);
     
     const newProps = {};
@@ -133,14 +142,21 @@ const MainApp = () => {
         }
         switch (param.type) {
             case 'slider':
-                newProps[param.id] = param.min + random() * (param.max - param.min);
+                const rawValue = param.min + Math.random() * (param.max - param.min);
+                const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
+                newProps[param.id] = finalValue;
+                
+                // Debug logging for numSides
+                if (param.id === 'numSides') {
+                  console.log(`Randomizing numSides (randomizeLayer): min=${param.min}, max=${param.max}, rawValue=${rawValue}, finalValue=${finalValue}`);
+                }
                 break;
             case 'palette':
                 newProps[param.id] = palettes[Math.floor(Math.random() * palettes.length)];
                 break;
             default:
                 if (param.type === 'dropdown' && param.options) {
-                    newProps[param.id] = param.options[Math.floor(random() * param.options.length)];
+                    newProps[param.id] = param.options[Math.floor(Math.random() * param.options.length)];
                 }
         }
     });
@@ -161,7 +177,6 @@ const MainApp = () => {
   };
 
   const handleRandomizeAll = () => {
-    const random = createSeededRandom(Math.random());
     const randomizableParams = parameters.filter(p => p.isRandomizable);
 
     setLayers(prevLayers =>
@@ -173,28 +188,36 @@ const MainApp = () => {
           }
           switch (param.type) {
             case 'slider':
-                newProps[param.id] = param.min + random() * (param.max - param.min);
+                const rawValue = param.min + Math.random() * (param.max - param.min);
+                // Round to nearest step for integer parameters like numSides
+                const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
+                newProps[param.id] = finalValue;
+                
+                // Debug logging for numSides
+                if (param.id === 'numSides') {
+                  console.log(`Randomizing numSides: min=${param.min}, max=${param.max}, rawValue=${rawValue}, finalValue=${finalValue}`);
+                }
                 break;
             case 'palette':
-                newProps[param.id] = palettes[Math.floor(random() * palettes.length)];
+                newProps[param.id] = palettes[Math.floor(Math.random() * palettes.length)];
                 break;
             default:
                 if (param.type === 'dropdown' && param.options) {
-                    newProps[param.id] = param.options[Math.floor(random() * param.options.length)];
+                    newProps[param.id] = param.options[Math.floor(Math.random() * param.options.length)];
                 }
           }
         });
 
         // Always randomize colors (palettes) for each layer - this is a core feature
-        newProps.colors = palettes[Math.floor(random() * palettes.length)];
+        newProps.colors = palettes[Math.floor(Math.random() * palettes.length)];
         
         // Only randomize blendMode if it's marked as randomizable (if such a parameter exists)
         const blendModeParam = parameters.find(p => p.id === 'blendMode');
         if (blendModeParam && blendModeParam.isRandomizable) {
-          newProps.blendMode = blendModes[Math.floor(random() * blendModes.length)];
+          newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
         } else {
           // If no blendMode parameter exists, randomize it anyway for variety
-          newProps.blendMode = blendModes[Math.floor(random() * blendModes.length)];
+          newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
         }
 
         // Recalculate velocity if movement params were randomized
@@ -209,8 +232,8 @@ const MainApp = () => {
     );
     
     // Also randomize background color
-    const randomPalette = palettes[Math.floor(random() * palettes.length)];
-    const randomColor = randomPalette[Math.floor(random() * randomPalette.length)];
+    const randomPalette = palettes[Math.floor(Math.random() * palettes.length)];
+    const randomColor = randomPalette[Math.floor(Math.random() * randomPalette.length)];
     setBackgroundColor(randomColor);
   };
 
@@ -250,7 +273,7 @@ const MainApp = () => {
             <Controls
               currentLayer={currentLayer}
               updateLayer={updateCurrentLayer}
-              randomizeLayer={() => randomizeLayer(selectedLayerIndex)}
+              randomizeSeed={randomizeSeed}
               randomizeAll={handleRandomizeAll}
               variation={variation}
               setVariation={setVariation}
