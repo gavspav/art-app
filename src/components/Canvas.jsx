@@ -4,16 +4,12 @@ import { createSeededRandom } from '../utils/random';
 
 const Canvas = forwardRef(({ 
   layers, 
-  isFrozen, 
-  speed, 
   variation, 
   backgroundColor, 
   globalSeed 
 }, ref) => {
-  const animationRef = useRef(null);
-  const timeRef = useRef(0);
 
-  // Main animation and drawing effect
+  // Main drawing effect
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -31,10 +27,11 @@ const Canvas = forwardRef(({
     window.addEventListener('resize', resizeCanvas);
 
     // --- Drawing Logic ---
-    const drawShape = (layer) => {
+    const drawShape = (ctx, layer, time) => {
       const { 
         shapeType, numSides, curviness, noiseAmount, 
-        centerX, centerY, shapeWidth, shapeHeight, 
+        x, y, scale, // Use dynamic position and scale
+        shapeWidth, shapeHeight, 
         useGlobalSeed, seed 
       } = layer;
 
@@ -51,10 +48,10 @@ const Canvas = forwardRef(({
       }
 
       const { width, height } = canvas.getBoundingClientRect();
-      const finalCenterX = width * centerX;
-      const finalCenterY = height * centerY;
-      const radiusX = (width * shapeWidth) / 2;
-      const radiusY = (height * shapeHeight) / 2;
+      const finalCenterX = width * x;
+      const finalCenterY = height * y;
+      const radiusX = (width * shapeWidth * scale) / 2;
+      const radiusY = (height * shapeHeight * scale) / 2;
 
       if (shapeType === 'circle') {
         ctx.beginPath();
@@ -67,10 +64,15 @@ const Canvas = forwardRef(({
       const points = [];
       for (let i = 0; i < numSides; i++) {
         const angle = (i / numSides) * Math.PI * 2 - Math.PI / 2;
-        const noiseX = noiseOffsets[i] ? noiseOffsets[i].x * noiseAmount : 0;
-        const noiseY = noiseOffsets[i] ? noiseOffsets[i].y * noiseAmount : 0;
-        const x = finalCenterX + Math.cos(angle) * radiusX + noiseX;
-        const y = finalCenterY + Math.sin(angle) * radiusY + noiseY;
+        const staticNoiseX = noiseOffsets[i] ? noiseOffsets[i].x * noiseAmount : 0;
+        const staticNoiseY = noiseOffsets[i] ? noiseOffsets[i].y * noiseAmount : 0;
+
+        // Dynamic noise for wobble effect (time is now passed from App)
+        const dynamicNoiseX = Math.cos(time + i * 0.5) * variation;
+        const dynamicNoiseY = Math.sin(time + i * 0.5) * variation;
+
+        const x = finalCenterX + Math.cos(angle) * radiusX + staticNoiseX + dynamicNoiseX;
+        const y = finalCenterY + Math.sin(angle) * radiusY + staticNoiseY + dynamicNoiseY;
         points.push({ x, y });
       }
 
@@ -97,13 +99,15 @@ const Canvas = forwardRef(({
       ctx.closePath();
     };
 
-    // --- Animation Loop ---
-    const animate = () => {
+    // --- Render Loop (called on every state change) ---
+    const render = () => {
       const { width, height } = canvas.getBoundingClientRect();
       ctx.save();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = backgroundColor;
       ctx.fillRect(0, 0, width, height);
+
+
 
       layers.forEach(layer => {
         if (!layer.visible) return;
@@ -111,15 +115,14 @@ const Canvas = forwardRef(({
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity;
 
-        drawShape(layer);
+        drawShape(ctx, layer, Date.now() * 0.001); // Pass a simple time value for wobble
 
         // Create a gradient from the layer's colors
-        const { shapeWidth, shapeHeight, centerX, centerY } = layer;
-        const { width, height } = canvas.getBoundingClientRect();
-        const radiusX = (width * shapeWidth) / 2;
-        const radiusY = (height * shapeHeight) / 2;
-        const finalCenterX = width * centerX;
-        const finalCenterY = height * centerY;
+        const { x, y, scale, shapeWidth, shapeHeight } = layer;
+        const radiusX = (width * shapeWidth * scale) / 2;
+        const radiusY = (height * shapeHeight * scale) / 2;
+        const finalCenterX = width * x;
+        const finalCenterY = height * y;
 
         const gradient = ctx.createLinearGradient(
           finalCenterX - radiusX, 
@@ -144,21 +147,15 @@ const Canvas = forwardRef(({
       });
 
       ctx.restore();
-
-      if (!isFrozen) {
-        timeRef.current += speed;
-      }
-      animationRef.current = requestAnimationFrame(animate);
     };
 
-    animate();
+    render();
 
     // --- Cleanup ---
     return () => {
-      cancelAnimationFrame(animationRef.current);
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [layers, isFrozen, speed, variation, backgroundColor, globalSeed, ref]);
+  }, [layers, variation, backgroundColor, globalSeed, ref]);
 
   return <canvas ref={ref} style={{ width: '100%', height: '100%' }} />;
 });

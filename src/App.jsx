@@ -5,6 +5,7 @@ import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
 import { createSeededRandom } from './utils/random';
 import { getPixelRatio } from './utils/pixelRatio';
 import { useFullscreen } from './hooks/useFullscreen';
+import { useAnimation } from './hooks/useAnimation';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
@@ -14,7 +15,7 @@ import LayerList from './components/LayerList';
 function App() {
   // --- STATE MANAGEMENT ---
   // Global settings
-  const [speed, setSpeed] = useState(DEFAULTS.speed);
+
   const [isFrozen, setIsFrozen] = useState(DEFAULTS.isFrozen);
   const [variation, setVariation] = useState(DEFAULTS.variation);
   const [backgroundColor, setBackgroundColor] = useState(DEFAULTS.backgroundColor);
@@ -30,6 +31,27 @@ function App() {
   const canvasRef = useRef();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(canvasRef);
 
+  // Initialize velocities for default layers on first load
+  useEffect(() => {
+    setLayers(prevLayers => 
+      prevLayers.map(layer => {
+        if (layer.vx === 0 && layer.vy === 0) {
+          const angleRad = layer.movementAngle * (Math.PI / 180);
+          return {
+            ...layer,
+            vx: Math.cos(angleRad) * layer.movementSpeed * 1.0,
+            vy: Math.sin(angleRad) * layer.movementSpeed * 1.0,
+          };
+        }
+        return layer;
+      })
+    );
+  }, []); // Run only once on mount
+
+  // --- ANIMATION ENGINE --- 
+  // This custom hook will contain the animation loop and physics logic
+  useAnimation(setLayers, isFrozen);
+
   // --- DERIVED STATE ---
   const currentLayer = layers[selectedLayerIndex];
 
@@ -38,21 +60,33 @@ function App() {
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
-      updatedLayers[selectedLayerIndex] = {
-        ...updatedLayers[selectedLayerIndex],
-        ...newProps,
-      };
+      const currentLayer = updatedLayers[selectedLayerIndex];
+      const updatedLayer = { ...currentLayer, ...newProps };
+
+      // If movement parameters change, recalculate velocity
+      if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
+        const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
+        updatedLayer.vx = Math.cos(angleRad) * updatedLayer.movementSpeed * 1.0;
+        updatedLayer.vy = Math.sin(angleRad) * updatedLayer.movementSpeed * 1.0;
+      }
+
+      updatedLayers[selectedLayerIndex] = updatedLayer;
       return updatedLayers;
     });
   };
 
   // Adds a new layer with default settings
   const addLayer = () => {
-    const newLayer = { 
+    let newLayer = { 
       ...DEFAULT_LAYER, 
       name: `Layer ${layers.length + 1}`,
       seed: Math.floor(Math.random() * 1000), // Give it a new random seed
     };
+    // Calculate initial velocity for the new layer
+    const angleRad = newLayer.movementAngle * (Math.PI / 180);
+    newLayer.vx = Math.cos(angleRad) * newLayer.movementSpeed * 1.0;
+    newLayer.vy = Math.sin(angleRad) * newLayer.movementSpeed * 1.0;
+
     setLayers([...layers, newLayer]);
     setSelectedLayerIndex(layers.length);
   };
@@ -92,8 +126,7 @@ function App() {
           ref={canvasRef}
           layers={layers}
           isFrozen={isFrozen}
-          speed={speed}
-          variation={variation}
+          variation={variation} // Keep variation for static noise, but speed is now handled in App
           backgroundColor={backgroundColor}
           globalSeed={globalSeed}
         />
@@ -102,9 +135,6 @@ function App() {
             currentLayer={currentLayer}
             updateLayer={updateCurrentLayer}
             randomize={randomizeCurrentLayer}
-            // Pass global settings as well
-            speed={speed}
-            setSpeed={setSpeed}
             variation={variation}
             setVariation={setVariation}
             isFrozen={isFrozen}

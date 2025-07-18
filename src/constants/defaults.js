@@ -16,6 +16,22 @@ export const DEFAULT_LAYER = {
   shapeWidth: 0.5,
   shapeHeight: 0.5,
   visible: true,
+
+  // New Movement Properties
+  movementStyle: 'bounce', // 'bounce' or 'drift'
+  movementSpeed: 0.01,
+  movementAngle: 45, // degrees
+  scaleSpeed: 0.1,
+  scaleMin: 0.2,
+  scaleMax: 1.5,
+
+  // Dynamic properties for animation state
+  x: 0.5, // position (0-1)
+  y: 0.5,
+  vx: 0, // velocity
+  vy: 0,
+  scale: 1,
+  scaleDirection: 1,
 };
 
 export const DEFAULTS = {

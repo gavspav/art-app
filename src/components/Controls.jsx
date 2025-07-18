@@ -5,8 +5,6 @@ const Controls = ({
   currentLayer, 
   updateLayer, 
   randomize,
-  speed,
-  setSpeed,
   variation,
   setVariation,
   isFrozen,
@@ -123,6 +121,45 @@ const Controls = ({
       </div>
 
       <div className="control-group">
+        <h4>Movement</h4>
+        <label>Style</label>
+        <select value={currentLayer.movementStyle} onChange={(e) => handleValueChange('movementStyle', e.target.value, false)}>
+          <option value="bounce">Bounce</option>
+          <option value="drift">Drift</option>
+        </select>
+
+        <label>Movement Speed: {currentLayer.movementSpeed?.toFixed(2)}</label>
+        <input 
+          type="range" 
+          min="0" 
+          max="0.02" 
+          step="0.001" 
+          value={currentLayer.movementSpeed}
+          onChange={(e) => handleValueChange('movementSpeed', e.target.value)}
+        />
+
+        <label>Movement Angle: {currentLayer.movementAngle}</label>
+        <input 
+          type="range" 
+          min="0" 
+          max="360" 
+          step="1" 
+          value={currentLayer.movementAngle}
+          onChange={(e) => handleValueChange('movementAngle', e.target.value)}
+        />
+
+        <label>Scale Speed: {currentLayer.scaleSpeed?.toFixed(2)}</label>
+        <input 
+          type="range" 
+          min="0" 
+          max="1" 
+          step="0.01" 
+          value={currentLayer.scaleSpeed}
+          onChange={(e) => handleValueChange('scaleSpeed', e.target.value)}
+        />
+      </div>
+
+      <div className="control-group">
         <h4>Seed</h4>
         <label>Layer Seed: {currentLayer.seed}</label>
         <input type="range" min="0" max="1000" step="1" value={currentLayer.seed} onChange={(e) => handleValueChange('seed', e.target.value)} />
@@ -139,8 +176,7 @@ const Controls = ({
       {/* Global controls */}
       <h3>Global Settings</h3>
       <div className="control-group">
-        <label>Speed: {speed.toFixed(4)}</label>
-        <input type="range" min="0" max="0.01" step="0.0001" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} />
+
 
         <label>Variation: {variation.toFixed(2)}</label>
         <input type="range" min="0" max="5" step="0.01" value={variation} onChange={(e) => setVariation(parseFloat(e.target.value))} />
