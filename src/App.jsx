@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
+import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
 import { createSeededRandom } from './utils/random';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
+import './App.css';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
@@ -17,18 +19,17 @@ import Settings from './pages/Settings';
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
   const { parameters } = useParameters(); // Get parameters from context
-  // --- STATE MANAGEMENT ---
-  const [isFrozen, setIsFrozen] = useState(DEFAULTS.isFrozen);
-  const [variation, setVariation] = useState(DEFAULTS.variation);
-  const [backgroundColor, setBackgroundColor] = useState(DEFAULTS.backgroundColor);
-  const [globalSeed, setGlobalSeed] = useState(DEFAULTS.globalSeed);
-  const [globalSpeedMultiplier, setGlobalSpeedMultiplier] = useState(DEFAULTS.globalSpeedMultiplier);
-  const [layers, setLayers] = useState([{
-    ...DEFAULT_LAYER,
-    position: { ...DEFAULT_LAYER.position }
-  }]);
-  const [selectedLayerIndex, setSelectedLayerIndex] = useState(DEFAULTS.selectedLayerIndex);
-  const [isOverlayVisible, setIsOverlayVisible] = useState(true);
+  // Get app state from context
+  const {
+    isFrozen, setIsFrozen,
+    variation, setVariation,
+    backgroundColor, setBackgroundColor,
+    globalSeed, setGlobalSeed,
+    globalSpeedMultiplier, setGlobalSpeedMultiplier,
+    layers, setLayers,
+    selectedLayerIndex, setSelectedLayerIndex,
+    isOverlayVisible, setIsOverlayVisible
+  } = useAppState();
 
   const canvasRef = useRef();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(canvasRef);
@@ -175,7 +176,7 @@ const MainApp = () => {
                 newProps[param.id] = param.min + random() * (param.max - param.min);
                 break;
             case 'palette':
-                newProps[param.id] = palettes[Math.floor(Math.random() * palettes.length)];
+                newProps[param.id] = palettes[Math.floor(random() * palettes.length)];
                 break;
             default:
                 if (param.type === 'dropdown' && param.options) {
@@ -184,9 +185,17 @@ const MainApp = () => {
           }
         });
 
-        // Also randomize a few non-configurable things for more variety
-        newProps.colors = palettes[Math.floor(Math.random() * palettes.length)];
-        newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
+        // Always randomize colors (palettes) for each layer - this is a core feature
+        newProps.colors = palettes[Math.floor(random() * palettes.length)];
+        
+        // Only randomize blendMode if it's marked as randomizable (if such a parameter exists)
+        const blendModeParam = parameters.find(p => p.id === 'blendMode');
+        if (blendModeParam && blendModeParam.isRandomizable) {
+          newProps.blendMode = blendModes[Math.floor(random() * blendModes.length)];
+        } else {
+          // If no blendMode parameter exists, randomize it anyway for variety
+          newProps.blendMode = blendModes[Math.floor(random() * blendModes.length)];
+        }
 
         // Recalculate velocity if movement params were randomized
         const finalMovementSpeed = newProps.movementSpeed ?? layer.movementSpeed;
@@ -198,6 +207,11 @@ const MainApp = () => {
         return { ...layer, ...newProps, vx, vy };
       })
     );
+    
+    // Also randomize background color
+    const randomPalette = palettes[Math.floor(random() * palettes.length)];
+    const randomColor = randomPalette[Math.floor(random() * randomPalette.length)];
+    setBackgroundColor(randomColor);
   };
 
   const randomizeScene = () => {
@@ -218,44 +232,69 @@ const MainApp = () => {
   };
 
   return (
-    <div className="App">
-      <main>
-        <Canvas
-          ref={canvasRef}
-          layers={layers}
-          isFrozen={isFrozen}
-          variation={variation}
-          backgroundColor={backgroundColor}
-          globalSeed={globalSeed}
-        />
-        <div className={`controls-container ${isOverlayVisible ? '' : 'hidden'}`}>
-          <Controls
-            currentLayer={currentLayer}
-            updateLayer={updateCurrentLayer}
-            randomizeLayer={() => randomizeLayer(selectedLayerIndex)}
-            randomizeAll={handleRandomizeAll}
-            variation={variation}
-            setVariation={setVariation}
-            isFrozen={isFrozen}
-            setIsFrozen={setIsFrozen}
-            globalSpeedMultiplier={globalSpeedMultiplier}
-            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-          />
-          <LayerList
+    <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
+      <main className="main-layout">
+        {/* Left Sidebar - Hidden in fullscreen */}
+        <aside className={`sidebar ${isFullscreen ? 'hidden' : ''} ${isOverlayVisible ? '' : 'collapsed'}`}>
+          <div className="sidebar-header">
+            <h2>Controls</h2>
+            <button 
+              className="toggle-sidebar-btn"
+              onClick={() => setIsOverlayVisible(!isOverlayVisible)}
+              title={isOverlayVisible ? 'Hide Controls' : 'Show Controls'}
+            >
+              {isOverlayVisible ? '←' : '→'}
+            </button>
+          </div>
+          <div className="sidebar-content">
+            <Controls
+              currentLayer={currentLayer}
+              updateLayer={updateCurrentLayer}
+              randomizeLayer={() => randomizeLayer(selectedLayerIndex)}
+              randomizeAll={handleRandomizeAll}
+              variation={variation}
+              setVariation={setVariation}
+              isFrozen={isFrozen}
+              setIsFrozen={setIsFrozen}
+              globalSpeedMultiplier={globalSpeedMultiplier}
+              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+            />
+            <LayerList
+              layers={layers}
+              selectedLayerIndex={selectedLayerIndex}
+              onSelectLayer={selectLayer}
+              onAddLayer={addNewLayer}
+              onDeleteLayer={deleteLayer}
+            />
+          </div>
+        </aside>
+        
+        {/* Main Canvas Area */}
+        <div className="canvas-container">
+          <Canvas
+            ref={canvasRef}
             layers={layers}
-            selectedLayerIndex={selectedLayerIndex}
-            onSelectLayer={selectLayer}
-            onAddLayer={addNewLayer}
-            onDeleteLayer={deleteLayer}
+            isFrozen={isFrozen}
+            variation={variation}
+            backgroundColor={backgroundColor}
+            globalSeed={globalSeed}
           />
+          
+          {/* Floating Action Buttons */}
+          <div className="floating-actions">
+            <button onClick={downloadImage} className="fab" title="Download PNG">
+              ⬇
+            </button>
+            <button onClick={randomizeScene} className="fab" title="Randomize Scene">
+              🎲
+            </button>
+            <button onClick={toggleFullscreen} className="fab" title={isFullscreen ? 'Exit Fullscreen' : 'Go Fullscreen'}>
+              {isFullscreen ? '⤓' : '⤢'}
+            </button>
+          </div>
         </div>
       </main>
       <footer>
-        <button onClick={downloadImage}>Download as PNG</button>
-        <button onClick={randomizeScene}>Randomize Scene</button>
-        <button onClick={toggleFullscreen}>
-          {isFullscreen ? 'Exit Fullscreen' : 'Go Fullscreen'}
-        </button>
         <Link to="/settings">Settings</Link>
         <BackgroundColorPicker
               color={backgroundColor}
@@ -267,15 +306,17 @@ const MainApp = () => {
 };
 
 // The App component is now the router
-function App() {
+const App = () => {
   return (
-    <ParameterProvider>
-      <Routes>
-        <Route path="/" element={<MainApp />} />
-        <Route path="/settings" element={<Settings />} />
-      </Routes>
-    </ParameterProvider>
+    <AppStateProvider>
+      <ParameterProvider>
+        <Routes>
+          <Route path="/" element={<MainApp />} />
+          <Route path="/settings" element={<Settings />} />
+        </Routes>
+      </ParameterProvider>
+    </AppStateProvider>
   );
-}
+};
 
 export default App;
