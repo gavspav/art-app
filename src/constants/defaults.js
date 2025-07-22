@@ -1,55 +1,51 @@
-export const DEFAULT_LAYER = {
-  // Static Shape & Style Properties
-  name: 'Layer 1',
-  layerType: 'shape', // 'shape' or 'image'
-  imageSrc: null, // Data URL for imported images
-  shapeType: 'polygon',
-  numSides: 6,
-  curviness: -0.64,
-  width: 0.5,
-  height: 0.5,
-  noiseAmount: 0.8,
-  noiseSpeed: 0.005,
-  opacity: 1.0,
-  blendMode: 'normal',
-  colors: ["#FFC300", "#FF5733", "#C70039"],
-  selectedColor: 0,
-
-  // Animation Control Properties (kept top-level for easy access in Controls.jsx)
-  movementStyle: 'bounce', // 'bounce' or 'drift'
-  movementSpeed: 0.001,
-  movementAngle: 45, // degrees
-  scaleSpeed: 0.05,
-  scaleMin: 0.2,
-  scaleMax: 1.5,
-
-  // Seeding
-  seed: 1,
-  noiseSeed: 1,
-  useGlobalSeed: false,
-
-  // Dynamic state (nested as expected by Canvas.jsx and useAnimation.js)
-  position: {
-    centerX: 0.5,
-    centerY: 0.5,
-    x: 0.5, // position (0-1)
-    y: 0.5,
-    vx: 0, // velocity
-    vy: 0,
-    scale: 1.0,
-    scaleDirection: 1,
-  },
-  visible: true,
-};
+/**
+ * Default values for the art application
+ * These values are used when initializing the application state
+ */
 
 export const DEFAULTS = {
-  globalSpeedMultiplier: 1,
+  speed: 0.002,
   isFrozen: false,
-  variation: 1.5,
-  backgroundColor: '#111111',
-  guideWidth: 0.5,
-  guideHeight: 0.5,
+  variation: 0.2,
+  numLayers: 1,
+  colors: [
+    "#1E3296", "#502CB4", "#6450C8", "#3C64B4",
+    "#6478DC", "#4A0080", "#6600AA", "#8200D4"
+  ],
+  selectedColor: "#1E3296",
+  guideWidth: 250,
+  guideHeight: 250,
+  curviness: 0.5,
+  noiseAmount: 0.5,
+  numSides: 6,
+  globalOpacity: 0.8,
+  blendMode: "source-over",
+  backgroundColor: "#000000",
+  layerParams: [],
+  isFullscreen: false,
   globalSeed: 1,
-  layers: [DEFAULT_LAYER],
+  globalSpeedMultiplier: 1,
   selectedLayerIndex: 0,
+  seed: () => Math.floor(Math.random() * 10000)
 };
+
+export const DEFAULT_LAYER = {
+  visible: true,
+  opacity: 0.8,
+  blendMode: "multiply",
+  colors: ["#1E3296", "#502CB4"],
+  numSides: 6,
+  curviness: 0.5,
+  width: 250,
+  height: 250,
+  noiseAmount: 0.5,
+  noiseSeed: 1,
+  position: {
+    x: 0.5,
+    y: 0.5,
+    scale: 1
+  }
+};
+
+// Legacy export for backward compatibility
+export const defaults = DEFAULTS;

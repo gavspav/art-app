@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Test - Art App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .test-results {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .metric {
+            margin: 10px 0;
+            padding: 10px;
+            background: #333;
+            border-radius: 4px;
+        }
+        .good { border-left: 4px solid #4CAF50; }
+        .warning { border-left: 4px solid #FF9800; }
+        .error { border-left: 4px solid #F44336; }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #444;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 Art App Performance Test</h1>
+    
+    <div class="test-results">
+        <h2>Performance Metrics</h2>
+        <div id="metrics">
+            <div class="metric">
+                <strong>Loading...</strong> Initializing performance tests...
+            </div>
+        </div>
+    </div>
+
+    <div class="test-results">
+        <h2>Application Preview</h2>
+        <iframe src="dist/index.html" id="app-frame"></iframe>
+    </div>
+
+    <script>
+        // Performance testing script
+        const metricsContainer = document.getElementById('metrics');
+        
+        function updateMetric(name, value, status, unit = '') {
+            const existing = document.getElementById(`metric-${name}`);
+            const metricHtml = `
+                <div class="metric ${status}" id="metric-${name}">
+                    <strong>${name}:</strong> ${value}${unit}
+                </div>
+            `;
+            
+            if (existing) {
+                existing.outerHTML = metricHtml;
+            } else {
+                metricsContainer.innerHTML += metricHtml;
+            }
+        }
+
+        // Test device performance
+        function testDevicePerformance() {
+            const hardwareConcurrency = navigator.hardwareConcurrency || 1;
+            const deviceMemory = navigator.deviceMemory || 'unknown';
+            const pixelRatio = window.devicePixelRatio || 1;
+            
+            updateMetric('CPU Cores', hardwareConcurrency, hardwareConcurrency >= 4 ? 'good' : 'warning');
+            updateMetric('Device Memory', deviceMemory, deviceMemory >= 4 ? 'good' : 'warning', 'GB');
+            updateMetric('Pixel Ratio', pixelRatio, pixelRatio <= 2 ? 'good' : 'warning');
+        }
+
+        // Test memory usage
+        function testMemoryUsage() {
+            if (performance.memory) {
+                const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+                const total = Math.round(performance.memory.totalJSHeapSize / 1024 / 1024);
+                const limit = Math.round(performance.memory.jsHeapSizeLimit / 1024 / 1024);
+                
+                updateMetric('Memory Used', used, used < 50 ? 'good' : used < 100 ? 'warning' : 'error', 'MB');
+                updateMetric('Memory Total', total, 'good', 'MB');
+                updateMetric('Memory Limit', limit, 'good', 'MB');
+            } else {
+                updateMetric('Memory Info', 'Not available', 'warning');
+            }
+        }
+
+        // Test rendering performance
+        function testRenderingPerformance() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            if (ctx) {
+                const start = performance.now();
+                
+                // Simulate some drawing operations
+                canvas.width = 800;
+                canvas.height = 600;
+                
+                for (let i = 0; i < 100; i++) {
+                    ctx.beginPath();
+                    ctx.arc(Math.random() * 800, Math.random() * 600, 20, 0, Math.PI * 2);
+                    ctx.fillStyle = `hsl(${Math.random() * 360}, 50%, 50%)`;
+                    ctx.fill();
+                }
+                
+                const end = performance.now();
+                const renderTime = Math.round(end - start);
+                
+                updateMetric('Canvas Render Test', renderTime, renderTime < 10 ? 'good' : renderTime < 50 ? 'warning' : 'error', 'ms');
+            } else {
+                updateMetric('Canvas Support', 'Not available', 'error');
+            }
+        }
+
+        // Test WebGL support
+        function testWebGLSupport() {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            
+            if (gl) {
+                updateMetric('WebGL Support', 'Available', 'good');
+                try {
+                    const renderer = gl.getParameter(gl.RENDERER);
+                    updateMetric('GPU Renderer', renderer.substring(0, 50), 'good');
+                } catch (e) {
+                    updateMetric('GPU Info', 'Limited access', 'warning');
+                }
+            } else {
+                updateMetric('WebGL Support', 'Not available', 'warning');
+            }
+        }
+
+        // Test animation frame rate
+        function testAnimationFrameRate() {
+            let frameCount = 0;
+            let startTime = performance.now();
+            let lastTime = startTime;
+            
+            function countFrames() {
+                frameCount++;
+                const currentTime = performance.now();
+                
+                if (currentTime - startTime >= 1000) {
+                    const fps = Math.round(frameCount);
+                    updateMetric('Animation FPS Test', fps, fps >= 55 ? 'good' : fps >= 30 ? 'warning' : 'error', ' fps');
+                    return;
+                }
+                
+                requestAnimationFrame(countFrames);
+            }
+            
+            requestAnimationFrame(countFrames);
+        }
+
+        // Run all tests
+        function runPerformanceTests() {
+            metricsContainer.innerHTML = '<div class="metric"><strong>Running tests...</strong></div>';
+            
+            setTimeout(() => {
+                testDevicePerformance();
+                testMemoryUsage();
+                testRenderingPerformance();
+                testWebGLSupport();
+                testAnimationFrameRate();
+                
+                // Update memory usage periodically
+                setInterval(testMemoryUsage, 5000);
+            }, 100);
+        }
+
+        // Start tests when page loads
+        window.addEventListener('load', runPerformanceTests);
+        
+        // Test responsive design
+        function testResponsiveDesign() {
+            const breakpoints = [480, 768, 1024, 1200];
+            const currentWidth = window.innerWidth;
+            
+            let category = 'Desktop';
+            if (currentWidth <= 480) category = 'Mobile';
+            else if (currentWidth <= 768) category = 'Tablet';
+            else if (currentWidth <= 1024) category = 'Small Desktop';
+            
+            updateMetric('Screen Category', category, 'good');
+            updateMetric('Screen Width', currentWidth, 'good', 'px');
+        }
+
+        window.addEventListener('resize', testResponsiveDesign);
+        setTimeout(testResponsiveDesign, 500);
+    </script>
+</body>
+</html>

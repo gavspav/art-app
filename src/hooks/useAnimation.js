@@ -1,111 +1,166 @@
-import { useEffect, useRef, useCallback } from 'react';
+/**
+ * Animation hook for canvas rendering
+ * Manages animation loop and timing for canvas-based animations
+ */
 
-// Pure function to calculate new movement angle after boundary collision
-const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
-    let newAngle = currentAngle;
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { AnimationLoop } from '../utils/animation/animationLoop.js';
+
+/**
+ * Custom hook for managing canvas animation loop
+ * @param {Function} renderCallback - Function to call on each animation frame
+ * @param {Object} options - Animation options
+ * @returns {Object} Animation control functions and state
+ */
+export const useAnimation = (renderCallback, options = {}) => {
+  const {
+    speed = 0.01,
+    isFrozen = false,
+    autoStart = true,
+    targetFPS = 60
+  } = options;
+
+  const animationLoopRef = useRef(null);
+  const callbackRef = useRef(renderCallback);
+  const timeRef = useRef(0);
+  const lastFrameTimeRef = useRef(0);
+  const fpsCounterRef = useRef({ frames: 0, lastTime: 0, fps: 0 });
+  
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentFPS, setCurrentFPS] = useState(0);
+  const [time, setTimeState] = useState(0);
+
+  // Update callback ref when renderCallback changes
+  useEffect(() => {
+    callbackRef.current = renderCallback;
+  }, [renderCallback]);
+
+  // Animation frame callback
+  const animationCallback = useCallback((animationTime, deltaTime) => {
+    // Update time based on speed and frozen state
+    if (!isFrozen) {
+      timeRef.current += speed;
+      setTimeState(timeRef.current);
+    }
+
+    // Calculate FPS
+    const fpsCounter = fpsCounterRef.current;
+    fpsCounter.frames++;
+    if (animationTime - fpsCounter.lastTime >= 1000) {
+      fpsCounter.fps = Math.round((fpsCounter.frames * 1000) / (animationTime - fpsCounter.lastTime));
+      setCurrentFPS(fpsCounter.fps);
+      fpsCounter.frames = 0;
+      fpsCounter.lastTime = animationTime;
+    }
+
+    // Call the render callback with current time and delta
+    if (callbackRef.current) {
+      try {
+        callbackRef.current(timeRef.current, deltaTime);
+      } catch (error) {
+        console.error('Animation render callback error:', error);
+      }
+    }
+
+    lastFrameTimeRef.current = animationTime;
+  }, [speed, isFrozen]);
+
+  // Start animation
+  const start = useCallback(() => {
+    if (!animationLoopRef.current) {
+      animationLoopRef.current = new AnimationLoop();
+    }
+
+    const animationLoop = animationLoopRef.current;
     
-    if (hitVertical) {
-        // Reflect across vertical axis (left/right boundaries)
-        newAngle = 180 - currentAngle;
+    if (!animationLoop.isRunning) {
+      animationLoop.addCallback(animationCallback);
+      animationLoop.start();
+      setIsRunning(true);
     }
-    if (hitHorizontal) {
-        // Reflect across horizontal axis (top/bottom boundaries)
-        newAngle = 360 - currentAngle;
+  }, [animationCallback]);
+
+  // Stop animation
+  const stop = useCallback(() => {
+    if (animationLoopRef.current) {
+      animationLoopRef.current.removeCallback(animationCallback);
+      animationLoopRef.current.stop();
+      setIsRunning(false);
     }
-    
-    // Normalize angle to 0-360 range
-    while (newAngle < 0) newAngle += 360;
-    while (newAngle >= 360) newAngle -= 360;
-    
-    return newAngle;
-};
+  }, [animationCallback]);
 
-// Pure function to update layer animation state
-const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
-    const { 
-        movementStyle = 'bounce', 
-        movementSpeed = 0, 
-        movementAngle = 0,
-        scaleSpeed = 0,
-        scaleMin = 0.5,
-        scaleMax = 1.5
-    } = layer;
+  // Pause animation (keeps loop running but freezes time)
+  const pause = useCallback(() => {
+    // Animation will continue running but time won't advance due to isFrozen
+    setIsRunning(false);
+  }, []);
 
-    const { 
-        x, y, 
-        scale, scaleDirection 
-    } = layer.position;
+  // Resume animation
+  const resume = useCallback(() => {
+    setIsRunning(true);
+  }, []);
 
-    // 1. Calculate velocity
-    const effectiveSpeed = movementSpeed * globalSpeedMultiplier;
-    const vx = Math.cos(movementAngle * (Math.PI / 180)) * effectiveSpeed;
-    const vy = Math.sin(movementAngle * (Math.PI / 180)) * effectiveSpeed;
+  // Reset animation time
+  const reset = useCallback(() => {
+    timeRef.current = 0;
+    setTimeState(0);
+    lastFrameTimeRef.current = 0;
+    fpsCounterRef.current = { frames: 0, lastTime: 0, fps: 0 };
+    setCurrentFPS(0);
+  }, []);
 
-    // 2. Update position
-    let newX = x + vx;
-    let newY = y + vy;
-    let newMovementAngle = movementAngle;
+  // Set animation time directly
+  const setTime = useCallback((time) => {
+    timeRef.current = time;
+    setTimeState(time);
+  }, []);
 
-    // 3. Handle screen boundaries (immutable)
-    if (movementStyle === 'bounce') {
-        const hitVertical = newX > 1 || newX < 0;
-        const hitHorizontal = newY > 1 || newY < 0;
-        
-        if (hitVertical || hitHorizontal) {
-            newMovementAngle = calculateBounceAngle(movementAngle, hitVertical, hitHorizontal);
-        }
-        
-        newX = Math.max(0, Math.min(1, newX));
-        newY = Math.max(0, Math.min(1, newY));
-    } else if (movementStyle === 'drift') {
-        if (newX > 1) newX = 0;
-        if (newX < 0) newX = 1;
-        if (newY > 1) newY = 0;
-        if (newY < 0) newY = 1;
+  // Get current animation time
+  const getTime = useCallback(() => {
+    return timeRef.current;
+  }, []);
+
+  // Initialize animation loop
+  useEffect(() => {
+    if (autoStart) {
+      start();
     }
 
-    // 4. Z-axis scaling (immutable)
-    let newScale = scale + (scaleDirection * scaleSpeed * globalSpeedMultiplier * 0.01);
-    let newScaleDirection = scaleDirection;
-    if (newScale > scaleMax || newScale < scaleMin) {
-        newScaleDirection *= -1;
-        newScale = Math.max(scaleMin, Math.min(scaleMax, newScale));
-    }
-
-    // Return new layer object with updated properties
-    return {
-        ...layer,
-        movementAngle: newMovementAngle, // Update angle if it changed due to bouncing
-        position: {
-            ...layer.position,
-            x: newX,
-            y: newY,
-            vx,
-            vy,
-            scale: newScale,
-            scaleDirection: newScaleDirection
-        }
+    // Cleanup on unmount
+    return () => {
+      if (animationLoopRef.current) {
+        animationLoopRef.current.removeCallback(animationCallback);
+        animationLoopRef.current.stop();
+        animationLoopRef.current = null;
+      }
     };
-};
+  }, [start, autoStart, animationCallback]);
 
-export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
-    const animationFrameId = useRef(null);
+  // Handle frozen state changes
+  useEffect(() => {
+    if (isFrozen) {
+      pause();
+    } else if (animationLoopRef.current && !isRunning) {
+      resume();
+    }
+  }, [isFrozen, isRunning, pause, resume]);
 
-    const animate = useCallback(() => {
-        if (isFrozen) {
-            animationFrameId.current = requestAnimationFrame(animate);
-            return;
-        }
-
-        setLayers(prevLayers =>
-            prevLayers.map(layer => updateLayerAnimation(layer, globalSpeedMultiplier))
-        );
-
-        animationFrameId.current = requestAnimationFrame(animate);
-    }, [isFrozen, setLayers, globalSpeedMultiplier]);
-
-    useEffect(() => {
-        animationFrameId.current = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(animationFrameId.current);
-    }, [animate]);
+  return {
+    // State
+    isRunning: isRunning && !isFrozen,
+    currentFPS,
+    time,
+    
+    // Control functions
+    start,
+    stop,
+    pause,
+    resume,
+    reset,
+    setTime,
+    getTime,
+    
+    // Animation loop reference (for advanced usage)
+    animationLoop: animationLoopRef.current
+  };
 };

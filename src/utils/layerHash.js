@@ -38,6 +38,12 @@ export const calculateVisualHash = (layer) => {
     
     // Image properties (if applicable)
     imageSrc: layer.image?.src || null,
+    imageBlur: layer.imageBlur,
+    imageBrightness: layer.imageBrightness,
+    imageContrast: layer.imageContrast,
+    imageHue: layer.imageHue,
+    imageSaturation: layer.imageSaturation,
+    imageDistortion: layer.imageDistortion,
   };
   
   // Create a stable string representation
@@ -134,7 +140,7 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
  * @returns {string} - Combined hash for all layers
  */
 export const calculateLayersHash = (layers) => {
-  if (!Array.isArray(layers)) return '';
+  if (!Array.isArray(layers) || layers.length === 0) return '';
   
   const layerHashes = layers.map(layer => calculateCompactVisualHash(layer));
   return simpleHash(layerHashes.join('|'));

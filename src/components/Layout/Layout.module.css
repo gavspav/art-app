@@ -1,0 +1,172 @@
+/**
+ * Layout Module CSS
+ * 
+ * Styles for the application layout components
+ */
+
+/* Main app layout container */
+.appLayout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  background-color: var(--color-background, #1a1a1a);
+  color: var(--color-text, #ffffff);
+}
+
+/* Header styles */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  background-color: var(--color-surface, #2a2a2a);
+  border-bottom: 1px solid var(--color-border, #444);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+/* Page header with title and actions */
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.5rem 1rem;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text, #ffffff);
+}
+
+.headerActions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Main content area */
+.mainContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Footer styles */
+.footer {
+  padding: 0.75rem 1rem;
+  background-color: var(--color-surface, #2a2a2a);
+  border-top: 1px solid var(--color-border, #444);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+/* Responsive layout adjustments */
+@media (max-width: 768px) {
+  .header {
+    padding: 0.75rem;
+    flex-direction: column;
+  }
+  
+  .footer {
+    padding: 0.5rem;
+  }
+}
+
+/* Split layout for editor and preview */
+.splitLayout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.leftPanel {
+  overflow: auto;
+  border-right: 1px solid var(--color-border, #444);
+  background-color: var(--color-surface-variant, #2a2a2a);
+  position: relative;
+}
+
+.rightPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Draggable divider styles */
+.divider {
+  position: absolute;
+  background-color: #666;
+  transition: background-color 0.2s ease;
+  z-index: 100;
+  border: 1px solid #888;
+}
+
+.horizontalDivider {
+  width: 8px;
+  top: 0;
+  bottom: 0;
+  cursor: col-resize;
+  margin-left: -4px; /* Center the divider on the boundary */
+}
+
+.verticalDivider {
+  height: 8px;
+  left: 0;
+  right: 0;
+  cursor: row-resize;
+  margin-top: -4px; /* Center the divider on the boundary */
+}
+
+.divider:hover,
+.divider.dragging {
+  background-color: #2196f3;
+  border-color: #1976d2;
+}
+
+.dragging {
+  user-select: none;
+}
+
+/* Vertical split layout */
+.verticalSplit {
+  flex-direction: column;
+}
+
+.verticalSplit .leftPanel {
+  border-right: none;
+  border-bottom: 1px solid var(--color-border, #444);
+  max-height: 50%;
+}
+
+/* Container for content with padding */
+.contentContainer {
+  padding: 1rem;
+  overflow: auto;
+}
+
+.noPadding {
+  padding: 0;
+}
+
+/* Utility classes */
+.flexGrow {
+  flex: 1;
+}
+
+.flexRow {
+  display: flex;
+  flex-direction: row;
+}
+
+.flexColumn {
+  display: flex;
+  flex-direction: column;
+}

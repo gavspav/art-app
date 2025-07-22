@@ -1,0 +1,456 @@
+/* Canvas Component Styles - Optimized for Performance */
+
+.canvasContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 400px; /* Ensure minimum height */
+  flex: 1; /* Take available space in flex container */
+  overflow: hidden;
+  background: #000;
+  cursor: crosshair;
+  /* Performance optimizations */
+  will-change: transform;
+  contain: layout style paint;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+.canvasContainer.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  cursor: none;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  /* Performance optimizations */
+  will-change: contents;
+  transform: translateZ(0); /* Force hardware acceleration */
+  backface-visibility: hidden; /* Optimize for 3D transforms */
+}
+
+/* Controls overlay */
+.controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.canvasContainer:hover .controls {
+  opacity: 1;
+}
+
+.canvasContainer.fullscreen .controls {
+  opacity: 0;
+}
+
+.canvasContainer.fullscreen:hover .controls {
+  opacity: 0.7;
+}
+
+.fullscreenButton {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+}
+
+.fullscreenButton:hover {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.05);
+}
+
+.fullscreenButton:active {
+  transform: scale(0.95);
+}
+
+.fullscreenHint {
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Fullscreen overlay interface */
+.fullscreenOverlay {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  border-radius: 8px;
+  padding: 0;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  z-index: 1001;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.overlayHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 20px 15px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.overlayHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.overlayHints {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.overlayContent {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Custom scrollbar for overlay content */
+.overlayContent::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overlayContent::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.overlayContent::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+
+.overlayContent::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.overlaySection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.overlaySection h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ccc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.randomizeGroupButton {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.randomizeGroupButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+}
+
+.randomizeAllButton {
+  background: rgba(0, 122, 204, 0.8);
+  border: 1px solid rgba(0, 122, 204, 1);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.randomizeAllButton:hover {
+  background: rgba(0, 122, 204, 1);
+  transform: translateY(-1px);
+}
+
+.overlayControls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.overlayControl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.overlayControl label {
+  min-width: 80px;
+  font-size: 12px;
+  color: #ddd;
+}
+
+.overlayControl input[type="range"] {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.overlayControl input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #007acc;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.overlayControl input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #007acc;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.overlayControl input[type="color"] {
+  width: 40px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.overlayControl select {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.overlayControl select option {
+  background: #333;
+  color: white;
+}
+
+.overlayControl span {
+  min-width: 50px;
+  font-size: 11px;
+  color: #aaa;
+  text-align: right;
+  font-family: monospace;
+}
+
+/* Error state */
+.canvasContainer.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+  color: #ff6b6b;
+}
+
+.errorMessage {
+  text-align: center;
+  padding: 2rem;
+  border: 2px solid #ff6b6b;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.errorMessage h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+}
+
+.errorMessage p {
+  margin: 0 0 1.5rem 0;
+  opacity: 0.8;
+}
+
+.errorMessage button {
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background 0.2s ease;
+}
+
+.errorMessage button:hover {
+  background: #ff5252;
+}
+
+/* Loading state */
+.canvasContainer.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.loadingMessage {
+  text-align: center;
+  padding: 2rem;
+}
+
+.loadingMessage p {
+  margin: 1rem 0 0 0;
+  opacity: 0.8;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top: 3px solid #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Debug info */
+.debugInfo {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #00ff00;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.7;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.debugInfo div {
+  margin: 2px 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .controls {
+    top: 5px;
+    right: 5px;
+  }
+  
+  .fullscreenButton {
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+  
+  .debugInfo {
+    bottom: 5px;
+    left: 5px;
+    font-size: 10px;
+    padding: 6px 8px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .fullscreenButton {
+    background: #000;
+    border-color: #fff;
+  }
+  
+  .errorMessage {
+    border-color: #fff;
+    background: #000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .controls,
+  .fullscreenButton,
+  .spinner {
+    transition: none;
+    animation: none;
+  }
+  
+  .spinner {
+    border-top-color: transparent;
+  }
+}
+
+/* Print styles */
+@media print {
+  .canvasContainer {
+    position: static;
+    width: 100%;
+    height: 400px;
+  }
+  
+  .controls,
+  .debugInfo {
+    display: none;
+  }
+}

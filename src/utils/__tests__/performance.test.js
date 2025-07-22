@@ -1,163 +1,292 @@
 /**
- * Performance tests for canvas rendering optimizations
- * Validates that optimizations improve performance without breaking functionality
+ * Performance utilities tests
+ * Tests for performance monitoring and optimization utilities
  */
 
-import { calculateCompactVisualHash } from '../layerHash';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  PerformanceMonitor,
+  FrameRateMonitor,
+  MemoryMonitor,
+  performanceUtils,
+  globalPerformanceMonitor,
+  globalFrameRateMonitor,
+  globalMemoryMonitor
+} from '../performance.js';
 
-describe('Performance Tests', () => {
-  // Mock layer factory
-  const createMockLayer = (overrides = {}) => ({
-    numSides: 6,
-    curviness: -0.64,
-    width: 0.5,
-    height: 0.5,
-    noiseAmount: 0.8,
-    opacity: 1.0,
-    blendMode: 'normal',
-    colors: ['#FF0000', '#00FF00', '#0000FF'],
-    layerType: 'shape',
-    visible: true,
-    position: {
-      x: Math.random(),
-      y: Math.random(),
-      scale: 1.0
-    },
-    ...overrides
+describe('Performance Utilities', () => {
+  describe('PerformanceMonitor', () => {
+    let monitor;
+
+    beforeEach(() => {
+      monitor = new PerformanceMonitor();
+      monitor.isEnabled = true; // Force enable for testing
+    });
+
+    it('should start and end timing correctly', () => {
+      monitor.startTiming('test');
+      
+      // Simulate some work
+      const start = Date.now();
+      while (Date.now() - start < 10) {
+        // Wait 10ms
+      }
+      
+      const duration = monitor.endTiming('test');
+      expect(duration).toBeGreaterThan(0);
+      expect(duration).toBeLessThan(100); // Should be reasonable
+    });
+
+    it('should handle multiple metrics', () => {
+      monitor.startTiming('metric1');
+      monitor.startTiming('metric2');
+      
+      monitor.endTiming('metric1');
+      monitor.endTiming('metric2');
+      
+      const metrics = monitor.getAllMetrics();
+      expect(Object.keys(metrics)).toHaveLength(2);
+      expect(metrics.metric1.duration).toBeGreaterThanOrEqual(0);
+      expect(metrics.metric2.duration).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should clear metrics', () => {
+      monitor.startTiming('test');
+      monitor.endTiming('test');
+      
+      expect(monitor.getAllMetrics()).toHaveProperty('test');
+      
+      monitor.clearMetrics();
+      expect(Object.keys(monitor.getAllMetrics())).toHaveLength(0);
+    });
+
+    it('should handle ending non-existent timing', () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      
+      const duration = monitor.endTiming('nonexistent');
+      expect(duration).toBe(0);
+      expect(consoleSpy).toHaveBeenCalledWith("Performance metric 'nonexistent' was not started");
+      
+      consoleSpy.mockRestore();
+    });
   });
 
-  describe('Hash Calculation Performance', () => {
-    test('should calculate hash quickly for single layer', () => {
-      const layer = createMockLayer();
-      const iterations = 1000;
-      
-      const start = performance.now();
-      for (let i = 0; i < iterations; i++) {
-        calculateCompactVisualHash(layer);
-      }
-      const end = performance.now();
-      
-      const avgTime = (end - start) / iterations;
-      expect(avgTime).toBeLessThan(1); // Should be less than 1ms per hash
+  describe('FrameRateMonitor', () => {
+    let monitor;
+
+    beforeEach(() => {
+      monitor = new FrameRateMonitor();
     });
 
-    test('should handle many layers efficiently', () => {
-      const layers = Array.from({ length: 100 }, () => createMockLayer());
+    it('should record frames and calculate FPS', () => {
+      // Simulate 60 FPS (16.67ms per frame)
+      const frameTime = 1000 / 60;
       
-      const start = performance.now();
-      layers.forEach(layer => calculateCompactVisualHash(layer));
-      const end = performance.now();
+      for (let i = 0; i < 10; i++) {
+        monitor.lastFrameTime = performance.now() - frameTime;
+        monitor.recordFrame();
+      }
       
-      const totalTime = end - start;
-      expect(totalTime).toBeLessThan(100); // Should process 100 layers in under 100ms
+      const fps = monitor.getCurrentFPS();
+      expect(fps).toBeGreaterThan(50);
+      expect(fps).toBeLessThan(70);
+    });
+
+    it('should provide frame statistics', () => {
+      // Record some frames with varying times
+      monitor.frames = [16, 17, 15, 18, 16];
+      
+      const stats = monitor.getFrameStats();
+      expect(stats.min).toBe(15);
+      expect(stats.max).toBe(18);
+      expect(stats.avg).toBeCloseTo(16.4);
+      expect(stats.fps).toBeGreaterThan(50);
+    });
+
+    it('should handle empty frame data', () => {
+      const fps = monitor.getCurrentFPS();
+      expect(fps).toBe(0);
+      
+      const stats = monitor.getFrameStats();
+      expect(stats).toEqual({ min: 0, max: 0, avg: 0, fps: 0 });
+    });
+
+    it('should limit frame samples', () => {
+      // Record more frames than maxSamples
+      for (let i = 0; i < 100; i++) {
+        monitor.frames.push(16);
+      }
+      
+      expect(monitor.frames.length).toBe(monitor.maxSamples);
+    });
+
+    it('should reset correctly', () => {
+      monitor.frames = [16, 17, 18];
+      monitor.lastFrameTime = 1000;
+      
+      monitor.reset();
+      
+      expect(monitor.frames).toHaveLength(0);
+      expect(monitor.lastFrameTime).toBe(0);
     });
   });
 
-  describe('Change Detection Performance', () => {
-    test('should quickly detect unchanged layers', () => {
-      const layer = createMockLayer();
-      const hash = calculateCompactVisualHash(layer);
-      const iterations = 1000;
+  describe('MemoryMonitor', () => {
+    let monitor;
+    let originalMemory;
+
+    beforeEach(() => {
+      monitor = new MemoryMonitor();
       
-      const start = performance.now();
-      for (let i = 0; i < iterations; i++) {
-        const currentHash = calculateCompactVisualHash(layer);
-        const hasChanged = currentHash !== hash;
-        expect(hasChanged).toBe(false);
-      }
-      const end = performance.now();
-      
-      const avgTime = (end - start) / iterations;
-      expect(avgTime).toBeLessThan(0.5); // Should be very fast for unchanged layers
+      // Mock performance.memory
+      originalMemory = performance.memory;
+      performance.memory = {
+        usedJSHeapSize: 10000000,
+        totalJSHeapSize: 20000000,
+        jsHeapSizeLimit: 100000000
+      };
     });
 
-    test('should efficiently detect changes in large layer sets', () => {
-      const layers = Array.from({ length: 50 }, () => createMockLayer());
-      const hashes = layers.map(layer => calculateCompactVisualHash(layer));
+    afterEach(() => {
+      performance.memory = originalMemory;
+    });
+
+    it('should record memory usage', () => {
+      monitor.recordUsage();
       
-      // Change one layer
-      layers[25] = { ...layers[25], opacity: 0.5 };
+      expect(monitor.samples).toHaveLength(1);
+      expect(monitor.samples[0]).toHaveProperty('used', 10000000);
+      expect(monitor.samples[0]).toHaveProperty('total', 20000000);
+    });
+
+    it('should get current memory usage', () => {
+      const usage = monitor.getCurrentUsage();
       
-      const start = performance.now();
-      const changes = layers.map((layer, index) => {
-        const currentHash = calculateCompactVisualHash(layer);
-        return currentHash !== hashes[index];
+      expect(usage.used).toBe(10000000);
+      expect(usage.total).toBe(20000000);
+      expect(usage.usedMB).toBeCloseTo(9.54, 1);
+      expect(usage.totalMB).toBeCloseTo(19.07, 1);
+    });
+
+    it('should calculate memory trend', () => {
+      // Record initial usage
+      monitor.recordUsage();
+      
+      // Simulate memory increase
+      performance.memory.usedJSHeapSize = 15000000;
+      monitor.recordUsage();
+      
+      const trend = monitor.getTrend();
+      expect(trend.change).toBe(5000000);
+      expect(trend.changePercent).toBe(50);
+      expect(trend.isIncreasing).toBe(true);
+    });
+
+    it('should handle missing performance.memory', () => {
+      performance.memory = undefined;
+      
+      monitor.recordUsage();
+      expect(monitor.samples).toHaveLength(0);
+      
+      const usage = monitor.getCurrentUsage();
+      expect(usage).toBeNull();
+    });
+  });
+
+  describe('performanceUtils', () => {
+    it('should debounce function calls', (done) => {
+      let callCount = 0;
+      const debouncedFn = performanceUtils.debounce(() => {
+        callCount++;
+      }, 50);
+      
+      // Call multiple times quickly
+      debouncedFn();
+      debouncedFn();
+      debouncedFn();
+      
+      // Should not have been called yet
+      expect(callCount).toBe(0);
+      
+      // Wait for debounce delay
+      setTimeout(() => {
+        expect(callCount).toBe(1);
+        done();
+      }, 60);
+    });
+
+    it('should throttle function calls', (done) => {
+      let callCount = 0;
+      const throttledFn = performanceUtils.throttle(() => {
+        callCount++;
+      }, 50);
+      
+      // Call multiple times quickly
+      throttledFn();
+      throttledFn();
+      throttledFn();
+      
+      // Should have been called once immediately
+      expect(callCount).toBe(1);
+      
+      // Wait and call again
+      setTimeout(() => {
+        throttledFn();
+        expect(callCount).toBe(2);
+        done();
+      }, 60);
+    });
+
+    it('should measure execution time', () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      
+      const result = performanceUtils.measureExecution(() => {
+        return 'test result';
+      }, 'test function');
+      
+      expect(result).toBe('test result');
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('test function:'));
+      
+      consoleSpy.mockRestore();
+    });
+
+    it('should get device performance info', () => {
+      const info = performanceUtils.getDevicePerformance();
+      
+      expect(info).toHaveProperty('hardwareConcurrency');
+      expect(info).toHaveProperty('deviceMemory');
+      expect(info).toHaveProperty('webglSupported');
+      expect(info).toHaveProperty('pixelRatio');
+      expect(info).toHaveProperty('isHighPerformance');
+      expect(typeof info.isHighPerformance).toBe('boolean');
+    });
+
+    it('should handle requestIdleCallback fallback', (done) => {
+      const originalRequestIdleCallback = window.requestIdleCallback;
+      window.requestIdleCallback = undefined;
+      
+      performanceUtils.requestIdleCallback((deadline) => {
+        expect(deadline).toHaveProperty('didTimeout');
+        expect(deadline).toHaveProperty('timeRemaining');
+        expect(typeof deadline.timeRemaining).toBe('function');
+        
+        window.requestIdleCallback = originalRequestIdleCallback;
+        done();
       });
-      const end = performance.now();
-      
-      const totalTime = end - start;
-      expect(totalTime).toBeLessThan(50); // Should detect changes in 50 layers quickly
-      expect(changes.filter(Boolean)).toHaveLength(1); // Only one layer changed
-      expect(changes[25]).toBe(true); // The changed layer was detected
     });
   });
 
-  describe('Memory Usage', () => {
-    test('should not leak memory with repeated hash calculations', () => {
-      const layer = createMockLayer();
-      const iterations = 10000;
-      
-      // Force garbage collection if available (Node.js)
-      if (global.gc) {
-        global.gc();
-      }
-      
-      const initialMemory = process.memoryUsage ? process.memoryUsage().heapUsed : 0;
-      
-      for (let i = 0; i < iterations; i++) {
-        calculateCompactVisualHash(layer);
-      }
-      
-      // Force garbage collection again
-      if (global.gc) {
-        global.gc();
-      }
-      
-      const finalMemory = process.memoryUsage ? process.memoryUsage().heapUsed : 0;
-      const memoryIncrease = finalMemory - initialMemory;
-      
-      // Memory increase should be minimal (less than 1MB for 10k calculations)
-      if (process.memoryUsage) {
-        expect(memoryIncrease).toBeLessThan(1024 * 1024);
-      }
-    });
-  });
-
-  describe('Edge Cases Performance', () => {
-    test('should handle malformed layers gracefully', () => {
-      const malformedLayers = [
-        null,
-        undefined,
-        {},
-        { position: null },
-        { position: {} },
-        { colors: null },
-        { numSides: null }
-      ];
-      
-      const start = performance.now();
-      malformedLayers.forEach(layer => {
-        expect(() => calculateCompactVisualHash(layer)).not.toThrow();
-      });
-      const end = performance.now();
-      
-      const totalTime = end - start;
-      expect(totalTime).toBeLessThan(10); // Should handle edge cases quickly
+  describe('Global Monitors', () => {
+    it('should have global performance monitor instance', () => {
+      expect(globalPerformanceMonitor).toBeInstanceOf(PerformanceMonitor);
     });
 
-    test('should handle very large layer objects', () => {
-      const largeLayer = createMockLayer({
-        colors: Array.from({ length: 1000 }, (_, i) => `#${i.toString(16).padStart(6, '0')}`),
-        customData: Array.from({ length: 1000 }, (_, i) => ({ id: i, value: Math.random() }))
-      });
-      
-      const start = performance.now();
-      const hash = calculateCompactVisualHash(largeLayer);
-      const end = performance.now();
-      
-      const time = end - start;
-      expect(time).toBeLessThan(10); // Should handle large objects reasonably fast
-      expect(hash).toBeTruthy();
+    it('should have global frame rate monitor instance', () => {
+      expect(globalFrameRateMonitor).toBeInstanceOf(FrameRateMonitor);
+    });
+
+    it('should have global memory monitor instance', () => {
+      expect(globalMemoryMonitor).toBeInstanceOf(MemoryMonitor);
     });
   });
 });

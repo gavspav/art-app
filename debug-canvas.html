@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Debug Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 800px;
+            height: 600px;
+            border: 2px solid #ccc;
+            position: relative;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .debug {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .status {
+            margin: 5px 0;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Canvas Initialization Debug Test</h1>
+    
+    <div class="container" id="container">
+        <canvas id="testCanvas"></canvas>
+    </div>
+    
+    <div class="debug">
+        <h3>Debug Information:</h3>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            statusDiv.appendChild(div);
+            console.log(message);
+        }
+
+        function testCanvasInitialization() {
+            log('Starting canvas initialization test...');
+            
+            const canvas = document.getElementById('testCanvas');
+            const container = document.getElementById('container');
+            
+            // Test 1: Basic canvas element
+            log(`Canvas element exists: ${!!canvas}`);
+            log(`Container element exists: ${!!container}`);
+            
+            // Test 2: Container dimensions
+            const containerRect = container.getBoundingClientRect();
+            log(`Container dimensions: ${containerRect.width}x${containerRect.height}`);
+            
+            // Test 3: Canvas context
+            try {
+                const context = canvas.getContext('2d');
+                log(`Canvas context created: ${!!context}`, context ? 'success' : 'error');
+                
+                if (context) {
+                    log('Canvas context type: 2d', 'success');
+                    
+                    // Test 4: Set canvas dimensions
+                    const displayWidth = containerRect.width;
+                    const displayHeight = containerRect.height;
+                    const pixelRatio = window.devicePixelRatio || 1;
+                    
+                    log(`Display dimensions: ${displayWidth}x${displayHeight}`);
+                    log(`Pixel ratio: ${pixelRatio}`);
+                    
+                    // Set actual canvas size
+                    canvas.width = displayWidth * pixelRatio;
+                    canvas.height = displayHeight * pixelRatio;
+                    
+                    // Set display size
+                    canvas.style.width = `${displayWidth}px`;
+                    canvas.style.height = `${displayHeight}px`;
+                    
+                    // Scale context
+                    context.scale(pixelRatio, pixelRatio);
+                    
+                    log(`Canvas actual size: ${canvas.width}x${canvas.height}`, 'success');
+                    log(`Canvas display size: ${canvas.style.width} x ${canvas.style.height}`, 'success');
+                    
+                    // Test 5: Draw something
+                    context.fillStyle = '#ff0000';
+                    context.fillRect(10, 10, 100, 100);
+                    
+                    context.fillStyle = '#00ff00';
+                    context.fillRect(120, 10, 100, 100);
+                    
+                    context.fillStyle = '#0000ff';
+                    context.fillRect(230, 10, 100, 100);
+                    
+                    log('Canvas drawing test completed', 'success');
+                    
+                    // Test 6: Simulate useCanvas hook behavior
+                    simulateUseCanvasHook();
+                    
+                } else {
+                    log('Failed to get canvas context', 'error');
+                }
+            } catch (error) {
+                log(`Canvas context error: ${error.message}`, 'error');
+            }
+        }
+        
+        function simulateUseCanvasHook() {
+            log('--- Simulating useCanvas hook behavior ---');
+            
+            const canvas = document.getElementById('testCanvas');
+            const container = document.getElementById('container');
+            
+            // Simulate the useCanvas hook logic
+            let isReady = false;
+            let error = null;
+            let dimensions = { width: 0, height: 0 };
+            
+            function initializeContext() {
+                log('useCanvas: initializeContext called');
+                
+                if (!canvas) {
+                    error = 'Canvas element not found';
+                    log(`useCanvas error: ${error}`, 'error');
+                    return false;
+                }
+                
+                try {
+                    const context = canvas.getContext('2d');
+                    if (!context) {
+                        error = 'Failed to get 2d context';
+                        log(`useCanvas error: ${error}`, 'error');
+                        return false;
+                    }
+                    
+                    log('useCanvas: Context initialized successfully', 'success');
+                    error = null;
+                    return true;
+                } catch (err) {
+                    error = 'Failed to initialize canvas context';
+                    log(`useCanvas error: ${error}`, 'error');
+                    return false;
+                }
+            }
+            
+            function resizeCanvas() {
+                log('useCanvas: resizeCanvas called');
+                
+                if (!canvas) {
+                    log('useCanvas: No canvas element for resize', 'error');
+                    return;
+                }
+                
+                if (!container) {
+                    log('useCanvas: No container element for resize', 'error');
+                    return;
+                }
+                
+                const containerRect = container.getBoundingClientRect();
+                const displayWidth = containerRect.width;
+                const displayHeight = containerRect.height;
+                const ratio = window.devicePixelRatio || 1;
+                
+                log(`useCanvas: Resizing to ${displayWidth}x${displayHeight}, ratio: ${ratio}`);
+                
+                // Set actual canvas size
+                canvas.width = displayWidth * ratio;
+                canvas.height = displayHeight * ratio;
+                
+                // Set display size
+                canvas.style.width = `${displayWidth}px`;
+                canvas.style.height = `${displayHeight}px`;
+                
+                // Scale context
+                const context = canvas.getContext('2d');
+                if (context) {
+                    context.scale(ratio, ratio);
+                }
+                
+                dimensions = {
+                    width: displayWidth,
+                    height: displayHeight,
+                    canvasWidth: canvas.width,
+                    canvasHeight: canvas.height
+                };
+                
+                log(`useCanvas: Resize complete - ${JSON.stringify(dimensions)}`, 'success');
+            }
+            
+            // Simulate the useEffect logic
+            log('useCanvas: Starting initialization effect...');
+            
+            if (canvas) {
+                const success = initializeContext();
+                if (success) {
+                    resizeCanvas();
+                    isReady = true;
+                    log('useCanvas: Canvas is ready!', 'success');
+                } else {
+                    log('useCanvas: Canvas initialization failed', 'error');
+                }
+            } else {
+                log('useCanvas: Canvas element not found in effect', 'error');
+            }
+            
+            log(`useCanvas final state: isReady=${isReady}, error=${error}`);
+            
+            // Test what happens when parent element is missing
+            testParentElementIssue();
+        }
+        
+        function testParentElementIssue() {
+            log('--- Testing parent element issue ---');
+            
+            const canvas = document.getElementById('testCanvas');
+            const parent = canvas.parentElement;
+            
+            log(`Canvas parent element: ${parent ? parent.tagName : 'null'}`);
+            log(`Canvas parent ID: ${parent ? parent.id : 'null'}`);
+            
+            if (parent) {
+                const rect = parent.getBoundingClientRect();
+                log(`Parent dimensions: ${rect.width}x${rect.height}`);
+                log(`Parent has dimensions: ${rect.width > 0 && rect.height > 0}`);
+            }
+            
+            // Test ResizeObserver availability
+            log(`ResizeObserver available: ${!!window.ResizeObserver}`);
+            
+            if (window.ResizeObserver && parent) {
+                log('Testing ResizeObserver...');
+                const observer = new ResizeObserver(() => {
+                    log('ResizeObserver triggered', 'success');
+                });
+                observer.observe(parent);
+                
+                // Trigger a resize
+                setTimeout(() => {
+                    parent.style.width = '801px';
+                    setTimeout(() => {
+                        parent.style.width = '800px';
+                        observer.disconnect();
+                        log('ResizeObserver test completed');
+                    }, 100);
+                }, 100);
+            }
+        }
+        
+        // Start the test when page loads
+        window.addEventListener('load', () => {
+            log('Page loaded, starting tests...');
+            setTimeout(testCanvasInitialization, 100);
+        });
+        
+        // Also test on DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', () => {
+            log('DOM content loaded');
+        });
+    </script>
+</body>
+</html>

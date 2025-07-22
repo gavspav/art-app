@@ -1,6 +1,6 @@
 import React from 'react';
 import ColorPicker from './ColorPicker';
-import { useParameters } from '../context/ParameterContext.jsx';
+import { PARAMETERS } from '../constants/parameters';
 import { blendModes } from '../constants/blendModes';
 
 const DynamicControl = ({ param, currentLayer, updateLayer }) => {
@@ -79,7 +79,7 @@ const Controls = ({
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier
 }) => {
-  const { parameters } = useParameters();
+  const parameters = PARAMETERS;
 
   if (!currentLayer) {
     return <div className="controls">Loading...</div>;

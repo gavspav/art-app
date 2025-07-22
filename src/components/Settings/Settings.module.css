@@ -1,0 +1,557 @@
+/**
+ * Settings Panel Styles
+ * Provides styling for the settings modal and its components
+ */
+
+/* Settings Modal Overlay - Optimized for Performance */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  /* Performance optimizations */
+  will-change: opacity;
+  contain: layout style paint;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+/* Main Settings Panel */
+.panel {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  width: 90vw;
+  max-width: 800px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  /* Performance optimizations */
+  will-change: transform;
+  contain: layout style;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+/* Settings Header */
+.header {
+  padding: 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.2s ease;
+}
+
+.closeButton:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Settings Content */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* Tab Navigation */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #333;
+  background: #222;
+}
+
+.tab {
+  background: none;
+  border: none;
+  color: #999;
+  padding: 15px 20px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.tab:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.tab.active {
+  color: #4a9eff;
+  border-bottom-color: #4a9eff;
+  background-color: rgba(74, 158, 255, 0.1);
+}
+
+/* Tab Content */
+.tabContent {
+  padding: 20px;
+}
+
+/* Parameter Editor Styles */
+.parameterEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.parameterGroup {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.groupTitle {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 15px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+
+.parameterList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.parameterItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.parameterItem:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.parameterLabel {
+  color: #ccc;
+  font-size: 0.9rem;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.parameterControl {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.parameterInput {
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #fff;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  width: 100%;
+  transition: border-color 0.2s ease;
+}
+
+.parameterInput:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.parameterSlider {
+  flex: 1;
+}
+
+.parameterValue {
+  color: #999;
+  font-size: 0.8rem;
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Configuration Manager Styles */
+.configManager {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.configSection {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.sectionTitle {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 15px 0;
+}
+
+.configList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.configItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.configItem:hover {
+  background-color: #3a3a3a;
+}
+
+.configInfo {
+  flex: 1;
+}
+
+.configName {
+  color: #fff;
+  font-weight: 500;
+  margin: 0 0 4px 0;
+}
+
+.configMeta {
+  color: #999;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.configActions {
+  display: flex;
+  gap: 8px;
+}
+
+.actionButton {
+  background: #4a9eff;
+  border: none;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.actionButton:hover {
+  background-color: #3a8eef;
+}
+
+.actionButton.danger {
+  background-color: #ff4757;
+}
+
+.actionButton.danger:hover {
+  background-color: #ef3747;
+}
+
+.actionButton.secondary {
+  background-color: #666;
+}
+
+.actionButton.secondary:hover {
+  background-color: #777;
+}
+
+/* Save/Load Form */
+.configForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.configInput {
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  flex: 1;
+  transition: border-color 0.2s ease;
+}
+
+.configInput:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.configInput::placeholder {
+  color: #999;
+}
+
+/* Message Display */
+.message {
+  padding: 12px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+}
+
+.message.success {
+  background-color: rgba(39, 174, 96, 0.2);
+  border: 1px solid rgba(39, 174, 96, 0.4);
+  color: #2ecc71;
+}
+
+.message.error {
+  background-color: rgba(231, 76, 60, 0.2);
+  border: 1px solid rgba(231, 76, 60, 0.4);
+  color: #e74c3c;
+}
+
+.message.info {
+  background-color: rgba(74, 158, 255, 0.2);
+  border: 1px solid rgba(74, 158, 255, 0.4);
+  color: #4a9eff;
+}
+
+/* Loading State */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: #999;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333;
+  border-top: 2px solid #4a9eff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Empty State */
+.emptyState {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.emptyState h3 {
+  margin: 0 0 8px 0;
+  color: #ccc;
+}
+
+.emptyState p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* Responsive Design - Enhanced */
+@media (max-width: 1024px) {
+  .panel {
+    width: 92vw;
+    max-width: 700px;
+  }
+}
+
+@media (max-width: 768px) {
+  .panel {
+    width: 95vw;
+    max-height: 95vh;
+  }
+  
+  .header {
+    padding: 15px;
+  }
+  
+  .title {
+    font-size: 1.3rem;
+  }
+  
+  .tabContent {
+    padding: 15px;
+  }
+  
+  .tabs {
+    flex-wrap: wrap;
+  }
+  
+  .tab {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 16px;
+    font-size: 0.85rem;
+  }
+  
+  .parameterItem {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  
+  .parameterLabel {
+    min-width: auto;
+  }
+  
+  .formRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .configItem {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  
+  .configActions {
+    justify-content: flex-end;
+  }
+  
+  .configList {
+    max-height: 150px;
+  }
+}
+
+@media (max-width: 480px) {
+  .panel {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+  
+  .header {
+    padding: 12px;
+  }
+  
+  .title {
+    font-size: 1.2rem;
+  }
+  
+  .tabContent {
+    padding: 12px;
+  }
+  
+  .tab {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .parameterGroup,
+  .configSection {
+    padding: 12px;
+  }
+  
+  .actionButton {
+    padding: 8px 12px;
+    font-size: 0.75rem;
+  }
+  
+  .configInput {
+    padding: 10px;
+    font-size: 0.85rem;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .panel {
+    border: 2px solid #fff;
+  }
+  
+  .parameterInput,
+  .configInput {
+    border-width: 2px;
+  }
+  
+  .actionButton {
+    border: 1px solid currentColor;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .parameterItem,
+  .configItem,
+  .actionButton,
+  .parameterInput,
+  .configInput,
+  .closeButton {
+    transition: none;
+  }
+  
+  .spinner {
+    animation: none;
+  }
+}
+
+/* Dark mode adjustments (for systems that support it) */
+@media (prefers-color-scheme: light) {
+  .panel {
+    background: #f5f5f5;
+    border-color: #ddd;
+  }
+  
+  .title {
+    color: #333;
+  }
+  
+  .parameterGroup,
+  .configSection {
+    background: #fff;
+    border-color: #ddd;
+  }
+  
+  .groupTitle {
+    color: #333;
+    border-bottom-color: #ddd;
+  }
+}

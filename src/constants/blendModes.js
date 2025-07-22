@@ -1,18 +1,26 @@
+/**
+ * Available blend modes for canvas rendering
+ * These correspond to the HTML5 Canvas globalCompositeOperation values
+ */
+
 export const blendModes = [
-  'normal',
-  'multiply',
+  'source-over',
+  'multiply', 
   'screen',
   'overlay',
-  'darken',
-  'lighten',
-  'color-dodge',
-  'color-burn',
-  'hard-light',
+  'lighter',
   'soft-light',
-  'difference',
-  'exclusion',
-  'hue',
-  'saturation',
-  'color',
-  'luminosity'
+  'hard-light',
+  'color-dodge'
 ];
+
+export const blendModeLabels = {
+  'source-over': 'Normal',
+  'multiply': 'Multiply',
+  'screen': 'Screen', 
+  'overlay': 'Overlay',
+  'lighter': 'Lighter',
+  'soft-light': 'Soft Light',
+  'hard-light': 'Hard Light',
+  'color-dodge': 'Color Dodge'
+};

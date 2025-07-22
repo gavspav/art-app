@@ -1,0 +1,476 @@
+/* Control Panel Styles - Optimized for Performance */
+.controlPanel {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 16px;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-width: 400px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  /* Performance optimizations */
+  will-change: scroll-position;
+  contain: layout style;
+  transform: translateZ(0); /* Force hardware acceleration */
+}
+
+.controlHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #333;
+  padding-bottom: 12px;
+}
+
+.controlTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.toggleButton {
+  background: #333;
+  border: 1px solid #555;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.toggleButton:hover {
+  background: #444;
+  border-color: #666;
+}
+
+.toggleButton.active {
+  background: #0066cc;
+  border-color: #0066cc;
+}
+
+.randomizeButton {
+  background: #ff6b35;
+  border: none;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.randomizeButton:hover {
+  background: #e55a2b;
+}
+
+/* Color Section */
+.colorSection {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #222;
+  border-radius: 6px;
+  border: 1px solid #333;
+}
+
+/* Parameter Groups */
+.parameterGroups {
+  margin-top: 16px;
+}
+
+.groupTabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.groupTab {
+  background: #333;
+  border: none;
+  color: #ccc;
+  padding: 8px 12px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.groupTab:hover {
+  background: #444;
+  color: #fff;
+}
+
+.groupTab.activeTab {
+  background: #0066cc;
+  color: #ffffff;
+}
+
+.groupContent {
+  background: #222;
+  border-radius: 0 6px 6px 6px;
+  padding: 12px;
+  border: 1px solid #333;
+}
+
+.groupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.groupTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.randomizeGroupButton {
+  background: #666;
+  border: none;
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: background 0.2s ease;
+}
+
+.randomizeGroupButton:hover {
+  background: #777;
+}
+
+.parameterList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Parameter Control Styles */
+.parameterControl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.parameterLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  margin: 0;
+}
+
+.sliderContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider {
+  flex: 1;
+  height: 4px;
+  background: #444;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #0066cc;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  background: #0080ff;
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #0066cc;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s ease;
+}
+
+.slider::-moz-range-thumb:hover {
+  background: #0080ff;
+}
+
+.valueDisplay {
+  font-size: 11px;
+  color: #999;
+  min-width: 50px;
+  text-align: right;
+  font-family: monospace;
+}
+
+.dropdown {
+  background: #333;
+  border: 1px solid #555;
+  color: #ffffff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dropdown:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.colorPicker {
+  width: 40px;
+  height: 30px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+
+.numberInput {
+  background: #333;
+  border: 1px solid #555;
+  color: #ffffff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 80px;
+}
+
+.numberInput:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+/* Color Palette Styles */
+.colorPalette {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.paletteSelector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  margin: 0;
+}
+
+.paletteDropdown {
+  background: #333;
+  border: 1px solid #555;
+  color: #ffffff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.paletteDropdown:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.palettePreview {
+  min-height: 20px;
+}
+
+.previewColors {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.previewColor {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid #555;
+  cursor: pointer;
+}
+
+.colorEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.colorList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.colorItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colorInput {
+  width: 30px;
+  height: 24px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  cursor: pointer;
+  background: none;
+}
+
+.colorValue {
+  font-size: 11px;
+  color: #999;
+  font-family: monospace;
+  flex: 1;
+}
+
+.removeColorButton {
+  background: #cc3333;
+  border: none;
+  color: #ffffff;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.removeColorButton:hover {
+  background: #dd4444;
+}
+
+.addColorButton {
+  background: #333;
+  border: 1px solid #555;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.addColorButton:hover:not(:disabled) {
+  background: #444;
+  border-color: #666;
+}
+
+.addColorButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive Design - Enhanced */
+@media (max-width: 768px) {
+  .controlPanel {
+    max-width: none;
+    padding: 12px;
+  }
+  
+  .controlHeader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  
+  .headerButtons {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .controlPanel {
+    margin: 0;
+    border-radius: 0;
+    padding: 8px;
+  }
+  
+  .groupTabs {
+    flex-wrap: wrap;
+    gap: 1px;
+  }
+  
+  .groupTab {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+  
+  .headerButtons {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .toggleButton,
+  .randomizeButton {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  
+  .parameterControl {
+    gap: 4px;
+  }
+  
+  .sliderContainer {
+    gap: 6px;
+  }
+  
+  .valueDisplay {
+    min-width: 40px;
+    font-size: 10px;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .controlPanel {
+    border: 2px solid #fff;
+  }
+  
+  .toggleButton,
+  .randomizeButton,
+  .dropdown,
+  .numberInput {
+    border-width: 2px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .toggleButton,
+  .randomizeButton,
+  .groupTab,
+  .slider::-webkit-slider-thumb,
+  .slider::-moz-range-thumb {
+    transition: none;
+  }
+}
