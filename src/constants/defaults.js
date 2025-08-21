@@ -25,7 +25,6 @@ export const DEFAULT_LAYER = {
   scaleMax: 1.5,
 
   // Old version animation parameters
-  speed: 0.002,
   variation: 0.2,
 
   // Seeding
@@ -68,7 +67,6 @@ export const DEFAULT_LAYER = {
 export const DEFAULTS = {
   globalSpeedMultiplier: 1,
   isFrozen: false,
-  variation: 1.5,
   backgroundColor: '#111111',
   globalBlendMode: 'source-over',
   guideWidth: 0.5,

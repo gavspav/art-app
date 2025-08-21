@@ -12,7 +12,6 @@ export const AppStateProvider = ({ children }) => {
   // Main app state that should be saveable
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
-    variation: DEFAULTS.variation,
     backgroundColor: DEFAULTS.backgroundColor,
     globalBlendMode: DEFAULTS.globalBlendMode,
     globalSeed: DEFAULTS.globalSeed,
@@ -29,10 +28,6 @@ export const AppStateProvider = ({ children }) => {
   // Individual state setters for backward compatibility
   const setIsFrozen = useCallback((value) => {
     setAppState(prev => ({ ...prev, isFrozen: value }));
-  }, []);
-
-  const setVariation = useCallback((value) => {
-    setAppState(prev => ({ ...prev, variation: value }));
   }, []);
 
   const setBackgroundColor = useCallback((value) => {
@@ -94,7 +89,6 @@ export const AppStateProvider = ({ children }) => {
   const resetAppState = useCallback(() => {
     setAppState({
       isFrozen: DEFAULTS.isFrozen,
-      variation: DEFAULTS.variation,
       backgroundColor: DEFAULTS.backgroundColor,
       globalSeed: DEFAULTS.globalSeed,
       globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
@@ -114,7 +108,6 @@ export const AppStateProvider = ({ children }) => {
     
     // Individual setters for backward compatibility
     setIsFrozen,
-    setVariation,
     setBackgroundColor,
     setGlobalBlendMode,
     setGlobalSeed,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { blendModes } from '../constants/blendModes';
@@ -83,10 +83,32 @@ const DynamicControl = ({ param, currentLayer, updateLayer }) => {
   }
 };
 
+// Collapsible Section component defined at module scope to maintain stable identity across renders
+const Section = ({ title, id, defaultOpen = false, children }) => {
+  const [open, setOpen] = React.useState(!!defaultOpen);
+  return (
+    <div className="control-group" data-section-id={id}>
+      <div
+        className="section-header"
+        onClick={() => setOpen(o => !o)}
+        style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+      >
+        <span>{open ? '▾' : '▸'}</span>
+        <span>{title}</span>
+      </div>
+      {open && (
+        <div className="section-body" style={{ marginTop: '0.5rem' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Controls = ({ 
   currentLayer, 
   updateLayer, 
-  randomizeSeed, // Changed from randomizeLayer to randomizeSeed
+  randomizeCurrentLayer,
   randomizeAll, 
   isFrozen, 
   setIsFrozen,
@@ -100,6 +122,7 @@ const Controls = ({
   setIsNodeEditMode,
 }) => {
   const { parameters } = useParameters();
+
 
   if (!currentLayer) {
     return <div className="controls">Loading...</div>;
@@ -182,8 +205,8 @@ const Controls = ({
     }
   };
 
-  // Hide per-layer opacity now that we have a global opacity control
-  const overlayControls = parameters.filter(p => p.showInOverlay && p.id !== 'opacity');
+  // Hide per-layer opacity (global control exists) and variation (moved to Layers section)
+  const overlayControls = parameters.filter(p => p.showInOverlay && p.id !== 'opacity' && p.id !== 'variation');
   const groupedControls = overlayControls.reduce((acc, param) => {
     const group = param.group || 'General';
     if (!acc[group]) acc[group] = [];
@@ -199,8 +222,7 @@ const Controls = ({
         <button onClick={() => setIsFrozen(!isFrozen)}>{isFrozen ? 'Unfreeze' : 'Freeze'}</button>
       </div>
 
-      <div className="control-group">
-        <h3>Global</h3>
+      <Section title="Global" id="global" defaultOpen={false}>
         <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
         <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
         <input 
@@ -236,69 +258,67 @@ const Controls = ({
             setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
           }}
         />
-      </div>
+      </Section>
 
-      <div className="control-group">
-        <h3>Layer: {currentLayer.name}</h3>
-        
-        {/* --- Special non-dynamic controls --- */}
-        <h4>Appearance</h4>
-        {/* Colours controls */}
-        <label>Number of colours:</label>
-        <input
-          type="number"
-          min={1}
-          step={1}
-          value={(() => {
-            const n = Number.isFinite(currentLayer.numColors)
-              ? currentLayer.numColors
-              : (currentLayer.colors?.length || 1);
-            return Math.max(1, n);
-          })()}
-          onChange={handleNumColorsChange}
-          style={{ width: '5rem' }}
-        />
+      <Section title={`Layer: ${currentLayer.name}`} id="layer" defaultOpen={false}>
+        {/* Appearance subsection */}
+        <Section title="Appearance" id="layer-appearance" defaultOpen={false}>
+          <label>Number of colours:</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={(() => {
+              const n = Number.isFinite(currentLayer.numColors)
+                ? currentLayer.numColors
+                : (currentLayer.colors?.length || 1);
+              return Math.max(1, n);
+            })()}
+            onChange={handleNumColorsChange}
+            style={{ width: '5rem' }}
+          />
 
-        {/* Color preset selector */}
-        <label>Color Preset:</label>
-        <select
-          value={(() => {
-            const idx = matchPaletteIndex(currentLayer.colors || []);
-            return idx === -1 ? 'custom' : String(idx);
-          })()}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val !== 'custom') {
-              const idx = parseInt(val, 10);
-              if (palettes[idx]) {
-                const count = Number.isFinite(currentLayer.numColors)
-                  ? currentLayer.numColors
-                  : (currentLayer.colors?.length || palettes[idx].colors.length);
-                const nextColors = sampleColors(palettes[idx].colors, count);
-                updateLayer({ colors: nextColors, numColors: count });
+          <label>Color Preset:</label>
+          <select
+            value={(() => {
+              const idx = matchPaletteIndex(currentLayer.colors || []);
+              return idx === -1 ? 'custom' : String(idx);
+            })()}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val !== 'custom') {
+                const idx = parseInt(val, 10);
+                if (palettes[idx]) {
+                  const count = Number.isFinite(currentLayer.numColors)
+                    ? currentLayer.numColors
+                    : (currentLayer.colors?.length || palettes[idx].colors.length);
+                  const nextColors = sampleColors(palettes[idx].colors, count);
+                  updateLayer({ colors: nextColors, numColors: count });
+                }
               }
-            }
-          }}
-        >
-          <option value="custom">Custom</option>
-          {palettes.map((p, idx) => (
-            <option key={idx} value={idx}>{p.name}</option>
-          ))}
-        </select>
+            }}
+          >
+            <option value="custom">Custom</option>
+            {palettes.map((p, idx) => (
+              <option key={idx} value={idx}>{p.name}</option>
+            ))}
+          </select>
 
-        <ColorPicker 
-          label="Colors"
-          colors={currentLayer.colors}
-          onChange={handleColorChange}
-        />
+          <ColorPicker 
+            label="Colors"
+            colors={currentLayer.colors}
+            onChange={handleColorChange}
+          />
+        </Section>
 
-        <h4>Image</h4>
-        <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
-        
-        {/* --- Dynamically generated controls --- */}
+        {/* Image subsection */}
+        <Section title="Image" id="layer-image" defaultOpen={false}>
+          <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />
+        </Section>
+
+        {/* Dynamic groups (Shape, Movement, Image Effects, etc.) */}
         {Object.entries(groupedControls).map(([groupName, params]) => (
-          <React.Fragment key={groupName}>
-            <h4>{groupName}</h4>
+          <Section key={groupName} title={groupName} id={`group-${groupName}`} defaultOpen={false}>
             {params.map(param => (
               <DynamicControl 
                 key={param.id} 
@@ -307,11 +327,11 @@ const Controls = ({
                 updateLayer={updateLayer} 
               />
             ))}
-          </React.Fragment>
+          </Section>
         ))}
-        
-        <button onClick={randomizeSeed} style={{ marginTop: '1rem' }}>Randomize Seed</button>
-      </div>
+
+        <button onClick={() => randomizeCurrentLayer(false)} style={{ marginTop: '1rem' }}>Randomize Layer</button>
+      </Section>
     </div>
   );
 };

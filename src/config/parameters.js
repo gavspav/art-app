@@ -73,19 +73,7 @@ export const PARAMETERS = [
     group: 'Shape',
   },
 
-  // Animation - from old version
-  {
-    id: 'speed',
-    label: 'Speed',
-    type: 'slider',
-    min: 0,
-    max: 1,
-    step: 0.01,
-    defaultValue: 0.002,
-    isRandomizable: true,
-    showInOverlay: true,
-    group: 'Animation',
-  },
+  // Layer Variation (was in Animation)
   {
     id: 'variation',
     label: 'Layer Variation',
@@ -96,7 +84,7 @@ export const PARAMETERS = [
     defaultValue: 0.2,
     isRandomizable: true,
     showInOverlay: true,
-    group: 'Animation',
+    group: 'General',
   },
 
   // Appearance
