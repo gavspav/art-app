@@ -5,13 +5,14 @@ export const DEFAULT_LAYER = {
   imageSrc: null, // Data URL for imported images
   shapeType: 'polygon',
   numSides: 6,
-  curviness: -0.64,
-  width: 0.5,
-  height: 0.5,
-  noiseAmount: 0.8,
+  wobble: 0.5,
+  curviness: 1.0, // Default to full smoothing, within [0,1]
+  width: 250, // Changed to match old version (Guide Width)
+  height: 250, // Changed to match old version (Guide Height)
+  noiseAmount: 0.5, // Changed to match old version default
   noiseSpeed: 0.005,
-  opacity: 1.0,
-  blendMode: 'normal',
+  opacity: 0.8, // Changed to match old version default
+  blendMode: 'source-over', // Changed to match old version
   colors: ["#FFC300", "#FF5733", "#C70039"],
   selectedColor: 0,
 
@@ -23,10 +24,32 @@ export const DEFAULT_LAYER = {
   scaleMin: 0.2,
   scaleMax: 1.5,
 
+  // Old version animation parameters
+  speed: 0.002,
+  variation: 0.2,
+
   // Seeding
   seed: 1,
   noiseSeed: 1,
   useGlobalSeed: false,
+
+  // Superior algorithm parameters from old version
+  freq1: 2,
+  freq2: 3,
+  freq3: 4,
+  baseRadiusFactor: 0.4,
+  radiusBump: 0,
+
+  // Node editing
+  nodes: null, // when set, array of { x: number, y: number } normalized to canvas size (0..1)
+
+  // Image Effects
+  imageBlur: 0,
+  imageBrightness: 100,
+  imageContrast: 100,
+  imageHue: 0,
+  imageSaturation: 100,
+  imageDistortion: 0,
 
   // Dynamic state (nested as expected by Canvas.jsx and useAnimation.js)
   position: {

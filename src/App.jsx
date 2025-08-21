@@ -28,11 +28,15 @@ const MainApp = () => {
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
     layers, setLayers,
     selectedLayerIndex, setSelectedLayerIndex,
-    isOverlayVisible, setIsOverlayVisible
+    isOverlayVisible, setIsOverlayVisible,
+    isNodeEditMode, setIsNodeEditMode,
   } = useAppState();
 
   const canvasRef = useRef();
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(canvasRef);
+
+  // Remember prior frozen state when entering node edit mode
+  const prevFrozenRef = useRef(null);
 
   useEffect(() => {
     setLayers(prevLayers => 
@@ -47,6 +51,16 @@ const MainApp = () => {
         }
         return layer;
       })
+    );
+  }, []);
+
+  // Normalize any persisted out-of-range values (e.g., curviness) once on load
+  useEffect(() => {
+    setLayers(prevLayers =>
+      prevLayers.map(layer => ({
+        ...layer,
+        curviness: Math.min(1, Math.max(0, typeof layer.curviness === 'number' ? layer.curviness : 1)),
+      }))
     );
   }, []);
 
@@ -67,6 +81,20 @@ const MainApp = () => {
   }, []);
 
   useAnimation(setLayers, isFrozen, globalSpeedMultiplier);
+
+  // Auto-freeze while in Node Edit mode; restore previous state on exit
+  useEffect(() => {
+    if (isNodeEditMode) {
+      if (prevFrozenRef.current === null) prevFrozenRef.current = isFrozen;
+      if (!isFrozen) setIsFrozen(true);
+    } else {
+      if (prevFrozenRef.current !== null && isFrozen !== prevFrozenRef.current) {
+        setIsFrozen(prevFrozenRef.current);
+      }
+      prevFrozenRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNodeEditMode, isFrozen]);
 
   const currentLayer = layers[selectedLayerIndex];
 
@@ -281,6 +309,8 @@ const MainApp = () => {
               setIsFrozen={setIsFrozen}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+              isNodeEditMode={isNodeEditMode}
+              setIsNodeEditMode={setIsNodeEditMode}
             />
             <LayerList
               layers={layers}
@@ -301,6 +331,9 @@ const MainApp = () => {
             variation={variation}
             backgroundColor={backgroundColor}
             globalSeed={globalSeed}
+            isNodeEditMode={isNodeEditMode}
+            selectedLayerIndex={selectedLayerIndex}
+            setLayers={setLayers}
           />
           
           {/* Floating Action Buttons */}

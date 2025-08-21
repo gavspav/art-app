@@ -333,6 +333,1020 @@
 </head>
 <body>
   <div id="root"></div>
-  <!-- All JS will be inlined in the next step -->
+  
+  <!-- React and ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  
+  <script>
+    const { useState, useEffect, useRef } = React;
+    
+    // Settings Panel Component (defined outside App to prevent re-creation)
+    const SettingsPanel = ({ 
+        showSettings, 
+        setShowSettings, 
+        parameters, 
+        updateParameter,
+        saveFilename, 
+        setSaveFilename,
+        loadFilename, 
+        setLoadFilename,
+        savedConfigs,
+        message,
+        handleSave,
+        handleLoad,
+        handleDelete
+    }) => {
+        if (!showSettings) return null;
+        
+        const groupedParameters = parameters.reduce((acc, param) => {
+            const group = param.group || 'General';
+            if (!acc[group]) acc[group] = [];
+            acc[group].push(param);
+            return acc;
+        }, {});
+        
+        return React.createElement('div', { className: "mb-6 bg-gray-900 rounded-lg p-6" },
+            React.createElement('div', { className: "flex justify-between items-center mb-6" },
+                React.createElement('h2', { className: "text-2xl font-bold text-white" }, "Parameter Configuration"),
+                React.createElement('button', {
+                    onClick: () => setShowSettings(false),
+                    className: "text-white hover:text-gray-300 text-xl px-3 py-1 bg-gray-700 rounded"
+                }, "Hide Settings")
+            ),
+            // Configuration Management
+            React.createElement('div', { className: "mb-6 p-4 bg-gray-800 rounded" },
+                React.createElement('h3', { className: "text-white mb-4" }, "Save/Load Configurations"),
+                React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" },
+                    React.createElement('div', null,
+                        React.createElement('h4', { className: "text-white mb-2" }, "Save Configuration"),
+                        React.createElement('div', { className: "flex gap-2" },
+                            React.createElement('input', {
+                                type: "text",
+                                placeholder: "Configuration name",
+                                value: saveFilename,
+                                onChange: (e) => setSaveFilename(e.target.value),
+                                className: "flex-1 px-3 py-2 bg-gray-700 text-white rounded"
+                            }),
+                            React.createElement('button', {
+                                onClick: handleSave,
+                                className: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                            }, "Save")
+                        )
+                    ),
+                    React.createElement('div', null,
+                        React.createElement('h4', { className: "text-white mb-2" }, "Load Configuration"),
+                        React.createElement('div', { className: "flex gap-2" },
+                            React.createElement('select', {
+                                value: loadFilename,
+                                onChange: (e) => setLoadFilename(e.target.value),
+                                className: "flex-1 px-3 py-2 bg-gray-700 text-white rounded"
+                            },
+                                React.createElement('option', { value: "" }, "Select configuration..."),
+                                savedConfigs.map(config => 
+                                    React.createElement('option', { key: config, value: config }, config)
+                                )
+                            ),
+                            React.createElement('button', {
+                                onClick: handleLoad,
+                                className: "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700",
+                                disabled: !loadFilename
+                            }, "Load"),
+                            React.createElement('button', {
+                                onClick: handleDelete,
+                                className: "px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
+                                disabled: !loadFilename
+                            }, "Delete")
+                        )
+                    )
+                ),
+                message && React.createElement('div', {
+                    className: `mt-4 p-3 rounded ${message.isError ? 'bg-red-600' : 'bg-green-600'} text-white`
+                }, message.text)
+            ),
+            // Parameter Groups
+            Object.entries(groupedParameters).map(([groupName, params]) =>
+                React.createElement('div', { key: groupName, className: "mb-6" },
+                    React.createElement('h3', { className: "text-xl text-white mb-4" }, groupName),
+                    React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" },
+                        params.map(param =>
+                            React.createElement('div', { key: param.id, className: "bg-gray-800 p-4 rounded" },
+                                React.createElement('h4', { className: "text-white mb-3" }, param.label),
+                                React.createElement('div', { className: "space-y-2" },
+                                    React.createElement('label', { className: "block text-sm text-gray-300" },
+                                        "Default:",
+                                        React.createElement('input', {
+                                            type: "number",
+                                            value: param.defaultValue,
+                                            onChange: (e) => updateParameter(param.id, 'defaultValue', parseFloat(e.target.value)),
+                                            className: "w-full mt-1 px-2 py-1 bg-gray-700 text-white rounded text-sm"
+                                        })
+                                    ),
+                                    param.min !== undefined && React.createElement('label', { className: "block text-sm text-gray-300" },
+                                        "Min:",
+                                        React.createElement('input', {
+                                            type: "number",
+                                            value: param.min,
+                                            onChange: (e) => updateParameter(param.id, 'min', parseFloat(e.target.value)),
+                                            className: "w-full mt-1 px-2 py-1 bg-gray-700 text-white rounded text-sm"
+                                        })
+                                    ),
+                                    param.max !== undefined && React.createElement('label', { className: "block text-sm text-gray-300" },
+                                        "Max:",
+                                        React.createElement('input', {
+                                            type: "number",
+                                            value: param.max,
+                                            onChange: (e) => updateParameter(param.id, 'max', parseFloat(e.target.value)),
+                                            className: "w-full mt-1 px-2 py-1 bg-gray-700 text-white rounded text-sm"
+                                        })
+                                    ),
+                                    React.createElement('div', { className: "flex items-center space-x-4" },
+                                        React.createElement('label', { className: "flex items-center text-sm text-gray-300" },
+                                            React.createElement('input', {
+                                                type: "checkbox",
+                                                checked: param.isRandomizable,
+                                                onChange: (e) => updateParameter(param.id, 'isRandomizable', e.target.checked),
+                                                className: "mr-2"
+                                            }),
+                                            "Randomizable"
+                                        ),
+                                        React.createElement('label', { className: "flex items-center text-sm text-gray-300" },
+                                            React.createElement('input', {
+                                                type: "checkbox",
+                                                checked: param.showInOverlay,
+                                                onChange: (e) => updateParameter(param.id, 'showInOverlay', e.target.checked),
+                                                className: "mr-2"
+                                            }),
+                                            "Show in UI"
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        );
+    };
+
+    function App() {
+        // Parameter Configuration System
+        const PARAMETERS = [
+            {
+                id: 'speed',
+                label: 'Speed',
+                type: 'slider',
+                min: 0,
+                max: 1,
+                step: 0.01,
+                defaultValue: 0.002,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Animation',
+                transform: {
+                    // Convert speed to/from slider (quartic scaling like original)
+                    toSlider: (value) => Math.pow(value / 0.1, 1/4),
+                    fromSlider: (value) => Math.pow(value, 4) * 0.1
+                }
+            },
+            {
+                id: 'variation',
+                label: 'Layer Variation',
+                type: 'slider',
+                min: 0,
+                max: 3,
+                step: 0.1,
+                defaultValue: 0.2,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Animation',
+            },
+            {
+                id: 'numLayers',
+                label: 'Number of Layers',
+                type: 'slider',
+                min: 1,
+                max: 20,
+                step: 1,
+                defaultValue: 1,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Layers',
+            },
+            {
+                id: 'guideWidth',
+                label: 'Guide Width',
+                type: 'slider',
+                min: 10,
+                max: 900,
+                step: 10,
+                defaultValue: 250,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Shape',
+            },
+            {
+                id: 'guideHeight',
+                label: 'Guide Height',
+                type: 'slider',
+                min: 10,
+                max: 900,
+                step: 10,
+                defaultValue: 250,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Shape',
+            },
+            {
+                id: 'curviness',
+                label: 'Wobble',
+                type: 'slider',
+                min: 0.3,
+                max: 1.5,
+                step: 0.05,
+                defaultValue: 0.5,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Shape',
+            },
+            {
+                id: 'noiseAmount',
+                label: 'Noise',
+                type: 'slider',
+                min: 0,
+                max: 8,
+                step: 0.1,
+                defaultValue: 0.5,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Shape',
+            },
+            {
+                id: 'numSides',
+                label: 'Sides',
+                type: 'slider',
+                min: 3,
+                max: 20,
+                step: 1,
+                defaultValue: 6,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Shape',
+            },
+            {
+                id: 'globalOpacity',
+                label: 'Opacity',
+                type: 'slider',
+                min: 0,
+                max: 1,
+                step: 0.1,
+                defaultValue: 0.8,
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Appearance',
+            },
+            {
+                id: 'blendMode',
+                label: 'Blend Mode',
+                type: 'dropdown',
+                options: ['source-over', 'multiply', 'screen', 'overlay', 'lighter', 'soft-light', 'hard-light', 'color-dodge'],
+                defaultValue: 'source-over',
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Appearance',
+            },
+            {
+                id: 'backgroundColor',
+                label: 'Background',
+                type: 'color',
+                defaultValue: '#000000',
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Appearance',
+            },
+            {
+                id: 'seed',
+                label: 'Seed',
+                type: 'number',
+                min: 0,
+                max: 10000,
+                step: 1,
+                defaultValue: Math.floor(Math.random() * 10000),
+                isRandomizable: true,
+                showInOverlay: true,
+                group: 'Random',
+            }
+        ];
+
+        // Parameter Context
+        const [parameters, setParameters] = useState(() => {
+            // Try to load saved parameters from localStorage
+            try {
+                const saved = localStorage.getItem('artapp-parameters');
+                if (saved) {
+                    const savedParams = JSON.parse(saved);
+                    return PARAMETERS.map(defaultParam => {
+                        const savedParam = savedParams.find(p => p.id === defaultParam.id);
+                        return savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
+                    });
+                }
+            } catch (error) {
+                console.warn('Failed to load saved parameters:', error);
+            }
+            return PARAMETERS;
+        });
+
+        // Configuration Management Functions
+        const updateParameter = React.useCallback((id, field, value) => {
+            setParameters(prevParams => {
+                const updatedParams = prevParams.map(p => {
+                    if (p.id === id) {
+                        const newValue = (field === 'min' || field === 'max' || field === 'step' || field === 'defaultValue') 
+                            ? parseFloat(value) 
+                            : value;
+                        return { ...p, [field]: newValue };
+                    }
+                    return p;
+                });
+                // Auto-save to localStorage
+                try {
+                    localStorage.setItem('artapp-parameters', JSON.stringify(updatedParams));
+                } catch (error) {
+                    console.warn('Failed to save parameters:', error);
+                }
+                return updatedParams;
+            });
+        }, []);
+
+        const saveConfiguration = (filename = 'default') => {
+            try {
+                const key = `artapp-config-${filename}`;
+                const configData = {
+                    parameters,
+                    appState: {
+                        speed, variation, numLayers, colors, guideWidth, guideHeight,
+                        curviness, noiseAmount, numSides, globalOpacity, blendMode,
+                        backgroundColor, seed, selectedColor
+                    },
+                    savedAt: new Date().toISOString(),
+                    version: '1.0'
+                };
+                localStorage.setItem(key, JSON.stringify(configData));
+                // Update config list
+                const configList = getSavedConfigList();
+                if (!configList.includes(filename)) {
+                    configList.push(filename);
+                    localStorage.setItem('artapp-config-list', JSON.stringify(configList));
+                }
+                return { success: true, message: `Configuration '${filename}' saved successfully!` };
+            } catch (error) {
+                console.error('Failed to save configuration:', error);
+                return { success: false, message: 'Failed to save configuration' };
+            }
+        };
+
+        const loadConfiguration = (filename = 'default') => {
+            try {
+                const key = `artapp-config-${filename}`;
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    const configData = JSON.parse(saved);
+                    // Load parameters
+                    if (configData.parameters) {
+                        const mergedParams = PARAMETERS.map(defaultParam => {
+                            const savedParam = configData.parameters.find(p => p.id === defaultParam.id);
+                            return savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
+                        });
+                        setParameters(mergedParams);
+                    }
+                    // Load app state
+                    if (configData.appState) {
+                        const state = configData.appState;
+                        setSpeed(state.speed || 0.002);
+                        setVariation(state.variation || 0.2);
+                        setNumLayers(state.numLayers || 1);
+                        setColors(state.colors || palettes.blues);
+                        setGuideWidth(state.guideWidth || 250);
+                        setGuideHeight(state.guideHeight || 250);
+                        setCurviness(state.curviness || 0.5);
+                        setNoiseAmount(state.noiseAmount || 0.5);
+                        setNumSides(state.numSides || 6);
+                        setGlobalOpacity(state.globalOpacity || 0.8);
+                        setBlendMode(state.blendMode || 'source-over');
+                        setBackgroundColor(state.backgroundColor || '#000000');
+                        setSeed(state.seed || Math.floor(Math.random() * 10000));
+                        setSelectedColor(state.selectedColor || '#1E3296');
+                    }
+                    return { success: true, message: `Configuration '${filename}' loaded successfully!` };
+                } else {
+                    return { success: false, message: `Configuration '${filename}' not found` };
+                }
+            } catch (error) {
+                console.error('Failed to load configuration:', error);
+                return { success: false, message: 'Failed to load configuration' };
+            }
+        };
+
+        const getSavedConfigList = () => {
+            try {
+                const saved = localStorage.getItem('artapp-config-list');
+                return saved ? JSON.parse(saved) : [];
+            } catch (error) {
+                console.warn('Failed to get config list:', error);
+                return [];
+            }
+        };
+
+        const deleteConfiguration = (filename) => {
+            try {
+                const key = `artapp-config-${filename}`;
+                localStorage.removeItem(key);
+                const configList = getSavedConfigList().filter(name => name !== filename);
+                localStorage.setItem('artapp-config-list', JSON.stringify(configList));
+                return { success: true, message: `Configuration '${filename}' deleted successfully!` };
+            } catch (error) {
+                console.error('Failed to delete configuration:', error);
+                return { success: false, message: 'Failed to delete configuration' };
+            }
+        };
+
+        // Settings Modal State
+        const [showSettings, setShowSettings] = useState(false);
+        const [saveFilename, setSaveFilename] = useState('');
+        const [loadFilename, setLoadFilename] = useState('');
+        const [savedConfigs, setSavedConfigs] = useState([]);
+        const [message, setMessage] = useState('');
+
+        // Update saved configs list when modal opens
+        useEffect(() => {
+            if (showSettings) {
+                setSavedConfigs(getSavedConfigList());
+            }
+        }, [showSettings]);
+
+        const showMessage = (msg, isError = false) => {
+            setMessage({ text: msg, isError });
+            setTimeout(() => setMessage(''), 3000);
+        };
+
+        const handleSave = () => {
+            const filename = saveFilename.trim() || 'default';
+            const result = saveConfiguration(filename);
+            showMessage(result.message, !result.success);
+            if (result.success) {
+                setSavedConfigs(getSavedConfigList());
+                setSaveFilename('');
+            }
+        };
+
+        const handleLoad = () => {
+            const filename = loadFilename || 'default';
+            const result = loadConfiguration(filename);
+            showMessage(result.message, !result.success);
+        };
+
+        const handleDelete = () => {
+            if (!loadFilename) {
+                showMessage('Please select a configuration to delete', true);
+                return;
+            }
+            if (window.confirm(`Are you sure you want to delete configuration '${loadFilename}'?`)) {
+                const result = deleteConfiguration(loadFilename);
+                showMessage(result.message, !result.success);
+                if (result.success) {
+                    setSavedConfigs(getSavedConfigList());
+                    setLoadFilename('');
+                }
+            }
+        };
+
+        // Original States (keeping all your existing state)
+        const [speed, setSpeed] = useState(0.002);
+        const [isFrozen, setIsFrozen] = useState(false);
+        const [variation, setVariation] = useState(0.2);
+        const [numLayers, setNumLayers] = useState(1);
+        const [colors, setColors] = useState([
+            "#1E3296", "#502CB4", "#6450C8", "#3C64B4",
+            "#6478DC", "#4A0080", "#6600AA", "#8200D4"
+        ]);
+        const [selectedColor, setSelectedColor] = useState("#1E3296");
+        const [guideWidth, setGuideWidth] = useState(250);
+        const [guideHeight, setGuideHeight] = useState(250);
+        const [curviness, setCurviness] = useState(0.5);
+        const [noiseAmount, setNoiseAmount] = useState(0.5);
+        const [numSides, setNumSides] = useState(6);
+        const [globalOpacity, setGlobalOpacity] = useState(0.8);
+        const [blendMode, setBlendMode] = useState("source-over");
+        const [backgroundColor, setBackgroundColor] = useState("#000");
+        const [layerParams, setLayerParams] = useState([]);
+        const [isFullscreen, setIsFullscreen] = useState(false);
+        const [seed, setSeed] = useState(Math.floor(Math.random() * 10000));
+        const canvasRef = useRef(null);
+        const animationRef = useRef(null);
+        const timeRef = useRef(0);
+
+        // Palettes object (keeping your existing palettes)
+        const palettes = {
+            blues: ["#1E3296", "#502CB4", "#6450C8", "#3C64B4", "#6478DC", "#4A0080", "#6600AA", "#8200D4"],
+            neon: ["#FF00FF", "#00FF00", "#00FFFF", "#FF00AA", "#AA00FF", "#FF0066", "#33FF00", "#00FFCC"],
+            sunset: ["#FF4E50", "#FC913A", "#F9D423", "#EDE574", "#E1F5C4", "#FF6B6B", "#FF9E9E", "#FFB4B4"],
+            ocean: ["#034F84", "#92A8D1", "#89CFF0", "#4682B4", "#5F9EA0", "#00CED1", "#48D1CC", "#40E0D0"],
+            aurora: ["#00FF9F", "#00E5FF", "#00A3FF", "#FB62F6", "#645DD7", "#B278FF", "#28FFBF", "#3B44F6"],
+            cyberpunk: ["#FF2A6D", "#05FFA1", "#00E4FF", "#F9FF00", "#FF00FF", "#01FFC3", "#01FFFF", "#FF1493"],
+            pastel: ["#FFB3BA", "#BAFFC9", "#BAE1FF", "#FFFFBA", "#FFB3F7", "#B28DFF", "#AFF8DB", "#F3C4FB"],
+            forest: ["#004B49", "#008F8C", "#00BFB3", "#1A5F7A", "#2E8B57", "#1B4D3E", "#006D5B", "#003B36"],
+            volcanic: ["#850000", "#FF0000", "#FF4D00", "#FF8400", "#FFB800", "#6B0F1A", "#B91372", "#FF7B00"],
+            cosmic: ["#2E0249", "#570A57", "#A91079", "#F806CC", "#4C0033", "#790252", "#AF0171", "#E80F88"],
+            retro: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEEAD", "#D4A5A5", "#9EC2B6", "#E1F7E7"],
+            candy: ["#FF449F", "#FF7BA2", "#FFA1A9", "#FFD6E0", "#FF55B8", "#FF85CF", "#FFB5E8", "#FFE5FF"],
+            autumn: ["#8B4513", "#CD853F", "#DAA520", "#D2691E", "#B8860B", "#BC8F8F", "#F4A460", "#DEB887"],
+            midnight: ["#2C3E50", "#E74C3C", "#ECF0F1", "#3498DB", "#2980B9", "#8E44AD", "#2ECC71", "#16A085"]
+        };
+
+        // All your existing functions (keeping them exactly as they were)
+        const getPixelRatio = (context) => {
+            const devicePixelRatio = window.devicePixelRatio || 1;
+            const backingStoreRatio = context.webkitBackingStorePixelRatio ||
+                context.mozBackingStorePixelRatio ||
+                context.msBackingStorePixelRatio ||
+                context.oBackingStorePixelRatio ||
+                context.backingStorePixelRatio || 1;
+            return devicePixelRatio / backingStoreRatio;
+        };
+
+        const toggleFullScreen = (elem) => {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().then(() => {
+                    if (elem !== document.fullscreenElement) {
+                        if (elem.requestFullscreen) {
+                            elem.requestFullscreen();
+                        } else if (elem.mozRequestFullScreen) {
+                            elem.mozRequestFullScreen();
+                        } else if (elem.webkitRequestFullscreen) {
+                            elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+                        } else if (elem.msRequestFullscreen) {
+                            elem.msRequestFullscreen();
+                        }
+                    }
+                });
+            } else {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.mozRequestFullScreen) {
+                    elem.mozRequestFullScreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    elem.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+                } else if (elem.msRequestFullscreen) {
+                    elem.msRequestFullscreen();
+                }
+            }
+        };
+
+        const createSeededRandom = (seed) => {
+            return () => {
+                seed = (seed * 16807) % 2147483647;
+                return (seed - 1) / 2147483646;
+            };
+        };
+
+        const randomizeAll = () => {
+            const newSeed = Math.floor(Math.random() * 10000);
+            setSeed(newSeed);
+            const seededRandom = createSeededRandom(newSeed);
+            setSpeed(0.0001 + seededRandom() * 0.6);
+            setVariation(seededRandom() * 3);
+            setNumLayers(1 + Math.floor(seededRandom() * 20));
+            setGuideWidth(10 + Math.floor(seededRandom() * 890));
+            setGuideHeight(10 + Math.floor(seededRandom() * 890));
+            setCurviness(0.3 + seededRandom() * 1.2);
+            setNoiseAmount(seededRandom() * 8);
+            setNumSides(3 + Math.floor(seededRandom() * 18));
+            const paletteNames = Object.keys(palettes);
+            const randomPalette = paletteNames[Math.floor(seededRandom() * paletteNames.length)];
+            setColors(palettes[randomPalette]);
+            const randomColor = () => {
+                const hex = Math.floor(seededRandom() * 16777215).toString(16);
+                return "#" + "0".repeat(6 - hex.length) + hex;
+            };
+            setBackgroundColor(randomColor());
+        };
+
+        // All your existing useEffect hooks (keeping them exactly as they were)
+        useEffect(() => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            const ratio = getPixelRatio(ctx);
+            const handleResize = () => {
+                if (isFullscreen) {
+                    canvas.style.width = '100vw';
+                    canvas.style.height = '100vh';
+                    canvas.width = Math.floor(window.innerWidth * ratio);
+                    canvas.height = Math.floor(window.innerHeight * ratio);
+                } else {
+                    const size = Math.min(window.innerWidth * 0.8, window.innerHeight * 0.8);
+                    canvas.style.width = size + 'px';
+                    canvas.style.height = size + 'px';
+                    canvas.width = Math.floor(size * ratio);
+                    canvas.height = Math.floor(size * ratio);
+                }
+                ctx.scale(ratio, ratio);
+            };
+            handleResize();
+            window.addEventListener('resize', handleResize);
+            return () => window.removeEventListener('resize', handleResize);
+        }, [isFullscreen]);
+
+        useEffect(() => {
+            const handleFullscreenChange = () => {
+                const currentlyFullscreen = !!(
+                    document.fullscreenElement ||
+                    document.webkitFullscreenElement ||
+                    document.mozFullScreenElement ||
+                    document.msFullscreenElement
+                );
+                setIsFullscreen(currentlyFullscreen);
+            };
+            document.addEventListener('fullscreenchange', handleFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+            return () => {
+                document.removeEventListener('fullscreenchange', handleFullscreenChange);
+                document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+                document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+                document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+            };
+        }, []);
+
+        useEffect(() => {
+            const seededRandom = createSeededRandom(seed);
+            const newParams = Array.from({ length: numLayers }).map(() => {
+                const clamp = (num, min, max) => Math.max(min, Math.min(max, num));
+                const centerBase = {
+                    x: clamp(seededRandom() * 0.4 + 0.3, 0.3, 0.7),
+                    y: clamp(seededRandom() * 0.4 + 0.3, 0.3, 0.7)
+                };
+                return {
+                    freq1: 2 + (seededRandom() - 0.5) * 3 * variation,
+                    freq2: 3 + (seededRandom() - 0.5) * 3 * variation,
+                    freq3: 4 + (seededRandom() - 0.5) * 30 * variation,
+                    baseRadiusFactor: 0.4 + seededRandom() * 0.3,
+                    centerBaseX: centerBase.x,
+                    centerBaseY: centerBase.y,
+                    centerOffsetX: clamp((seededRandom() - 0.5) * 0.1 * variation, -0.1, 0.1),
+                    centerOffsetY: clamp((seededRandom() - 0.5) * 0.1 * variation, -0.1, 0.1),
+                    moveSpeedX: 0.3 + seededRandom() * 0.5,
+                    moveSpeedY: 0.3 + seededRandom() * 0.5,
+                    radiusBump: seededRandom() * 0.3
+                };
+            });
+            setLayerParams(newParams);
+        }, [numLayers, variation, seed]);
+
+        useEffect(() => {
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            function drawOilShape(t, layerParam) {
+                if (!layerParam) return;
+                const {
+                    freq1, freq2, freq3,
+                    centerBaseX, centerBaseY,
+                    centerOffsetX, centerOffsetY,
+                    moveSpeedX, moveSpeedY,
+                    radiusBump, baseRadiusFactor
+                } = layerParam;
+                ctx.beginPath();
+                const centerX = (canvas.width / 2) * centerBaseX +
+                    Math.sin(t * moveSpeedX) * 0.1 * canvas.width * variation +
+                    centerOffsetX * canvas.width;
+                const centerY = (canvas.height / 2) * centerBaseY +
+                    Math.cos(t * moveSpeedY) * 0.1 * canvas.height * variation +
+                    centerOffsetY * canvas.height;
+                const sides = numSides;
+                const points = [];
+                for (let i = 0; i < sides; i++) {
+                    const angle = (i / sides) * Math.PI * 2;
+                    const symmetryFactor = curviness;
+                    const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
+                    const n1 = Math.sin(angle * freq1 + t + phase) * Math.sin(t * 0.8 * symmetryFactor);
+                    const n2 = Math.cos(angle * freq2 - t * 0.5 + phase) * Math.cos(t * 0.3 * symmetryFactor);
+                    const n3 = Math.sin(angle * freq3 + t * 1.5 + phase) * Math.sin(t * 0.6 * symmetryFactor);
+                    const baseRadiusX = Math.min((guideWidth + radiusBump * 20) * baseRadiusFactor, canvas.width * 0.4);
+                    const baseRadiusY = Math.min((guideHeight + radiusBump * 20) * baseRadiusFactor, canvas.height * 0.4);
+                    const offsetX = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
+                    const offsetY = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * symmetryFactor;
+                    const rx = baseRadiusX + offsetX;
+                    const ry = baseRadiusY + offsetY;
+                    const x = centerX + Math.cos(angle) * rx;
+                    const y = centerY + Math.sin(angle) * ry;
+                    points.push({ x, y });
+                }
+                const last = points[points.length - 1];
+                const first = points[0];
+                ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+                for (let i = 0; i < points.length; i++) {
+                    const current = points[i];
+                    const next = points[(i + 1) % points.length];
+                    const midX = (current.x + next.x) / 2;
+                    const midY = (current.y + next.y) / 2;
+                    ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+                }
+                ctx.closePath();
+            }
+            function animate() {
+                ctx.fillStyle = backgroundColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.globalCompositeOperation = "source-over";
+                ctx.filter = "blur(1px)";
+                for (let i = 0; i < numLayers; i++) {
+                    ctx.globalCompositeOperation = i === 0 ? "source-over" : blendMode;
+                    drawOilShape(timeRef.current, layerParams[i]);
+                    const color = colors[i % colors.length];
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2,
+                        canvas.height / 2,
+                        0,
+                        canvas.width / 2,
+                        canvas.height / 2,
+                        200 + i * 50
+                    );
+                    gradient.addColorStop(
+                        0,
+                        color + Math.floor(globalOpacity * 255).toString(16).padStart(2, "0")
+                    );
+                    gradient.addColorStop(
+                        1,
+                        color + Math.floor(globalOpacity * 180).toString(16).padStart(2, "0")
+                    );
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                }
+                ctx.filter = "none";
+                ctx.globalCompositeOperation = "source-over";
+                timeRef.current += isFrozen ? 0 : speed;
+                animationRef.current = requestAnimationFrame(animate);
+            }
+            animate();
+            return () => cancelAnimationFrame(animationRef.current);
+        }, [
+            speed, variation, numLayers, colors, guideWidth, guideHeight,
+            curviness, noiseAmount, numSides, globalOpacity, blendMode,
+            backgroundColor, layerParams, isFrozen
+        ]);
+
+        const replaceColor = (index) => {
+            const newColors = [...colors];
+            newColors[index] = selectedColor;
+            setColors(newColors);
+        };
+
+        return React.createElement('div', { className: "p-4 bg-black min-h-screen" },
+            React.createElement(SettingsPanel, {
+                showSettings,
+                setShowSettings,
+                parameters,
+                updateParameter,
+                saveFilename,
+                setSaveFilename,
+                loadFilename,
+                setLoadFilename,
+                savedConfigs,
+                message,
+                handleSave,
+                handleLoad,
+                handleDelete
+            }),
+            React.createElement('div', { className: "mb-4 flex gap-4 items-center flex-wrap" },
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Speed:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "0",
+                        max: "1",
+                        step: "0.01",
+                        value: Math.pow(speed / 0.1, 1 / 4),
+                        onChange: (e) => {
+                            const sliderValue = parseFloat(e.target.value);
+                            setSpeed(Math.pow(sliderValue, 4) * 0.1);
+                        },
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, speed.toFixed(4)),
+                    React.createElement('label', { className: "text-white mx-2" },
+                        React.createElement('input', {
+                            type: "checkbox",
+                            checked: isFrozen,
+                            onChange: (e) => setIsFrozen(e.target.checked),
+                            className: "mr-1 w-6 h-6 transform scale-125"
+                        }),
+                        "Freeze"
+                    )
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Layer Variation:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "0",
+                        max: "3",
+                        step: "0.1",
+                        value: variation,
+                        onChange: (e) => setVariation(parseFloat(e.target.value)),
+                        className: "w-32"
+                    })
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Number of Layers:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "1",
+                        max: "20",
+                        step: "1",
+                        value: numLayers,
+                        onChange: (e) => setNumLayers(parseInt(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, numLayers)
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Seed: ", seed),
+                    React.createElement('button', {
+                        onClick: () => setSeed(Math.floor(Math.random() * 10000)),
+                        className: "px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-white"
+                    }, "New Seed")
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Guide Width:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "10",
+                        max: "900",
+                        step: "10",
+                        value: guideWidth,
+                        onChange: (e) => setGuideWidth(parseInt(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, guideWidth)
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Guide Height:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "10",
+                        max: "900",
+                        step: "10",
+                        value: guideHeight,
+                        onChange: (e) => setGuideHeight(parseInt(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, guideHeight)
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Wobble:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "0.3",
+                        max: "1.5",
+                        step: "0.05",
+                        value: curviness,
+                        onChange: (e) => setCurviness(parseFloat(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, curviness.toFixed(2))
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Noise:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "0",
+                        max: "8",
+                        step: "0.1",
+                        value: noiseAmount,
+                        onChange: (e) => setNoiseAmount(parseFloat(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, noiseAmount.toFixed(1))
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Sides:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "3",
+                        max: "20",
+                        step: "1",
+                        value: numSides,
+                        onChange: (e) => setNumSides(parseInt(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, numSides)
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Opacity:"),
+                    React.createElement('input', {
+                        type: "range",
+                        min: "0",
+                        max: "1",
+                        step: "0.1",
+                        value: globalOpacity,
+                        onChange: (e) => setGlobalOpacity(parseFloat(e.target.value)),
+                        className: "w-32"
+                    }),
+                    React.createElement('span', { className: "text-white ml-2" }, globalOpacity.toFixed(1))
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Blend Mode:"),
+                    React.createElement('select', {
+                        value: blendMode,
+                        onChange: (e) => setBlendMode(e.target.value),
+                        className: "bg-gray-700 text-white px-2 py-1 rounded"
+                    },
+                        React.createElement('option', { value: "source-over" }, "Normal"),
+                        React.createElement('option', { value: "multiply" }, "Multiply"),
+                        React.createElement('option', { value: "screen" }, "Screen"),
+                        React.createElement('option', { value: "overlay" }, "Overlay"),
+                        React.createElement('option', { value: "lighter" }, "Lighter"),
+                        React.createElement('option', { value: "soft-light" }, "Soft Light"),
+                        React.createElement('option', { value: "hard-light" }, "Hard Light"),
+                        React.createElement('option', { value: "color-dodge" }, "Color Dodge")
+                    )
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Background:"),
+                    React.createElement('input', {
+                        type: "color",
+                        value: backgroundColor,
+                        onChange: (e) => setBackgroundColor(e.target.value),
+                        className: "w-8 h-8"
+                    })
+                ),
+                React.createElement('div', { className: "flex items-center gap-2" },
+                    React.createElement('input', {
+                        type: "color",
+                        value: selectedColor,
+                        onChange: (e) => setSelectedColor(e.target.value),
+                        className: "w-8 h-8"
+                    }),
+                    React.createElement('div', { className: "flex gap-1" },
+                        colors.slice(0, numLayers).map((color, index) =>
+                            React.createElement('div', {
+                                key: index,
+                                className: "w-6 h-6 cursor-pointer border border-gray-600",
+                                style: { backgroundColor: color },
+                                onClick: () => replaceColor(index),
+                                title: `Click to replace layer ${index + 1} color`
+                            })
+                        )
+                    )
+                ),
+                React.createElement('div', null,
+                    React.createElement('label', { className: "text-white mr-2" }, "Palette:"),
+                    React.createElement('select', {
+                        onChange: (e) => setColors(palettes[e.target.value]),
+                        className: "bg-gray-700 text-white px-2 py-1 rounded"
+                    },
+                        Object.entries(palettes).map(([name, palette]) =>
+                            React.createElement('option', { key: name, value: name },
+                                name.charAt(0).toUpperCase() + name.slice(1)
+                            )
+                        )
+                    )
+                )
+            ),
+            React.createElement('div', { className: "mb-4 text-white" },
+                React.createElement('input', {
+                    type: "button",
+                    value: "Full Screen with Controls",
+                    onClick: () => toggleFullScreen(document.body),
+                    className: "mr-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600"
+                }),
+                React.createElement('input', {
+                    type: "button",
+                    value: "Proper Full Screen!",
+                    onClick: () => toggleFullScreen(canvasRef.current),
+                    className: "mr-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600"
+                }),
+                React.createElement('button', {
+                    onClick: randomizeAll,
+                    className: "mr-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 text-white"
+                }, "Randomize All"),
+                React.createElement('button', {
+                    onClick: () => setShowSettings(true),
+                    className: "px-3 py-1 bg-blue-700 rounded hover:bg-blue-600 text-white"
+                }, "⚙️ Settings")
+            ),
+            React.createElement('div', { className: "relative" },
+                React.createElement('canvas', {
+                    ref: canvasRef,
+                    className: `border border-gray-700 mx-auto block ${isFullscreen ? 'fixed top-0 left-0 w-screen h-screen' : ''}`,
+                    style: {
+                        imageRendering: 'pixelated',
+                        zIndex: isFullscreen ? 1000 : 'auto'
+                    }
+                })
+            )
+        );
+    }
+
+    ReactDOM.render(React.createElement(App), document.getElementById("root"));
+  </script>
 </body>
 </html>

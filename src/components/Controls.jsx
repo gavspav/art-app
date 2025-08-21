@@ -2,6 +2,7 @@ import React from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { blendModes } from '../constants/blendModes';
+import { palettes } from '../constants/palettes';
 
 const DynamicControl = ({ param, currentLayer, updateLayer }) => {
   const { id, type, min, max, step, label, options } = param;
@@ -17,6 +18,10 @@ const DynamicControl = ({ param, currentLayer, updateLayer }) => {
     switch (type) {
       case 'slider':
         newValue = parseFloat(e.target.value);
+        // Clamp to slider bounds
+        if (Number.isFinite(min) && Number.isFinite(max)) {
+          newValue = Math.min(max, Math.max(min, newValue));
+        }
         break;
       case 'dropdown':
         newValue = e.target.value;
@@ -33,22 +38,33 @@ const DynamicControl = ({ param, currentLayer, updateLayer }) => {
     }
   };
 
-  // Don't show shape controls for image layers
+  
+
+  // Hide shape controls when on an image layer
   if (currentLayer.layerType === 'image' && param.group === 'Shape') {
-    return null; 
+    return null;
+  }
+  // Hide image-effect controls when on a non-image layer
+  if (currentLayer.layerType !== 'image' && param.group === 'Image Effects') {
+    return null;
   }
 
   switch (type) {
     case 'slider':
+      // Ensure displayed value is clamped within slider bounds even if state is out-of-range
+      const numericValue = Number(value);
+      const displayValue = (Number.isFinite(numericValue)
+        ? Math.min(max, Math.max(min, numericValue))
+        : (Number.isFinite(min) ? min : 0));
       return (
         <>
-          <label>{label}: {Number(value).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}</label>
+          <label>{label}: {Number(displayValue).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}</label>
           <input
             type="range"
             min={min}
             max={max}
             step={step}
-            value={value}
+            value={displayValue}
             onChange={handleChange}
           />
         </>
@@ -77,7 +93,9 @@ const Controls = ({
   isFrozen, 
   setIsFrozen,
   globalSpeedMultiplier,
-  setGlobalSpeedMultiplier
+  setGlobalSpeedMultiplier,
+  isNodeEditMode,
+  setIsNodeEditMode,
 }) => {
   const { parameters } = useParameters();
 
@@ -85,8 +103,66 @@ const Controls = ({
     return <div className="controls">Loading...</div>;
   }
 
+  // Sampling helper: pick N colors from a palette evenly across its range
+  const sampleColors = (base = [], count = 0) => {
+    const n = Math.max(0, Math.floor(count));
+    if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
+    if (n === 1) return [base[0]];
+    if (n >= base.length) {
+      // Evenly sample by spreading across the palette and allowing repeats if needed
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const idx = Math.round(t * (base.length - 1));
+        out.push(base[idx]);
+      }
+      return out;
+    }
+    // n < base.length: evenly spaced indices
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = i / (n - 1);
+      const idx = Math.round(t * (base.length - 1));
+      out.push(base[idx]);
+    }
+    return out;
+  };
+
+  // Return index of palette whose sampled colors match the given array
+  const matchPaletteIndex = (colors = []) => palettes.findIndex(p => {
+    const sampled = sampleColors(p.colors, colors.length);
+    return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
+  });
+
+  // Change colors directly via picker
   const handleColorChange = (newColors) => {
-    updateLayer({ colors: newColors });
+    updateLayer({ colors: newColors, numColors: (newColors?.length || 0) });
+  };
+
+  // Handle number-of-colours change
+  const handleNumColorsChange = (e) => {
+    let n = parseInt(e.target.value, 10);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    const colors = currentLayer.colors || [];
+    const pIdx = matchPaletteIndex(colors);
+    let newColors = [];
+    if (pIdx !== -1) {
+      newColors = sampleColors(palettes[pIdx].colors, n);
+    } else if (colors.length > 0) {
+      if (n <= colors.length) newColors = colors.slice(0, n);
+      else {
+        newColors = [...colors];
+        let i = 0;
+        while (newColors.length < n) {
+          newColors.push(colors[i % colors.length]);
+          i++;
+        }
+      }
+    } else {
+      // No colors yet, seed from first palette
+      newColors = sampleColors(palettes[0]?.colors || ['#000000'], n);
+    }
+    updateLayer({ numColors: n, colors: newColors });
   };
 
   const handleImageUpload = (event) => {
@@ -122,6 +198,7 @@ const Controls = ({
 
       <div className="control-group">
         <h3>Global</h3>
+        <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
         <label>Variation: {variation.toFixed(2)}</label>
         <input 
           type="range" 
@@ -147,11 +224,54 @@ const Controls = ({
         
         {/* --- Special non-dynamic controls --- */}
         <h4>Appearance</h4>
+        {/* Colours controls */}
+        <label>Number of colours:</label>
+        <input
+          type="number"
+          min={1}
+          step={1}
+          value={(() => {
+            const n = Number.isFinite(currentLayer.numColors)
+              ? currentLayer.numColors
+              : (currentLayer.colors?.length || 1);
+            return Math.max(1, n);
+          })()}
+          onChange={handleNumColorsChange}
+          style={{ width: '5rem' }}
+        />
+
+        {/* Color preset selector */}
+        <label>Color Preset:</label>
+        <select
+          value={(() => {
+            const idx = matchPaletteIndex(currentLayer.colors || []);
+            return idx === -1 ? 'custom' : String(idx);
+          })()}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val !== 'custom') {
+              const idx = parseInt(val, 10);
+              if (palettes[idx]) {
+                const count = Number.isFinite(currentLayer.numColors)
+                  ? currentLayer.numColors
+                  : (currentLayer.colors?.length || palettes[idx].colors.length);
+                const nextColors = sampleColors(palettes[idx].colors, count);
+                updateLayer({ colors: nextColors, numColors: count });
+              }
+            }
+          }}
+        >
+          <option value="custom">Custom</option>
+          {palettes.map((p, idx) => (
+            <option key={idx} value={idx}>{p.name}</option>
+          ))}
+        </select>
+
         <ColorPicker 
-    label="Colors"
-    colors={currentLayer.colors}
-    onChange={handleColorChange}
-/>
+          label="Colors"
+          colors={currentLayer.colors}
+          onChange={handleColorChange}
+        />
         <label>Blend Mode:</label>
         <select value={currentLayer.blendMode} onChange={(e) => updateLayer({ blendMode: e.target.value })}>
           {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}

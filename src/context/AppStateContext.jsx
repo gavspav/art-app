@@ -22,6 +22,7 @@ export const AppStateProvider = ({ children }) => {
     }],
     selectedLayerIndex: DEFAULTS.selectedLayerIndex,
     isOverlayVisible: true,
+    isNodeEditMode: false,
   });
 
   // Individual state setters for backward compatibility
@@ -56,6 +57,10 @@ export const AppStateProvider = ({ children }) => {
 
   const setIsOverlayVisible = useCallback((value) => {
     setAppState(prev => ({ ...prev, isOverlayVisible: value }));
+  }, []);
+
+  const setIsNodeEditMode = useCallback((value) => {
+    setAppState(prev => ({ ...prev, isNodeEditMode: value }));
   }, []);
 
   // Function to get current app state for saving
@@ -94,6 +99,7 @@ export const AppStateProvider = ({ children }) => {
       }],
       selectedLayerIndex: DEFAULTS.selectedLayerIndex,
       isOverlayVisible: true,
+      isNodeEditMode: false,
     });
   }, []);
 
@@ -110,6 +116,7 @@ export const AppStateProvider = ({ children }) => {
     setLayers,
     setSelectedLayerIndex,
     setIsOverlayVisible,
+    setIsNodeEditMode,
     
     // State management functions
     getCurrentAppState,

@@ -26,6 +26,8 @@ export const calculateVisualHash = (layer) => {
     opacity: layer.opacity,
     blendMode: layer.blendMode,
     colors: layer.colors,
+    // Node-based shape data (normalized positions)
+    nodes: layer.nodes,
     
     // Position and scale (from nested position object)
     x: layer.position?.x,
@@ -38,6 +40,12 @@ export const calculateVisualHash = (layer) => {
     
     // Image properties (if applicable)
     imageSrc: layer.image?.src || null,
+    imageBlur: layer.imageBlur,
+    imageBrightness: layer.imageBrightness,
+    imageContrast: layer.imageContrast,
+    imageHue: layer.imageHue,
+    imageSaturation: layer.imageSaturation,
+    imageDistortion: layer.imageDistortion,
   };
   
   // Create a stable string representation
