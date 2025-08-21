@@ -1,6 +1,33 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { PARAMETERS } from '../config/parameters';
 
+// Merge helper that preserves authoritative defaults for critical params
+const mergeWithDefaults = (savedParams) => {
+  try {
+    const saved = Array.isArray(savedParams) ? savedParams : [];
+    return PARAMETERS.map(defaultParam => {
+      const savedParam = saved.find(p => p.id === defaultParam.id);
+      const merged = savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
+      // Enforce authoritative bounds/labels for width/height and movementSpeed to avoid legacy ranges
+      if (merged.id === 'width' || merged.id === 'height' || merged.id === 'movementSpeed') {
+        return {
+          ...merged,
+          label: defaultParam.label,
+          min: defaultParam.min,
+          max: defaultParam.max,
+          step: defaultParam.step,
+          defaultValue: defaultParam.defaultValue,
+          group: defaultParam.group,
+        };
+      }
+      return merged;
+    });
+  } catch (e) {
+    console.warn('Failed to merge parameters with defaults, falling back to defaults', e);
+    return PARAMETERS;
+  }
+};
+
 // Create the context
 const ParameterContext = createContext();
 
@@ -15,11 +42,7 @@ export const ParameterProvider = ({ children }) => {
       const saved = localStorage.getItem('artapp-parameters');
       if (saved) {
         const savedParams = JSON.parse(saved);
-        // Merge saved parameters with defaults to handle new parameters
-        return PARAMETERS.map(defaultParam => {
-          const savedParam = savedParams.find(p => p.id === defaultParam.id);
-          return savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
-        });
+        return mergeWithDefaults(savedParams);
       }
     } catch (error) {
       console.warn('Failed to load saved parameters:', error);
@@ -108,12 +131,7 @@ export const ParameterProvider = ({ children }) => {
       if (saved) {
         const configData = JSON.parse(saved);
         const savedParams = configData.parameters || configData; // Handle both old and new format
-        
-        // Merge with defaults to handle new parameters
-        const mergedParams = PARAMETERS.map(defaultParam => {
-          const savedParam = savedParams.find(p => p.id === defaultParam.id);
-          return savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
-        });
+        const mergedParams = mergeWithDefaults(savedParams);
         setParameters(mergedParams);
         return { success: true, message: `Configuration '${filename}' loaded successfully!` };
       } else {
@@ -132,12 +150,7 @@ export const ParameterProvider = ({ children }) => {
       if (saved) {
         const configData = JSON.parse(saved);
         const savedParams = configData.parameters || configData; // Handle both old and new format
-        
-        // Merge with defaults to handle new parameters
-        const mergedParams = PARAMETERS.map(defaultParam => {
-          const savedParam = savedParams.find(p => p.id === defaultParam.id);
-          return savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
-        });
+        const mergedParams = mergeWithDefaults(savedParams);
         setParameters(mergedParams);
         
         // Return both parameters and app state

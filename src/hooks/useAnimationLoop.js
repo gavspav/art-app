@@ -25,7 +25,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
 
         // Movement Logic
         if (layer.movementSpeed > 0) {
-          const speed = layer.movementSpeed * globalSpeedMultiplier * 0.01;
+          // Map UI movementSpeed (0..5) to engine units
+          const speed = (layer.movementSpeed * 0.001) * globalSpeedMultiplier;
           const angleRad = layer.movementAngle * (Math.PI / 180);
           const vx = Math.cos(angleRad) * speed;
           const vy = Math.sin(angleRad) * speed;

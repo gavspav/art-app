@@ -18,7 +18,7 @@ export const DEFAULT_LAYER = {
 
   // Animation Control Properties (kept top-level for easy access in Controls.jsx)
   movementStyle: 'bounce', // 'bounce' or 'drift'
-  movementSpeed: 0.001,
+  movementSpeed: 1,
   movementAngle: 45, // degrees
   scaleSpeed: 0.05,
   scaleMin: 0.2,
@@ -70,6 +70,7 @@ export const DEFAULTS = {
   isFrozen: false,
   variation: 1.5,
   backgroundColor: '#111111',
+  globalBlendMode: 'source-over',
   guideWidth: 0.5,
   guideHeight: 0.5,
   globalSeed: 1,

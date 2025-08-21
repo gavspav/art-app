@@ -37,7 +37,8 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
     } = layer.position;
 
     // 1. Calculate velocity
-    const effectiveSpeed = movementSpeed * globalSpeedMultiplier;
+    // Map UI movementSpeed (0..5) to engine's normalized units by scaling down
+    const effectiveSpeed = (movementSpeed * 0.001) * globalSpeedMultiplier;
     const vx = Math.cos(movementAngle * (Math.PI / 180)) * effectiveSpeed;
     const vy = Math.sin(movementAngle * (Math.PI / 180)) * effectiveSpeed;
 

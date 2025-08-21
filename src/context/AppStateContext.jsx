@@ -14,6 +14,7 @@ export const AppStateProvider = ({ children }) => {
     isFrozen: DEFAULTS.isFrozen,
     variation: DEFAULTS.variation,
     backgroundColor: DEFAULTS.backgroundColor,
+    globalBlendMode: DEFAULTS.globalBlendMode,
     globalSeed: DEFAULTS.globalSeed,
     globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
     layers: [{
@@ -36,6 +37,10 @@ export const AppStateProvider = ({ children }) => {
 
   const setBackgroundColor = useCallback((value) => {
     setAppState(prev => ({ ...prev, backgroundColor: value }));
+  }, []);
+
+  const setGlobalBlendMode = useCallback((value) => {
+    setAppState(prev => ({ ...prev, globalBlendMode: value }));
   }, []);
 
   const setGlobalSeed = useCallback((value) => {
@@ -111,6 +116,7 @@ export const AppStateProvider = ({ children }) => {
     setIsFrozen,
     setVariation,
     setBackgroundColor,
+    setGlobalBlendMode,
     setGlobalSeed,
     setGlobalSpeedMultiplier,
     setLayers,

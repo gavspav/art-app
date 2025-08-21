@@ -1,5 +1,5 @@
 export const blendModes = [
-  'normal',
+  'source-over',
   'multiply',
   'screen',
   'overlay',
@@ -14,5 +14,6 @@ export const blendModes = [
   'hue',
   'saturation',
   'color',
-  'luminosity'
+  'luminosity',
+  'lighter'
 ];

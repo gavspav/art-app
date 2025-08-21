@@ -11,11 +11,11 @@ const createGradientCacheKey = (colors, centerX, centerY, radiusX, radiusY) => {
 };
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
-const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false) => {
+const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over') => {
     // Destructure properties from the layer and its nested position object
     const {
         numSides: sides, curviness, wobble = 0.5, width, height,
-        colors, blendMode, opacity, noiseAmount, noiseSeed,
+        colors, /*blendMode,*/ opacity, noiseAmount, noiseSeed,
         // New parameters from old version
         freq1 = 2, freq2 = 3, freq3 = 4,
         baseRadiusFactor = 0.4
@@ -32,7 +32,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
 
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = blendMode;
+    ctx.globalCompositeOperation = globalBlendMode;
 
     const centerX = x * canvas.width;
     const centerY = y * canvas.height;
@@ -208,9 +208,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
 };
 
 // --- Image Drawing Logic ---
-const drawImage = (ctx, layer, canvas) => {
+const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     const {
-        image, opacity, blendMode,
+        image, opacity, /*blendMode,*/
         imageBlur = 0, imageBrightness = 100, imageContrast = 100,
         imageHue = 0, imageSaturation = 100, imageDistortion = 0,
         noiseSeed = 1
@@ -221,7 +221,7 @@ const drawImage = (ctx, layer, canvas) => {
 
     ctx.save();
     ctx.globalAlpha = opacity;
-    ctx.globalCompositeOperation = blendMode;
+    ctx.globalCompositeOperation = globalBlendMode;
 
     const filters = [];
     if (imageBlur > 0) filters.push(`blur(${imageBlur}px)`);
@@ -301,7 +301,7 @@ const computeInitialNodes = (layer, canvas) => {
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, isNodeEditMode, selectedLayerIndex, setLayers }, ref) => {
+const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, setLayers }, ref) => {
     const localCanvasRef = useRef(null);
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
@@ -338,11 +338,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, isNodeEditMode
 
     // Check if background has changed
     const backgroundChanged = useMemo(() => {
-        const currentBgHash = `${backgroundColor}-${globalSeed}`;
+        const currentBgHash = `${backgroundColor}-${globalSeed}-${globalBlendMode}`;
         const hasChanged = currentBgHash !== backgroundHashRef.current;
         backgroundHashRef.current = currentBgHash;
         return hasChanged;
-    }, [backgroundColor, globalSeed]);
+    }, [backgroundColor, globalSeed, globalBlendMode]);
 
     // Optimized render effect with selective updates
     useEffect(() => {
@@ -387,10 +387,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, isNodeEditMode
 
             if (backgroundChanged || layerHashesRef.current.size === 0 || layerChange?.hasChanged) {
                 if (layer.image && layer.image.src) {
-                    drawImage(ctx, layer, canvas);
+                    drawImage(ctx, layer, canvas, globalBlendMode);
                 } else {
                     const time = Date.now() * 0.001;
-                    drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode);
+                    drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode, globalBlendMode);
                 }
             }
         });

@@ -88,12 +88,14 @@ const Controls = ({
   updateLayer, 
   randomizeSeed, // Changed from randomizeLayer to randomizeSeed
   randomizeAll, 
-  variation, 
-  setVariation, 
   isFrozen, 
   setIsFrozen,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
+  globalBlendMode,
+  setGlobalBlendMode,
+  layers,
+  setLayers,
   isNodeEditMode,
   setIsNodeEditMode,
 }) => {
@@ -180,7 +182,8 @@ const Controls = ({
     }
   };
 
-  const overlayControls = parameters.filter(p => p.showInOverlay);
+  // Hide per-layer opacity now that we have a global opacity control
+  const overlayControls = parameters.filter(p => p.showInOverlay && p.id !== 'opacity');
   const groupedControls = overlayControls.reduce((acc, param) => {
     const group = param.group || 'General';
     if (!acc[group]) acc[group] = [];
@@ -199,15 +202,6 @@ const Controls = ({
       <div className="control-group">
         <h3>Global</h3>
         <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
-        <label>Variation: {variation.toFixed(2)}</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="1" 
-          step="0.01" 
-          value={variation} 
-          onChange={(e) => setVariation(parseFloat(e.target.value))} 
-        />
         <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
         <input 
           type="range" 
@@ -216,6 +210,31 @@ const Controls = ({
           step="0.01" 
           value={globalSpeedMultiplier} 
           onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} 
+        />
+        <label>Blend Mode:</label>
+        <select value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
+          {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+        </select>
+        <label>Global Opacity: {(() => {
+          if (!Array.isArray(layers) || layers.length === 0) return '—';
+          const first = layers[0]?.opacity ?? 1;
+          const allSame = layers.every(l => (l?.opacity ?? first) === first);
+          return (allSame ? first : first).toFixed(2);
+        })()}</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={(() => {
+            if (!Array.isArray(layers) || layers.length === 0) return 1;
+            const first = layers[0]?.opacity ?? 1;
+            return first;
+          })()}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value);
+            setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
+          }}
         />
       </div>
 
@@ -272,10 +291,6 @@ const Controls = ({
           colors={currentLayer.colors}
           onChange={handleColorChange}
         />
-        <label>Blend Mode:</label>
-        <select value={currentLayer.blendMode} onChange={(e) => updateLayer({ blendMode: e.target.value })}>
-          {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
-        </select>
 
         <h4>Image</h4>
         <input type="file" accept="image/png, image/jpeg" onChange={handleImageUpload} />

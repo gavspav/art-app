@@ -22,10 +22,10 @@ const MainApp = () => {
   // Get app state from context
   const {
     isFrozen, setIsFrozen,
-    variation, setVariation,
     backgroundColor, setBackgroundColor,
     globalSeed, setGlobalSeed,
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
+    globalBlendMode, setGlobalBlendMode,
     layers, setLayers,
     selectedLayerIndex, setSelectedLayerIndex,
     isOverlayVisible, setIsOverlayVisible,
@@ -45,8 +45,9 @@ const MainApp = () => {
           const angleRad = layer.movementAngle * (Math.PI / 180);
           return {
             ...layer,
-            vx: Math.cos(angleRad) * layer.movementSpeed * 1.0,
-            vy: Math.sin(angleRad) * layer.movementSpeed * 1.0,
+            // Map UI movementSpeed (0..5) to engine units
+            vx: Math.cos(angleRad) * (layer.movementSpeed * 0.001) * 1.0,
+            vy: Math.sin(angleRad) * (layer.movementSpeed * 0.001) * 1.0,
           };
         }
         return layer;
@@ -61,6 +62,26 @@ const MainApp = () => {
         ...layer,
         curviness: Math.min(1, Math.max(0, typeof layer.curviness === 'number' ? layer.curviness : 1)),
       }))
+    );
+  }, []);
+
+  // One-time migration: scale legacy movementSpeed values (<= 0.02) to new 0–5 UI scale
+  useEffect(() => {
+    setLayers(prevLayers =>
+      prevLayers.map(layer => {
+        const ms = layer.movementSpeed;
+        if (typeof ms === 'number' && ms <= 0.02) {
+          const scaled = Math.min(5, Math.max(0, ms * 1000));
+          const angleRad = layer.movementAngle * (Math.PI / 180);
+          return {
+            ...layer,
+            movementSpeed: scaled,
+            vx: Math.cos(angleRad) * (scaled * 0.001) * 1.0,
+            vy: Math.sin(angleRad) * (scaled * 0.001) * 1.0,
+          };
+        }
+        return layer;
+      })
     );
   }, []);
 
@@ -106,8 +127,9 @@ const MainApp = () => {
 
       if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
         const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
-        updatedLayer.vx = Math.cos(angleRad) * updatedLayer.movementSpeed * 1.0;
-        updatedLayer.vy = Math.sin(angleRad) * updatedLayer.movementSpeed * 1.0;
+        // Map UI movementSpeed (0..5) to engine units
+        updatedLayer.vx = Math.cos(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
+        updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
       }
 
       updatedLayers[selectedLayerIndex] = updatedLayer;
@@ -130,8 +152,9 @@ const MainApp = () => {
       }
     };
     const angleRad = newLayer.movementAngle * (Math.PI / 180);
-    newLayer.vx = Math.cos(angleRad) * newLayer.movementSpeed * 1.0;
-    newLayer.vy = Math.sin(angleRad) * newLayer.movementSpeed * 1.0;
+    // Map UI movementSpeed (0..5) to engine units
+    newLayer.vx = Math.cos(angleRad) * (newLayer.movementSpeed * 0.001) * 1.0;
+    newLayer.vy = Math.sin(angleRad) * (newLayer.movementSpeed * 0.001) * 1.0;
 
     setLayers([...layers, newLayer]);
     setSelectedLayerIndex(layers.length);
@@ -197,8 +220,9 @@ const MainApp = () => {
 
     if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
         const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
-        updatedLayer.vx = Math.cos(angleRad) * updatedLayer.movementSpeed * 1.0;
-        updatedLayer.vy = Math.sin(angleRad) * updatedLayer.movementSpeed * 1.0;
+        // Map UI movementSpeed (0..5) to engine units
+        updatedLayer.vx = Math.cos(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
+        updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
     }
 
     return updatedLayer;
@@ -238,22 +262,14 @@ const MainApp = () => {
 
         // Always randomize colors (palettes) for each layer - this is a core feature
         newProps.colors = palettes[Math.floor(Math.random() * palettes.length)];
-        
-        // Only randomize blendMode if it's marked as randomizable (if such a parameter exists)
-        const blendModeParam = parameters.find(p => p.id === 'blendMode');
-        if (blendModeParam && blendModeParam.isRandomizable) {
-          newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
-        } else {
-          // If no blendMode parameter exists, randomize it anyway for variety
-          newProps.blendMode = blendModes[Math.floor(Math.random() * blendModes.length)];
-        }
 
         // Recalculate velocity if movement params were randomized
         const finalMovementSpeed = newProps.movementSpeed ?? layer.movementSpeed;
         const finalMovementAngle = newProps.movementAngle ?? layer.movementAngle;
         const angleRad = finalMovementAngle * (Math.PI / 180);
-        const vx = Math.cos(angleRad) * finalMovementSpeed * 1.0;
-        const vy = Math.sin(angleRad) * finalMovementSpeed * 1.0;
+        // Map UI movementSpeed (0..5) to engine units
+        const vx = Math.cos(angleRad) * (finalMovementSpeed * 0.001) * 1.0;
+        const vy = Math.sin(angleRad) * (finalMovementSpeed * 0.001) * 1.0;
 
         return { ...layer, ...newProps, vx, vy };
       })
@@ -263,6 +279,8 @@ const MainApp = () => {
     const randomPalette = palettes[Math.floor(Math.random() * palettes.length)];
     const randomColor = randomPalette[Math.floor(Math.random() * randomPalette.length)];
     setBackgroundColor(randomColor);
+    // Randomize global blend mode
+    setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
   };
 
   const randomizeScene = () => {
@@ -303,12 +321,14 @@ const MainApp = () => {
               updateLayer={updateCurrentLayer}
               randomizeSeed={randomizeSeed}
               randomizeAll={handleRandomizeAll}
-              variation={variation}
-              setVariation={setVariation}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+              globalBlendMode={globalBlendMode}
+              setGlobalBlendMode={setGlobalBlendMode}
+              layers={layers}
+              setLayers={setLayers}
               isNodeEditMode={isNodeEditMode}
               setIsNodeEditMode={setIsNodeEditMode}
             />
@@ -328,9 +348,9 @@ const MainApp = () => {
             ref={canvasRef}
             layers={layers}
             isFrozen={isFrozen}
-            variation={variation}
             backgroundColor={backgroundColor}
             globalSeed={globalSeed}
+            globalBlendMode={globalBlendMode}
             isNodeEditMode={isNodeEditMode}
             selectedLayerIndex={selectedLayerIndex}
             setLayers={setLayers}
