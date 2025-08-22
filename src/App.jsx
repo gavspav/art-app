@@ -30,6 +30,7 @@ const MainApp = () => {
     selectedLayerIndex, setSelectedLayerIndex,
     isOverlayVisible, setIsOverlayVisible,
     isNodeEditMode, setIsNodeEditMode,
+    classicMode, setClassicMode,
   } = useAppState();
 
   const canvasRef = useRef();
@@ -328,7 +329,8 @@ const MainApp = () => {
     setLayers(prev => prev.map((l, i) => (i === selectedLayerIndex ? updated : l)));
   };
 
-  const handleRandomizeAll = () => {
+  // --- Modern randomizer (existing) ---
+  const modernRandomizeAll = () => {
     // Helper utilities
     const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
     const mixRandom = (baseVal, min, max, w, integer = false) => {
@@ -514,10 +516,82 @@ const MainApp = () => {
     setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
   };
 
+  // --- Classic randomizer (CodePen-like) ---
+  const classicRandomizeAll = () => {
+    const rnd = Math.random;
+
+    // 1. Choose scene palette once
+    const scenePreset = palettes[Math.floor(rnd() * palettes.length)];
+    const sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
+    const baseColors = sceneColors.length ? sceneColors : ['#FF5733', '#C70039', '#900C3F'];
+
+    // 2. Number of layers 1..20
+    const layerCount = Math.floor(rnd() * 20) + 1;
+
+    const buildLayer = (idx) => {
+      const layer = { ...DEFAULT_LAYER };
+      layer.name = `Layer ${idx + 1}`;
+      layer.layerType = 'shape';
+      layer.seed = rnd();
+      layer.noiseSeed = rnd();
+
+      // Geometry
+      layer.numSides = Math.floor(3 + rnd() * 17); // 3..20
+      layer.curviness = Number((0.3 + rnd() * 1.2).toFixed(3)); // 0.3..1.5
+      layer.wobble = rnd();
+      layer.noiseAmount = Number((rnd() * 8).toFixed(2));
+      layer.width = Math.floor(10 + rnd() * 890);
+      layer.height = Math.floor(10 + rnd() * 890);
+
+      // Appearance
+      layer.colors = baseColors;
+      layer.numColors = baseColors.length;
+      layer.opacity = 0.8; // Global opacity target
+
+      // Movement (bounce only)
+      layer.movementStyle = 'bounce';
+      layer.movementAngle = Math.floor(rnd() * 360);
+      layer.movementSpeed = Number((Math.pow(rnd(), 4) * 5).toFixed(3)); // quartic scaling mapped to 0..5 UI scale
+      const angleRad = layer.movementAngle * (Math.PI / 180);
+      layer.vx = Math.cos(angleRad) * (layer.movementSpeed * 0.001);
+      layer.vy = Math.sin(angleRad) * (layer.movementSpeed * 0.001);
+
+      // Scale / Z
+      layer.scaleMin = 0.2;
+      layer.scaleMax = 1.5;
+      layer.scaleSpeed = 0.05;
+
+      // Position centreish
+      layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
+
+      return layer;
+    };
+
+    const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
+
+    // 3. Commit state
+    setLayers(newLayers);
+    setSelectedLayerIndex(0);
+
+    // 4. Global settings
+    setBackgroundColor(baseColors[Math.floor(rnd() * baseColors.length)]);
+    setGlobalBlendMode('source-over');
+
+    // Ensure blur will be applied via classicMode flag, and opacity unified
+  };
+
+  // Wrapper that chooses algorithm based on classicMode flag
+  const handleRandomizeAll = () => {
+    if (classicMode) classicRandomizeAll();
+    else modernRandomizeAll();
+  };
+
   const randomizeScene = () => {
+    if (classicMode) return classicRandomizeAll();
+
+    // fallback to modern variant of per-layer randomization
     const newLayers = layers.map((layer, index) => randomizeLayer(index, true));
     setLayers(newLayers);
-    
     const bgPreset = palettes[Math.floor(Math.random() * palettes.length)];
     const bgColors = Array.isArray(bgPreset) ? bgPreset : (bgPreset.colors || []);
     if (bgColors.length > 0) {
@@ -555,6 +629,8 @@ const MainApp = () => {
               updateLayer={updateCurrentLayer}
               randomizeCurrentLayer={randomizeCurrentLayer}
               randomizeAll={handleRandomizeAll}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -589,6 +665,7 @@ const MainApp = () => {
             isNodeEditMode={isNodeEditMode}
             selectedLayerIndex={selectedLayerIndex}
             setLayers={setLayers}
+            classicMode={classicMode}
           />
           
           {/* Floating Action Buttons */}

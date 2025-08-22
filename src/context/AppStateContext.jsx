@@ -23,6 +23,7 @@ export const AppStateProvider = ({ children }) => {
     selectedLayerIndex: DEFAULTS.selectedLayerIndex,
     isOverlayVisible: true,
     isNodeEditMode: false,
+    classicMode: false,
   });
 
   // Individual state setters for backward compatibility
@@ -63,6 +64,11 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, isNodeEditMode: value }));
   }, []);
 
+  // Toggle Classic Mode (original CodePen-like aesthetics)
+  const setClassicMode = useCallback((value) => {
+    setAppState(prev => ({ ...prev, classicMode: !!value }));
+  }, []);
+
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
     return { ...appState };
@@ -99,6 +105,7 @@ export const AppStateProvider = ({ children }) => {
       selectedLayerIndex: DEFAULTS.selectedLayerIndex,
       isOverlayVisible: true,
       isNodeEditMode: false,
+      classicMode: false,
     });
   }, []);
 
@@ -116,6 +123,7 @@ export const AppStateProvider = ({ children }) => {
     setSelectedLayerIndex,
     setIsOverlayVisible,
     setIsNodeEditMode,
+    setClassicMode,
     
     // State management functions
     getCurrentAppState,

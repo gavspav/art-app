@@ -120,6 +120,8 @@ const Controls = ({
   setLayers,
   isNodeEditMode,
   setIsNodeEditMode,
+  classicMode,
+  setClassicMode,
 }) => {
   const { parameters } = useParameters();
 
@@ -223,6 +225,10 @@ const Controls = ({
       </div>
 
       <Section title="Global" id="global" defaultOpen={false}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input type="checkbox" checked={classicMode} onChange={e => setClassicMode(e.target.checked)} />
+          Classic Mode
+        </label>
         <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
         <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
         <input 

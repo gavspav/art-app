@@ -301,7 +301,7 @@ const computeInitialNodes = (layer, canvas) => {
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, setLayers }, ref) => {
+const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, setLayers, classicMode = false }, ref) => {
     const localCanvasRef = useRef(null);
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
@@ -376,6 +376,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.fillRect(0, 0, width, height);
         }
 
+        if (classicMode) {
+            ctx.filter = 'blur(1px)';
+        }
+
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -394,6 +398,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 }
             }
         });
+
+        if (classicMode) {
+            ctx.filter = 'none';
+        }
 
         // Draw draggable node handles for selected layer when in node edit mode (layer-local mapping)
         if (isNodeEditMode && selectedLayerIndex != null && layers[selectedLayerIndex]) {
@@ -429,7 +437,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
         }
 
-    }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex]);
+    }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex, classicMode]);
 
     useEffect(() => {
         if (ref) {
@@ -544,6 +552,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
+            classicMode={classicMode}
         />
     );
 });
