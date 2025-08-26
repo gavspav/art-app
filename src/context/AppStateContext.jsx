@@ -24,6 +24,9 @@ export const AppStateProvider = ({ children }) => {
     isOverlayVisible: true,
     isNodeEditMode: false,
     classicMode: false,
+    // Global randomization toggles for palette and color count
+    randomizePalette: true,
+    randomizeNumColors: true,
   });
 
   // Individual state setters for backward compatibility
@@ -69,6 +72,15 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, classicMode: !!value }));
   }, []);
 
+  // Global toggles for color randomization behavior
+  const setRandomizePalette = useCallback((value) => {
+    setAppState(prev => ({ ...prev, randomizePalette: !!value }));
+  }, []);
+
+  const setRandomizeNumColors = useCallback((value) => {
+    setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
+  }, []);
+
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
     return { ...appState };
@@ -106,6 +118,8 @@ export const AppStateProvider = ({ children }) => {
       isOverlayVisible: true,
       isNodeEditMode: false,
       classicMode: false,
+      randomizePalette: true,
+      randomizeNumColors: true,
     });
   }, []);
 
@@ -124,7 +138,9 @@ export const AppStateProvider = ({ children }) => {
     setIsOverlayVisible,
     setIsNodeEditMode,
     setClassicMode,
-    
+    setRandomizePalette,
+    setRandomizeNumColors,
+
     // State management functions
     getCurrentAppState,
     loadAppState,

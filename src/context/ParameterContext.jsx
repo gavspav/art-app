@@ -55,9 +55,8 @@ export const ParameterProvider = ({ children }) => {
       const updatedParams = prevParams.map(p => {
         if (p.id === id) {
           // Ensure numeric values are stored as numbers
-          const newValue = (field === 'min' || field === 'max' || field === 'step' || field === 'defaultValue') 
-            ? parseFloat(value) 
-            : value;
+          const numericFields = ['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'];
+          const newValue = (numericFields.includes(field)) ? parseFloat(value) : value;
           return { ...p, [field]: newValue };
         }
         return p;

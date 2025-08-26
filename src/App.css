@@ -1,10 +1,10 @@
-/* Modern UI Layout - Force Refresh */
 #root {
   max-width: 100vw;
   margin: 0 auto;
   background-color: #1a1a1a;
   color: #f0f0f0;
 }
+
 
 .App {
   display: flex;
@@ -34,7 +34,8 @@
   display: flex;
   flex-direction: column;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 100;
+  z-index: 2000;
+  position: relative; /* ensure z-index applies so sidebar stays above canvas */
 }
 
 .sidebar.hidden {
@@ -104,6 +105,16 @@
   flex: 1;
   position: relative;
   overflow: hidden;
+  z-index: 0;
+}
+
+/* Ensure sidebar control cards sit above any accidental overlays */
+.sidebar-content,
+.controls-panel,
+.control-card,
+.tab-section {
+  position: relative;
+  z-index: 2;
 }
 
 canvas {
@@ -116,12 +127,13 @@ canvas {
 /* Floating Action Buttons */
 .floating-actions {
   position: fixed;
-  bottom: 2rem;
+  bottom: 9rem; /* keep FABs well above footer */
   right: 2rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  z-index: 1000;
+  z-index: 5000; /* above sidebar and controls */
+  pointer-events: none; /* container doesn't block clicks */
 }
 
 .fab {
@@ -129,16 +141,15 @@ canvas {
   height: 60px;
   border-radius: 50%;
   background: linear-gradient(135deg, #646cff 0%, #5a5fcf 100%);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  color: white;
-  font-size: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 22px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-shadow: 0 6px 20px rgba(100, 108, 255, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
   backdrop-filter: blur(10px);
+  pointer-events: auto; /* buttons stay clickable */
+  z-index: 10000;
 }
 
 .fab:hover {
@@ -156,10 +167,229 @@ canvas {
   z-index: 10000;
 }
 
+/* Ensure FABs clear footer on short height viewports */
+@media (max-height: 800px) {
+  .floating-actions { bottom: 11rem; }
+}
+@media (max-height: 650px) {
+  .floating-actions { bottom: 13rem; }
+}
+
 .controls {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  pointer-events: auto;
+  background: linear-gradient(180deg, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.35) 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 14px 30px rgba(0,0,0,0.35);
+}
+
+.controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.controls-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tabbar {
+  display: flex;
+  flex-wrap: nowrap; /* fixed tabs */
+  gap: 0.25rem; /* reduced from 0.5rem for closer tabs */
+  padding: 0.75rem 0 0.75rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  overflow-x: auto; /* allow horizontal scroll when tabs overflow */
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* optional: subtle scrollbar styling */
+.tabbar::-webkit-scrollbar { height: 6px; }
+.tabbar::-webkit-scrollbar-track { background: transparent; }
+.tabbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 999px; }
+
+.tab-btn {
+  padding: 0.5rem 0.9rem;
+  min-width: 108px; /* fixed-like width for consistent spacing */
+  text-align: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9e9e9;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.tab-btn.active {
+  background: linear-gradient(135deg, #2b66ff 0%, #144bd4 100%);
+  border-color: rgba(43, 102, 255, 0.5);
+  box-shadow: 0 2px 12px rgba(43, 102, 255, 0.35);
+}
+
+.tab-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  position: relative;
+  z-index: 2;
+}
+
+.control-card {
+  background: rgba(28, 28, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 6px 16px rgba(0,0,0,0.35);
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Draggable vertical divider between sidebar and canvas */
+.sidebar-resizer {
+  flex: 0 0 auto;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 2500; /* above canvas, below FABs */
+}
+.sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to right, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06));
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.sidebar-resizer:hover::after { opacity: 1; }
+
+/* DynamicControl header/actions + icon buttons */
+.dc-header { margin-bottom: 0.5rem; }
+.dc-actions { gap: 0.5rem; }
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  font-size: 18px;
+}
+.icon-btn:hover {
+  background: rgba(255,255,255,0.14);
+}
+
+/* Settings panel inside each control */
+.dc-settings {
+  margin-top: 0.75rem !important;
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+/* Slider visual spacing */
+.dc-slider { margin-top: 0.5rem; }
+
+/* Inner panel wrapping each control body */
+.dc-inner {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem 1rem;
+}
+
+/* Accent button (orange) for Randomize All to match mockup) */
+.btn-accent {
+  background: linear-gradient(135deg, #ff7a2f 0%, #ff5c24 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+.btn-accent:hover {
+  background: linear-gradient(135deg, #ff8f52 0%, #ff6d3b 100%);
+}
+
+/* Range slider aesthetics */
+.dc-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.14);
+  border-radius: 999px;
+  outline: none;
+}
+.dc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2b66ff;
+  box-shadow: 0 2px 6px rgba(43,102,255,0.5);
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.6);
+}
+.dc-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2b66ff;
+  box-shadow: 0 2px 6px rgba(43,102,255,0.5);
+  cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.6);
+}
+
+/* Button variants used in Controls */
+.btn-primary {
+  background: linear-gradient(135deg, #3fb950 0%, #2ea043 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #4dca60 0%, #36b04c 100%);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .control-group {
@@ -243,6 +473,9 @@ footer {
   padding: 1rem 1.5rem;
   background: linear-gradient(135deg, #2a2a2a 0%, #1e1e1e 100%);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative; /* create local stacking context below FABs */
+  z-index: 1;
+  padding-right: 8rem; /* keep footer contents away from FAB stack on the right */
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -259,17 +492,17 @@ footer {
   .sidebar {
     width: 300px;
   }
-  
+
   .sidebar.collapsed {
     width: 0;
     transform: translateX(-100%);
   }
-  
+
   .floating-actions {
-    bottom: 1rem;
+    bottom: 5rem; /* still above footer on small screens */
     right: 1rem;
   }
-  
+
   .fab {
     width: 48px;
     height: 48px;

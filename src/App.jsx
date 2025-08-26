@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
@@ -31,10 +31,16 @@ const MainApp = () => {
     isOverlayVisible, setIsOverlayVisible,
     isNodeEditMode, setIsNodeEditMode,
     classicMode, setClassicMode,
+    // Color randomization toggles
+    randomizePalette, setRandomizePalette,
+    randomizeNumColors, setRandomizeNumColors,
   } = useAppState();
 
-  const canvasRef = useRef();
-  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(canvasRef);
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const [sidebarWidth, setSidebarWidth] = useState(350);
+  const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
@@ -104,6 +110,31 @@ const MainApp = () => {
 
   useAnimation(setLayers, isFrozen, globalSpeedMultiplier);
 
+  // Sidebar resizing handlers
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!dragRef.current.dragging) return;
+      const dx = e.clientX - dragRef.current.startX;
+      const next = Math.max(220, Math.min(600, dragRef.current.startW + dx));
+      setSidebarWidth(next);
+      e.preventDefault();
+    };
+    const onUp = () => {
+      if (dragRef.current.dragging) dragRef.current.dragging = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const startResize = (e) => {
+    dragRef.current = { dragging: true, startX: e.clientX, startW: sidebarWidth };
+    e.preventDefault();
+  };
+
   // Auto-freeze while in Node Edit mode; restore previous state on exit
   useEffect(() => {
     if (isNodeEditMode) {
@@ -119,6 +150,20 @@ const MainApp = () => {
   }, [isNodeEditMode, isFrozen]);
 
   const currentLayer = layers[selectedLayerIndex];
+
+  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
+  const sampleColorsEven = (base = [], count = 0) => {
+    const n = Math.max(0, Math.floor(count));
+    if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
+    if (n === 1) return [base[0]];
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = (n === 1) ? 0 : (i / (n - 1));
+      const idx = Math.round(t * (base.length - 1));
+      out.push(base[idx]);
+    }
+    return out;
+  };
 
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
@@ -142,6 +187,7 @@ const MainApp = () => {
     const prev = layers[layers.length - 1] || DEFAULT_LAYER;
     const v = typeof prev.variation === 'number' ? prev.variation : DEFAULT_LAYER.variation;
     const w = Math.max(0, Math.min(1, v / 3)); // normalize 0..3 -> 0..1
+    const varyFlags = (prev.vary || DEFAULT_LAYER.vary || {});
 
     const mixRandom = (prevVal, min, max, integer = false) => {
       const rnd = min + Math.random() * (max - min);
@@ -161,33 +207,50 @@ const MainApp = () => {
     varied.name = `Layer ${layers.length + 1}`;
     varied.seed = newSeed;
     varied.noiseSeed = newSeed;
+    // ensure vary flags are copied, not shared by reference
+    varied.vary = { ...(prev.vary || DEFAULT_LAYER.vary || {}) };
 
-    // Geometry and style
-    varied.numSides = mixRandom(prev.numSides, 3, 20, true);
-    varied.curviness = mixRandom(prev.curviness ?? 1.0, 0.0, 1.0);
-    varied.wobble = mixRandom(prev.wobble ?? 0.5, 0.0, 1.0);
-    varied.noiseAmount = mixRandom(prev.noiseAmount ?? 0.5, 0, 8);
-    varied.width = mixRandom(prev.width ?? 250, 10, 900, true);
-    varied.height = mixRandom(prev.height ?? 250, 10, 900, true);
+    // Geometry and style (respect vary flags)
+    if (varyFlags.numSides) varied.numSides = mixRandom(prev.numSides, 3, 20, true);
+    if (varyFlags.curviness) varied.curviness = mixRandom(prev.curviness ?? 1.0, 0.0, 1.0);
+    if (varyFlags.wobble) varied.wobble = mixRandom(prev.wobble ?? 0.5, 0.0, 1.0);
+    if (varyFlags.noiseAmount) varied.noiseAmount = mixRandom(prev.noiseAmount ?? 0.5, 0, 8);
+    if (varyFlags.width) varied.width = mixRandom(prev.width ?? 250, 10, 900, true);
+    if (varyFlags.height) varied.height = mixRandom(prev.height ?? 250, 10, 900, true);
     // Keep opacity as-is; user has a global opacity control
 
     // Movement
     // Occasionally change style when variation is high
-    if (w > 0.7 && Math.random() < w) {
+    if (varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
       varied.movementStyle = prev.movementStyle === 'bounce' ? 'drift' : 'bounce';
     }
-    varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
-    const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360);
-    // Wrap angle to [0,360)
-    varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+    if (varyFlags.movementSpeed) varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
+    if (varyFlags.movementAngle) {
+      const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360, true);
+      // Wrap angle to [0,360)
+      varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+    }
 
     // Z scaling
-    varied.scaleSpeed = mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2);
-    // Ensure min <= max after variation
-    const nextScaleMin = mixRandom(prev.scaleMin ?? 0.2, 0.1, 2);
-    const nextScaleMax = mixRandom(prev.scaleMax ?? 1.5, 0.5, 3);
+    if (varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2);
+    // Ensure min <= max after optional variation
+    let nextScaleMin = prev.scaleMin ?? 0.2;
+    let nextScaleMax = prev.scaleMax ?? 1.5;
+    if (varyFlags.scaleMin) nextScaleMin = mixRandom(prev.scaleMin ?? 0.2, 0.1, 2);
+    if (varyFlags.scaleMax) nextScaleMax = mixRandom(prev.scaleMax ?? 1.5, 0.5, 3);
     varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
     varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
+
+    // Image Effects
+    if (varyFlags.imageBlur) varied.imageBlur = mixRandom(prev.imageBlur ?? 0, 0, 20);
+    if (varyFlags.imageBrightness) varied.imageBrightness = mixRandom(prev.imageBrightness ?? 100, 0, 200, true);
+    if (varyFlags.imageContrast) varied.imageContrast = mixRandom(prev.imageContrast ?? 100, 0, 200, true);
+    if (varyFlags.imageHue) {
+      const nextHue = mixRandom(prev.imageHue ?? 0, 0, 360, true);
+      varied.imageHue = ((nextHue % 360) + 360) % 360;
+    }
+    if (varyFlags.imageSaturation) varied.imageSaturation = mixRandom(prev.imageSaturation ?? 100, 0, 200, true);
+    if (varyFlags.imageDistortion) varied.imageDistortion = mixRandom(prev.imageDistortion ?? 0, 0, 50);
 
     // Position: start at a nearby/random location
     const baseX = prev.position?.x ?? 0.5;
@@ -254,7 +317,7 @@ const MainApp = () => {
     setSelectedLayerIndex(index);
   };
 
-  const randomizeLayer = (index, randomizePalette = false) => {
+  const randomizeLayer = (index, _forcePalette = false) => {
     const randomizableParams = parameters.filter(p => p.isRandomizable);
     const layer = layers[index];
 
@@ -267,13 +330,20 @@ const MainApp = () => {
         }
         switch (param.type) {
             case 'slider': {
-                const rawValue = param.min + Math.random() * (param.max - param.min);
+                // Respect optional per-parameter random range overrides
+                const rmin = Number.isFinite(param.randomMin) ? param.randomMin : param.min;
+                const rmax = Number.isFinite(param.randomMax) ? param.randomMax : param.max;
+                const low = Math.min(rmin ?? param.min, rmax ?? param.max);
+                const high = Math.max(rmin ?? param.min, rmax ?? param.max);
+                let rawValue = low + Math.random() * (high - low);
+                // Clamp to authoritative slider bounds
+                rawValue = Math.min(param.max, Math.max(param.min, rawValue));
                 const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
                 newProps[param.id] = finalValue;
                 
                 // Debug logging for numSides
                 if (param.id === 'numSides') {
-                  console.log(`Randomizing numSides (randomizeLayer): min=${param.min}, max=${param.max}, rawValue=${rawValue}, finalValue=${finalValue}`);
+                  console.log(`Randomizing numSides (randomizeLayer): min=${param.min}, max=${param.max}, rawRange=[${rmin}, ${rmax}], final=${finalValue}`);
                 }
                 break;
             }
@@ -284,32 +354,30 @@ const MainApp = () => {
         }
     });
 
-    // Always randomize colors for this layer by selecting a preset and a number of colors
-    const preset = palettes[Math.floor(Math.random() * palettes.length)];
-    const presetColors = Array.isArray(preset) ? preset : (preset.colors || []);
-    if (presetColors.length > 0) {
-      const maxN = Math.min(5, presetColors.length);
-      const minN = Math.min(3, maxN);
-      const n = Math.floor(Math.random() * (maxN - minN + 1)) + minN; // choose 3..5 or up to preset length
-      const colors = presetColors.slice(0, n);
-      newProps.colors = colors;
-      newProps.numColors = colors.length;
-      newProps.selectedColor = 0;
-    }
+    // Color randomization gated by global toggles
+    const doPalette = !!randomizePalette;
+    const doCount = !!randomizeNumColors;
+    if (doPalette || doCount) {
+      const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
+      const currentN = Number.isFinite(layer.numColors) ? layer.numColors : (baseColors.length || 0);
 
-    if (randomizePalette) {
-      // If caller requests palette randomization, choose a (possibly different) preset and rebuild colors
-      const p2 = palettes[Math.floor(Math.random() * palettes.length)];
-      const p2Colors = Array.isArray(p2) ? p2 : (p2.colors || []);
-      if (p2Colors.length > 0) {
-        const maxN2 = Math.min(5, p2Colors.length);
-        const minN2 = Math.min(3, maxN2);
-        const n2 = Math.floor(Math.random() * (maxN2 - minN2 + 1)) + minN2;
-        const colors2 = p2Colors.slice(0, n2);
-        newProps.colors = colors2;
-        newProps.numColors = colors2.length;
-        newProps.selectedColor = 0;
+      let nextPalette = baseColors;
+      if (doPalette) {
+        const pick = palettes[Math.floor(Math.random() * palettes.length)];
+        nextPalette = Array.isArray(pick) ? pick : (pick.colors || baseColors);
       }
+
+      let nextN = currentN;
+      if (doCount) {
+        const maxN = Math.min(5, (nextPalette.length || 5));
+        const minN = Math.min(3, maxN);
+        nextN = Math.max(1, Math.floor(Math.random() * (maxN - minN + 1)) + minN);
+      }
+
+      const nextColors = sampleColorsEven(nextPalette.length ? nextPalette : baseColors, nextN || currentN || 1);
+      newProps.colors = nextColors;
+      newProps.numColors = nextColors.length;
+      newProps.selectedColor = 0;
     }
 
     const updatedLayer = { ...layers[index], ...newProps };
@@ -334,11 +402,30 @@ const MainApp = () => {
     // Helper utilities
     const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
     const mixRandom = (baseVal, min, max, w, integer = false) => {
-      const rnd = min + Math.random() * (max - min);
+      const rnd = min + Math.random() * Math.max(0, (max - min));
       let next = baseVal * (1 - w) + rnd * w;
       next = clamp(next, min, max);
       if (integer) next = Math.round(next);
       return next;
+    };
+
+    // Parameter helpers
+    const getParam = (id) => parameters.find(p => p.id === id);
+    const sampleSlider = (id) => {
+      const p = getParam(id);
+      if (!p || p.type !== 'slider' || p.isRandomizable === false) return undefined;
+      const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
+      const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
+      const low = Math.min(rmin ?? p.min, rmax ?? p.max);
+      const high = Math.max(rmin ?? p.min, rmax ?? p.max);
+      let v = low + Math.random() * (high - low);
+      v = clamp(v, p.min, p.max);
+      return p.step === 1 ? Math.round(v) : v;
+    };
+    const sampleDropdown = (id) => {
+      const p = getParam(id);
+      if (!p || p.type !== 'dropdown' || p.isRandomizable === false || !Array.isArray(p.options) || p.options.length === 0) return undefined;
+      return p.options[Math.floor(Math.random() * p.options.length)];
     };
 
     // Decide number of layers
@@ -346,38 +433,55 @@ const MainApp = () => {
     const maxLayers = 8;
     const layerCount = Math.floor(Math.random() * (maxLayers - minLayers + 1)) + minLayers;
 
-    // Choose a base scene palette preset once
-    const scenePreset = palettes[Math.floor(Math.random() * palettes.length)];
-    const sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
-    const basePaletteName = scenePreset?.name;
-
-    // Choose number of colors for the scene
-    const sceneMaxN = Math.min(5, sceneColors.length || 5);
+    // Choose a base scene palette/size with gating
+    let scenePreset = palettes[Math.floor(Math.random() * palettes.length)];
+    let sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
+    const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
+    const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
+    if (!randomizePalette) {
+      sceneColors = currentBase.length ? currentBase : (sceneColors || []);
+    }
+    const sceneMaxN = Math.min(5, (sceneColors.length || currentN || 5));
     const sceneMinN = Math.min(3, sceneMaxN);
-    const sceneN = sceneMaxN > 0 ? Math.floor(Math.random() * (sceneMaxN - sceneMinN + 1)) + sceneMinN : 0;
-    const baseColors = sceneN > 0 ? sceneColors.slice(0, sceneN) : ["#FFC300", "#FF5733", "#C70039"]; // fallback
+    const sceneN = randomizeNumColors
+      ? (sceneMaxN > 0 ? Math.floor(Math.random() * (sceneMaxN - sceneMinN + 1)) + sceneMinN : currentN)
+      : currentN;
+    const baseColors = (sceneColors.length || currentBase.length)
+      ? sampleColorsEven(sceneColors.length ? sceneColors : currentBase, Math.max(1, sceneN))
+      : ["#FFC300", "#FF5733", "#C70039"]; // fallback
+    const basePaletteName = (Array.isArray(scenePreset) ? undefined : scenePreset?.name);
 
-    // Build the first (base) layer fully random
-    const baseVariation = Number((Math.random() * 3).toFixed(2)); // 0..3
-    const w = clamp(baseVariation / 3, 0, 1);
+    // Base variation from parameter metadata when available
+    const baseVariation = (() => {
+      const p = getParam('variation');
+      if (!p || p.type !== 'slider' || p.isRandomizable === false) return DEFAULT_LAYER.variation ?? 0.2;
+      return sampleSlider('variation');
+    })();
+    const w = clamp((baseVariation ?? 0) / 3, 0, 1);
+
+    const varyFlags = (currentLayer?.vary || DEFAULT_LAYER.vary || {});
 
     const base = {
       ...DEFAULT_LAYER,
       name: 'Layer 1',
       seed: Math.random(),
       noiseSeed: Math.random(),
-      variation: baseVariation,
-      numSides: Math.floor(3 + Math.random() * (20 - 3 + 1)),
-      curviness: Math.random(),
-      wobble: Math.random(),
-      noiseAmount: Number((Math.random() * 8).toFixed(2)),
-      width: Math.floor(10 + Math.random() * (900 - 10)),
-      height: Math.floor(10 + Math.random() * (900 - 10)),
-      opacity: Number(Math.random().toFixed(2)),
-      movementStyle: Math.random() < 0.5 ? 'bounce' : 'drift',
-      movementSpeed: Number((Math.random() * 5).toFixed(2)),
-      movementAngle: Math.floor(Math.random() * 360),
-      scaleSpeed: Number((Math.random() * 0.2).toFixed(3)),
+      variation: Number(baseVariation?.toFixed ? baseVariation.toFixed(2) : baseVariation),
+      numSides: sampleSlider('numSides') ?? DEFAULT_LAYER.numSides,
+      curviness: sampleSlider('curviness') ?? DEFAULT_LAYER.curviness,
+      wobble: sampleSlider('wobble') ?? DEFAULT_LAYER.wobble,
+      noiseAmount: sampleSlider('noiseAmount') ?? DEFAULT_LAYER.noiseAmount,
+      width: sampleSlider('width') ?? DEFAULT_LAYER.width,
+      height: sampleSlider('height') ?? DEFAULT_LAYER.height,
+      // Keep per-layer opacity fixed (global control exists)
+      opacity: DEFAULT_LAYER.opacity,
+      movementStyle: sampleDropdown('movementStyle') ?? DEFAULT_LAYER.movementStyle,
+      movementSpeed: sampleSlider('movementSpeed') ?? DEFAULT_LAYER.movementSpeed,
+      movementAngle: sampleSlider('movementAngle') ?? DEFAULT_LAYER.movementAngle,
+      scaleSpeed: sampleSlider('scaleSpeed') ?? DEFAULT_LAYER.scaleSpeed,
+      // Respect non-randomizable scale bounds
+      scaleMin: DEFAULT_LAYER.scaleMin,
+      scaleMax: DEFAULT_LAYER.scaleMax,
       colors: baseColors,
       numColors: baseColors.length,
       selectedColor: 0,
@@ -386,12 +490,9 @@ const MainApp = () => {
         x: Math.random(),
         y: Math.random(),
       },
+      vary: { ...varyFlags },
     };
-    // Ensure scale min/max are valid
-    const bScaleMin = Number((0.1 + Math.random() * (2 - 0.1)).toFixed(2));
-    const bScaleMax = Number((0.5 + Math.random() * (3 - 0.5)).toFixed(2));
-    base.scaleMin = Math.min(bScaleMin, bScaleMax);
-    base.scaleMax = Math.max(bScaleMin, bScaleMax);
+
     // Compute velocity
     {
       const angleRad = base.movementAngle * (Math.PI / 180);
@@ -399,7 +500,7 @@ const MainApp = () => {
       base.vy = Math.sin(angleRad) * (base.movementSpeed * 0.001) * 1.0;
     }
 
-    // Create remaining layers by varying from the base using its variation
+    // Create remaining layers by varying from the base using its variation and param ranges
     const layersOut = [base];
     for (let i = 1; i < layerCount; i++) {
       const varied = { ...base };
@@ -407,30 +508,74 @@ const MainApp = () => {
       // new seeds
       varied.seed = Math.random();
       varied.noiseSeed = Math.random();
+      // ensure vary flags are not shared by reference across layers
+      varied.vary = { ...varyFlags };
 
-      // Vary geometry and style relative to base
-      varied.numSides = mixRandom(base.numSides, 3, 20, w, true);
-      varied.curviness = mixRandom(base.curviness, 0.0, 1.0, w);
-      varied.wobble = mixRandom(base.wobble, 0.0, 1.0, w);
-      varied.noiseAmount = mixRandom(base.noiseAmount, 0, 8, w);
-      varied.width = mixRandom(base.width, 10, 900, w, true);
-      varied.height = mixRandom(base.height, 10, 900, w, true);
-      // Opacity and movement
-      varied.opacity = mixRandom(base.opacity, 0, 1, w);
-      // Occasionally switch movement style for higher variation
-      if (w > 0.7 && Math.random() < w) {
-        varied.movementStyle = base.movementStyle === 'bounce' ? 'drift' : 'bounce';
+      // Vary geometry and style relative to base via parameter metadata
+      {
+        const p = getParam('numSides'); if (p?.isRandomizable && varyFlags.numSides) varied.numSides = mixRandom(base.numSides, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
       }
-      varied.movementSpeed = mixRandom(base.movementSpeed, 0, 5, w);
-      const nextAngle = mixRandom(base.movementAngle, 0, 360, w);
-      varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+      {
+        const p = getParam('curviness'); if (p?.isRandomizable && varyFlags.curviness) varied.curviness = mixRandom(base.curviness, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+      {
+        const p = getParam('wobble'); if (p?.isRandomizable && varyFlags.wobble) varied.wobble = mixRandom(base.wobble, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+      {
+        const p = getParam('noiseAmount'); if (p?.isRandomizable && varyFlags.noiseAmount) varied.noiseAmount = mixRandom(base.noiseAmount, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+      {
+        const p = getParam('width'); if (p?.isRandomizable && varyFlags.width) varied.width = mixRandom(base.width, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
+      }
+      {
+        const p = getParam('height'); if (p?.isRandomizable && varyFlags.height) varied.height = mixRandom(base.height, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
+      }
 
-      // Scale
-      const nextScaleMin = mixRandom(base.scaleMin, 0.1, 2, w);
-      const nextScaleMax = mixRandom(base.scaleMax, 0.5, 3, w);
-      varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
-      varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
-      varied.scaleSpeed = mixRandom(base.scaleSpeed, 0, 0.2, w);
+      // Image Effects (gated by per-layer vary flags)
+      {
+        const p = getParam('imageBlur'); if (p?.isRandomizable && varyFlags.imageBlur) varied.imageBlur = mixRandom(base.imageBlur, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+      {
+        const p = getParam('imageBrightness'); if (p?.isRandomizable && varyFlags.imageBrightness) varied.imageBrightness = mixRandom(base.imageBrightness, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
+      }
+      {
+        const p = getParam('imageContrast'); if (p?.isRandomizable && varyFlags.imageContrast) varied.imageContrast = mixRandom(base.imageContrast, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
+      }
+      {
+        const p = getParam('imageHue'); if (p?.isRandomizable && varyFlags.imageHue) {
+          const nextHue = mixRandom(base.imageHue, p.randomMin ?? p.min, p.randomMax ?? p.max, w, true);
+          varied.imageHue = ((nextHue % 360) + 360) % 360;
+        }
+      }
+      {
+        const p = getParam('imageSaturation'); if (p?.isRandomizable && varyFlags.imageSaturation) varied.imageSaturation = mixRandom(base.imageSaturation, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
+      }
+      {
+        const p = getParam('imageDistortion'); if (p?.isRandomizable && varyFlags.imageDistortion) varied.imageDistortion = mixRandom(base.imageDistortion, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+
+      // Opacity: keep constant to avoid per-layer randomization
+      varied.opacity = base.opacity;
+
+      // Movement
+      {
+        const p = getParam('movementStyle');
+        if (p?.isRandomizable && varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
+          varied.movementStyle = base.movementStyle === 'bounce' ? 'drift' : 'bounce';
+        }
+      }
+      {
+        const p = getParam('movementSpeed'); if (p?.isRandomizable && varyFlags.movementSpeed) varied.movementSpeed = mixRandom(base.movementSpeed, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
+      {
+        const p = getParam('movementAngle'); if (p?.isRandomizable && varyFlags.movementAngle) {
+          const nextAngle = mixRandom(base.movementAngle, p.randomMin ?? p.min, p.randomMax ?? p.max, w, true);
+          varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+        }
+      }
+      {
+        const p = getParam('scaleSpeed'); if (p?.isRandomizable && varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(base.scaleSpeed, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
+      }
 
       // Position jitter
       const jitter = 0.15 * w;
@@ -440,58 +585,61 @@ const MainApp = () => {
       const ny = clamp(base.position.y + jy, 0.0, 1.0);
       varied.position = { ...base.position, x: nx, y: ny };
 
-      // Colors: if variation > 1, switch palette for this layer; the higher it gets, the further it deviates
-      if (baseVariation > 2) {
-        // Fully different palette
-        const candidates = palettes.filter(p => p.name !== basePaletteName);
-        const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
-        const newCols = (picked?.colors || []).slice(0, base.numColors || base.colors.length || 3);
-        varied.colors = newCols.length ? newCols : [...base.colors];
-        varied.numColors = varied.colors.length;
-      } else if (baseVariation > 1) {
-        // Mixed palette: blend some colors from base with some from a different palette
-        const candidates = palettes.filter(p => p.name !== basePaletteName);
-        const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
-        const n = base.numColors || base.colors.length || 3;
-        const keepCount = Math.max(1, Math.round(n * (2 - baseVariation))); // more deviation as variation approaches 2
-        const newCount = Math.max(0, n - keepCount);
-        const fromBase = [...base.colors].sort(() => Math.random() - 0.5).slice(0, keepCount);
-        const fromPicked = (picked?.colors || []).slice(0, Math.max(newCount, 0));
-        const mixed = [...fromBase, ...fromPicked];
-        // Shuffle mixed result slightly
-        for (let k = mixed.length - 1; k > 0; k--) {
-          if (Math.random() < 0.5) {
-            const j = Math.floor(Math.random() * (k + 1));
-            [mixed[k], mixed[j]] = [mixed[j], mixed[k]];
-          }
-        }
-        varied.colors = mixed.length ? mixed : [...base.colors];
-        varied.numColors = varied.colors.length;
+        // Colors: gate palette/count randomization
+      if (!randomizePalette && !randomizeNumColors) {
+        varied.colors = [...base.colors];
+        varied.numColors = base.numColors;
       } else {
-        // Variation <= 1: keep same palette with optional shuffle based on w
-        if (w >= 0.75) {
-          const arr = [...base.colors];
-          for (let k = arr.length - 1; k > 0; k--) {
-            if (Math.random() < 0.8) {
+        if (baseVariation > 2 && randomizePalette) {
+          const candidates = palettes.filter(p => p.name !== basePaletteName);
+          const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
+          const newCols = sampleColorsEven((picked?.colors || []), base.numColors || base.colors.length || 3);
+          varied.colors = newCols.length ? newCols : [...base.colors];
+          varied.numColors = varied.colors.length;
+        } else if (baseVariation > 1 && randomizePalette) {
+          const candidates = palettes.filter(p => p.name !== basePaletteName);
+          const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
+          const n = base.numColors || base.colors.length || 3;
+          const keepCount = Math.max(1, Math.round(n * (2 - baseVariation)));
+          const newCount = Math.max(0, n - keepCount);
+          const fromBase = [...base.colors].sort(() => Math.random() - 0.5).slice(0, keepCount);
+          const fromPicked = sampleColorsEven((picked?.colors || []), newCount);
+          const mixed = [...fromBase, ...fromPicked];
+          // Shuffle mixed result slightly
+          for (let k = mixed.length - 1; k > 0; k--) {
+            if (Math.random() < 0.5) {
               const j = Math.floor(Math.random() * (k + 1));
-              [arr[k], arr[j]] = [arr[j], arr[k]];
+              [mixed[k], mixed[j]] = [mixed[j], mixed[k]];
             }
           }
-          varied.colors = arr;
-          varied.numColors = arr.length;
-        } else if (w >= 0.4) {
-          const arr = [...base.colors];
-          for (let k = arr.length - 1; k > 0; k--) {
-            if (Math.random() < 0.4) {
-              const j = Math.floor(Math.random() * (k + 1));
-              [arr[k], arr[j]] = [arr[j], arr[k]];
-            }
-          }
-          varied.colors = arr;
-          varied.numColors = arr.length;
+          varied.colors = mixed.length ? mixed : [...base.colors];
+          varied.numColors = varied.colors.length;
         } else {
-          varied.colors = [...base.colors];
-          varied.numColors = base.numColors;
+          // Variation <= 1: optional shuffles only if palette randomization allowed
+          if (randomizePalette && w >= 0.75) {
+            const arr = [...base.colors];
+            for (let k = arr.length - 1; k > 0; k--) {
+              if (Math.random() < 0.8) {
+                const j = Math.floor(Math.random() * (k + 1));
+                [arr[k], arr[j]] = [arr[j], arr[k]];
+              }
+            }
+            varied.colors = arr;
+            varied.numColors = arr.length;
+          } else if (randomizePalette && w >= 0.4) {
+            const arr = [...base.colors];
+            for (let k = arr.length - 1; k > 0; k--) {
+              if (Math.random() < 0.4) {
+                const j = Math.floor(Math.random() * (k + 1));
+                [arr[k], arr[j]] = [arr[j], arr[k]];
+              }
+            }
+            varied.colors = arr;
+            varied.numColors = arr.length;
+          } else {
+            varied.colors = [...base.colors];
+            varied.numColors = base.numColors;
+          }
         }
       }
 
@@ -508,9 +656,10 @@ const MainApp = () => {
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
     setSelectedLayerIndex(0);
 
-    // Background color from scene preset
-    if (sceneColors.length > 0) {
-      setBackgroundColor(sceneColors[Math.floor(Math.random() * sceneColors.length)]);
+    // Background color: use scene or current base depending on gating
+    const bgPool = (randomizePalette ? baseColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors : baseColors));
+    if (bgPool.length > 0) {
+      setBackgroundColor(bgPool[Math.floor(Math.random() * bgPool.length)]);
     }
     // Global blend mode
     setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
@@ -520,10 +669,23 @@ const MainApp = () => {
   const classicRandomizeAll = () => {
     const rnd = Math.random;
 
-    // 1. Choose scene palette once
-    const scenePreset = palettes[Math.floor(rnd() * palettes.length)];
-    const sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
-    const baseColors = sceneColors.length ? sceneColors : ['#FF5733', '#C70039', '#900C3F'];
+    // 1. Choose scene palette once (gated)
+    let scenePreset = palettes[Math.floor(rnd() * palettes.length)];
+    let sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
+    const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
+    const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
+    if (!randomizePalette) {
+      sceneColors = currentBase.length ? currentBase : sceneColors;
+    }
+    let baseColors = sceneColors.length ? sceneColors : ['#FF5733', '#C70039', '#900C3F'];
+    if (randomizeNumColors) {
+      const maxN = Math.min(5, baseColors.length || 5);
+      const minN = Math.min(3, maxN);
+      const n = Math.floor(rnd() * (maxN - minN + 1)) + minN;
+      baseColors = sampleColorsEven(baseColors, n);
+    } else {
+      baseColors = sampleColorsEven(baseColors, Math.max(1, currentN));
+    }
 
     // 2. Number of layers 1..20
     const layerCount = Math.floor(rnd() * 20) + 1;
@@ -574,7 +736,9 @@ const MainApp = () => {
     setSelectedLayerIndex(0);
 
     // 4. Global settings
-    setBackgroundColor(baseColors[Math.floor(rnd() * baseColors.length)]);
+    if (baseColors.length > 0) {
+      setBackgroundColor(baseColors[Math.floor(rnd() * baseColors.length)]);
+    }
     setGlobalBlendMode('source-over');
 
     // Ensure blur will be applied via classicMode flag, and opacity unified
@@ -590,10 +754,12 @@ const MainApp = () => {
     if (classicMode) return classicRandomizeAll();
 
     // fallback to modern variant of per-layer randomization
-    const newLayers = layers.map((layer, index) => randomizeLayer(index, true));
+    const newLayers = layers.map((layer, index) => randomizeLayer(index));
     setLayers(newLayers);
-    const bgPreset = palettes[Math.floor(Math.random() * palettes.length)];
-    const bgColors = Array.isArray(bgPreset) ? bgPreset : (bgPreset.colors || []);
+    const bgPool = randomizePalette
+      ? (Array.isArray(palettes[0]) ? palettes[Math.floor(Math.random() * palettes.length)] : (palettes[Math.floor(Math.random() * palettes.length)].colors || []))
+      : (Array.isArray(newLayers?.[0]?.colors) ? newLayers[0].colors : []);
+    const bgColors = Array.isArray(bgPool) ? bgPool : (bgPool.colors || []);
     if (bgColors.length > 0) {
       const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
       setBackgroundColor(randomColor);
@@ -612,7 +778,10 @@ const MainApp = () => {
     <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
         {/* Left Sidebar - Hidden in fullscreen */}
-        <aside className={`sidebar ${isFullscreen ? 'hidden' : ''} ${isOverlayVisible ? '' : 'collapsed'}`}>
+        <aside
+          className={`sidebar ${isFullscreen ? 'hidden' : ''} ${isOverlayVisible ? '' : 'collapsed'}`}
+          style={(isFullscreen || !isOverlayVisible) ? undefined : { width: `${sidebarWidth}px` }}
+        >
           <div className="sidebar-header">
             <h2>Controls</h2>
             <button 
@@ -637,10 +806,16 @@ const MainApp = () => {
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
               globalBlendMode={globalBlendMode}
               setGlobalBlendMode={setGlobalBlendMode}
-              layers={layers}
               setLayers={setLayers}
+              baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
+              baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+              firstLayerOpacity={layers?.[0]?.opacity ?? 1}
               isNodeEditMode={isNodeEditMode}
               setIsNodeEditMode={setIsNodeEditMode}
+              randomizePalette={randomizePalette}
+              setRandomizePalette={setRandomizePalette}
+              randomizeNumColors={randomizeNumColors}
+              setRandomizeNumColors={setRandomizeNumColors}
             />
             <LayerList
               layers={layers}
@@ -652,9 +827,22 @@ const MainApp = () => {
             />
           </div>
         </aside>
+
+        {/* Draggable divider between sidebar and canvas */}
+        {(!isFullscreen && isOverlayVisible) && (
+          <div
+            className="sidebar-resizer"
+            onMouseDown={startResize}
+            title="Drag to resize controls"
+            aria-label="Resize sidebar"
+          />
+        )}
         
         {/* Main Canvas Area */}
-        <div className="canvas-container">
+        <div 
+          className="canvas-container" 
+          ref={containerRef}
+        >
           <Canvas
             ref={canvasRef}
             layers={layers}
@@ -669,7 +857,7 @@ const MainApp = () => {
           />
           
           {/* Floating Action Buttons */}
-          <div className="floating-actions">
+          <div className="floating-actions" style={{ pointerEvents: 'auto' }}>
             <button onClick={downloadImage} className="fab" title="Download PNG">
               ⬇
             </button>

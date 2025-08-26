@@ -62,6 +62,38 @@ export const DEFAULT_LAYER = {
     scaleDirection: 1,
   },
   visible: true,
+  // Per-layer variation flags: controls whether this property varies across layers (modern randomizer/add layer)
+  vary: {
+    // Shape & appearance
+    numSides: true,
+    curviness: true,
+    wobble: true,
+    noiseAmount: true,
+    width: true,
+    height: true,
+    opacity: false, // keep per-layer opacity constant; global control exists
+
+    // Movement
+    movementStyle: true,
+    movementSpeed: true,
+    movementAngle: true,
+    scaleSpeed: true,
+    scaleMin: false,
+    scaleMax: false,
+
+    // Advanced
+    freq1: false,
+    freq2: false,
+    freq3: false,
+
+    // Image Effects
+    imageBlur: true,
+    imageBrightness: true,
+    imageContrast: true,
+    imageHue: true,
+    imageSaturation: true,
+    imageDistortion: true,
+  },
 };
 
 export const DEFAULTS = {

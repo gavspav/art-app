@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useMemo } from 'react';
+import React, { useRef, useEffect, forwardRef, useMemo, useState } from 'react';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 
@@ -306,6 +306,35 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
     const draggingNodeIndexRef = useRef(null);
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
+    // Keep canvas sized to its container (the .canvas-container)
+    useEffect(() => {
+        const canvas = localCanvasRef.current;
+        if (!canvas) return;
+        const container = canvas.parentElement;
+        if (!container) return;
+
+        const applySize = () => {
+            const rect = container.getBoundingClientRect();
+            const w = Math.max(1, Math.floor(rect.width));
+            const h = Math.max(1, Math.floor(rect.height));
+            if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                setCanvasSize({ width: w, height: h });
+            }
+        };
+
+        applySize();
+        const ro = new ResizeObserver(() => applySize());
+        ro.observe(container);
+        window.addEventListener('resize', applySize);
+        return () => {
+            ro.disconnect();
+            window.removeEventListener('resize', applySize);
+        };
+    }, []);
 
     // Memoize layer change detection
     const layerChanges = useMemo(() => {
@@ -437,7 +466,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
         }
 
-    }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex, classicMode]);
+    }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize]);
 
     useEffect(() => {
         if (ref) {
@@ -546,13 +575,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     return (
         <canvas
             ref={localCanvasRef}
-            width={window.innerWidth}
-            height={window.innerHeight}
-            style={{ display: 'block' }}
+            style={{ display: 'block', pointerEvents: isNodeEditMode ? 'auto' : 'none' }}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}
-            classicMode={classicMode}
         />
     );
 });

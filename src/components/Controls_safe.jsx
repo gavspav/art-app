@@ -5,7 +5,7 @@ import { DEFAULT_LAYER } from '../constants/defaults';
 import { blendModes } from '../constants/blendModes';
 import { palettes } from '../constants/palettes';
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
+const DynamicControl = ({ param, currentLayer, updateLayer }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -64,8 +64,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
   };
 
   const onToggleRandomizable = (e) => {
-    e.stopPropagation();
-    console.log('[Rnd] isRandomizable', id, !!e.target.checked);
     updateParameter(id, 'isRandomizable', !!e.target.checked);
   };
 
@@ -105,9 +103,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
   const toggleVaryFlag = (e) => {
     const key = varyKey;
     if (!key) return;
-    e.stopPropagation();
     const checked = !!e.target.checked;
-    console.log('[Vary] header flag', key, checked, 'for param', id);
     const nextVary = { ...(currentLayer.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
     updateLayer({ vary: nextVary });
   };
@@ -133,15 +129,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
   };
 
   const Header = ({ children }) => (
-    <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1 }}>
       <div>{children}</div>
-      <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
         <button
           type="button"
           onClick={onClickSettings}
           title="Parameter settings"
           aria-label={`Settings for ${label}`}
-          className="icon-btn"
           style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 2 }}
           tabIndex={0}
         >
@@ -152,18 +147,27 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
           onClick={onClickRandomize}
           title="Randomize this parameter"
           aria-label={`Randomize ${label}`}
-          className="icon-btn"
           style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 2 }}
           tabIndex={0}
         >
           🎲
         </button>
+        {varyKey && (
+          <label title="Allow this parameter to vary across layers" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <input type="checkbox" checked={!!(currentLayer?.vary?.[varyKey])} onChange={toggleVaryFlag} />
+            Vary
+          </label>
+        )}
+        <label title="Include in Randomize All" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <input type="checkbox" checked={!!param.isRandomizable} onChange={onToggleRandomizable} />
+          Rnd
+        </label>
       </div>
     </div>
   );
 
   const SettingsPanel = () => (
-    <div className="dc-settings" style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: showSettings ? 'block' : 'none' }}>
+    <div style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: showSettings ? 'block' : 'none' }}>
       {type === 'slider' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
           <label>Min</label>
@@ -181,18 +185,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
       {type !== 'slider' && (
         <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
       )}
-      <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-        {varyKey && (
-          <label title="Allow this parameter to vary across layers" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-            <input type="checkbox" checked={!!(currentLayer?.vary?.[varyKey])} onChange={toggleVaryFlag} />
-            Vary across layers
-          </label>
-        )}
-        <label title="Include this parameter when using Randomize All" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-          <input type="checkbox" checked={!!param.isRandomizable} onChange={onToggleRandomizable} />
-          Include in Randomize All
-        </label>
-      </div>
     </div>
   );
 
@@ -205,22 +197,19 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
         : (Number.isFinite(min) ? min : 0));
       return (
         <div style={{ marginBottom: '0.75rem' }}>
-          <div className="dc-inner">
-            <Header>
-              <span>
-                {label}: {Number(displayValue).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}
-              </span>
-            </Header>
-            <input
-              type="range"
-              min={min}
-              max={max}
-              step={step}
-              value={displayValue}
-              onChange={handleChange}
-              className="dc-slider"
-            />
-          </div>
+          <Header>
+            <span>
+              {label}: {Number(displayValue).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}
+            </span>
+          </Header>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={displayValue}
+            onChange={handleChange}
+          />
           <SettingsPanel />
         </div>
       );
@@ -228,14 +217,12 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     case 'dropdown':
       return (
         <div style={{ marginBottom: '0.75rem' }}>
-          <div className="dc-inner">
-            <Header>
-              <span>{label}:</span>
-            </Header>
-            <select value={value} onChange={handleChange}>
-              {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-            </select>
-          </div>
+          <Header>
+            <span>{label}:</span>
+          </Header>
+          <select value={value} onChange={handleChange}>
+            {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
           <SettingsPanel />
         </div>
       );
@@ -243,57 +230,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
       return null;
   }
 };
-
-// Memoized version: only re-render when the specific param's displayed value or vary flag changes,
-// or when the param metadata object reference changes (e.g., min/max/options updates).
-const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
-  if (prev.param !== next.param) return false; // param metadata changed
-
-  const id = prev.param?.id;
-  if (!id) return false;
-
-  const getValue = (cl, pid) => {
-    if (!cl) return undefined;
-    if (pid === 'scale') return cl.position?.scale;
-    return cl[pid];
-  };
-
-  const prevVal = getValue(prev.currentLayer, id);
-  const nextVal = getValue(next.currentLayer, id);
-  if (prevVal !== nextVal) return false;
-
-  // Vary flag header checkbox state
-  const varyKey = (() => {
-    switch (id) {
-      case 'numSides': return 'numSides';
-      case 'curviness': return 'curviness';
-      case 'wobble': return 'wobble';
-      case 'noiseAmount': return 'noiseAmount';
-      case 'width': return 'width';
-      case 'height': return 'height';
-      case 'movementStyle': return 'movementStyle';
-      case 'movementSpeed': return 'movementSpeed';
-      case 'movementAngle': return 'movementAngle';
-      case 'scaleSpeed': return 'scaleSpeed';
-      case 'imageBlur': return 'imageBlur';
-      case 'imageBrightness': return 'imageBrightness';
-      case 'imageContrast': return 'imageContrast';
-      case 'imageHue': return 'imageHue';
-      case 'imageSaturation': return 'imageSaturation';
-      case 'imageDistortion': return 'imageDistortion';
-      default: return null;
-    }
-  })();
-
-  if (varyKey) {
-    const pv = !!(prev.currentLayer?.vary?.[varyKey]);
-    const nv = !!(next.currentLayer?.vary?.[varyKey]);
-    if (pv !== nv) return false;
-  }
-
-  // Otherwise skip re-render
-  return true;
-});
 
 // Collapsible Section component defined at module scope to maintain stable identity across renders
 const Section = ({ title, id, defaultOpen = false, children }) => {
@@ -328,12 +264,8 @@ const Controls = ({
   setGlobalSpeedMultiplier,
   globalBlendMode,
   setGlobalBlendMode,
-  // decoupled: do not pass full layers array to avoid frequent re-renders
+  layers,
   setLayers,
-  // new lightweight props derived from the first/base layer
-  baseColors,
-  baseNumColors,
-  firstLayerOpacity,
   isNodeEditMode,
   setIsNodeEditMode,
   classicMode,
@@ -390,18 +322,18 @@ const Controls = ({
   const handleGlobalNumColorsChange = (e) => {
     let n = parseInt(e.target.value, 10);
     if (!Number.isFinite(n) || n < 1) n = 1;
-    const base = Array.isArray(baseColors) ? baseColors : [];
-    const pIdx = matchPaletteIndex(base);
+    const baseColors = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
+    const pIdx = matchPaletteIndex(baseColors);
     let newColors = [];
     if (pIdx !== -1) {
       newColors = sampleColors(palettes[pIdx].colors, n);
-    } else if (base.length > 0) {
-      if (n <= base.length) newColors = base.slice(0, n);
+    } else if (baseColors.length > 0) {
+      if (n <= baseColors.length) newColors = baseColors.slice(0, n);
       else {
-        newColors = [...base];
+        newColors = [...baseColors];
         let i = 0;
         while (newColors.length < n) {
-          newColors.push(base[i % base.length]);
+          newColors.push(baseColors[i % baseColors.length]);
           i++;
         }
       }
@@ -463,7 +395,7 @@ const Controls = ({
           <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
           <button onClick={() => setIsFrozen(!isFrozen)}>{isFrozen ? 'Unfreeze' : 'Freeze'}</button>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-            <input type="checkbox" checked={classicMode} onChange={e => { e.stopPropagation(); console.log('[Animation] classicMode', e.target.checked); setClassicMode(e.target.checked); }} /> Classic Mode
+            <input type="checkbox" checked={classicMode} onChange={e => setClassicMode(e.target.checked)} /> Classic Mode
           </label>
         </div>
       </div>
@@ -493,13 +425,21 @@ const Controls = ({
         <select value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
           {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
         </select>
-        <label>Global Opacity: {Number(firstLayerOpacity ?? 1).toFixed(2)}</label>
+        <label>Global Opacity: {(() => {
+          if (!Array.isArray(layers) || layers.length === 0) return '—';
+          const first = layers[0]?.opacity ?? 1;
+          return Number(first).toFixed(2);
+        })()}</label>
         <input
           type="range"
           min="0"
           max="1"
           step="0.01"
-          value={firstLayerOpacity ?? 1}
+          value={(() => {
+            if (!Array.isArray(layers) || layers.length === 0) return 1;
+            const first = layers[0]?.opacity ?? 1;
+            return first;
+          })()}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
             setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
@@ -520,11 +460,11 @@ const Controls = ({
       <div className="control-card">
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the color preset">
-            <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizePalette', e.target.checked); setRandomizePalette(!!e.target.checked); }} />
+            <input type="checkbox" checked={!!randomizePalette} onChange={(e) => setRandomizePalette(!!e.target.checked)} />
             Randomize palette
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the number of colors">
-            <input type="checkbox" checked={!!randomizeNumColors} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizeNumColors', e.target.checked); setRandomizeNumColors(!!e.target.checked); }} />
+            <input type="checkbox" checked={!!randomizeNumColors} onChange={(e) => setRandomizeNumColors(!!e.target.checked)} />
             Randomize number of colors
           </label>
         </div>
@@ -534,7 +474,12 @@ const Controls = ({
           type="number"
           min={1}
           step={1}
-          value={Math.max(1, Number.isFinite(baseNumColors) ? baseNumColors : (Array.isArray(baseColors) ? baseColors.length : 1))}
+          value={(() => {
+            if (!Array.isArray(layers) || layers.length === 0) return 1;
+            const base = layers[0];
+            const n = Number.isFinite(base.numColors) ? base.numColors : (base.colors?.length || 1);
+            return Math.max(1, n);
+          })()}
           onChange={handleGlobalNumColorsChange}
           style={{ width: '5rem' }}
         />
@@ -542,7 +487,7 @@ const Controls = ({
         <label>Color Preset:</label>
         <select
           value={(() => {
-            const colors = Array.isArray(baseColors) ? baseColors : [];
+            const colors = layers?.[0]?.colors || [];
             const idx = matchPaletteIndex(colors);
             return idx === -1 ? 'custom' : String(idx);
           })()}
@@ -551,9 +496,10 @@ const Controls = ({
             if (val !== 'custom') {
               const idx = parseInt(val, 10);
               if (palettes[idx]) {
-                const count = Number.isFinite(baseNumColors)
-                  ? baseNumColors
-                  : ((Array.isArray(baseColors) ? baseColors.length : 0) || palettes[idx].colors.length);
+                const base = layers?.[0];
+                const count = Number.isFinite(base?.numColors)
+                  ? base.numColors
+                  : (base?.colors?.length || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
                 setLayers(prev => prev.map(l => ({ ...l, colors: nextColors, numColors: count, selectedColor: 0 })));
               }
@@ -568,7 +514,7 @@ const Controls = ({
 
         <ColorPicker 
           label="Colors"
-          colors={Array.isArray(baseColors) ? baseColors : []}
+          colors={layers?.[0]?.colors || []}
           onChange={handleGlobalColorChange}
         />
       </div>
@@ -587,9 +533,7 @@ const Controls = ({
         {(() => {
           const vary = currentLayer.vary || DEFAULT_LAYER.vary || {};
           const updateVary = (key) => (e) => {
-            e.stopPropagation();
             const checked = !!e.target.checked;
-            console.log('[RandomTab Vary]', key, checked);
             updateLayer({ vary: { ...(currentLayer.vary || DEFAULT_LAYER.vary || {}), [key]: checked } });
           };
           return (
