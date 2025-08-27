@@ -13,9 +13,91 @@ const Settings = () => {
   const [savedConfigs, setSavedConfigs] = useState([]);
   const [includeAppState, setIncludeAppState] = useState(true);
   const [loadAppStateOption, setLoadAppStateOption] = useState(true);
+  const fileInputRef = React.useRef(null);
 
   const handleParamChange = (id, field, value) => {
     updateParameter(id, field, value);
+  };
+
+  // --- Export / Import helpers ---
+  const downloadJson = (filename, obj) => {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCurrent = () => {
+    const filename = (saveFilename.trim() || 'current') + '.json';
+    const payload = {
+      parameters,
+      appState: includeAppState ? getCurrentAppState() : null,
+      savedAt: new Date().toISOString(),
+      version: '1.1'
+    };
+    downloadJson(filename, payload);
+    showMessage(`Exported ${filename}`);
+  };
+
+  const handleExportSelected = () => {
+    const name = loadFilename || 'default';
+    const key = `artapp-config-${name}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      showMessage(`No saved configuration named '${name}'`, true);
+      return;
+    }
+    try {
+      const obj = JSON.parse(raw);
+      downloadJson(`${name}.json`, obj);
+      showMessage(`Exported ${name}.json`);
+    } catch (e) {
+      showMessage('Failed to export configuration', true);
+    }
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      // Derive a name from file, ensure uniqueness
+      const baseName = file.name.replace(/\.json$/i, '') || 'imported';
+      let name = baseName;
+      const existing = new Set(getSavedConfigList());
+      let i = 1;
+      while (existing.has(name)) { name = `${baseName}-${i++}`; }
+
+      const key = `artapp-config-${name}`;
+      localStorage.setItem(key, JSON.stringify(data));
+      // update list
+      const list = getSavedConfigList();
+      if (!list.includes(name)) {
+        localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+      }
+      setSavedConfigs(getSavedConfigList());
+      setLoadFilename(name);
+
+      // Optionally load immediately
+      const result = loadAppStateOption ? loadFullConfiguration(name) : loadParameters(name);
+      if (result.success && loadAppStateOption && result.appState) {
+        loadAppState(result.appState);
+      }
+      showMessage(`Imported '${name}'`, !result.success);
+    } catch (err) {
+      showMessage('Failed to import JSON', true);
+    } finally {
+      // reset input so the same file can be picked again
+      e.target.value = '';
+    }
   };
 
   useEffect(() => {
@@ -104,6 +186,7 @@ const Settings = () => {
                 className="filename-input"
               />
               <button onClick={handleSave} className="save-btn">Save</button>
+              <button onClick={handleExportCurrent} className="load-btn" title="Download current config as JSON">Export</button>
             </div>
             <div className="checkbox-group">
               <label>
@@ -132,6 +215,9 @@ const Settings = () => {
               </select>
               <button onClick={handleLoad} className="load-btn" disabled={!loadFilename}>Load</button>
               <button onClick={handleDelete} className="delete-btn" disabled={!loadFilename}>Delete</button>
+              <button onClick={handleExportSelected} className="load-btn" disabled={!loadFilename} title="Download selected saved config as JSON">Export Selected</button>
+              <button onClick={handleImportClick} className="save-btn" title="Import configuration from JSON">Import</button>
+              <input ref={fileInputRef} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={handleImportFile} />
             </div>
             <div className="checkbox-group">
               <label>

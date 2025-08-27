@@ -14,7 +14,7 @@ import Controls from './components/Controls';
 import BackgroundColorPicker from './components/BackgroundColorPicker';
 import ColorPicker from './components/ColorPicker';
 import LayerList from './components/LayerList';
-import Settings from './pages/Settings';
+// Settings page not used; quick export/import handled inline
 
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
@@ -39,6 +39,7 @@ const MainApp = () => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const controlsRef = useRef(null);
+  const configFileInputRef = React.useRef(null);
   const [showGlobalColours, setShowGlobalColours] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
@@ -64,14 +65,34 @@ const MainApp = () => {
 
   // No local popovers; inline checkboxes next to controls
 
+  // Download helper for exporting JSON
+  const downloadJson = (filename, obj) => {
+    try {
+      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.warn('Failed to export JSON', e);
+    }
+  };
+
   const handleQuickSave = () => {
-    const name = (window.prompt('Enter configuration name to save:', 'default') || '').trim();
-    if (!name) return;
+    const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
+    if (!baseName) return;
     const includeState = window.confirm('Include app state (layers, background, animation)?');
-    const res = includeState
-      ? saveFullConfiguration(name, getCurrentAppState())
-      : saveParameters(name);
-    if (res?.message) alert(res.message);
+    const payload = {
+      parameters,
+      appState: includeState ? getCurrentAppState() : null,
+      savedAt: new Date().toISOString(),
+      version: includeState ? '1.1' : '1.0',
+    };
+    downloadJson(`${baseName}.json`, payload);
   };
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
@@ -141,20 +162,42 @@ const MainApp = () => {
   // Keep a no-op handler to avoid surprises if wired somewhere.
   const handleGlobalNumColoursChange = () => {};
 
+  const handleImportFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      // Save imported JSON into localStorage under a unique name, then load via existing loaders
+      const base = file.name.replace(/\.json$/i, '') || 'imported';
+      const existing = new Set(getSavedConfigList());
+      let name = base;
+      let i = 1;
+      while (existing.has(name)) { name = `${base}-${i++}`; }
+      const key = `artapp-config-${name}`;
+      localStorage.setItem(key, JSON.stringify(data));
+      // update list
+      const list = getSavedConfigList();
+      if (!list.includes(name)) {
+        localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+      }
+      const loadState = window.confirm('Load app state if available?');
+      const res = loadState ? loadFullConfiguration(name) : loadParameters(name);
+      if (res?.success && loadState && res.appState) {
+        loadAppState(res.appState);
+      }
+      alert(`Imported '${name}'`);
+    } catch (err) {
+      console.warn('Failed to import JSON', err);
+      alert('Failed to import JSON');
+    } finally {
+      // reset input to allow re-selecting the same file later
+      e.target.value = '';
+    }
+  };
+
   const handleQuickLoad = () => {
-    const list = getSavedConfigList();
-    if (!list || list.length === 0) {
-      alert('No saved configurations found.');
-      return;
-    }
-    const name = (window.prompt(`Enter configuration name to load (available: ${list.join(', ')})`, list[0]) || '').trim();
-    if (!name) return;
-    const includeState = window.confirm('Load app state if available?');
-    const res = includeState ? loadFullConfiguration(name) : loadParameters(name);
-    if (res?.success && includeState && res.appState) {
-      loadAppState(res.appState);
-    }
-    if (res?.message) alert(res.message);
+    configFileInputRef.current?.click();
   };
 
   useEffect(() => {
@@ -1004,17 +1047,24 @@ const MainApp = () => {
           style={(isFullscreen || !isOverlayVisible) ? undefined : { width: `${sidebarWidth}px` }}
         >
           <div className="sidebar-header">
-            <h2>Controls</h2>
-            <button 
-              className="toggle-sidebar-btn"
-              onClick={() => setIsOverlayVisible(!isOverlayVisible)}
-              title={isOverlayVisible ? 'Hide Controls' : 'Show Controls'}
+            <button
+              className="collapse-btn"
+              onClick={() => setIsOverlayVisible(prev => !prev)}
+              title={isOverlayVisible ? 'Hide controls' : 'Show controls'}
             >
               {isOverlayVisible ? '←' : '→'}
             </button>
             <div style={{ display: 'flex', gap: '0.4rem', marginLeft: '0.5rem' }}>
               <button className="icon-btn" title="Save configuration" onClick={handleQuickSave}>💾</button>
               <button className="icon-btn" title="Load configuration" onClick={handleQuickLoad}>📂</button>
+              {/* Hidden input used by import handler */}
+              <input
+                ref={configFileInputRef}
+                type="file"
+                accept="application/json,.json"
+                style={{ display: 'none' }}
+                onChange={handleImportFile}
+              />
             </div>
           </div>
           <div className="sidebar-content">
@@ -1180,11 +1230,13 @@ const MainApp = () => {
                             const additions = Array.from({ length: addCount }, (_, i) => {
                               const base = { ...DEFAULT_LAYER };
                               const idx = prev.length + i;
+                              const inheritedVariation = (typeof prev[0]?.variation === 'number') ? prev[0].variation : base.variation;
                               return {
                                 ...base,
                                 name: `Layer ${idx + 1}`,
                                 colors: prev[0]?.colors || base.colors,
                                 numColors: prev[0]?.numColors || base.numColors || (base.colors?.length || 3),
+                                variation: inheritedVariation,
                               };
                             });
                             next = [...prev, ...additions];
