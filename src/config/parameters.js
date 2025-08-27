@@ -1,3 +1,5 @@
+import { blendModes } from '../constants/blendModes';
+
 export const PARAMETERS = [
   // Shape - matching old version exactly
   {
@@ -283,5 +285,62 @@ export const PARAMETERS = [
     isRandomizable: true,
     showInOverlay: true,
     group: 'Image Effects',
+  },
+
+  // Global controls (metadata only for Randomize All inclusion)
+  // These provide isRandomizable flags for app-level controls toggled in App.jsx
+  {
+    id: 'backgroundColor',
+    label: 'Background Color',
+    type: 'global',
+    isRandomizable: false,
+    showInOverlay: false,
+    group: 'Global',
+  },
+  {
+    id: 'globalSpeedMultiplier',
+    label: 'Global Speed',
+    type: 'slider',
+    min: 0,
+    max: 5,
+    step: 0.01,
+    defaultValue: 1,
+    isRandomizable: false,
+    showInOverlay: false,
+    group: 'Global',
+  },
+  {
+    id: 'globalBlendMode',
+    label: 'Global Blend Mode',
+    type: 'dropdown',
+    options: blendModes,
+    defaultValue: 'source-over',
+    isRandomizable: false,
+    showInOverlay: false,
+    group: 'Global',
+  },
+  {
+    id: 'globalOpacity',
+    label: 'Global Opacity',
+    type: 'slider',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    defaultValue: 1,
+    isRandomizable: false,
+    showInOverlay: false,
+    group: 'Global',
+  },
+  {
+    id: 'layersCount',
+    label: 'Layers Count',
+    type: 'slider',
+    min: 1,
+    max: 20,
+    step: 1,
+    defaultValue: 8,
+    isRandomizable: false,
+    showInOverlay: false,
+    group: 'Global',
   },
 ];

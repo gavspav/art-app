@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { palettes } from './constants/palettes';
@@ -13,12 +12,13 @@ import './App.css';
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
 import BackgroundColorPicker from './components/BackgroundColorPicker';
+import ColorPicker from './components/ColorPicker';
 import LayerList from './components/LayerList';
 import Settings from './pages/Settings';
 
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
-  const { parameters } = useParameters(); // Get parameters from context
+  const { parameters, updateParameter } = useParameters(); // Get parameters from context
   // Get app state from context
   const {
     isFrozen, setIsFrozen,
@@ -38,12 +38,124 @@ const MainApp = () => {
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const controlsRef = useRef(null);
+  const [showGlobalColours, setShowGlobalColours] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
+
+  // Config save/load from contexts
+  const {
+    saveParameters,
+    loadParameters,
+    saveFullConfiguration,
+    loadFullConfiguration,
+    getSavedConfigList,
+  } = useParameters();
+  const { getCurrentAppState, loadAppState } = useAppState();
+
+  // Helpers for ParameterContext metadata
+  const getParam = (id) => parameters.find(p => p.id === id) || {};
+  const getIsRnd = (id) => !!getParam(id).isRandomizable;
+  const setIsRnd = (id, v) => updateParameter && updateParameter(id, 'isRandomizable', !!v);
+
+  // No local popovers; inline checkboxes next to controls
+
+  const handleQuickSave = () => {
+    const name = (window.prompt('Enter configuration name to save:', 'default') || '').trim();
+    if (!name) return;
+    const includeState = window.confirm('Include app state (layers, background, animation)?');
+    const res = includeState
+      ? saveFullConfiguration(name, getCurrentAppState())
+      : saveParameters(name);
+    if (res?.message) alert(res.message);
+  };
+
+  // Distribute a color array across N layers as evenly as possible (round-robin)
+  const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
+    const L = Math.max(0, Math.floor(layerCount));
+    const out = Array.from({ length: L }, () => []);
+    const src = Array.isArray(colors) ? colors : [];
+    if (L === 0 || src.length === 0) return out;
+    // Ensure at least one color per layer by cycling if needed
+    for (let i = 0; i < Math.max(src.length, L); i++) {
+      const col = src[i % src.length];
+      out[i % L].push(col);
+    }
+    // If there are remaining colors beyond L, continue round-robin assignment
+    for (let i = L; i < src.length; i++) {
+      out[i % L].push(src[i]);
+    }
+    return out;
+  };
+
+  const applyDistributedColors = (colors) => {
+    setLayers(prev => {
+      const parts = distributeColorsAcrossLayers(colors, prev.length);
+      return prev.map((l, i) => {
+        const chunk = parts[i] || [];
+        return { ...l, colors: chunk, numColors: chunk.length, selectedColor: 0 };
+      });
+    });
+  };
+
+  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
+  const sampleColorsEven = (base = [], count = 0) => {
+    const n = Math.max(0, Math.floor(count));
+    if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
+    if (n === 1) return [base[0]];
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = (n === 1) ? 0 : (i / (n - 1));
+      const idx = Math.round(t * (base.length - 1));
+      out.push(base[idx]);
+    }
+    return out;
+  };
+
+  // Assign exactly one colour per layer from a palette or list, cycling if needed
+  const assignOneColorPerLayer = (colors) => {
+    const src = Array.isArray(colors) ? colors : [];
+    setLayers(prev => prev.map((l, i) => {
+      const col = src.length ? src[i % src.length] : '#000000';
+      return { ...l, colors: [col], numColors: 1, selectedColor: 0 };
+    }));
+  };
+
+  // Global Colours helpers
+  const baseColours = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
+  const baseNumColours = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (baseColours.length || 0);
+  const matchPaletteIndex = (colors = []) => palettes.findIndex(p => {
+    const sampled = sampleColorsEven(p.colors, colors.length);
+    return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
+  });
+  const handleGlobalColourChange = (newColors) => {
+    const arr = Array.isArray(newColors) ? newColors : [];
+    // One colour per layer globally
+    assignOneColorPerLayer(arr);
+  };
+  // Global num colours input is not applicable when applying one colour per layer.
+  // Keep a no-op handler to avoid surprises if wired somewhere.
+  const handleGlobalNumColoursChange = () => {};
+
+  const handleQuickLoad = () => {
+    const list = getSavedConfigList();
+    if (!list || list.length === 0) {
+      alert('No saved configurations found.');
+      return;
+    }
+    const name = (window.prompt(`Enter configuration name to load (available: ${list.join(', ')})`, list[0]) || '').trim();
+    if (!name) return;
+    const includeState = window.confirm('Load app state if available?');
+    const res = includeState ? loadFullConfiguration(name) : loadParameters(name);
+    if (res?.success && includeState && res.appState) {
+      loadAppState(res.appState);
+    }
+    if (res?.message) alert(res.message);
+  };
 
   useEffect(() => {
     setLayers(prevLayers => 
@@ -151,19 +263,7 @@ const MainApp = () => {
 
   const currentLayer = layers[selectedLayerIndex];
 
-  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
-  const sampleColorsEven = (base = [], count = 0) => {
-    const n = Math.max(0, Math.floor(count));
-    if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
-    if (n === 1) return [base[0]];
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const t = (n === 1) ? 0 : (i / (n - 1));
-      const idx = Math.round(t * (base.length - 1));
-      out.push(base[idx]);
-    }
-    return out;
-  };
+  
 
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
@@ -397,8 +497,59 @@ const MainApp = () => {
     setLayers(prev => prev.map((l, i) => (i === selectedLayerIndex ? updated : l)));
   };
 
+  // Randomize only animation-related settings for a single layer
+  const randomizeAnimationOnly = (index) => {
+    const layer = layers[index];
+    if (!layer) return layer;
+
+    const getParam = (id) => parameters.find(p => p.id === id);
+    const sampleSlider = (id) => {
+      const p = getParam(id);
+      if (!p || p.type !== 'slider' || p.isRandomizable === false) return undefined;
+      const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
+      const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
+      const low = Math.min(rmin ?? p.min, rmax ?? p.max);
+      const high = Math.max(rmin ?? p.min, rmax ?? p.max);
+      let v = low + Math.random() * (high - low);
+      v = Math.min(p.max, Math.max(p.min, v));
+      return p.step === 1 ? Math.round(v) : v;
+    };
+    const sampleDropdown = (id) => {
+      const p = getParam(id);
+      if (!p || p.type !== 'dropdown' || p.isRandomizable === false || !Array.isArray(p.options) || p.options.length === 0) return undefined;
+      return p.options[Math.floor(Math.random() * p.options.length)];
+    };
+
+    const newProps = {};
+    const ms = sampleDropdown('movementStyle'); if (ms !== undefined) newProps.movementStyle = ms;
+    const spd = sampleSlider('movementSpeed'); if (spd !== undefined) newProps.movementSpeed = spd;
+    const ang = sampleSlider('movementAngle'); if (ang !== undefined) newProps.movementAngle = ((Math.round(ang) % 360) + 360) % 360;
+    const sspd = sampleSlider('scaleSpeed'); if (sspd !== undefined) newProps.scaleSpeed = sspd;
+
+    const updated = { ...layer, ...newProps };
+    if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
+      const angleRad = updated.movementAngle * (Math.PI / 180);
+      updated.vx = Math.cos(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
+      updated.vy = Math.sin(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
+    }
+    return updated;
+  };
+
+  const randomizeAnimationForCurrentLayer = () => {
+    const updated = randomizeAnimationOnly(selectedLayerIndex);
+    if (!updated) return;
+    setLayers(prev => prev.map((l, i) => (i === selectedLayerIndex ? updated : l)));
+  };
+
   // --- Modern randomizer (existing) ---
   const modernRandomizeAll = () => {
+    // Global gating flags
+    const incBG = getIsRnd('backgroundColor');
+    const incSpeed = getIsRnd('globalSpeedMultiplier');
+    const incBlend = getIsRnd('globalBlendMode');
+    const incOpacity = getIsRnd('globalOpacity');
+    const incLayers = getIsRnd('layersCount');
+
     // Helper utilities
     const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
     const mixRandom = (baseVal, min, max, w, integer = false) => {
@@ -428,10 +579,13 @@ const MainApp = () => {
       return p.options[Math.floor(Math.random() * p.options.length)];
     };
 
-    // Decide number of layers
-    const minLayers = 3;
-    const maxLayers = 8;
-    const layerCount = Math.floor(Math.random() * (maxLayers - minLayers + 1)) + minLayers;
+    // Decide number of layers (gated by layersCount)
+    const layersParam = parameters.find(p => p.id === 'layersCount');
+    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
+    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 8;
+    const layerCount = incLayers
+      ? Math.floor(Math.random() * (defMaxL - defMinL + 1)) + defMinL
+      : layers.length;
 
     // Choose a base scene palette/size with gating
     let scenePreset = palettes[Math.floor(Math.random() * palettes.length)];
@@ -461,6 +615,7 @@ const MainApp = () => {
 
     const varyFlags = (currentLayer?.vary || DEFAULT_LAYER.vary || {});
 
+    const currentOpacity = Number(layers?.[0]?.opacity ?? DEFAULT_LAYER.opacity);
     const base = {
       ...DEFAULT_LAYER,
       name: 'Layer 1',
@@ -473,8 +628,8 @@ const MainApp = () => {
       noiseAmount: sampleSlider('noiseAmount') ?? DEFAULT_LAYER.noiseAmount,
       width: sampleSlider('width') ?? DEFAULT_LAYER.width,
       height: sampleSlider('height') ?? DEFAULT_LAYER.height,
-      // Keep per-layer opacity fixed (global control exists)
-      opacity: DEFAULT_LAYER.opacity,
+      // Opacity: keep existing unless globally randomized later
+      opacity: currentOpacity,
       movementStyle: sampleDropdown('movementStyle') ?? DEFAULT_LAYER.movementStyle,
       movementSpeed: sampleSlider('movementSpeed') ?? DEFAULT_LAYER.movementSpeed,
       movementAngle: sampleSlider('movementAngle') ?? DEFAULT_LAYER.movementAngle,
@@ -653,21 +808,49 @@ const MainApp = () => {
       layersOut.push(varied);
     }
 
+    // Apply global opacity randomization if enabled
+    if (incOpacity) {
+      const p = getParam('globalOpacity');
+      const omin = Number.isFinite(p?.min) ? p.min : 0;
+      const omax = Number.isFinite(p?.max) ? p.max : 1;
+      const oval = omin + Math.random() * Math.max(0, omax - omin);
+      layersOut.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
+    }
+
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
     setSelectedLayerIndex(0);
 
-    // Background color: use scene or current base depending on gating
-    const bgPool = (randomizePalette ? baseColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors : baseColors));
-    if (bgPool.length > 0) {
-      setBackgroundColor(bgPool[Math.floor(Math.random() * bgPool.length)]);
+    // Background color (gated)
+    if (incBG) {
+      const bgPool = (randomizePalette ? baseColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors : baseColors));
+      if (bgPool.length > 0) {
+        setBackgroundColor(bgPool[Math.floor(Math.random() * bgPool.length)]);
+      }
     }
-    // Global blend mode
-    setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
+    // Global blend mode (gated)
+    if (incBlend) {
+      setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
+    }
+    // Global speed (gated)
+    if (incSpeed) {
+      const p = getParam('globalSpeedMultiplier');
+      const smin = Number.isFinite(p?.min) ? p.min : 0;
+      const smax = Number.isFinite(p?.max) ? p.max : 5;
+      const sval = smin + Math.random() * Math.max(0, smax - smin);
+      setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
+    }
   };
 
   // --- Classic randomizer (CodePen-like) ---
   const classicRandomizeAll = () => {
     const rnd = Math.random;
+
+    // Global gating flags
+    const incBG = getIsRnd('backgroundColor');
+    const incSpeed = getIsRnd('globalSpeedMultiplier');
+    const incBlend = getIsRnd('globalBlendMode');
+    const incOpacity = getIsRnd('globalOpacity');
+    const incLayers = getIsRnd('layersCount');
 
     // 1. Choose scene palette once (gated)
     let scenePreset = palettes[Math.floor(rnd() * palettes.length)];
@@ -687,8 +870,11 @@ const MainApp = () => {
       baseColors = sampleColorsEven(baseColors, Math.max(1, currentN));
     }
 
-    // 2. Number of layers 1..20
-    const layerCount = Math.floor(rnd() * 20) + 1;
+    // 2. Number of layers (gated)
+    const layersParam = parameters.find(p => p.id === 'layersCount');
+    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
+    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 20;
+    const layerCount = incLayers ? (Math.floor(rnd() * (defMaxL - defMinL + 1)) + defMinL) : layers.length;
 
     const buildLayer = (idx) => {
       const layer = { ...DEFAULT_LAYER };
@@ -708,7 +894,8 @@ const MainApp = () => {
       // Appearance
       layer.colors = baseColors;
       layer.numColors = baseColors.length;
-      layer.opacity = 0.8; // Global opacity target
+      // Global opacity target: keep current unless gated randomization is on (applied after creation)
+      layer.opacity = Number(layers?.[0]?.opacity ?? 0.8);
 
       // Movement (bounce only)
       layer.movementStyle = 'bounce';
@@ -732,14 +919,32 @@ const MainApp = () => {
     const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
 
     // 3. Commit state
+    // Apply global opacity randomization if enabled
+    if (incOpacity) {
+      const p = parameters.find(pp => pp.id === 'globalOpacity');
+      const omin = Number.isFinite(p?.min) ? p.min : 0;
+      const omax = Number.isFinite(p?.max) ? p.max : 1;
+      const oval = omin + rnd() * Math.max(0, omax - omin);
+      newLayers.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
+    }
+
     setLayers(newLayers);
     setSelectedLayerIndex(0);
 
-    // 4. Global settings
-    if (baseColors.length > 0) {
+    // 4. Global settings (gated)
+    if (incBG && baseColors.length > 0) {
       setBackgroundColor(baseColors[Math.floor(rnd() * baseColors.length)]);
     }
-    setGlobalBlendMode('source-over');
+    if (incBlend) {
+      setGlobalBlendMode('source-over');
+    }
+    if (incSpeed) {
+      const p = parameters.find(pp => pp.id === 'globalSpeedMultiplier');
+      const smin = Number.isFinite(p?.min) ? p.min : 0;
+      const smax = Number.isFinite(p?.max) ? p.max : 5;
+      const sval = smin + rnd() * Math.max(0, smax - smin);
+      setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
+    }
 
     // Ensure blur will be applied via classicMode flag, and opacity unified
   };
@@ -763,6 +968,22 @@ const MainApp = () => {
     if (bgColors.length > 0) {
       const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
       setBackgroundColor(randomColor);
+    }
+  };
+
+  // Randomize only the colors (and optionally color count) per layer based on global toggles
+  const randomizeColorsOnly = () => {
+    // Choose a palette (if enabled) and assign exactly one colour per layer
+    if (randomizePalette) {
+      const picked = palettes[Math.floor(Math.random() * palettes.length)];
+      const paletteColors = Array.isArray(picked) ? picked : (picked.colors || []);
+      const nextColors = paletteColors.length ? paletteColors : ['#ffffff', '#000000'];
+      assignOneColorPerLayer(nextColors);
+    } else {
+      // If not changing palette, pick a single colour from current base and apply per layer
+      const base = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : ['#ffffff'];
+      const colour = base.length ? base[Math.floor(Math.random() * base.length)] : '#ffffff';
+      assignOneColorPerLayer([colour]);
     }
   };
 
@@ -791,27 +1012,213 @@ const MainApp = () => {
             >
               {isOverlayVisible ? '←' : '→'}
             </button>
+            <div style={{ display: 'flex', gap: '0.4rem', marginLeft: '0.5rem' }}>
+              <button className="icon-btn" title="Save configuration" onClick={handleQuickSave}>💾</button>
+              <button className="icon-btn" title="Load configuration" onClick={handleQuickLoad}>📂</button>
+            </div>
           </div>
           <div className="sidebar-content">
+            {/* Global controls section */}
+            <div className="control-card">
+              <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Global</h3>
+              <div className="control-group" style={{ margin: 0 }}>
+                {/* Background Color with inline include toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                  <span style={{ fontWeight: 600 }}>Background</span>
+                  <label className="compact-label" title="Include Background Color in Randomize All">
+                    <input type="checkbox" checked={getIsRnd('backgroundColor')} onChange={(e) => setIsRnd('backgroundColor', e.target.checked)} />
+                    Include
+                  </label>
+                </div>
+                <BackgroundColorPicker compact color={backgroundColor} onChange={setBackgroundColor} />
+                <div className="global-compact-row" style={{ gap: '0.4rem' }}>
+                  <button className="btn-compact-secondary" onClick={() => setShowGlobalColours(v => !v)} title="Open Colours settings">Colours</button>
+                  <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
+                </div>
+
+                {showGlobalColours && (
+                  <div className="control-card" style={{ marginTop: '0.5rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '0.5rem', flexWrap: 'wrap', width: '100%' }}>
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomise All to change the colour preset">
+                          <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizePalette', e.target.checked); setRandomizePalette(!!e.target.checked); }} />
+                          Randomise palette
+                        </label>
+                      </div>
+                      <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={randomizeColorsOnly} title="Randomise colours only" aria-label="Randomise colours only">🎲</button>
+                    </div>
+
+                    <label>Colour Preset:</label>
+                    <select
+                      value={(() => { const idx = matchPaletteIndex(baseColours); return idx === -1 ? 'custom' : String(idx); })()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== 'custom') {
+                          const idx = parseInt(val, 10);
+                          if (palettes[idx]) {
+                            const count = Math.max(1, layers.length);
+                            const nextColors = sampleColorsEven(palettes[idx].colors, count);
+                            // Assign exactly one colour per layer
+                            assignOneColorPerLayer(nextColors);
+                          }
+                        }
+                      }}
+                    >
+                      <option value="custom">Custom</option>
+                      {palettes.map((p, idx) => (
+                        <option key={idx} value={idx}>{p.name}</option>
+                      ))}
+                    </select>
+
+                    <ColorPicker
+                      label="Colours"
+                      colors={baseColours}
+                      onChange={handleGlobalColourChange}
+                    />
+                  </div>
+                )}
+                <div className="global-compact-row">
+                  <label className="compact-label">
+                    <input
+                      type="checkbox"
+                      checked={isFrozen}
+                      onChange={(e) => setIsFrozen(e.target.checked)}
+                    />
+                    Freeze
+                  </label>
+
+                  <label className="compact-label">
+                    <input
+                      type="checkbox"
+                      checked={classicMode}
+                      onChange={(e) => setClassicMode(e.target.checked)}
+                    />
+                    Classic Mode
+                  </label>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
+                      <label className="compact-label" title="Include Global Speed in Randomize All">
+                        <input type="checkbox" checked={getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} />
+                        Include
+                      </label>
+                    </div>
+                    <input
+                      className="compact-range"
+                      type="range"
+                      min={0}
+                      max={5}
+                      step={0.01}
+                      value={globalSpeedMultiplier}
+                      onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <label className="compact-label">Blend Mode</label>
+                      <label className="compact-label" title="Include Blend Mode in Randomize All">
+                        <input type="checkbox" checked={getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} />
+                        Include
+                      </label>
+                    </div>
+                    <select
+                      className="compact-select"
+                      value={globalBlendMode}
+                      onChange={(e) => setGlobalBlendMode(e.target.value)}
+                    >
+                      {blendModes.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span className="compact-label">Opacity: {Number(layers?.[0]?.opacity ?? 1).toFixed(2)}</span>
+                      <label className="compact-label" title="Include Opacity in Randomize All">
+                        <input type="checkbox" checked={getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} />
+                        Include
+                      </label>
+                    </div>
+                    <input
+                      className="compact-range"
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={Number(layers?.[0]?.opacity ?? 1)}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
+                      }}
+                    />
+                  </div>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span className="compact-label">Layers</span>
+                      <label className="compact-label" title="Include Layer Count in Randomize All">
+                        <input type="checkbox" checked={getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} />
+                        Include
+                      </label>
+                    </div>
+                    <input
+                      className="compact-range"
+                      type="range"
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={layers.length}
+                      onChange={(e) => {
+                        const target = parseInt(e.target.value, 10);
+                        setLayers(prev => {
+                          let next = prev;
+                          if (target > prev.length) {
+                            const addCount = target - prev.length;
+                            const additions = Array.from({ length: addCount }, (_, i) => {
+                              const base = { ...DEFAULT_LAYER };
+                              const idx = prev.length + i;
+                              return {
+                                ...base,
+                                name: `Layer ${idx + 1}`,
+                                colors: prev[0]?.colors || base.colors,
+                                numColors: prev[0]?.numColors || base.numColors || (base.colors?.length || 3),
+                              };
+                            });
+                            next = [...prev, ...additions];
+                          } else if (target < prev.length) {
+                            next = prev.slice(0, target);
+                          }
+                          return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+                        });
+                        setSelectedLayerIndex((idx) => Math.min(idx, Math.max(0, target - 1)));
+                      }}
+                    />
+                    <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <Controls
+              ref={controlsRef}
               currentLayer={currentLayer}
               updateLayer={updateCurrentLayer}
               randomizeCurrentLayer={randomizeCurrentLayer}
+              randomizeAnimationOnly={randomizeAnimationForCurrentLayer}
               randomizeAll={handleRandomizeAll}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              globalBlendMode={globalBlendMode}
-              setGlobalBlendMode={setGlobalBlendMode}
               setLayers={setLayers}
               baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
               baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
-              firstLayerOpacity={layers?.[0]?.opacity ?? 1}
               isNodeEditMode={isNodeEditMode}
               setIsNodeEditMode={setIsNodeEditMode}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
               randomizePalette={randomizePalette}
               setRandomizePalette={setRandomizePalette}
               randomizeNumColors={randomizeNumColors}
@@ -870,29 +1277,17 @@ const MainApp = () => {
           </div>
         </div>
       </main>
-      <footer>
-        <Link to="/settings">Settings</Link>
-        <BackgroundColorPicker
-              color={backgroundColor}
-              onChange={setBackgroundColor}
-            />
-      </footer>
     </div>
   );
 };
 
-// The App component is now the router
-const App = () => {
-  return (
-    <AppStateProvider>
-      <ParameterProvider>
-        <Routes>
-          <Route path="/" element={<MainApp />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </ParameterProvider>
-    </AppStateProvider>
-  );
-};
+// Root App (no router)
+const App = () => (
+  <AppStateProvider>
+    <ParameterProvider>
+      <MainApp />
+    </ParameterProvider>
+  </AppStateProvider>
+);
 
 export default App;

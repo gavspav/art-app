@@ -50,10 +50,15 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, globalSpeedMultiplier: value }));
   }, []);
 
+  // Important: support functional updates correctly to avoid stale state reappearing.
+  // If an updater function is provided, call it with prev.layers inside setAppState.
   const setLayers = useCallback((value) => {
-    const newLayers = typeof value === 'function' ? value(appState.layers) : value;
-    setAppState(prev => ({ ...prev, layers: newLayers }));
-  }, [appState.layers]);
+    if (typeof value === 'function') {
+      setAppState(prev => ({ ...prev, layers: value(prev.layers) }));
+    } else {
+      setAppState(prev => ({ ...prev, layers: value }));
+    }
+  }, []);
 
   const setSelectedLayerIndex = useCallback((value) => {
     setAppState(prev => ({ ...prev, selectedLayerIndex: value }));

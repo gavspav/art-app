@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
-import { blendModes } from '../constants/blendModes';
+// blendModes no longer used here; Global Style handled in App.jsx
 import { palettes } from '../constants/palettes';
 
 const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
@@ -317,23 +317,21 @@ const Section = ({ title, id, defaultOpen = false, children }) => {
   );
 };
 
-const Controls = ({ 
+const Controls = forwardRef(({ 
   currentLayer, 
   updateLayer, 
   randomizeCurrentLayer,
+  randomizeAnimationOnly,
   randomizeAll, 
   isFrozen, 
   setIsFrozen,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
-  globalBlendMode,
-  setGlobalBlendMode,
   // decoupled: do not pass full layers array to avoid frequent re-renders
   setLayers,
   // new lightweight props derived from the first/base layer
   baseColors,
   baseNumColors,
-  firstLayerOpacity,
   isNodeEditMode,
   setIsNodeEditMode,
   classicMode,
@@ -343,7 +341,7 @@ const Controls = ({
   setRandomizePalette,
   randomizeNumColors,
   setRandomizeNumColors,
-}) => {
+}, ref) => {
   const { parameters } = useParameters();
 
 
@@ -382,15 +380,16 @@ const Controls = ({
     return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
   });
 
-  // GLOBAL color handlers — apply to all layers
-  const handleGlobalColorChange = (newColors) => {
-    setLayers(prev => prev.map(l => ({ ...l, colors: newColors, numColors: (newColors?.length || 0), selectedColor: 0 })));
+  // PER-LAYER color handlers — apply only to the selected layer
+  const handleLayerColorChange = (newColors) => {
+    const arr = Array.isArray(newColors) ? newColors : [];
+    updateLayer({ colors: arr, numColors: arr.length, selectedColor: 0 });
   };
 
-  const handleGlobalNumColorsChange = (e) => {
+  const handleLayerNumColorsChange = (e) => {
     let n = parseInt(e.target.value, 10);
     if (!Number.isFinite(n) || n < 1) n = 1;
-    const base = Array.isArray(baseColors) ? baseColors : [];
+    const base = Array.isArray(currentLayer.colors) ? currentLayer.colors : [];
     const pIdx = matchPaletteIndex(base);
     let newColors = [];
     if (pIdx !== -1) {
@@ -406,10 +405,9 @@ const Controls = ({
         }
       }
     } else {
-      // No colors yet, seed from first palette
       newColors = sampleColors(palettes[0]?.colors || ['#000000'], n);
     }
-    setLayers(prev => prev.map(l => ({ ...l, numColors: n, colors: newColors, selectedColor: 0 })));
+    updateLayer({ numColors: n, colors: newColors, selectedColor: 0 });
   };
 
   const handleImageUpload = (event) => {
@@ -439,32 +437,31 @@ const Controls = ({
   // Prepare grouped params for tabs
   const shapeParams = groupedControls['Shape'] || [];
   const movementParams = groupedControls['Movement'] || [];
-  const imageParams = groupedControls['Image Effects'] || [];
+  // Appearance tab removed; image effect controls hidden for now
 
   const [activeTab, setActiveTab] = useState('Animation');
+
+  useImperativeHandle(ref, () => ({
+    openTab: (name) => {
+      const allowed = ['Animation','Shape','Colors'];
+      if (allowed.includes(name)) setActiveTab(name);
+    }
+  }), []);
 
   const renderAnimationTab = () => (
     <div className="tab-section">
       <div className="control-card">
         <div className="control-row" style={{ justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 600 }}>Animation</div>
-          <button className="btn-secondary" onClick={() => randomizeCurrentLayer(false)}>Randomize Animation</button>
-        </div>
-        <label>Global Speed: {globalSpeedMultiplier.toFixed(2)}</label>
-        <input
-          type="range"
-          min="0"
-          max="2"
-          step="0.01"
-          value={globalSpeedMultiplier}
-          onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
-        />
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-          <button onClick={() => setIsNodeEditMode(!isNodeEditMode)}>{isNodeEditMode ? 'Exit Node Edit' : 'Edit Nodes'}</button>
-          <button onClick={() => setIsFrozen(!isFrozen)}>{isFrozen ? 'Unfreeze' : 'Freeze'}</button>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-            <input type="checkbox" checked={classicMode} onChange={e => { e.stopPropagation(); console.log('[Animation] classicMode', e.target.checked); setClassicMode(e.target.checked); }} /> Classic Mode
-          </label>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Randomize animation for selected layer"
+            aria-label="Randomize animation for selected layer"
+            onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
+          >
+            🎲
+          </button>
         </div>
       </div>
 
@@ -486,34 +483,7 @@ const Controls = ({
     </div>
   );
 
-  const renderAppearanceTab = () => (
-    <div className="tab-section">
-      <div className="control-card">
-        <label>Blend Mode:</label>
-        <select value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
-          {blendModes.map(mode => <option key={mode} value={mode}>{mode}</option>)}
-        </select>
-        <label>Global Opacity: {Number(firstLayerOpacity ?? 1).toFixed(2)}</label>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={firstLayerOpacity ?? 1}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
-          }}
-        />
-      </div>
-
-      {imageParams.map(param => (
-        <div className="control-card" key={param.id}>
-          <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
-        </div>
-      ))}
-    </div>
-  );
+  // Appearance tab removed
 
   const renderColorsTab = () => (
     <div className="tab-section">
@@ -521,11 +491,11 @@ const Controls = ({
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the color preset">
             <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizePalette', e.target.checked); setRandomizePalette(!!e.target.checked); }} />
-            Randomize palette
+            Randomise palette
           </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the number of colors">
             <input type="checkbox" checked={!!randomizeNumColors} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizeNumColors', e.target.checked); setRandomizeNumColors(!!e.target.checked); }} />
-            Randomize number of colors
+            Randomise number of colours
           </label>
         </div>
 
@@ -534,15 +504,15 @@ const Controls = ({
           type="number"
           min={1}
           step={1}
-          value={Math.max(1, Number.isFinite(baseNumColors) ? baseNumColors : (Array.isArray(baseColors) ? baseColors.length : 1))}
-          onChange={handleGlobalNumColorsChange}
+          value={Math.max(1, Number.isFinite(currentLayer?.numColors) ? currentLayer.numColors : (Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 1))}
+          onChange={handleLayerNumColorsChange}
           style={{ width: '5rem' }}
         />
 
-        <label>Color Preset:</label>
+        <label>Colour Preset:</label>
         <select
           value={(() => {
-            const colors = Array.isArray(baseColors) ? baseColors : [];
+            const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
             const idx = matchPaletteIndex(colors);
             return idx === -1 ? 'custom' : String(idx);
           })()}
@@ -551,11 +521,11 @@ const Controls = ({
             if (val !== 'custom') {
               const idx = parseInt(val, 10);
               if (palettes[idx]) {
-                const count = Number.isFinite(baseNumColors)
-                  ? baseNumColors
-                  : ((Array.isArray(baseColors) ? baseColors.length : 0) || palettes[idx].colors.length);
+                const count = Number.isFinite(currentLayer?.numColors)
+                  ? currentLayer.numColors
+                  : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                setLayers(prev => prev.map(l => ({ ...l, colors: nextColors, numColors: count, selectedColor: 0 })));
+                updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
               }
             }
           }}
@@ -567,128 +537,58 @@ const Controls = ({
         </select>
 
         <ColorPicker 
-          label="Colors"
-          colors={Array.isArray(baseColors) ? baseColors : []}
-          onChange={handleGlobalColorChange}
+          label="Colours"
+          colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
+          onChange={handleLayerColorChange}
         />
       </div>
     </div>
   );
 
-  const renderRandomTab = () => (
-    <div className="tab-section">
-      <div className="control-card">
-        <button onClick={() => randomizeCurrentLayer(false)}>Randomize Layer</button>
-        <button style={{ marginLeft: '0.5rem' }} onClick={randomizeAll}>Randomize All</button>
-      </div>
-
-      {/* Per-layer variation flags moved here for clarity */}
-      <div className="control-card">
-        {(() => {
-          const vary = currentLayer.vary || DEFAULT_LAYER.vary || {};
-          const updateVary = (key) => (e) => {
-            e.stopPropagation();
-            const checked = !!e.target.checked;
-            console.log('[RandomTab Vary]', key, checked);
-            updateLayer({ vary: { ...(currentLayer.vary || DEFAULT_LAYER.vary || {}), [key]: checked } });
-          };
-          return (
-            <div style={{ display: 'grid', gap: '0.5rem' }}>
-              <div>
-                <div style={{ fontWeight: '600', opacity: 0.85, marginBottom: '0.25rem' }}>Shape</div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.numSides} onChange={updateVary('numSides')} /> Sides
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.curviness} onChange={updateVary('curviness')} /> Curviness
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.wobble} onChange={updateVary('wobble')} /> Wobble
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.noiseAmount} onChange={updateVary('noiseAmount')} /> Noise
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.width} onChange={updateVary('width')} /> Guide Width
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <input type="checkbox" checked={!!vary.height} onChange={updateVary('height')} /> Guide Height
-                </label>
-              </div>
-
-              <div>
-                <div style={{ fontWeight: '600', opacity: 0.85, marginBottom: '0.25rem' }}>Movement</div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.movementStyle} onChange={updateVary('movementStyle')} /> Style
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.movementSpeed} onChange={updateVary('movementSpeed')} /> Speed
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.movementAngle} onChange={updateVary('movementAngle')} /> Angle
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.scaleSpeed} onChange={updateVary('scaleSpeed')} /> Z Scale Speed
-                </label>
-              </div>
-
-              <div>
-                <div style={{ fontWeight: '600', opacity: 0.85, marginBottom: '0.25rem' }}>Image Effects</div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.imageBlur} onChange={updateVary('imageBlur')} /> Blur
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.imageBrightness} onChange={updateVary('imageBrightness')} /> Brightness
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.imageContrast} onChange={updateVary('imageContrast')} /> Contrast
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.imageHue} onChange={updateVary('imageHue')} /> Hue
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', marginRight: '0.75rem' }}>
-                  <input type="checkbox" checked={!!vary.imageSaturation} onChange={updateVary('imageSaturation')} /> Saturation
-                </label>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <input type="checkbox" checked={!!vary.imageDistortion} onChange={updateVary('imageDistortion')} /> Distortion
-                </label>
-              </div>
-            </div>
-          );
-        })()}
-      </div>
-    </div>
-  );
 
   return (
     <div className="controls-panel">
-      <div className="controls-header">
-        <h2>Controls</h2>
-        <div className="controls-actions">
-          <button className="btn-secondary" onClick={() => setActiveTab('Colors')}>Colors</button>
-          <button className="btn-primary" onClick={randomizeAll}>Randomize All</button>
+      <div className="controls-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0 }}>Layer Controls</h2>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Edit nodes"
+            aria-label="Edit nodes"
+            onClick={() => setIsNodeEditMode(!isNodeEditMode)}
+          >
+            {isNodeEditMode ? '⛔' : '✎'}
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Randomize selected layer"
+            aria-label="Randomize selected layer"
+            onClick={() => randomizeCurrentLayer(false)}
+          >
+            🎲
+          </button>
         </div>
       </div>
 
       <div className="tabbar">
-        {['Animation','Shape','Appearance','Colors','Random'].map(tab => (
+        {['Animation','Shape','Colors'].map(tab => (
           <button
             key={tab}
             className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
             onClick={() => setActiveTab(tab)}
           >
-            {tab}
+            {tab === 'Colors' ? 'Colours' : tab}
           </button>
         ))}
       </div>
 
       {activeTab === 'Animation' && renderAnimationTab()}
       {activeTab === 'Shape' && renderShapeTab()}
-      {activeTab === 'Appearance' && renderAppearanceTab()}
       {activeTab === 'Colors' && renderColorsTab()}
-      {activeTab === 'Random' && renderRandomTab()}
     </div>
   );
-};
+});
 
 export default Controls;

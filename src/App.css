@@ -127,7 +127,7 @@ canvas {
 /* Floating Action Buttons */
 .floating-actions {
   position: fixed;
-  bottom: 9rem; /* keep FABs well above footer */
+  bottom: 2rem; /* no footer now */
   right: 2rem;
   display: flex;
   flex-direction: column;
@@ -167,13 +167,7 @@ canvas {
   z-index: 10000;
 }
 
-/* Ensure FABs clear footer on short height viewports */
-@media (max-height: 800px) {
-  .floating-actions { bottom: 11rem; }
-}
-@media (max-height: 650px) {
-  .floating-actions { bottom: 13rem; }
-}
+/* No footer, no extra height rules needed */
 
 .controls {
   display: flex;
@@ -277,6 +271,113 @@ canvas {
   gap: 0.5rem;
 }
 
+/* Compact Global controls layout */
+.global-compact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+}
+.compact-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.compact-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.compact-range {
+  width: 140px;
+  height: 4px;
+  border-radius: 999px;
+}
+.compact-select {
+  height: 28px;
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  background-color: #2c2c2c;
+  color: #f0f0f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+}
+input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+/* Compact buttons similar to mock, with tighter padding */
+.btn-compact-primary,
+.btn-compact-secondary {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.2);
+  box-shadow: 0 0 0 2px rgba(100,108,255,0), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.btn-compact-primary {
+  background: #20b75f;
+  color: #0e1a10;
+  border-color: rgba(0,0,0,0.2);
+}
+.btn-compact-primary:hover { filter: brightness(1.05); }
+.btn-compact-secondary {
+  background: #2a2a2a;
+  color: #eaeaea;
+}
+.btn-compact-secondary:hover { filter: brightness(1.05); }
+.btn-compact-secondary:focus,
+.btn-compact-primary:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100,108,255,0.55);
+}
+
+/* Compact background color picker */
+.control-group.compact {
+  margin: 0 0 0.5rem 0;
+}
+.control-group.compact label {
+  font-size: 0.9rem;
+  margin-bottom: 0.15rem;
+}
+.bgcolor-compact {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 6px;
+  background: transparent;
+}
+
+/* Ultra-compact BG colour control (label + tiny swatch) */
+.bg-compact-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.bg-label {
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+.bgcolor-mini {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 4px;
+  background: transparent;
+}
+
 /* Draggable vertical divider between sidebar and canvas */
 .sidebar-resizer {
   flex: 0 0 auto;
@@ -312,6 +413,29 @@ canvas {
 }
 .icon-btn:hover {
   background: rgba(255,255,255,0.14);
+}
+
+/* Compact dark number input used in Colours panel */
+.compact-number {
+  height: 28px;
+  padding: 0 0.4rem;
+  background-color: #2c2c2c;
+  color: #f0f0f0;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+}
+.compact-number:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100,108,255,0.45);
+}
+.compact-number::-webkit-outer-spin-button,
+.compact-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.compact-number[type=number] {
+  appearance: textfield;
+  -moz-appearance: textfield;
 }
 
 /* Settings panel inside each control */
@@ -469,23 +593,7 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-footer {
-  padding: 1rem 1.5rem;
-  background: linear-gradient(135deg, #2a2a2a 0%, #1e1e1e 100%);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  position: relative; /* create local stacking context below FABs */
-  z-index: 1;
-  padding-right: 8rem; /* keep footer contents away from FAB stack on the right */
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  flex-shrink: 0;
-}
-
-.App.fullscreen footer {
-  display: none;
-}
+/* Footer removed */
 
 /* Responsive Design */
 @media (max-width: 768px) {
@@ -499,7 +607,7 @@ footer {
   }
 
   .floating-actions {
-    bottom: 5rem; /* still above footer on small screens */
+    bottom: 1rem;
     right: 1rem;
   }
 

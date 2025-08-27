@@ -52,8 +52,10 @@ export const ParameterProvider = ({ children }) => {
 
   const updateParameter = (id, field, value) => {
     setParameters(prevParams => {
+      let found = false;
       const updatedParams = prevParams.map(p => {
         if (p.id === id) {
+          found = true;
           // Ensure numeric values are stored as numbers
           const numericFields = ['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'];
           const newValue = (numericFields.includes(field)) ? parseFloat(value) : value;
@@ -61,15 +63,24 @@ export const ParameterProvider = ({ children }) => {
         }
         return p;
       });
+
+      // If the id wasn't present (e.g., newly added global metadata), append it using defaults
+      let nextParams = updatedParams;
+      if (!found) {
+        const defaults = PARAMETERS.find(dp => dp.id === id) || { id, label: id, type: 'global' };
+        const numericFields = ['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'];
+        const newValue = (numericFields.includes(field)) ? parseFloat(value) : value;
+        nextParams = [...updatedParams, { ...defaults, [field]: newValue }];
+      }
       
       // Auto-save to localStorage
       try {
-        localStorage.setItem('artapp-parameters', JSON.stringify(updatedParams));
+        localStorage.setItem('artapp-parameters', JSON.stringify(nextParams));
       } catch (error) {
         console.warn('Failed to save parameters:', error);
       }
       
-      return updatedParams;
+      return nextParams;
     });
   };
 
