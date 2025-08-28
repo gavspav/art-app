@@ -278,6 +278,23 @@ canvas {
   gap: 0.5rem 0.75rem;
   align-items: center;
 }
+.compact-row {
+  display: flex;
+  flex-wrap: wrap; /* allow MIDI row to wrap on narrow sidebars */
+  align-items: center;
+  gap: 0.4rem;
+}
+.compact-row .compact-label {
+  flex: 1 1 120px; /* label can shrink and wrap row */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* avoid overflow when very narrow */
+}
+.compact-row .btn-compact-secondary,
+.compact-row .btn-compact-primary {
+  flex: 0 0 auto; /* buttons keep natural size and wrap to next line if needed */
+}
 .compact-label {
   display: inline-flex;
   align-items: center;
@@ -294,6 +311,12 @@ canvas {
   width: 140px;
   height: 4px;
   border-radius: 999px;
+}
+
+/* When space is tight (e.g., very narrow sidebar), let inputs stretch and stack nicely */
+@media (max-width: 520px) {
+  .compact-range { width: 100%; }
+  .compact-field { flex-wrap: wrap; }
 }
 .compact-select {
   height: 28px;
