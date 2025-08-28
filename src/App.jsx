@@ -308,6 +308,118 @@ const MainApp = () => {
 
   
 
+  // Helper: build a new layer by varying from a previous layer using base variation
+  const buildVariedLayerFrom = (prev, nameIndex, baseVar) => {
+    const v = typeof baseVar === 'number' ? baseVar : (typeof prev?.variation === 'number' ? prev.variation : (DEFAULT_LAYER.variation ?? 0.2));
+    const w = Math.max(0, Math.min(1, v / 3)); // normalize 0..3 -> 0..1
+    const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
+
+    const mixRandom = (prevVal, min, max, integer = false) => {
+      const rnd = min + Math.random() * (max - min);
+      let next = prevVal * (1 - w) + rnd * w;
+      next = Math.min(max, Math.max(min, next));
+      if (integer) next = Math.round(next);
+      return next;
+    };
+
+    const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
+
+    const random = createSeededRandom(Math.random());
+    const newSeed = random();
+
+    const varied = { ...(prev || DEFAULT_LAYER) };
+    varied.name = `Layer ${nameIndex}`;
+    varied.seed = newSeed;
+    varied.noiseSeed = newSeed;
+    varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
+    varied.variation = v;
+
+    // Geometry and style (respect vary flags)
+    if (varyFlags.numSides) varied.numSides = mixRandom(prev.numSides, 3, 20, true);
+    if (varyFlags.curviness) varied.curviness = mixRandom(prev.curviness ?? 1.0, 0.0, 1.0);
+    if (varyFlags.wobble) varied.wobble = mixRandom(prev.wobble ?? 0.5, 0.0, 1.0);
+    if (varyFlags.noiseAmount) varied.noiseAmount = mixRandom(prev.noiseAmount ?? 0.5, 0, 8);
+    if (varyFlags.width) varied.width = mixRandom(prev.width ?? 250, 10, 900, true);
+    if (varyFlags.height) varied.height = mixRandom(prev.height ?? 250, 10, 900, true);
+
+    // Movement
+    if (varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
+      varied.movementStyle = prev.movementStyle === 'bounce' ? 'drift' : 'bounce';
+    }
+    if (varyFlags.movementSpeed) varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
+    if (varyFlags.movementAngle) {
+      const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360, true);
+      varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+    }
+
+    // Z scaling
+    if (varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2);
+    let nextScaleMin = prev.scaleMin ?? 0.2;
+    let nextScaleMax = prev.scaleMax ?? 1.5;
+    if (varyFlags.scaleMin) nextScaleMin = mixRandom(prev.scaleMin ?? 0.2, 0.1, 2);
+    if (varyFlags.scaleMax) nextScaleMax = mixRandom(prev.scaleMax ?? 1.5, 0.5, 3);
+    varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
+    varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
+
+    // Image Effects
+    if (varyFlags.imageBlur) varied.imageBlur = mixRandom(prev.imageBlur ?? 0, 0, 20);
+    if (varyFlags.imageBrightness) varied.imageBrightness = mixRandom(prev.imageBrightness ?? 100, 0, 200, true);
+    if (varyFlags.imageContrast) varied.imageContrast = mixRandom(prev.imageContrast ?? 100, 0, 200, true);
+    if (varyFlags.imageHue) {
+      const nextHue = mixRandom(prev.imageHue ?? 0, 0, 360, true);
+      varied.imageHue = ((nextHue % 360) + 360) % 360;
+    }
+    if (varyFlags.imageSaturation) varied.imageSaturation = mixRandom(prev.imageSaturation ?? 100, 0, 200, true);
+    if (varyFlags.imageDistortion) varied.imageDistortion = mixRandom(prev.imageDistortion ?? 0, 0, 50);
+
+    // Position
+    const baseX = prev.position?.x ?? 0.5;
+    const baseY = prev.position?.y ?? 0.5;
+    const jitter = 0.15 * w;
+    const jx = (Math.random() * 2 - 1) * jitter;
+    const jy = (Math.random() * 2 - 1) * jitter;
+    const nx = clamp(baseX + jx, 0.0, 1.0);
+    const ny = clamp(baseY + jy, 0.0, 1.0);
+    varied.position = {
+      ...(prev.position || DEFAULT_LAYER.position),
+      x: nx,
+      y: ny,
+      scale: prev.position?.scale ?? 1.0,
+      scaleDirection: prev.position?.scaleDirection ?? 1,
+    };
+
+    // Velocity
+    const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
+    varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+    varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+
+    // Colors: keep similar for small variation, may change for higher
+    if (Array.isArray(prev.colors) && prev.colors.length) {
+      if (w >= 0.75) {
+        const currentKey = JSON.stringify(prev.colors);
+        const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
+        const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
+        varied.colors = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
+        varied.numColors = varied.colors.length;
+      } else if (w >= 0.4) {
+        const arr = [...prev.colors];
+        for (let i = arr.length - 1; i > 0; i--) {
+          if (Math.random() < 0.5 * w) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+        }
+        varied.colors = arr;
+        varied.numColors = arr.length;
+      } else {
+        varied.colors = [...prev.colors];
+        varied.numColors = prev.numColors ?? prev.colors.length;
+      }
+    }
+
+    return { ...DEFAULT_LAYER, ...varied };
+  };
+
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
@@ -327,123 +439,10 @@ const MainApp = () => {
   };
 
   const addNewLayer = () => {
+    const baseVar = (typeof layers?.[0]?.variation === 'number') ? layers[0].variation : DEFAULT_LAYER.variation;
     const prev = layers[layers.length - 1] || DEFAULT_LAYER;
-    const v = typeof prev.variation === 'number' ? prev.variation : DEFAULT_LAYER.variation;
-    const w = Math.max(0, Math.min(1, v / 3)); // normalize 0..3 -> 0..1
-    const varyFlags = (prev.vary || DEFAULT_LAYER.vary || {});
-
-    const mixRandom = (prevVal, min, max, integer = false) => {
-      const rnd = min + Math.random() * (max - min);
-      let next = prevVal * (1 - w) + rnd * w;
-      next = Math.min(max, Math.max(min, next));
-      if (integer) next = Math.round(next);
-      return next;
-    };
-
-    const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
-
-    const random = createSeededRandom(Math.random());
-    const newSeed = random();
-
-    // Build new layer by varying key properties from the previous layer
-    const varied = { ...prev };
-    varied.name = `Layer ${layers.length + 1}`;
-    varied.seed = newSeed;
-    varied.noiseSeed = newSeed;
-    // ensure vary flags are copied, not shared by reference
-    varied.vary = { ...(prev.vary || DEFAULT_LAYER.vary || {}) };
-
-    // Geometry and style (respect vary flags)
-    if (varyFlags.numSides) varied.numSides = mixRandom(prev.numSides, 3, 20, true);
-    if (varyFlags.curviness) varied.curviness = mixRandom(prev.curviness ?? 1.0, 0.0, 1.0);
-    if (varyFlags.wobble) varied.wobble = mixRandom(prev.wobble ?? 0.5, 0.0, 1.0);
-    if (varyFlags.noiseAmount) varied.noiseAmount = mixRandom(prev.noiseAmount ?? 0.5, 0, 8);
-    if (varyFlags.width) varied.width = mixRandom(prev.width ?? 250, 10, 900, true);
-    if (varyFlags.height) varied.height = mixRandom(prev.height ?? 250, 10, 900, true);
-    // Keep opacity as-is; user has a global opacity control
-
-    // Movement
-    // Occasionally change style when variation is high
-    if (varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
-      varied.movementStyle = prev.movementStyle === 'bounce' ? 'drift' : 'bounce';
-    }
-    if (varyFlags.movementSpeed) varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
-    if (varyFlags.movementAngle) {
-      const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360, true);
-      // Wrap angle to [0,360)
-      varied.movementAngle = ((nextAngle % 360) + 360) % 360;
-    }
-
-    // Z scaling
-    if (varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2);
-    // Ensure min <= max after optional variation
-    let nextScaleMin = prev.scaleMin ?? 0.2;
-    let nextScaleMax = prev.scaleMax ?? 1.5;
-    if (varyFlags.scaleMin) nextScaleMin = mixRandom(prev.scaleMin ?? 0.2, 0.1, 2);
-    if (varyFlags.scaleMax) nextScaleMax = mixRandom(prev.scaleMax ?? 1.5, 0.5, 3);
-    varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
-    varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
-
-    // Image Effects
-    if (varyFlags.imageBlur) varied.imageBlur = mixRandom(prev.imageBlur ?? 0, 0, 20);
-    if (varyFlags.imageBrightness) varied.imageBrightness = mixRandom(prev.imageBrightness ?? 100, 0, 200, true);
-    if (varyFlags.imageContrast) varied.imageContrast = mixRandom(prev.imageContrast ?? 100, 0, 200, true);
-    if (varyFlags.imageHue) {
-      const nextHue = mixRandom(prev.imageHue ?? 0, 0, 360, true);
-      varied.imageHue = ((nextHue % 360) + 360) % 360;
-    }
-    if (varyFlags.imageSaturation) varied.imageSaturation = mixRandom(prev.imageSaturation ?? 100, 0, 200, true);
-    if (varyFlags.imageDistortion) varied.imageDistortion = mixRandom(prev.imageDistortion ?? 0, 0, 50);
-
-    // Position: start at a nearby/random location
-    const baseX = prev.position?.x ?? 0.5;
-    const baseY = prev.position?.y ?? 0.5;
-    const jitter = 0.15 * w; // up to 15% of canvas normalized space
-    const jx = (Math.random() * 2 - 1) * jitter;
-    const jy = (Math.random() * 2 - 1) * jitter;
-    const nx = clamp(baseX + jx, 0.0, 1.0);
-    const ny = clamp(baseY + jy, 0.0, 1.0);
-
-    varied.position = {
-      ...(prev.position || DEFAULT_LAYER.position),
-      x: nx,
-      y: ny,
-      scale: prev.position?.scale ?? 1.0,
-      scaleDirection: prev.position?.scaleDirection ?? 1,
-    };
-
-    // Recompute velocity from angle/speed
-    const angleRad = varied.movementAngle * (Math.PI / 180);
-    varied.vx = Math.cos(angleRad) * (varied.movementSpeed * 0.001) * 1.0;
-    varied.vy = Math.sin(angleRad) * (varied.movementSpeed * 0.001) * 1.0;
-
-    // Keep colors the same for small variation; swap palette for large variation
-    if (Array.isArray(prev.colors) && prev.colors.length) {
-      if (w >= 0.75) {
-        // pick a random palette distinct from current when possible
-        const currentKey = JSON.stringify(prev.colors);
-        const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
-        const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
-        varied.colors = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
-        varied.numColors = varied.colors.length;
-      } else if (w >= 0.4) {
-        // light shuffle
-        const arr = [...prev.colors];
-        for (let i = arr.length - 1; i > 0; i--) {
-          if (Math.random() < 0.5 * w) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
-          }
-        }
-        varied.colors = arr;
-        varied.numColors = arr.length;
-      } else {
-        varied.colors = [...prev.colors];
-        varied.numColors = prev.numColors ?? prev.colors.length;
-      }
-    }
-
-    setLayers([...layers, { ...DEFAULT_LAYER, ...varied }]);
+    const nextLayer = buildVariedLayerFrom(prev, layers.length + 1, baseVar);
+    setLayers([...layers, nextLayer]);
     setSelectedLayerIndex(layers.length);
   };
 
@@ -1227,17 +1226,13 @@ const MainApp = () => {
                           let next = prev;
                           if (target > prev.length) {
                             const addCount = target - prev.length;
+                            const baseVar = (typeof prev[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
+                            let last = prev[prev.length - 1] || DEFAULT_LAYER;
                             const additions = Array.from({ length: addCount }, (_, i) => {
-                              const base = { ...DEFAULT_LAYER };
-                              const idx = prev.length + i;
-                              const inheritedVariation = (typeof prev[0]?.variation === 'number') ? prev[0].variation : base.variation;
-                              return {
-                                ...base,
-                                name: `Layer ${idx + 1}`,
-                                colors: prev[0]?.colors || base.colors,
-                                numColors: prev[0]?.numColors || base.numColors || (base.colors?.length || 3),
-                                variation: inheritedVariation,
-                              };
+                              const nextIdx = prev.length + i + 1;
+                              const nextLayer = buildVariedLayerFrom(last, nextIdx, baseVar);
+                              last = nextLayer;
+                              return nextLayer;
                             });
                             next = [...prev, ...additions];
                           } else if (target < prev.length) {
