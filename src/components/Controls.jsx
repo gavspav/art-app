@@ -601,6 +601,14 @@ const Controls = forwardRef(({
     setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
   }, [selectedLayerIndex]);
 
+  // Expose imperative API before any early returns to maintain hook order
+  useImperativeHandle(ref, () => ({
+    openTab: (name) => {
+      const allowed = ['Animation','Shape','Colors'];
+      if (allowed.includes(name)) setActiveTab(name);
+    }
+  }), []);
+
 
   if (!currentLayer) {
     return <div className="controls">Loading...</div>;
@@ -698,12 +706,7 @@ const Controls = forwardRef(({
 
   const [activeTab, setActiveTab] = useState('Shape');
 
-  useImperativeHandle(ref, () => ({
-    openTab: (name) => {
-      const allowed = ['Animation','Shape','Colors'];
-      if (allowed.includes(name)) setActiveTab(name);
-    }
-  }), []);
+  // moved useImperativeHandle above early return
 
   const renderAnimationTab = () => (
     <div className="tab-section">

@@ -1289,26 +1289,20 @@ const MainApp = () => {
           <div className="sidebar-content">
             {/* Global controls section */}
             <div className="control-card">
-              <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Global</h3>
+              <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>Global</span>
+                <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
+              </h3>
               <div className="control-group" style={{ margin: 0 }}>
                 {/* Background Color with inline include toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                  <span style={{ fontWeight: 600 }}>Background</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontWeight: 600 }}>Background</span>
+                    <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
+                  </div>
                   <label className="compact-label" title="Include Background Color in Randomize All">
                     <input type="checkbox" checked={getIsRnd('backgroundColor')} onChange={(e) => setIsRnd('backgroundColor', e.target.checked)} />
                     Include
-                  </label>
-                </div>
-                <BackgroundColorPicker compact color={backgroundColor} onChange={setBackgroundColor} />
-                <div className="global-compact-row" style={{ gap: '0.4rem' }}>
-                  <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
-                </div>
-
-                {/* Toggle visibility of MIDI Learn controls in Global section */}
-                <div className="global-compact-row" style={{ justifyContent: 'space-between', marginTop: '0.35rem' }}>
-                  <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
-                    <input type="checkbox" checked={showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
-                    MIDI Learn
                   </label>
                 </div>
 
@@ -1329,6 +1323,11 @@ const MainApp = () => {
                       onChange={(e) => setClassicMode(e.target.checked)}
                     />
                     Classic Mode
+                  </label>
+
+                  <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
+                    <input type="checkbox" checked={showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
+                    MIDI Learn
                   </label>
 
                   <div className="compact-field">
