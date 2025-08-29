@@ -201,6 +201,12 @@ canvas {
   z-index: 3;
 }
 
+/* Compact header variant used by Layer Controls to match Global compact feel */
+.controls-header.compact {
+  padding: 0.5rem 0.75rem;
+  gap: 0.4rem;
+}
+
 .controls-actions {
   display: flex;
   gap: 0.5rem;
@@ -436,6 +442,15 @@ input[type="checkbox"] {
 }
 .icon-btn:hover {
   background: rgba(255,255,255,0.14);
+}
+
+/* Small icon button for compact header rows */
+.icon-btn.sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 14px;
+  padding: 0;
 }
 
 /* Compact dark number input used in Colours panel */

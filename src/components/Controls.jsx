@@ -54,11 +54,47 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
 
   const toggleEnabled = (e) => {
     const on = !!e.target.checked;
-    // When enabling manual MIDI, stop automatic animation by zeroing speeds
     if (on) {
-      updateLayer({ manualMidiPositionEnabled: true, movementSpeed: 0, scaleSpeed: 0, position: { ...currentLayer.position, vx: 0, vy: 0 } });
+      // Persist previous speeds so we can restore later
+      const prevMove = Number.isFinite(currentLayer?.movementSpeed)
+        ? currentLayer.movementSpeed
+        : DEFAULT_LAYER.movementSpeed;
+      const prevScale = Number.isFinite(currentLayer?.scaleSpeed)
+        ? currentLayer.scaleSpeed
+        : DEFAULT_LAYER.scaleSpeed;
+      updateLayer({
+        manualMidiPositionEnabled: true,
+        movementSpeed: 0,
+        scaleSpeed: 0,
+        // store previous values on the layer
+        _prevMovementSpeed: prevMove,
+        _prevScaleSpeed: prevScale,
+        position: { ...currentLayer.position, vx: 0, vy: 0 },
+      });
     } else {
-      updateLayer({ manualMidiPositionEnabled: false });
+      // Restore previous speeds (fallback to defaults if missing)
+      const restoredMove = Number.isFinite(currentLayer?._prevMovementSpeed)
+        ? currentLayer._prevMovementSpeed
+        : (Number.isFinite(currentLayer?.movementSpeed) ? currentLayer.movementSpeed : DEFAULT_LAYER.movementSpeed);
+      const restoredScale = Number.isFinite(currentLayer?._prevScaleSpeed)
+        ? currentLayer._prevScaleSpeed
+        : (Number.isFinite(currentLayer?.scaleSpeed) ? currentLayer.scaleSpeed : DEFAULT_LAYER.scaleSpeed);
+
+      // Recompute velocities based on movementAngle and restored movement speed
+      const ang = Number.isFinite(currentLayer?.movementAngle) ? currentLayer.movementAngle : DEFAULT_LAYER.movementAngle;
+      const angleRad = ang * (Math.PI / 180);
+      const vx = Math.cos(angleRad) * (restoredMove * 0.001) * 1.0;
+      const vy = Math.sin(angleRad) * (restoredMove * 0.001) * 1.0;
+
+      updateLayer({
+        manualMidiPositionEnabled: false,
+        movementSpeed: restoredMove,
+        scaleSpeed: restoredScale,
+        // clear cached prev values to avoid stale state
+        _prevMovementSpeed: undefined,
+        _prevScaleSpeed: undefined,
+        position: { ...currentLayer.position, vx, vy },
+      });
     }
   };
 
@@ -72,71 +108,75 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
         </label>
       </div>
 
-      {/* X */}
-      <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-        <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>X: {Number(currentLayer?.position?.x || 0).toFixed(3)}</div>
-          <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idX); }} disabled={!midiSupported}>Learn</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idX); }} disabled={!midiSupported || !midiMappings?.[idX]}>Clear</button>
+      {enabled && (
+        <>
+          {/* X */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>X: {Number(currentLayer?.position?.x || 0).toFixed(3)}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idX); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idX); }} disabled={!midiSupported || !midiMappings?.[idX]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.x || 0)))} onChange={onX} className="dc-slider" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
+              <label style={{ opacity: 0.85 }}>Out Min</label>
+              <input type="number" step={0.001} value={Number(rangeX.min ?? 0)} onChange={setRange('x','min')} />
+              <label style={{ opacity: 0.85 }}>Out Max</label>
+              <input type="number" step={0.001} value={Number(rangeX.max ?? 1)} onChange={setRange('x','max')} />
+            </div>
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idX] ? (mappingLabel ? mappingLabel(midiMappings[idX]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idX && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
           </div>
-        </div>
-        <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.x || 0)))} onChange={onX} disabled={!enabled} className="dc-slider" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-          <label style={{ opacity: 0.85 }}>Out Min</label>
-          <input type="number" step={0.001} value={Number(rangeX.min ?? 0)} onChange={setRange('x','min')} />
-          <label style={{ opacity: 0.85 }}>Out Max</label>
-          <input type="number" step={0.001} value={Number(rangeX.max ?? 1)} onChange={setRange('x','max')} />
-        </div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-          MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idX] ? (mappingLabel ? mappingLabel(midiMappings[idX]) : 'Mapped') : 'Not mapped')}
-          {learnParamId === idX && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-        </div>
-      </div>
 
-      {/* Y */}
-      <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-        <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>Y: {Number(currentLayer?.position?.y || 0).toFixed(3)}</div>
-          <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idY); }} disabled={!midiSupported}>Learn</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idY); }} disabled={!midiSupported || !midiMappings?.[idY]}>Clear</button>
+          {/* Y */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>Y: {Number(currentLayer?.position?.y || 0).toFixed(3)}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idY); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idY); }} disabled={!midiSupported || !midiMappings?.[idY]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.y || 0)))} onChange={onY} className="dc-slider" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
+              <label style={{ opacity: 0.85 }}>Out Min</label>
+              <input type="number" step={0.001} value={Number(rangeY.min ?? 0)} onChange={setRange('y','min')} />
+              <label style={{ opacity: 0.85 }}>Out Max</label>
+              <input type="number" step={0.001} value={Number(rangeY.max ?? 1)} onChange={setRange('y','max')} />
+            </div>
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idY] ? (mappingLabel ? mappingLabel(midiMappings[idY]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idY && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
           </div>
-        </div>
-        <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.y || 0)))} onChange={onY} disabled={!enabled} className="dc-slider" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-          <label style={{ opacity: 0.85 }}>Out Min</label>
-          <input type="number" step={0.001} value={Number(rangeY.min ?? 0)} onChange={setRange('y','min')} />
-          <label style={{ opacity: 0.85 }}>Out Max</label>
-          <input type="number" step={0.001} value={Number(rangeY.max ?? 1)} onChange={setRange('y','max')} />
-        </div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-          MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idY] ? (mappingLabel ? mappingLabel(midiMappings[idY]) : 'Mapped') : 'Not mapped')}
-          {learnParamId === idY && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-        </div>
-      </div>
 
-      {/* Z (scale) */}
-      <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-        <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>Z (Scale): {Number(currentLayer?.position?.scale || 1).toFixed(3)}</div>
-          <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idZ); }} disabled={!midiSupported}>Learn</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idZ); }} disabled={!midiSupported || !midiMappings?.[idZ]}>Clear</button>
+          {/* Z (scale) */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>Z (Scale): {Number(currentLayer?.position?.scale || 1).toFixed(3)}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idZ); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idZ); }} disabled={!midiSupported || !midiMappings?.[idZ]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={scaleMin} max={scaleMax} step={0.001} value={Math.max(scaleMin, Math.min(scaleMax, Number(currentLayer?.position?.scale || 1)))} onChange={onZ} className="dc-slider" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
+              <label style={{ opacity: 0.85 }}>Out Min</label>
+              <input type="number" step={0.001} value={Number(rangeZ.min ?? scaleMin)} onChange={setRange('z','min')} />
+              <label style={{ opacity: 0.85 }}>Out Max</label>
+              <input type="number" step={0.001} value={Number(rangeZ.max ?? scaleMax)} onChange={setRange('z','max')} />
+            </div>
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              Range: {scaleMin}–{scaleMax}. MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idZ] ? (mappingLabel ? mappingLabel(midiMappings[idZ]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idZ && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
           </div>
-        </div>
-        <input type="range" min={scaleMin} max={scaleMax} step={0.001} value={Math.max(scaleMin, Math.min(scaleMax, Number(currentLayer?.position?.scale || 1)))} onChange={onZ} disabled={!enabled} className="dc-slider" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-          <label style={{ opacity: 0.85 }}>Out Min</label>
-          <input type="number" step={0.001} value={Number(rangeZ.min ?? scaleMin)} onChange={setRange('z','min')} />
-          <label style={{ opacity: 0.85 }}>Out Max</label>
-          <input type="number" step={0.001} value={Number(rangeZ.max ?? scaleMax)} onChange={setRange('z','max')} />
-        </div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-          Range: {scaleMin}–{scaleMax}. MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idZ] ? (mappingLabel ? mappingLabel(midiMappings[idZ]) : 'Mapped') : 'Not mapped')}
-          {learnParamId === idZ && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
@@ -407,7 +447,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
         ? Math.min(max, Math.max(min, numericValue))
         : (Number.isFinite(min) ? min : 0));
       return (
-        <div style={{ marginBottom: '0.75rem' }}>
+        <div style={{ marginBottom: '0.4rem' }}>
           <div className="dc-inner">
             <Header>
               <span>
@@ -430,7 +470,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     }
     case 'dropdown':
       return (
-        <div style={{ marginBottom: '0.75rem' }}>
+        <div style={{ marginBottom: '0.4rem' }}>
           <div className="dc-inner">
             <Header>
               <span>{label}:</span>
@@ -544,8 +584,22 @@ const Controls = forwardRef(({
   setRandomizePalette,
   randomizeNumColors,
   setRandomizeNumColors,
+  // Lightweight layer navigation controls
+  layerNames,
+  selectedLayerIndex,
+  onSelectLayer,
+  onAddLayer,
+  onDeleteLayer,
 }, ref) => {
   const { parameters } = useParameters();
+
+  // Local UI state for delete picker
+  const [showDeletePicker, setShowDeletePicker] = useState(false);
+  const [deleteIndex, setDeleteIndex] = useState(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
+
+  useEffect(() => {
+    setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
+  }, [selectedLayerIndex]);
 
 
   if (!currentLayer) {
@@ -642,7 +696,7 @@ const Controls = forwardRef(({
   const movementParams = groupedControls['Movement'] || [];
   // Appearance tab removed; image effect controls hidden for now
 
-  const [activeTab, setActiveTab] = useState('Animation');
+  const [activeTab, setActiveTab] = useState('Shape');
 
   useImperativeHandle(ref, () => ({
     openTab: (name) => {
@@ -653,39 +707,45 @@ const Controls = forwardRef(({
 
   const renderAnimationTab = () => (
     <div className="tab-section">
-      <div className="control-card">
-        <div className="control-row" style={{ justifyContent: 'space-between' }}>
-          <div style={{ fontWeight: 600 }}>Animation</div>
-          <button
-            type="button"
-            className="icon-btn"
-            title="Randomize animation for selected layer"
-            aria-label="Randomize animation for selected layer"
-            onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
-          >
-            🎲
-          </button>
-        </div>
-      </div>
-
-      {/* MIDI Position Control Section */}
+      {/* MIDI Position Control Section remains a dedicated card */}
       <MidiPositionSection currentLayer={currentLayer} updateLayer={updateLayer} />
 
-      {!(currentLayer?.manualMidiPositionEnabled) && movementParams.map(param => (
-        <div className="control-card" key={param.id}>
-          <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
+      {/* Consolidated movement params into one compact card */}
+      {!(currentLayer?.manualMidiPositionEnabled) && (
+        <div className="control-card">
+          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: 600 }}>Animation</div>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Randomize animation for selected layer"
+              aria-label="Randomize animation for selected layer"
+              onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
+            >
+              🎲
+            </button>
+          </div>
+          <div style={{ marginTop: '0.5rem' }}>
+            {movementParams.map(param => (
+              <div key={param.id}>
+                <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 
   const renderShapeTab = () => (
     <div className="tab-section">
-      {shapeParams.map(param => (
-        <div className="control-card" key={param.id}>
-          <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
-        </div>
-      ))}
+      <div className="control-card">
+        {shapeParams.map(param => (
+          <div key={param.id}>
+            <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -754,12 +814,46 @@ const Controls = forwardRef(({
 
   return (
     <div className="controls-panel">
-      <div className="controls-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2 style={{ margin: 0 }}>Layer Controls</h2>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <div className="controls-header compact" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: '1rem' }}>Layer Controls</h2>
+          <div className="compact-row" style={{ gap: '0.4rem' }}>
+            <label htmlFor="activeLayerSelect" className="compact-label" style={{ opacity: 0.9 }}>Active layer:</label>
+            <select
+              id="activeLayerSelect"
+              className="compact-select"
+              value={Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}
+              onChange={(e) => onSelectLayer && onSelectLayer(parseInt(e.target.value, 10))}
+            >
+              {(layerNames || []).map((name, i) => (
+                <option key={i} value={i}>{name || `Layer ${i + 1}`}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Add a layer"
+              aria-label="Add a layer"
+              onClick={() => onAddLayer && onAddLayer()}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Remove selected layer"
+              aria-label="Remove selected layer"
+              onClick={() => setShowDeletePicker(true)}
+              disabled={((layerNames || []).length) <= 1}
+            >
+              -
+            </button>
+          </div>
+        </div>
+        <div className="controls-actions" style={{ display: 'flex', gap: '0.4rem' }}>
           <button
             type="button"
-            className="icon-btn"
+            className="icon-btn sm"
             title="Edit nodes"
             aria-label="Edit nodes"
             onClick={() => setIsNodeEditMode(!isNodeEditMode)}
@@ -768,7 +862,7 @@ const Controls = forwardRef(({
           </button>
           <button
             type="button"
-            className="icon-btn"
+            className="icon-btn sm"
             title="Randomize selected layer"
             aria-label="Randomize selected layer"
             onClick={() => randomizeCurrentLayer(false)}
@@ -778,8 +872,49 @@ const Controls = forwardRef(({
         </div>
       </div>
 
+      {/* Inline delete picker popover */}
+      {showDeletePicker && (
+        <div className="control-card" style={{ marginTop: '0.5rem' }}>
+          <div className="control-row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontWeight: 600 }}>Delete layer</span>
+              <select
+                value={deleteIndex}
+                onChange={(e) => setDeleteIndex(parseInt(e.target.value, 10))}
+              >
+                {(layerNames || []).map((name, i) => (
+                  <option key={i} value={i}>{name || `Layer ${i + 1}`}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={() => setShowDeletePicker(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-compact-danger"
+                onClick={() => {
+                  if (((layerNames || []).length) <= 1) return;
+                  if (onDeleteLayer) onDeleteLayer(deleteIndex);
+                  setShowDeletePicker(false);
+                }}
+                disabled={((layerNames || []).length) <= 1}
+                title={((layerNames || []).length) <= 1 ? 'At least one layer required' : 'Delete selected layer'}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="tabbar">
-        {['Animation','Shape','Colors'].map(tab => (
+        {['Shape','Animation','Colors'].map(tab => (
           <button
             key={tab}
             className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
@@ -790,8 +925,8 @@ const Controls = forwardRef(({
         ))}
       </div>
 
-      {activeTab === 'Animation' && renderAnimationTab()}
       {activeTab === 'Shape' && renderShapeTab()}
+      {activeTab === 'Animation' && renderAnimationTab()}
       {activeTab === 'Colors' && renderColorsTab()}
     </div>
   );

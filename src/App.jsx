@@ -13,8 +13,7 @@ import './App.css';
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
 import BackgroundColorPicker from './components/BackgroundColorPicker';
-import ColorPicker from './components/ColorPicker';
-import LayerList from './components/LayerList';
+// LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
 // The MainApp component now contains all the core application logic
@@ -56,10 +55,12 @@ const MainApp = () => {
   const containerRef = useRef(null);
   const controlsRef = useRef(null);
   const configFileInputRef = React.useRef(null);
-  const [showGlobalColours, setShowGlobalColours] = useState(false);
+  // Removed Global Colours UI
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
+  // Global MIDI learn UI visibility
+  const [showGlobalMidi, setShowGlobalMidi] = useState(false);
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
@@ -163,28 +164,7 @@ const MainApp = () => {
     }));
   };
 
-  // Global Colours helpers
-  const baseColours = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
-  const baseNumColours = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (baseColours.length || 0);
-  const matchPaletteIndex = (colors = []) => palettes.findIndex(p => {
-    const sampled = sampleColorsEven(p.colors, colors.length);
-    return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
-  });
-  const handleGlobalColourChange = (newColors) => {
-    const arr = Array.isArray(newColors) ? newColors : [];
-    // One colour per layer globally
-    assignOneColorPerLayer(arr);
-  };
-  // Global num colours input is not applicable when applying one colour per layer.
-  // Keep a no-op handler to avoid surprises if wired somewhere.
-  const handleGlobalNumColoursChange = () => {};
-
-  const randomizeGlobalPalette = () => {
-    const pick = palettes[Math.floor(Math.random() * palettes.length)];
-    const colors = Array.isArray(pick) ? pick : (pick?.colors || []);
-    const next = sampleColorsEven(colors, Math.max(1, layers.length));
-    assignOneColorPerLayer(next);
-  };
+  // Removed Global Colours state and helpers
 
   const handleImportFile = async (e) => {
     const file = e.target.files[0];
@@ -607,7 +587,9 @@ const MainApp = () => {
 
   const deleteLayer = (index) => {
     if (layers.length <= 1) return;
-    const newLayers = layers.filter((_, i) => i !== index);
+    const newLayers = layers
+      .filter((_, i) => i !== index)
+      .map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
     setLayers(newLayers);
     if (selectedLayerIndex >= index) {
       setSelectedLayerIndex(Math.max(0, selectedLayerIndex - 1));
@@ -1009,6 +991,17 @@ const MainApp = () => {
       layersOut.push(varied);
     }
 
+    // Apply one colour per layer by spreading the scene palette across layers
+    try {
+      const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
+      for (let i = 0; i < layersOut.length; i++) {
+        const c = singleColours[i % singleColours.length];
+        layersOut[i].colors = [c];
+        layersOut[i].numColors = 1;
+        layersOut[i].selectedColor = 0;
+      }
+    } catch {}
+
     // Apply global opacity randomization if enabled
     if (incOpacity) {
       const p = getParam('globalOpacity');
@@ -1021,12 +1014,27 @@ const MainApp = () => {
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
     setSelectedLayerIndex(0);
 
-    // Background color (gated)
+    // Background color (gated) - choose independent colour, not from palette
     if (incBG) {
-      const bgPool = (randomizePalette ? baseColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors : baseColors));
-      if (bgPool.length > 0) {
-        setBackgroundColor(bgPool[Math.floor(Math.random() * bgPool.length)]);
-      }
+      const h = Math.floor(Math.random() * 360);
+      const s = Math.floor(40 + Math.random() * 40);
+      const l = Math.floor(25 + Math.random() * 55);
+      const hslToHex = (hh, ss, ll) => {
+        const s1 = ss / 100, l1 = ll / 100;
+        const c = (1 - Math.abs(2 * l1 - 1)) * s1;
+        const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+        const m = l1 - c / 2;
+        let r=0,g=0,b=0;
+        if (hh < 60) { r = c; g = x; }
+        else if (hh < 120) { r = x; g = c; }
+        else if (hh < 180) { g = c; b = x; }
+        else if (hh < 240) { g = x; b = c; }
+        else if (hh < 300) { r = x; b = c; }
+        else { r = c; b = x; }
+        const toHex = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+      };
+      setBackgroundColor(hslToHex(h, s, l));
     }
     // Global blend mode (gated)
     if (incBlend) {
@@ -1119,6 +1127,17 @@ const MainApp = () => {
 
     const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
 
+    // One colour per layer: spread baseColors across layers
+    try {
+      const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
+      for (let i = 0; i < newLayers.length; i++) {
+        const c = singleColours[i % singleColours.length];
+        newLayers[i].colors = [c];
+        newLayers[i].numColors = 1;
+        newLayers[i].selectedColor = 0;
+      }
+    } catch {}
+
     // 3. Commit state
     // Apply global opacity randomization if enabled
     if (incOpacity) {
@@ -1133,8 +1152,27 @@ const MainApp = () => {
     setSelectedLayerIndex(0);
 
     // 4. Global settings (gated)
-    if (incBG && baseColors.length > 0) {
-      setBackgroundColor(baseColors[Math.floor(rnd() * baseColors.length)]);
+    if (incBG) {
+      // independent background colour
+      const h = Math.floor(rnd() * 360);
+      const s = Math.floor(40 + rnd() * 40);
+      const l = Math.floor(25 + rnd() * 55);
+      const hslToHex = (hh, ss, ll) => {
+        const s1 = ss / 100, l1 = ll / 100;
+        const c = (1 - Math.abs(2 * l1 - 1)) * s1;
+        const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+        const m = l1 - c / 2;
+        let r=0,g=0,b=0;
+        if (hh < 60) { r = c; g = x; }
+        else if (hh < 120) { r = x; g = c; }
+        else if (hh < 180) { g = c; b = x; }
+        else if (hh < 240) { g = x; b = c; }
+        else if (hh < 300) { r = x; b = c; }
+        else { r = c; b = x; }
+        const toHex = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+      };
+      setBackgroundColor(hslToHex(h, s, l));
     }
     if (incBlend) {
       setGlobalBlendMode('source-over');
@@ -1151,6 +1189,35 @@ const MainApp = () => {
   };
 
   // Wrapper that chooses algorithm based on classicMode flag
+  // Generate a visually pleasant random color independent of layer palettes
+  const randomBackgroundColor = () => {
+    // Use HSL for wide gamut; avoid extremes for nicer backgrounds
+    const h = Math.floor(Math.random() * 360);
+    const s = Math.floor(40 + Math.random() * 40); // 40%..80%
+    const l = Math.floor(25 + Math.random() * 55); // 25%..80%
+    // Convert to hex for consistency with the rest of the app
+    const hslToHex = (hh, ss, ll) => {
+      const s1 = ss / 100;
+      const l1 = ll / 100;
+      const c = (1 - Math.abs(2 * l1 - 1)) * s1;
+      const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+      const m = l1 - c / 2;
+      let r = 0, g = 0, b = 0;
+      if (hh < 60) { r = c; g = x; b = 0; }
+      else if (hh < 120) { r = x; g = c; b = 0; }
+      else if (hh < 180) { r = 0; g = c; b = x; }
+      else if (hh < 240) { r = 0; g = x; b = c; }
+      else if (hh < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+      const toHex = (v) => {
+        const n = Math.round((v + m) * 255);
+        return n.toString(16).padStart(2, '0');
+      };
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    };
+    return hslToHex(h, s, l);
+  };
+
   const handleRandomizeAll = () => {
     if (classicMode) classicRandomizeAll();
     else modernRandomizeAll();
@@ -1162,14 +1229,8 @@ const MainApp = () => {
     // fallback to modern variant of per-layer randomization
     const newLayers = layers.map((layer, index) => randomizeLayer(index));
     setLayers(newLayers);
-    const bgPool = randomizePalette
-      ? (Array.isArray(palettes[0]) ? palettes[Math.floor(Math.random() * palettes.length)] : (palettes[Math.floor(Math.random() * palettes.length)].colors || []))
-      : (Array.isArray(newLayers?.[0]?.colors) ? newLayers[0].colors : []);
-    const bgColors = Array.isArray(bgPool) ? bgPool : (bgPool.colors || []);
-    if (bgColors.length > 0) {
-      const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
-      setBackgroundColor(randomColor);
-    }
+    // Pick an entirely independent background colour
+    setBackgroundColor(randomBackgroundColor());
   };
 
   // Randomize only the colors (and optionally color count) per layer based on global toggles
@@ -1240,56 +1301,17 @@ const MainApp = () => {
                 </div>
                 <BackgroundColorPicker compact color={backgroundColor} onChange={setBackgroundColor} />
                 <div className="global-compact-row" style={{ gap: '0.4rem' }}>
-                  <button className="btn-compact-secondary" onClick={() => setShowGlobalColours(v => !v)} title="Open Colours settings">Colours</button>
                   <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
                 </div>
 
-                {showGlobalColours && (
-                  <div className="control-card" style={{ marginTop: '0.5rem', position: 'relative' }}>
-                    <button className="icon-btn" onClick={randomizeGlobalPalette} title="Randomise colours" aria-label="Randomise colours" style={{ position: 'absolute', right: '0.75rem', top: '0.75rem' }}>🎲</button>
+                {/* Toggle visibility of MIDI Learn controls in Global section */}
+                <div className="global-compact-row" style={{ justifyContent: 'space-between', marginTop: '0.35rem' }}>
+                  <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
+                    <input type="checkbox" checked={showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
+                    MIDI Learn
+                  </label>
+                </div>
 
-                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', justifyContent: 'flex-start', marginBottom: '0.75rem', flexWrap: 'wrap', width: '100%' }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomise All to change the colour preset">
-                        <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); setRandomizePalette(!!e.target.checked); }} />
-                        Randomise palette
-                      </label>
-                    </div>
-
-                    <div className="compact-field" style={{ width: '100%', flexDirection: 'column', alignItems: 'stretch' }}>
-                      <label className="compact-label" style={{ marginBottom: '0.35rem' }}>Colour Preset:</label>
-                      <select
-                        className="compact-select"
-                        value={(() => { const idx = matchPaletteIndex(baseColours); return idx === -1 ? 'custom' : String(idx); })()}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val !== 'custom') {
-                            const idx = parseInt(val, 10);
-                            if (palettes[idx]) {
-                              const count = Math.max(1, layers.length);
-                              const nextColors = sampleColorsEven(palettes[idx].colors, count);
-                              assignOneColorPerLayer(nextColors);
-                            }
-                          }
-                        }}
-                      >
-                        <option value="custom">Custom</option>
-                        {palettes.map((p, idx) => (
-                          <option key={idx} value={idx}>{p.name}</option>
-                        ))}
-                      </select>
-                      <div className="compact-row" style={{ marginTop: '0.35rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex}>Clear</button>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: '0.75rem' }}>
-                      <ColorPicker label="Colours" colors={baseColours} onChange={handleGlobalColourChange} />
-                    </div>
-                  </div>
-                )}
                 <div className="global-compact-row">
                   <label className="compact-label">
                     <input
@@ -1326,18 +1348,57 @@ const MainApp = () => {
                       value={globalSpeedMultiplier}
                       onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
                     />
-                    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                      <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                      {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
-                    </div>
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                        {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="compact-field">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label className="compact-label">Blend Mode</label>
-                      <label className="compact-label" title="Include Blend Mode in Randomize All">
+                      <label className="compact-label">Palette</label>
+                      <label className="compact-label" title="Allow Randomize All to change the palette">
+                        <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); setRandomizePalette(!!e.target.checked); }} />
+                        Include
+                      </label>
+                    </div>
+                    <select
+                      className="compact-select"
+                      value={(() => {
+                        const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
+                        const idx = palettes.findIndex(p => {
+                          const src = Array.isArray(p) ? p : (p?.colors || []);
+                          const sampled = sampleColorsEven(src, Math.max(1, layers.length));
+                          return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || '')); 
+                        });
+                        return idx === -1 ? 'custom' : String(idx);
+                      })()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === 'custom') return;
+                        const idx = parseInt(val, 10);
+                        if (!Number.isFinite(idx) || !palettes[idx]) return;
+                        const pick = palettes[idx];
+                        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+                        const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
+                        assignOneColorPerLayer(nextColors);
+                      }}
+                    >
+                      <option value="custom">Custom</option>
+                      {palettes.map((p, i) => (
+                        <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <label className="compact-label">Style</label>
+                      <label className="compact-label" title="Include Style in Randomize All">
                         <input type="checkbox" checked={getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} />
                         Include
                       </label>
@@ -1351,12 +1412,14 @@ const MainApp = () => {
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
-                    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                      <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                      {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
-                    </div>
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                        {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="compact-field">
@@ -1399,12 +1462,14 @@ const MainApp = () => {
                         setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
                       }}
                     />
-                    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                      <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                      {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
-                    </div>
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                        {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="compact-field">
@@ -1446,12 +1511,36 @@ const MainApp = () => {
                       }}
                     />
                     <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
-                    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                      <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                      {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
-                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                        {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="compact-field">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span className="compact-label">Layer Variation: {Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation).toFixed(2)}</span>
+                      <label className="compact-label" title="Include Layer Variation in Randomize All">
+                        <input type="checkbox" checked={getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} />
+                        Include
+                      </label>
                     </div>
+                    <input
+                      className="compact-range"
+                      type="range"
+                      min={0}
+                      max={3}
+                      step={0.01}
+                      value={Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation)}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: v } : l)));
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -1478,15 +1567,13 @@ const MainApp = () => {
               setRandomizePalette={setRandomizePalette}
               randomizeNumColors={randomizeNumColors}
               setRandomizeNumColors={setRandomizeNumColors}
-            />
-            <LayerList
-              layers={layers}
+              layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
               selectedLayerIndex={selectedLayerIndex}
               onSelectLayer={selectLayer}
               onAddLayer={addNewLayer}
               onDeleteLayer={deleteLayer}
-              setLayers={setLayers}
             />
+            {/* Layer list removed; use header controls in <Controls /> */}
           </div>
         </aside>
 
