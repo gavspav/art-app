@@ -21,7 +21,7 @@ export const DEFAULT_LAYER = {
   movementSpeed: 1,
   movementAngle: 45, // degrees
   scaleSpeed: 0.05,
-  scaleMin: 0.2,
+  scaleMin: 0.0,
   scaleMax: 1.5,
 
   // Old version animation parameters

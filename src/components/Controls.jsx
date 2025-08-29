@@ -24,7 +24,7 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
   const idY = `layer:${layerKey}:posY`;
   const idZ = `layer:${layerKey}:posZ`;
 
-  const scaleMin = Number.isFinite(currentLayer?.scaleMin) ? currentLayer.scaleMin : 0.2;
+  const scaleMin = Number.isFinite(currentLayer?.scaleMin) ? currentLayer.scaleMin : 0.1;
   const scaleMax = Number.isFinite(currentLayer?.scaleMax) ? currentLayer.scaleMax : 1.5;
 
   // Per-axis output mapping ranges stored on the layer for persistence
@@ -297,14 +297,11 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     updateLayer({ vary: nextVary });
   };
 
-  // Hide shape controls when on an image layer
-  if (currentLayer.layerType === 'image' && param.group === 'Shape') {
-    return null;
-  }
-  // Hide image-effect controls when on a non-image layer
-  if (currentLayer.layerType !== 'image' && param.group === 'Image Effects') {
-    return null;
-  }
+  // Determine visibility but do not return yet to preserve hook order
+  const hidden = (
+    (currentLayer.layerType === 'image' && param.group === 'Shape') ||
+    (currentLayer.layerType !== 'image' && param.group === 'Image Effects')
+  );
 
   const onClickSettings = (e) => {
     e.stopPropagation();
@@ -343,6 +340,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     // It's intentional to exclude updateLayer/currentLayer from deps to avoid churn; handler reads latest via closure sufficiently for UI updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, type, min, max, step, options, registerParamHandler]);
+
+  // Now short-circuit render if hidden, after hooks are declared
+  if (hidden) return null;
 
   const Header = ({ children }) => (
     <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1 }}>
@@ -596,6 +596,8 @@ const Controls = forwardRef(({
   // Local UI state for delete picker
   const [showDeletePicker, setShowDeletePicker] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
+  // Tab state must be initialized before any early returns to keep hook order stable
+  const [activeTab, setActiveTab] = useState('Shape');
 
   useEffect(() => {
     setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
@@ -610,9 +612,8 @@ const Controls = forwardRef(({
   }), []);
 
 
-  if (!currentLayer) {
-    return <div className="controls">Loading...</div>;
-  }
+  // Do not early-return on falsy currentLayer; App clamps/passes a safe layer and
+  // we guard property access with optional chaining where necessary.
 
   // Sampling helper: pick N colors from a palette evenly across its range
   const sampleColors = (base = [], count = 0) => {
@@ -703,8 +704,6 @@ const Controls = forwardRef(({
   const shapeParams = groupedControls['Shape'] || [];
   const movementParams = groupedControls['Movement'] || [];
   // Appearance tab removed; image effect controls hidden for now
-
-  const [activeTab, setActiveTab] = useState('Shape');
 
   // moved useImperativeHandle above early return
 

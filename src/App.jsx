@@ -443,7 +443,11 @@ const MainApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNodeEditMode, isFrozen]);
 
-  const currentLayer = layers[selectedLayerIndex];
+  // Clamp selection to available layers to avoid transient undefined during updates
+  const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+  const currentLayer = (layers.length > 0)
+    ? (layers[clampedSelectedIndex] || layers[0])
+    : DEFAULT_LAYER;
 
   
 
@@ -562,7 +566,8 @@ const MainApp = () => {
   const updateCurrentLayer = (newProps) => {
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
-      const currentLayer = updatedLayers[selectedLayerIndex];
+      const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, updatedLayers.length - 1)));
+      const currentLayer = updatedLayers[idx];
       const updatedLayer = { ...currentLayer, ...newProps };
 
       if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
@@ -572,7 +577,8 @@ const MainApp = () => {
         updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
       }
 
-      updatedLayers[selectedLayerIndex] = updatedLayer;
+      const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, updatedLayers.length - 1));
+      updatedLayers[clampedIndex] = updatedLayer;
       return updatedLayers;
     });
   };
@@ -676,8 +682,9 @@ const MainApp = () => {
   };
 
   const randomizeCurrentLayer = (randomizePalette = false) => {
-    const updated = randomizeLayer(selectedLayerIndex, randomizePalette);
-    setLayers(prev => prev.map((l, i) => (i === selectedLayerIndex ? updated : l)));
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    const updated = randomizeLayer(idx, randomizePalette);
+    setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
   // Randomize only animation-related settings for a single layer
@@ -719,9 +726,10 @@ const MainApp = () => {
   };
 
   const randomizeAnimationForCurrentLayer = () => {
-    const updated = randomizeAnimationOnly(selectedLayerIndex);
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    const updated = randomizeAnimationOnly(idx);
     if (!updated) return;
-    setLayers(prev => prev.map((l, i) => (i === selectedLayerIndex ? updated : l)));
+    setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
   // --- Modern randomizer (existing) ---
@@ -1506,7 +1514,8 @@ const MainApp = () => {
                           }
                           return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
                         });
-                        setSelectedLayerIndex((idx) => Math.min(idx, Math.max(0, target - 1)));
+                        // Always select the last available layer after resizing count
+                        setSelectedLayerIndex(() => Math.max(0, target - 1));
                       }}
                     />
                     <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
@@ -1567,7 +1576,7 @@ const MainApp = () => {
               randomizeNumColors={randomizeNumColors}
               setRandomizeNumColors={setRandomizeNumColors}
               layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
-              selectedLayerIndex={selectedLayerIndex}
+              selectedLayerIndex={clampedSelectedIndex}
               onSelectLayer={selectLayer}
               onAddLayer={addNewLayer}
               onDeleteLayer={deleteLayer}
