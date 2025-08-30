@@ -367,6 +367,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
     // Check if background has changed
     const backgroundChanged = useMemo(() => {
+        // Try to read background image settings from a parent state if provided via props through closure
+        // We cannot access appState directly here; we derive from canvas container dataset in future if needed.
+        // For now, include only known props; background image draw will still re-render when layers hash invalidates on first mount.
+        // Note: A better approach is to pass backgroundImage via props; keeping minimal changes here.
         const currentBgHash = `${backgroundColor}-${globalSeed}-${globalBlendMode}`;
         const hasChanged = currentBgHash !== backgroundHashRef.current;
         backgroundHashRef.current = currentBgHash;
@@ -403,6 +407,52 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.clearRect(0, 0, width, height);
             ctx.fillStyle = backgroundColor;
             ctx.fillRect(0, 0, width, height);
+            // Background image rendering is handled by dedicated function if provided via global state through window variable
+            // This is a lightweight hook-in: Main app can set window.__artapp_bgimg to { src, opacity, fit, enabled }
+            const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
+            if (bg && bg.enabled && bg.src) {
+                try {
+                    const img = new Image();
+                    img.src = bg.src;
+                    // If image might not be loaded yet, draw synchronously when natural sizes are available
+                    const drawIt = () => {
+                        ctx.save();
+                        ctx.globalAlpha = Math.max(0, Math.min(1, Number(bg.opacity) || 1));
+                        const cw = width, ch = height;
+                        const iw = img.naturalWidth || img.width || 0;
+                        const ih = img.naturalHeight || img.height || 0;
+                        if (iw > 0 && ih > 0) {
+                            let dw = cw, dh = ch, dx = 0, dy = 0;
+                            const fit = bg.fit || 'cover';
+                            if (fit === 'stretch') {
+                                dw = cw; dh = ch; dx = 0; dy = 0;
+                            } else if (fit === 'contain' || fit === 'cover') {
+                                const cr = cw / ch;
+                                const ir = iw / ih;
+                                let scale;
+                                if (fit === 'contain') {
+                                    scale = ir > cr ? (cw / iw) : (ch / ih);
+                                } else {
+                                    scale = ir > cr ? (ch / ih) : (cw / iw);
+                                }
+                                dw = iw * scale;
+                                dh = ih * scale;
+                                dx = (cw - dw) / 2;
+                                dy = (ch - dh) / 2;
+                            } else if (fit === 'center') {
+                                dw = iw; dh = ih; dx = (cw - dw) / 2; dy = (ch - dh) / 2;
+                            }
+                            ctx.drawImage(img, dx, dy, dw, dh);
+                        }
+                        ctx.restore();
+                    };
+                    if ((img.naturalWidth || 0) > 0) {
+                        drawIt();
+                    } else {
+                        img.onload = drawIt;
+                    }
+                } catch {}
+            }
         }
 
         if (classicMode) {

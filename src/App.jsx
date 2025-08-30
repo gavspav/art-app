@@ -23,6 +23,7 @@ const MainApp = () => {
   const {
     isFrozen, setIsFrozen,
     backgroundColor, setBackgroundColor,
+    backgroundImage, setBackgroundImage,
     globalSeed,
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
     globalBlendMode, setGlobalBlendMode,
@@ -339,6 +340,69 @@ const MainApp = () => {
     // Re-register if layer list, names, ranges, or enable flags change
   }, [registerParamHandler, setLayers, layers]);
 
+  // --- Global per-layer MIDI Colour handlers (RGBA) ---
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unsubs = [];
+
+    const hexToRgb = (hex) => {
+      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
+      if (!m) return { r: 0, g: 0, b: 0 };
+      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+    };
+    const rgbToHex = ({ r, g, b }) => {
+      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+      return `#${c(r)}${c(g)}${c(b)}`;
+    };
+
+    layers.forEach((layer, index) => {
+      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
+      const idR = `layer:${layerKey}:colorR`;
+      const idG = `layer:${layerKey}:colorG`;
+      const idB = `layer:${layerKey}:colorB`;
+      const idA = `layer:${layerKey}:colorA`;
+
+      const updateChannel = (channel, value01) => {
+        if (!layer?.manualMidiColorEnabled) return;
+        const selIdx = Number.isFinite(layer?.selectedColor) ? layer.selectedColor : 0;
+        const colors = Array.isArray(layer?.colors) ? layer.colors : [];
+        const curHex = colors[selIdx] || '#000000';
+        const cur = hexToRgb(curHex);
+        const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
+        const next = { ...cur, [channel]: v255 };
+        const nextHex = rgbToHex(next);
+        setLayers(prev => prev.map((l, i) => {
+          if (i !== index) return l;
+          const arr = Array.isArray(l.colors) ? [...l.colors] : [];
+          const si = Number.isFinite(l.selectedColor) ? l.selectedColor : 0;
+          arr[si] = nextHex;
+          return { ...l, colors: arr };
+        }));
+      };
+
+      // R
+      unsubs.push(registerParamHandler(idR, ({ value01 }) => {
+        updateChannel('r', value01);
+      }));
+      // G
+      unsubs.push(registerParamHandler(idG, ({ value01 }) => {
+        updateChannel('g', value01);
+      }));
+      // B
+      unsubs.push(registerParamHandler(idB, ({ value01 }) => {
+        updateChannel('b', value01);
+      }));
+      // A (opacity)
+      unsubs.push(registerParamHandler(idA, ({ value01 }) => {
+        if (!layer?.manualMidiColorEnabled) return;
+        const v = Math.max(0, Math.min(1, value01));
+        setLayers(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
+      }));
+    });
+
+    return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
+  }, [registerParamHandler, setLayers, layers]);
+
   useEffect(() => {
     setLayers(prevLayers => 
       prevLayers.map(layer => {
@@ -355,6 +419,13 @@ const MainApp = () => {
       })
     );
   }, []);
+
+  // Keep Canvas in sync with background image via a global bridge (read by Canvas.jsx)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__artapp_bgimg = backgroundImage || { src: null, enabled: false, opacity: 1, fit: 'cover' };
+    }
+  }, [backgroundImage]);
 
   // Normalize any persisted out-of-range values (e.g., curviness) once on load
   useEffect(() => {
@@ -1303,16 +1374,81 @@ const MainApp = () => {
               </h3>
               <div className="control-group" style={{ margin: 0 }}>
                 {/* Background Color with inline include toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', gap: '0.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <span style={{ fontWeight: 600 }}>Background</span>
-                    <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
-                  </div>
-                  <label className="compact-label" title="Include Background Color in Randomize All">
-                    <input type="checkbox" checked={getIsRnd('backgroundColor')} onChange={(e) => setIsRnd('backgroundColor', e.target.checked)} />
-                    Include
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 600 }}>Background</span>
+                  <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
+                  <label className="compact-label" title="Enable background image">
+                    <input
+                      type="checkbox"
+                      checked={!!backgroundImage?.enabled}
+                      onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))}
+                    />
+                    Img
                   </label>
+                  {backgroundImage?.enabled && (
+                    <>
+                      {/* Background Image mini controls */}
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg"
+                        title="Set background image"
+                        aria-label="Set background image"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const src = String(ev.target?.result || '');
+                            setBackgroundImage(prev => ({ ...(prev || {}), src, enabled: true }));
+                          };
+                          reader.readAsDataURL(file);
+                          // allow selecting same file again later
+                          e.target.value = '';
+                        }}
+                        style={{ width: 24 }}
+                      />
+                      <label className="compact-label" title="Background image opacity">
+                        Opac
+                        <input
+                          type="range"
+                          className="compact-range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={Math.max(0, Math.min(1, Number(backgroundImage?.opacity ?? 1)))}
+                          onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), opacity: parseFloat(e.target.value) }))}
+                          style={{ width: 80 }}
+                        />
+                      </label>
+                      <select
+                        className="compact-select"
+                        value={backgroundImage?.fit || 'cover'}
+                        onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), fit: e.target.value }))}
+                        title="Background image fit"
+                        aria-label="Background image fit"
+                      >
+                        <option value="cover">cover</option>
+                        <option value="contain">contain</option>
+                        <option value="stretch">stretch</option>
+                        <option value="center">center</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="btn-compact-secondary"
+                        title="Clear background image"
+                        onClick={() => setBackgroundImage({ src: null, enabled: false, opacity: 1, fit: 'cover' })}
+                      >
+                        Clear
+                      </button>
+                    </>
+                  )}
                 </div>
+                <label className="compact-label" title="Include Background Color in Randomize All" style={{ marginLeft: 'auto' }}>
+                  <input type="checkbox" checked={getIsRnd('backgroundColor')} onChange={(e) => setIsRnd('backgroundColor', e.target.checked)} />
+                  Include
+                </label>
+              </div>
 
                 <div className="global-compact-row">
                   <label className="compact-label">

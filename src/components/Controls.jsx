@@ -18,6 +18,7 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
     supported: midiSupported,
   } = useMidi() || {};
 
+
   const enabled = !!currentLayer?.manualMidiPositionEnabled;
   const layerKey = (currentLayer?.name || 'Layer').toString();
   const idX = `layer:${layerKey}:posX`;
@@ -173,6 +174,141 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
             <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
               Range: {scaleMin}–{scaleMax}. MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idZ] ? (mappingLabel ? mappingLabel(midiMappings[idZ]) : 'Mapped') : 'Not mapped')}
               {learnParamId === idZ && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// Per-layer MIDI Colour control block (RGBA)
+const MidiColorSection = ({ currentLayer, updateLayer }) => {
+  const {
+    mappings: midiMappings,
+    beginLearn,
+    clearMapping,
+    mappingLabel,
+    learnParamId,
+    supported: midiSupported,
+  } = useMidi() || {};
+
+  const enabled = !!currentLayer?.manualMidiColorEnabled;
+  const layerKey = (currentLayer?.name || 'Layer').toString();
+  const idR = `layer:${layerKey}:colorR`;
+  const idG = `layer:${layerKey}:colorG`;
+  const idB = `layer:${layerKey}:colorB`;
+  const idA = `layer:${layerKey}:colorA`;
+
+  const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+  const selIdx = Number.isFinite(currentLayer?.selectedColor) ? currentLayer.selectedColor : 0;
+  const curHex = colors[selIdx] || '#000000';
+
+  const hexToRgb = (hex) => {
+    const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
+    if (!m) return { r: 0, g: 0, b: 0 };
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  };
+  const rgbToHex = ({ r, g, b }) => {
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return `#${c(r)}${c(g)}${c(b)}`;
+  };
+
+  const curRGB = hexToRgb(curHex);
+
+  const setChannel = (channel) => (e) => {
+    const v = Math.max(0, Math.min(255, Math.round(parseFloat(e.target.value)))) || 0;
+    const next = { ...curRGB, [channel]: v };
+    const nextHex = rgbToHex(next);
+    const nextColors = [...colors];
+    nextColors[selIdx] = nextHex;
+    updateLayer({ colors: nextColors });
+  };
+  const setAlpha = (e) => {
+    let v = parseFloat(e.target.value);
+    if (!Number.isFinite(v)) v = 1;
+    v = Math.max(0, Math.min(1, v));
+    updateLayer({ opacity: v });
+  };
+
+  const toggleEnabled = (e) => {
+    const on = !!e.target.checked;
+    updateLayer({ manualMidiColorEnabled: on });
+  };
+
+  return (
+    <div className="control-card">
+      <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ fontWeight: 600 }}>MIDI Colour Control</div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Enable manual MIDI control for colour RGBA">
+          <input type="checkbox" checked={enabled} onChange={toggleEnabled} />
+          Enable
+        </label>
+      </div>
+
+      {enabled && (
+        <>
+          {/* R */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>R: {curRGB.r}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={255} step={1} value={curRGB.r} onChange={setChannel('r')} className="dc-slider" />
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idR] ? (mappingLabel ? mappingLabel(midiMappings[idR]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idR && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
+          </div>
+
+          {/* G */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>G: {curRGB.g}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={255} step={1} value={curRGB.g} onChange={setChannel('g')} className="dc-slider" />
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idG] ? (mappingLabel ? mappingLabel(midiMappings[idG]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idG && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
+          </div>
+
+          {/* B */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>B: {curRGB.b}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={255} step={1} value={curRGB.b} onChange={setChannel('b')} className="dc-slider" />
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idB] ? (mappingLabel ? mappingLabel(midiMappings[idB]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idB && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
+          </div>
+
+          {/* A (opacity) */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>A (Opacity): {Number(currentLayer?.opacity ?? 1).toFixed(3)}</div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idA); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idA); }} disabled={!midiSupported || !midiMappings?.[idA]}>Clear</button>
+              </div>
+            </div>
+            <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.opacity ?? 1)))} onChange={setAlpha} className="dc-slider" />
+            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
+              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idA] ? (mappingLabel ? mappingLabel(midiMappings[idA]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idA && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
           </div>
         </>
@@ -756,6 +892,9 @@ const Controls = forwardRef(({
   const renderColorsTab = () => (
     <div className="tab-section">
       <div className="control-card">
+        {/* MIDI Colour Control */}
+        <MidiColorSection currentLayer={currentLayer} updateLayer={updateLayer} />
+
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the color preset">
             <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizePalette', e.target.checked); setRandomizePalette(!!e.target.checked); }} />

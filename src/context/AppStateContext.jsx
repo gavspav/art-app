@@ -13,6 +13,7 @@ export const AppStateProvider = ({ children }) => {
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
     backgroundColor: DEFAULTS.backgroundColor,
+    backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
     globalSeed: DEFAULTS.globalSeed,
     globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
@@ -36,6 +37,16 @@ export const AppStateProvider = ({ children }) => {
 
   const setBackgroundColor = useCallback((value) => {
     setAppState(prev => ({ ...prev, backgroundColor: value }));
+  }, []);
+
+  const setBackgroundImage = useCallback((value) => {
+    // value can be partial update or full object
+    setAppState(prev => ({
+      ...prev,
+      backgroundImage: typeof value === 'function'
+        ? value(prev.backgroundImage)
+        : { ...prev.backgroundImage, ...(value || {}) }
+    }));
   }, []);
 
   const setGlobalBlendMode = useCallback((value) => {
@@ -97,6 +108,13 @@ export const AppStateProvider = ({ children }) => {
       setAppState(prevState => ({
         ...prevState,
         ...newState,
+        backgroundImage: {
+          src: null,
+          opacity: 1,
+          fit: 'cover',
+          enabled: false,
+          ...(newState.backgroundImage || {})
+        },
         // Ensure layers have proper structure
         layers: newState.layers?.map(layer => ({
           ...layer,
@@ -113,6 +131,7 @@ export const AppStateProvider = ({ children }) => {
     setAppState({
       isFrozen: DEFAULTS.isFrozen,
       backgroundColor: DEFAULTS.backgroundColor,
+      backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: DEFAULTS.globalSeed,
       globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
       layers: [{
@@ -135,6 +154,7 @@ export const AppStateProvider = ({ children }) => {
     // Individual setters for backward compatibility
     setIsFrozen,
     setBackgroundColor,
+    setBackgroundImage,
     setGlobalBlendMode,
     setGlobalSeed,
     setGlobalSpeedMultiplier,
@@ -158,3 +178,4 @@ export const AppStateProvider = ({ children }) => {
     </AppStateContext.Provider>
   );
 };
+
