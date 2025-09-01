@@ -340,6 +340,36 @@ const MainApp = () => {
     // Re-register if layer list, names, ranges, or enable flags change
   }, [registerParamHandler, setLayers, layers]);
 
+  // --- MIDI handlers for Background Color (RGB) ---
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const hexToRgb = (hex) => {
+      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
+      if (!m) return { r: 0, g: 0, b: 0 };
+      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+    };
+    const rgbToHex = ({ r, g, b }) => {
+      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+      return `#${c(r)}${c(g)}${c(b)}`;
+    };
+
+    const idR = 'backgroundColorR';
+    const idG = 'backgroundColorG';
+    const idB = 'backgroundColorB';
+
+    const setChannel = (channel) => ({ value01 }) => {
+      const cur = hexToRgb(backgroundColor || '#000000');
+      const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
+      const next = { ...cur, [channel]: v255 };
+      setBackgroundColor(rgbToHex(next));
+    };
+
+    const u1 = registerParamHandler(idR, setChannel('r'));
+    const u2 = registerParamHandler(idG, setChannel('g'));
+    const u3 = registerParamHandler(idB, setChannel('b'));
+    return () => { if (typeof u1 === 'function') u1(); if (typeof u2 === 'function') u2(); if (typeof u3 === 'function') u3(); };
+  }, [registerParamHandler, backgroundColor, setBackgroundColor]);
+
   // --- Global per-layer MIDI Colour handlers (RGBA) ---
   useEffect(() => {
     if (!registerParamHandler) return;
@@ -1377,7 +1407,7 @@ const MainApp = () => {
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 600 }}>Background</span>
-                  <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
+                  <BackgroundColorPicker compact inline hideLabel showMidi={showGlobalMidi} color={backgroundColor} onChange={setBackgroundColor} />
                   <label className="compact-label" title="Enable background image">
                     <input
                       type="checkbox"
