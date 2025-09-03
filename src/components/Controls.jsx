@@ -712,20 +712,19 @@ const Controls = forwardRef(({
   baseColors,
   baseNumColors,
   isNodeEditMode,
+  showMidi,
   setIsNodeEditMode,
   classicMode,
   setClassicMode,
-  // Global color randomization toggles
   randomizePalette,
   setRandomizePalette,
   randomizeNumColors,
   setRandomizeNumColors,
-  // Lightweight layer navigation controls
   layerNames,
   selectedLayerIndex,
   onSelectLayer,
   onAddLayer,
-  onDeleteLayer,
+  onDeleteLayer
 }, ref) => {
   const { parameters } = useParameters();
 
@@ -942,6 +941,24 @@ const Controls = forwardRef(({
             <option key={idx} value={idx}>{p.name}</option>
           ))}
         </select>
+        {showMidi && (
+          <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+            {(() => {
+              const layerKey = (currentLayer?.name || 'Layer').toString();
+              const paramId = `layer:${layerKey}:paletteIndex`;
+              return (
+                <>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>
+                    MIDI: {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                  </span>
+                  {learnParamId === paramId && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+                </>
+              );
+            })()}
+          </div>
+        )}
 
         <ColorPicker 
           label="Colours"
@@ -952,6 +969,37 @@ const Controls = forwardRef(({
     </div>
   );
 
+
+  // MIDI context for header actions
+  const {
+    supported: midiSupported,
+    mappings: midiMappings,
+    registerParamHandler,
+    beginLearn,
+    clearMapping,
+    mappingLabel,
+    learnParamId,
+  } = useMidi() || {};
+
+  // Register per-layer MIDI handler for Palette Index
+  useEffect(() => {
+    if (!registerParamHandler || !currentLayer) return;
+    const layerKey = (currentLayer?.name || 'Layer').toString();
+    const paramId = `layer:${layerKey}:paletteIndex`;
+    const unregister = registerParamHandler(paramId, ({ value01 }) => {
+      const list = palettes || [];
+      if (!Array.isArray(list) || list.length === 0) return;
+      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
+      const palette = list[idx];
+      const count = Number.isFinite(currentLayer?.numColors)
+        ? currentLayer.numColors
+        : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
+      const src = Array.isArray(palette) ? palette : palette?.colors;
+      const nextColors = sampleColors(src || [], count);
+      updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+    });
+    return unregister;
+  }, [registerParamHandler, currentLayer?.name, currentLayer?.numColors, updateLayer]);
 
   return (
     <div className="controls-panel">
@@ -1010,6 +1058,34 @@ const Controls = forwardRef(({
           >
             🎲
           </button>
+          {showMidi && (
+            <>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeLayer'); }}
+                disabled={!midiSupported}
+                title="MIDI Learn: Randomize Current Layer"
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeLayer'); }}
+                disabled={!midiSupported || !midiMappings?.randomizeLayer}
+                title="Clear MIDI for Randomize Current Layer"
+              >
+                Clear
+              </button>
+              {midiSupported && (
+                <span className="compact-label" style={{ opacity: 0.8 }}>
+                  {midiMappings?.randomizeLayer ? (mappingLabel ? mappingLabel(midiMappings.randomizeLayer) : 'Mapped') : 'Not mapped'}
+                  {learnParamId === 'randomizeLayer' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+                </span>
+              )}
+            </>
+          )}
         </div>
       </div>
 

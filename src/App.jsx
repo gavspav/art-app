@@ -219,6 +219,17 @@ const MainApp = () => {
     return unregister;
   }, [registerParamHandler, setGlobalSpeedMultiplier]);
 
+  // Layer Variation (0..3) controlled by global/base layer [0]
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('variation', ({ value01 }) => {
+      const v = Math.max(0, Math.min(1, value01));
+      const mapped = +(v * 3).toFixed(2);
+      setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: mapped } : l)));
+    });
+    return unregister;
+  }, [registerParamHandler, setLayers]);
+
   // Global Blend Mode (dropdown over blendModes)
   useEffect(() => {
     if (!registerParamHandler) return;
@@ -268,6 +279,12 @@ const MainApp = () => {
     });
     return unregister;
   }, [registerParamHandler, setLayers, setSelectedLayerIndex]);
+
+  // Randomize All (momentary trigger on rising edge)
+  const rndAllPrevRef = useRef(0);
+
+  // Randomize Current Layer (momentary trigger on rising edge)
+  const rndLayerPrevRef = useRef(0);
 
   // Global Palette Index -> assign one colour per layer
   useEffect(() => {
@@ -787,6 +804,20 @@ const MainApp = () => {
     const updated = randomizeLayer(idx, randomizePalette);
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
+
+  // Register MIDI: Randomize Current Layer (rising-edge)
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('randomizeLayer', ({ value01 }) => {
+      const prev = rndLayerPrevRef.current || 0;
+      const cur = Math.max(0, Math.min(1, value01));
+      if (prev < 0.5 && cur >= 0.5) {
+        randomizeCurrentLayer(false);
+      }
+      rndLayerPrevRef.current = cur;
+    });
+    return unregister;
+  }, [registerParamHandler, randomizeCurrentLayer]);
 
   // Randomize only animation-related settings for a single layer
   const randomizeAnimationOnly = (index) => {
@@ -1332,6 +1363,42 @@ const MainApp = () => {
     else modernRandomizeAll();
   };
 
+  // Register MIDI: Randomize All (rising-edge)
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('randomizeAll', ({ value01 }) => {
+      const prev = rndAllPrevRef.current || 0;
+      const cur = Math.max(0, Math.min(1, value01));
+      if (prev < 0.5 && cur >= 0.5) {
+        handleRandomizeAll();
+      }
+      rndAllPrevRef.current = cur;
+    });
+    return unregister;
+  }, [registerParamHandler, handleRandomizeAll]);
+
+  // Register MIDI: Global Palette Preset -> applies to currently selected layer
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('globalPaletteIndex', ({ value01 }) => {
+      const list = palettes || [];
+      if (!Array.isArray(list) || list.length === 0) return;
+      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
+      const pick = list[idx];
+      const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+      setLayers(prev => {
+        const sel = Math.max(0, Math.min(clampedSelectedIndex, Math.max(0, prev.length - 1)));
+        const layer = prev[sel] || {};
+        const count = Number.isFinite(layer?.numColors)
+          ? layer.numColors
+          : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (src.length || 1));
+        const nextColors = sampleColorsEven(src, Math.max(1, count));
+        return prev.map((l, i) => (i === sel ? { ...l, colors: nextColors, numColors: nextColors.length, selectedColor: 0 } : l));
+      });
+    });
+    return unregister;
+  }, [registerParamHandler, clampedSelectedIndex, setLayers]);
+
   const randomizeScene = () => {
     if (classicMode) return classicRandomizeAll();
 
@@ -1401,6 +1468,32 @@ const MainApp = () => {
               <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span>Global</span>
                 <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
+                {showGlobalMidi && (
+                  <>
+                    <button
+                      className="btn-compact-secondary"
+                      onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }}
+                      disabled={!midiSupported}
+                      title="MIDI Learn: Randomize All"
+                    >
+                      Learn
+                    </button>
+                    <button
+                      className="btn-compact-secondary"
+                      onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }}
+                      disabled={!midiSupported || !midiMappings?.randomizeAll}
+                      title="Clear MIDI for Randomize All"
+                    >
+                      Clear
+                    </button>
+                    {midiSupported && (
+                      <span className="compact-label" style={{ opacity: 0.8 }}>
+                        {midiMappings?.randomizeAll ? (mappingLabel ? mappingLabel(midiMappings.randomizeAll) : 'Mapped') : 'Not mapped'}
+                        {learnParamId === 'randomizeAll' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+                      </span>
+                    )}
+                  </>
+                )}
               </h3>
               <div className="control-group" style={{ margin: 0 }}>
                 {/* Background Color with inline include toggle */}
@@ -1566,6 +1659,14 @@ const MainApp = () => {
                         <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
                       ))}
                     </select>
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                        {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="compact-field">
@@ -1715,6 +1816,16 @@ const MainApp = () => {
                         setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: v } : l)));
                       }}
                     />
+                    {showGlobalMidi && (
+                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.8 }}>
+                          MIDI: {midiSupported ? (midiMappings?.variation ? (mappingLabel ? mappingLabel(midiMappings.variation) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                        </span>
+                        {learnParamId === 'variation' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variation'); }} disabled={!midiSupported}>Learn</button>
+                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variation'); }} disabled={!midiSupported || !midiMappings?.variation}>Clear</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1734,6 +1845,7 @@ const MainApp = () => {
               baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
               baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
               isNodeEditMode={isNodeEditMode}
+              showMidi={showGlobalMidi}
               setIsNodeEditMode={setIsNodeEditMode}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
