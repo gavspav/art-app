@@ -5,6 +5,7 @@ import { MidiProvider, useMidi } from './context/MidiContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
+import { svgStringToNodes, samplePath, extractMergedNodesWithTransforms } from './utils/svgToNodes';
 import { createSeededRandom } from './utils/random';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
@@ -56,12 +57,21 @@ const MainApp = () => {
   const containerRef = useRef(null);
   const controlsRef = useRef(null);
   const configFileInputRef = React.useRef(null);
+  const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
+
+  // --- Import adjust panel state (for multi-file SVG import) ---
+  const [showImportAdjust, setShowImportAdjust] = useState(false);
+  const [importAdjust, setImportAdjust] = useState({ dx: 0, dy: 0, s: 1 });
+  const importBaseRef = useRef([]); // stores base x,y,scale to apply offsets uniformly
+  const [importFitEnabled, setImportFitEnabled] = useState(true);
+  const [importDebug, setImportDebug] = useState(false);
+  const importRawRef = useRef([]); // pre-fit baseline positions
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
@@ -205,6 +215,243 @@ const MainApp = () => {
 
   const handleQuickLoad = () => {
     configFileInputRef.current?.click();
+  };
+
+  // --- SVG Import: create a new layer from an SVG file ---
+  const handleImportSVGClick = () => {
+    svgFileInputRef.current?.click();
+  };
+
+  const handleImportSVGFile = async (e) => {
+    const fileList = Array.from(e.target.files || []);
+    if (!fileList.length) return;
+    try {
+      // Build new layers from all selected SVG files
+      const newLayers = [];
+      const refs = [];
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const text = await file.text();
+        // Prefer merged multi-path extraction with transforms for each file
+        const merged = extractMergedNodesWithTransforms(text);
+        if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 2) {
+          const { nodes, subpaths, center, ref } = merged;
+          refs.push(ref || null);
+          const refMinX = Number(ref?.minX) || 0;
+          const refMinY = Number(ref?.minY) || 0;
+          const refW = Number(ref?.width) || 1;
+          const refH = Number(ref?.height) || 1;
+          const pos = { x: (center.x - refMinX) / refW, y: (center.y - refMinY) / refH };
+          const base = { ...DEFAULT_LAYER };
+          newLayers.push({
+            ...base,
+            name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
+            layerType: 'shape',
+            nodes,
+            subpaths: Array.isArray(subpaths) && subpaths.length ? subpaths : undefined,
+            syncNodesToNumSides: false,
+            viewBoxMapped: true,
+            curviness: 0,
+            noiseAmount: 0,
+            wobble: 0,
+            numSides: nodes.length,
+            position: { ...base.position, x: pos.x, y: pos.y },
+            visible: true,
+          });
+          continue;
+        }
+      // Parse SVG to get viewBox and single path data as fallback
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'image/svg+xml');
+      const svgEl = doc.querySelector('svg');
+      const pathEl = doc.querySelector('path');
+      const d = pathEl?.getAttribute('d') || '';
+      // Fallback to utility if parsing fails
+      if (!d) {
+        const nodes = svgStringToNodes(text);
+        if (!Array.isArray(nodes) || nodes.length < 3) {
+          // Skip files that do not contain a parsable path
+          continue;
+        }
+        // Default position center
+        const pos = { x: 0.5, y: 0.5 };
+        const base = { ...DEFAULT_LAYER };
+        newLayers.push({
+          ...base,
+          name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
+          layerType: 'shape',
+          nodes,
+          syncNodesToNumSides: false,
+          curviness: 0,
+          noiseAmount: 0,
+          wobble: 0,
+          numSides: nodes.length,
+          position: { ...base.position, x: pos.x, y: pos.y },
+          visible: true,
+        });
+        continue;
+      }
+
+      // Sample raw points from path
+      const pts = samplePath(d);
+      if (!Array.isArray(pts) || pts.length < 3) {
+        // Skip if sampling fails
+        continue;
+      }
+
+      // Compute path bbox center in SVG coords
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of pts) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
+      const pcx = (minX + maxX) / 2;
+      const pcy = (minY + maxY) / 2;
+
+      // Determine reference box from viewBox if present
+      let refW = maxX - minX; let refH = maxY - minY; let refMinX = minX; let refMinY = minY;
+      const vb = svgEl?.getAttribute('viewBox')?.split(/\s+|,/) || null;
+      if (vb && vb.length >= 4) {
+        refMinX = parseFloat(vb[0]);
+        refMinY = parseFloat(vb[1]);
+        refW = parseFloat(vb[2]);
+        refH = parseFloat(vb[3]);
+      }
+      const s = Math.max(refW, refH) / 2 || 1;
+      const nodes = pts.map(p => ({ x: (p.x - pcx) / s, y: (p.y - pcy) / s }));
+      const pos = {
+        x: (pcx - refMinX) / (refW || 1),
+        y: (pcy - refMinY) / (refH || 1),
+      };
+      if (Array.isArray(nodes) && nodes.length >= 3) {
+        const base = { ...DEFAULT_LAYER };
+        newLayers.push({
+          ...base,
+          name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
+          layerType: 'shape',
+          nodes,
+          // Preserve imported polygon samples; avoid autosync to numSides
+          syncNodesToNumSides: false,
+          viewBoxMapped: true,
+          curviness: 0,
+          noiseAmount: 0,
+          wobble: 0,
+          numSides: nodes.length,
+          position: { ...base.position, x: pos.x, y: pos.y },
+          visible: true,
+        });
+      }
+      // loop continues building newLayers
+      }
+      // Preserve original positions from SVG coordinates; ensure visible
+      newLayers.forEach(l => { l.visible = true; if (!l.position?.scale) l.position.scale = 1; });
+
+      // Detect viewBox mismatches across files (positions may be wrong)
+      try {
+        const key = (r) => r && Number.isFinite(r.width) && Number.isFinite(r.height) ? `${r.minX},${r.minY},${r.width},${r.height}` : 'none';
+        const uniq = Array.from(new Set(refs.map(key)));
+        if (newLayers.length > 1 && uniq.length > 1) {
+          console.warn('SVG import: files have different viewBox/size. Relative positions may be incorrect. Unique refs:', uniq);
+        }
+      } catch {}
+
+      // Debug summary in console
+      try {
+        const summary = newLayers.map((l, i) => ({
+          idx: i,
+          name: l.name,
+          x: +(l.position?.x ?? 0.5).toFixed(3),
+          y: +(l.position?.y ?? 0.5).toFixed(3),
+          scale: +(l.position?.scale ?? 1).toFixed(3),
+          viewBoxMapped: !!l.viewBoxMapped,
+          nodes: Array.isArray(l.nodes) ? l.nodes.length : 0,
+        }));
+        console.table(summary);
+      } catch {}
+
+      // Store RAW baseline before any fit
+      importRawRef.current = newLayers.map(l => ({
+        x: Number(l?.position?.x) || 0.5,
+        y: Number(l?.position?.y) || 0.5,
+        s: Number(l?.position?.scale) || 1,
+      }));
+
+      // Optional: shrink-to-fit to keep everything on screen while preserving relative layout
+      if (newLayers.length > 1 && importFitEnabled && !window.__artapp_disable_import_fit) {
+        const margin = 0.02; // 2% margins
+        const layersMeta = newLayers.map(l => {
+          const nodes = Array.isArray(l.nodes) ? l.nodes : [];
+          const s = Number(l.position?.scale) || 1;
+          let maxAbsX = 0, maxAbsY = 0;
+          nodes.forEach(n => { const ax = Math.abs(n.x) || 0; const ay = Math.abs(n.y) || 0; if (ax > maxAbsX) maxAbsX = ax; if (ay > maxAbsY) maxAbsY = ay; });
+          const px = Number(l.position?.x) || 0.5;
+          const py = Number(l.position?.y) || 0.5;
+          return { px, py, s, maxAbsX, maxAbsY };
+        });
+        // Current overall bounds in [0..1] fractions
+        const bounds = layersMeta.reduce((acc, m) => {
+          const halfW = (m.maxAbsX || 1) * 0.5 * m.s;
+          const halfH = (m.maxAbsY || 1) * 0.5 * m.s;
+          const minX = m.px - halfW; const maxX = m.px + halfW;
+          const minY = m.py - halfH; const maxY = m.py + halfH;
+          if (minX < acc.minX) acc.minX = minX;
+          if (maxX > acc.maxX) acc.maxX = maxX;
+          if (minY < acc.minY) acc.minY = minY;
+          if (maxY > acc.maxY) acc.maxY = maxY;
+          return acc;
+        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+        const widthFrac = Math.max(0.0001, bounds.maxX - bounds.minX);
+        const heightFrac = Math.max(0.0001, bounds.maxY - bounds.minY);
+        const fitX = (1 - 2 * margin) / widthFrac;
+        const fitY = (1 - 2 * margin) / heightFrac;
+        const sFit = Math.min(1, fitX, fitY); // only shrink to fit; don't upscale
+
+        if (sFit < 1) {
+          newLayers.forEach(l => { l.position.scale = (Number(l.position.scale) || 1) * sFit; });
+        }
+        // Recompute center and recenter to 0.5,0.5
+        const bounds2 = layersMeta.reduce((acc, m) => {
+          const s2 = m.s * sFit;
+          const halfW = (m.maxAbsX || 1) * 0.5 * s2;
+          const halfH = (m.maxAbsY || 1) * 0.5 * s2;
+          const minX = m.px - halfW; const maxX = m.px + halfW;
+          const minY = m.py - halfH; const maxY = m.py + halfH;
+          if (minX < acc.minX) acc.minX = minX;
+          if (maxX > acc.maxX) acc.maxX = maxX;
+          if (minY < acc.minY) acc.minY = minY;
+          if (maxY > acc.maxY) acc.maxY = maxY;
+          return acc;
+        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+        const cx = (bounds2.minX + bounds2.maxX) / 2;
+        const cy = (bounds2.minY + bounds2.maxY) / 2;
+        const dx = 0.5 - cx;
+        const dy = 0.5 - cy;
+        newLayers.forEach(l => {
+          const px = Number(l.position.x) || 0.5;
+          const py = Number(l.position.y) || 0.5;
+          l.position.x = Math.min(1, Math.max(0, px + dx));
+          l.position.y = Math.min(1, Math.max(0, py + dy));
+        });
+      }
+
+      setLayers(newLayers);
+      // Store base positions/scales for interactive adjustment if multiple files
+      if (newLayers.length > 1) {
+        // Start adjust baseline from RAW (so Fit toggle can reflow deterministically)
+        importBaseRef.current = importRawRef.current.map(b => ({ ...b }));
+        setImportAdjust({ dx: 0, dy: 0, s: 1 });
+        setImportFitEnabled(true);
+        setImportDebug(false);
+        setShowImportAdjust(true);
+      } else {
+        importBaseRef.current = [];
+        setShowImportAdjust(false);
+      }
+      setSelectedLayerIndex(Math.max(0, newLayers.length - 1));
+      setIsNodeEditMode(true);
+    } catch (err) {
+      console.warn('Failed to import SVG', err);
+      alert('Failed to import SVG');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   // --- MIDI handlers for global controls ---
@@ -546,6 +793,91 @@ const MainApp = () => {
     dragRef.current = { dragging: true, startX: e.clientX, startW: sidebarWidth };
     e.preventDefault();
   };
+
+  // Apply import adjust sliders to all current layers from base snapshot
+  const applyImportAdjust = (next) => {
+    setImportAdjust(next);
+    recomputeImportLayout(next, importFitEnabled);
+  };
+
+  const recomputeImportLayout = (adj = importAdjust, fit = importFitEnabled) => {
+    const raw = importRawRef.current || [];
+    if (!showImportAdjust || !Array.isArray(raw) || raw.length === 0) return;
+    // Build working copy from raw baseline
+    setLayers(prev => {
+      const layersCopy = prev.map((l, i) => {
+        const b = raw[i] || { x: 0.5, y: 0.5, s: 1 };
+        return { ...l, position: { ...(l.position || {}), x: b.x, y: b.y, scale: b.s } };
+      });
+
+      if (fit && layersCopy.length > 1) {
+        const margin = 0.02;
+        const meta = layersCopy.map(l => {
+          const s = Number(l.position?.scale) || 1;
+          let maxAbsX = 0, maxAbsY = 0;
+          const nodes = Array.isArray(l.nodes) ? l.nodes : [];
+          nodes.forEach(n => { const ax = Math.abs(n.x)||0, ay = Math.abs(n.y)||0; if(ax>maxAbsX)maxAbsX=ax; if(ay>maxAbsY)maxAbsY=ay; });
+          const px = Number(l.position?.x) || 0.5;
+          const py = Number(l.position?.y) || 0.5;
+          return { px, py, s, maxAbsX, maxAbsY };
+        });
+        const bounds = meta.reduce((acc, m) => {
+          const halfW = (m.maxAbsX || 1) * 0.5 * m.s;
+          const halfH = (m.maxAbsY || 1) * 0.5 * m.s;
+          const minX = m.px - halfW, maxX = m.px + halfW;
+          const minY = m.py - halfH, maxY = m.py + halfH;
+          if (minX < acc.minX) acc.minX = minX;
+          if (maxX > acc.maxX) acc.maxX = maxX;
+          if (minY < acc.minY) acc.minY = minY;
+          if (maxY > acc.maxY) acc.maxY = maxY;
+          return acc;
+        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+        const widthFrac = Math.max(0.0001, bounds.maxX - bounds.minX);
+        const heightFrac = Math.max(0.0001, bounds.maxY - bounds.minY);
+        const fitX = (1 - 2*margin) / widthFrac;
+        const fitY = (1 - 2*margin) / heightFrac;
+        const sFit = Math.min(1, fitX, fitY);
+        if (sFit < 1) layersCopy.forEach(l => { l.position.scale = (Number(l.position.scale)||1) * sFit; });
+        // recentre
+        const bounds2 = meta.reduce((acc, m) => {
+          const s2 = m.s * (sFit < 1 ? sFit : 1);
+          const halfW = (m.maxAbsX || 1) * 0.5 * s2;
+          const halfH = (m.maxAbsY || 1) * 0.5 * s2;
+          const minX = m.px - halfW, maxX = m.px + halfW;
+          const minY = m.py - halfH, maxY = m.py + halfH;
+          if (minX < acc.minX) acc.minX = minX;
+          if (maxX > acc.maxX) acc.maxX = maxX;
+          if (minY < acc.minY) acc.minY = minY;
+          if (maxY > acc.maxY) acc.maxY = maxY;
+          return acc;
+        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+        const cx = (bounds2.minX + bounds2.maxX)/2, cy = (bounds2.minY + bounds2.maxY)/2;
+        const dx = 0.5 - cx, dy = 0.5 - cy;
+        layersCopy.forEach(l => {
+          l.position.x = Math.min(1, Math.max(0, (Number(l.position.x)||0.5) + dx));
+          l.position.y = Math.min(1, Math.max(0, (Number(l.position.y)||0.5) + dy));
+        });
+      }
+
+      // Apply user offsets (allow slight overscan so movement feels responsive near edges)
+      const clampMin = -0.2, clampMax = 1.2;
+      layersCopy.forEach((l, i) => {
+        l.position.x = Math.min(clampMax, Math.max(clampMin, (Number(l.position.x)||0.5) + (adj.dx||0)));
+        l.position.y = Math.min(clampMax, Math.max(clampMin, (Number(l.position.y)||0.5) + (adj.dy||0)));
+        l.position.scale = Math.min(5, Math.max(0.05, (Number(l.position.scale)||1) * (adj.s||1)));
+      });
+
+      return layersCopy;
+    });
+  };
+
+  useEffect(() => {
+    // Recompute layout live when toggles or sliders change
+    if (showImportAdjust && (importRawRef.current || []).length > 0) {
+      recomputeImportLayout(importAdjust, importFitEnabled);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [importFitEnabled]);
 
   // Auto-freeze while in Node Edit mode; restore previous state on exit
   useEffect(() => {
@@ -1858,6 +2190,7 @@ const MainApp = () => {
               onSelectLayer={selectLayer}
               onAddLayer={addNewLayer}
               onDeleteLayer={deleteLayer}
+              onImportSVG={handleImportSVGClick}
             />
             {/* Layer list removed; use header controls in <Controls /> */}
           </div>
@@ -1873,6 +2206,16 @@ const MainApp = () => {
           />
         )}
         
+        {/* Hidden file inputs */}
+        <input
+          ref={svgFileInputRef}
+          type="file"
+          accept=".svg,image/svg+xml"
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleImportSVGFile}
+        />
+
         {/* Main Canvas Area */}
         <div 
           className="canvas-container" 
@@ -1890,6 +2233,90 @@ const MainApp = () => {
             setLayers={setLayers}
             classicMode={classicMode}
           />
+          
+          {/* Import Adjust Panel (multi-file SVG import) */}
+          {showImportAdjust && (
+            <div
+              style={{
+                position: 'absolute', right: 16, bottom: 80, zIndex: 10,
+                background: 'rgba(20,20,20,0.9)', color: '#fff',
+                padding: '12px', borderRadius: 8, width: 320,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.4)', pointerEvents: 'auto'
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Adjust Imported Layers</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
+                <label htmlFor="adj-x">X Offset</label>
+                <span style={{ opacity: 0.8 }}>{importAdjust.dx.toFixed(2)}</span>
+                <input
+                  id="adj-x"
+                  type="range"
+                  min={-0.5}
+                  max={0.5}
+                  step={0.01}
+                  value={importAdjust.dx}
+                  onChange={(e) => applyImportAdjust({ ...importAdjust, dx: parseFloat(e.target.value) })}
+                  style={{ gridColumn: '1 / span 2' }}
+                />
+                <label htmlFor="adj-y">Y Offset</label>
+                <span style={{ opacity: 0.8 }}>{importAdjust.dy.toFixed(2)}</span>
+                <input
+                  id="adj-y"
+                  type="range"
+                  min={-0.5}
+                  max={0.5}
+                  step={0.01}
+                  value={importAdjust.dy}
+                  onChange={(e) => applyImportAdjust({ ...importAdjust, dy: parseFloat(e.target.value) })}
+                  style={{ gridColumn: '1 / span 2' }}
+                />
+                <label htmlFor="adj-s">Scale</label>
+                <span style={{ opacity: 0.8 }}>{importAdjust.s.toFixed(2)}x</span>
+                <input
+                  id="adj-s"
+                  type="range"
+                  min={0.25}
+                  max={2}
+                  step={0.01}
+                  value={importAdjust.s}
+                  onChange={(e) => applyImportAdjust({ ...importAdjust, s: parseFloat(e.target.value) })}
+                  style={{ gridColumn: '1 / span 2' }}
+                />
+                <label htmlFor="adj-fit">Fit To Window</label>
+                <input
+                  id="adj-fit"
+                  type="checkbox"
+                  checked={importFitEnabled}
+                  onChange={(e) => setImportFitEnabled(e.target.checked)}
+                  style={{ justifySelf: 'end' }}
+                />
+                <label htmlFor="adj-debug">Debug Overlay</label>
+                <input
+                  id="adj-debug"
+                  type="checkbox"
+                  checked={importDebug}
+                  onChange={(e) => { setImportDebug(e.target.checked); window.__artapp_debug_import = !!e.target.checked; }}
+                  style={{ justifySelf: 'end' }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                <button
+                  className="btn"
+                  onClick={() => { applyImportAdjust({ dx: 0, dy: 0, s: 1 }); }}
+                  style={{ padding: '6px 10px' }}
+                >
+                  Reset
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => setShowImportAdjust(false)}
+                  style={{ padding: '6px 10px' }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
           
           {/* Floating Action Buttons */}
           <div className="floating-actions" style={{ pointerEvents: 'auto' }}>

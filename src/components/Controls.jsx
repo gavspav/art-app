@@ -724,7 +724,8 @@ const Controls = forwardRef(({
   selectedLayerIndex,
   onSelectLayer,
   onAddLayer,
-  onDeleteLayer
+  onDeleteLayer,
+  onImportSVG
 }, ref) => {
   const { parameters } = useParameters();
 
@@ -1040,6 +1041,15 @@ const Controls = forwardRef(({
           </div>
         </div>
         <div className="controls-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+          <button
+            type="button"
+            className="icon-btn sm"
+            title="Import SVG as nodes (adds new layer)"
+            aria-label="Import SVG"
+            onClick={() => onImportSVG && onImportSVG()}
+          >
+            SVG
+          </button>
           <button
             type="button"
             className="icon-btn sm"

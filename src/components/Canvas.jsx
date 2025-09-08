@@ -37,9 +37,13 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     const centerX = x * canvas.width;
     const centerY = y * canvas.height;
 
-    // Scale width/height like the old version (absolute pixel values, not ratios)
-    const radiusX = Math.min((width + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.width * 0.4) * scale;
-    const radiusY = Math.min((height + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.height * 0.4) * scale;
+    // Radius mapping: if viewBoxMapped, map unit nodes to canvas half-size so SVG viewBox normalization aligns
+    const radiusX = layer.viewBoxMapped
+        ? (canvas.width / 2) * scale
+        : Math.min((width + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.width * 0.4) * scale;
+    const radiusY = layer.viewBoxMapped
+        ? (canvas.height / 2) * scale
+        : Math.min((height + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.height * 0.4) * scale;
 
     // Defensive check for non-finite values
     if (!isFinite(radiusX) || !isFinite(radiusY)) {
@@ -53,32 +57,75 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     let points = [];
     let usedNodes = false;
 
+    const buildDeformedPoints = (nodes) => nodes.map((n, i) => {
+        const baseX = centerX + n.x * radiusX;
+        const baseY = centerY + n.y * radiusY;
+        const angle = (i / nodes.length) * Math.PI * 2;
+        const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
+        const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
+        const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
+        const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+        const offset = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
+        const dx = baseX - centerX;
+        const dy = baseY - centerY;
+        const dist = Math.hypot(dx, dy) || 1;
+        const normX = dx / dist;
+        const normY = dy / dist;
+        return { x: baseX + normX * offset, y: baseY + normY * offset };
+    });
+
+    const drawSmoothClosed = (pts, t) => {
+        const last = pts[pts.length - 1];
+        const first = pts[0];
+        if (t <= 1e-4) {
+            ctx.moveTo(first.x, first.y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.closePath();
+        } else if (t >= 1 - 1e-4) {
+            ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+            for (let i = 0; i < pts.length; i++) {
+                const current = pts[i];
+                const next = pts[(i + 1) % pts.length];
+                const midX = (current.x + next.x) / 2;
+                const midY = (current.y + next.y) / 2;
+                ctx.quadraticCurveTo(current.x, current.y, midX, midY);
+            }
+            ctx.closePath();
+        } else {
+            const last = pts[pts.length - 1];
+            const first = pts[0];
+            const startX = first.x * (1 - t) + ((last.x + first.x) / 2) * t;
+            const startY = first.y * (1 - t) + ((last.y + first.y) / 2) * t;
+            ctx.moveTo(startX, startY);
+            for (let i = 0; i < pts.length; i++) {
+                const current = pts[i];
+                const next = pts[(i + 1) % pts.length];
+                const midX = (current.x + next.x) / 2;
+                const midY = (current.y + next.y) / 2;
+                const endX = next.x * (1 - t) + midX * t;
+                const endY = next.y * (1 - t) + midY * t;
+                ctx.quadraticCurveTo(current.x, current.y, endX, endY);
+            }
+            ctx.closePath();
+        }
+    };
+
     // Use explicit nodes whenever present so edits persist after exiting node mode
-    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+    if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
         usedNodes = true;
-        // Apply wobble/noise to each stored node so node-edited shapes animate too
-        points = layer.nodes.map((n, i) => {
-            // Base position from stored normalized coords
-            const baseX = centerX + n.x * radiusX;
-            const baseY = centerY + n.y * radiusY;
-
-            // Calculate angle roughly by index to reuse existing noise pattern
-            const angle = (i / layer.nodes.length) * Math.PI * 2;
-            const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-            const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
-            const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
-            const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
-            const offset = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
-
-            // Direction from center to vertex
-            const dx = baseX - centerX;
-            const dy = baseY - centerY;
-            const dist = Math.hypot(dx, dy) || 1;
-            const normX = dx / dist;
-            const normY = dy / dist;
-
-            return { x: baseX + normX * offset, y: baseY + normY * offset };
-        });
+        // Draw each subpath separately to avoid connecting lines between them
+        const t = Math.max(0, Math.min(1, (curviness ?? 0)));
+        let all = [];
+        for (const sp of layer.subpaths) {
+            if (!Array.isArray(sp) || sp.length < 3) continue;
+            const pts = buildDeformedPoints(sp);
+            all = all.concat(pts);
+            drawSmoothClosed(pts, t);
+        }
+        points = all.length ? all : points;
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        usedNodes = true;
+        points = buildDeformedPoints(layer.nodes);
     } else {
         // Organic procedural shape (legacy) - uses precomputed actualFreq1/2/3 and symmetryFactor
 
@@ -107,23 +154,19 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         }
     }
 
-    const last = points[points.length - 1];
-    const first = points[0];
-
     if (usedNodes) {
-        // Curviness controls smoothing amount between straight edges and full midpoint smoothing
-        // t=0 -> straight polygon; t=1 -> classic midpoint quadratic smoothing
-        const t = Math.max(0, Math.min(1, (curviness ?? 0)));
-
-        if (t <= 1e-4) {
-            // Straight lines between nodes
-            ctx.moveTo(first.x, first.y);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].x, points[i].y);
-            }
-            ctx.closePath();
-        } else if (t >= 1 - 1e-4) {
-            // Full midpoint smoothing
+        // If subpaths were handled, drawing already occurred; otherwise draw single node loop
+        if (!(Array.isArray(layer.subpaths) && layer.subpaths.length > 0)) {
+            const last = points[points.length - 1];
+            const first = points[0];
+            const t = Math.max(0, Math.min(1, (curviness ?? 0)));
+            drawSmoothClosed(points, t);
+        }
+    } else {
+        // Legacy smoothing for procedural shapes
+        if (points.length >= 2) {
+            const last = points[points.length - 1];
+            const first = points[0];
             ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
             for (let i = 0; i < points.length; i++) {
                 const current = points[i];
@@ -133,33 +176,10 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
                 ctx.quadraticCurveTo(current.x, current.y, midX, midY);
             }
             ctx.closePath();
-        } else {
-            // Blended: start point and endpoints interpolate between polygon vertices and midpoints
-            const startX = first.x * (1 - t) + ((last.x + first.x) / 2) * t;
-            const startY = first.y * (1 - t) + ((last.y + first.y) / 2) * t;
-            ctx.moveTo(startX, startY);
-            for (let i = 0; i < points.length; i++) {
-                const current = points[i];
-                const next = points[(i + 1) % points.length];
-                const midX = (current.x + next.x) / 2;
-                const midY = (current.y + next.y) / 2;
-                const endX = next.x * (1 - t) + midX * t;
-                const endY = next.y * (1 - t) + midY * t;
-                ctx.quadraticCurveTo(current.x, current.y, endX, endY);
-            }
-            ctx.closePath();
+        } else if (points.length === 1) {
+            // Single point; nothing to draw as shape
+            ctx.moveTo(points[0].x, points[0].y);
         }
-    } else {
-        // Legacy smoothing for procedural shapes
-        ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
-        for (let i = 0; i < points.length; i++) {
-            const current = points[i];
-            const next = points[(i + 1) % points.length];
-            const midX = (current.x + next.x) / 2;
-            const midY = (current.y + next.y) / 2;
-            ctx.quadraticCurveTo(current.x, current.y, midX, midY);
-        }
-        ctx.closePath();
     }
 
     // Compute gradient center and radius based on current shape geometry so it follows node pulling
@@ -306,6 +326,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
     const draggingNodeIndexRef = useRef(null);
+    const draggingMidIndexRef = useRef(null);
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
     // Keep canvas sized to its container (the .canvas-container)
@@ -482,29 +503,65 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.filter = 'none';
         }
 
-        // Draw draggable node handles for selected layer when in node edit mode (layer-local mapping)
+        // Debug overlay for imported positions (draw after content)
+        if (typeof window !== 'undefined' && window.__artapp_debug_import) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            for (let i = 1; i < 10; i++) {
+                const x = (i / 10) * width;
+                const y = (i / 10) * height;
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+            }
+            layers.forEach(l => {
+                const x = (l?.position?.x || 0.5) * width;
+                const y = (l?.position?.y || 0.5) * height;
+                ctx.beginPath();
+                ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
+                ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
+                ctx.stroke();
+            });
+            ctx.restore();
+        }
+
+        // Draw draggable node + midpoint handles for selected layer when in node edit mode
         if (isNodeEditMode && selectedLayerIndex != null && layers[selectedLayerIndex]) {
             const sel = layers[selectedLayerIndex];
-            if (sel.layerType === 'shape' && Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
+            if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const centerX = x * width;
                 const centerY = y * height;
-                const baseRadiusFactor = sel.baseRadiusFactor ?? 0.4;
-                const radiusX = Math.min((sel.width + (sel.radiusBump || 0) * 20) * baseRadiusFactor, width * 0.4) * scale;
-                const radiusY = Math.min((sel.height + (sel.radiusBump || 0) * 20) * baseRadiusFactor, height * 0.4) * scale;
+                // Use the exact same mapping as drawShape so handles sit on the edge
+                const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
+                const radiusY = sel.viewBoxMapped ? (height / 2) * scale : Math.min((sel.height + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
                 ctx.save();
+                // Vertex handles
                 ctx.fillStyle = '#ffffff';
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2;
                 const r = 6;
-                sel.nodes.forEach(n => {
-                    const px = centerX + n.x * radiusX;
-                    const py = centerY + n.y * radiusY;
+                const points = sel.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+                points.forEach(p => {
                     ctx.beginPath();
-                    ctx.arc(px, py, r, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.stroke();
                 });
+                // Midpoint handles on the smoothed curve midpoints
+                const rMid = 5;
+                ctx.fillStyle = '#222';
+                ctx.strokeStyle = '#ffffff';
+                for (let i = 0; i < points.length; i++) {
+                    const a = points[i];
+                    const b = points[(i + 1) % points.length];
+                    const mx = (a.x + b.x) / 2;
+                    const my = (a.y + b.y) / 2;
+                    ctx.beginPath();
+                    ctx.arc(mx, my, rMid, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                }
                 ctx.restore();
             }
         }
@@ -542,6 +599,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (!canvas || !isNodeEditMode) return;
         const layer = layers[selectedLayerIndex];
         if (!layer || layer.layerType !== 'shape') return;
+        if (layer.syncNodesToNumSides === false) return; // preserve imported SVG node counts
         const desired = Math.max(3, layer.numSides || 3);
         if (!Array.isArray(layer.nodes) || layer.nodes.length === 0) {
             const nodes = computeInitialNodes(layer, canvas);
@@ -570,13 +628,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
-        if (!layer || layer.layerType !== 'shape' || !Array.isArray(layer.nodes)) return;
+        if (!layer || !Array.isArray(layer.nodes)) return;
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const centerX = x * canvas.width;
         const centerY = y * canvas.height;
-        const baseRadiusFactor = layer.baseRadiusFactor ?? 0.4;
-        const radiusX = Math.min((layer.width + (layer.radiusBump || 0) * 20) * baseRadiusFactor, canvas.width * 0.4) * scale;
-        const radiusY = Math.min((layer.height + (layer.radiusBump || 0) * 20) * baseRadiusFactor, canvas.height * 0.4) * scale;
+        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale;
+        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale;
 
         const pos = getMousePos(e);
         const hitRadius = 10;
@@ -589,13 +646,30 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         });
         if (idx !== -1) {
             draggingNodeIndexRef.current = idx;
+            draggingMidIndexRef.current = null;
+            return;
+        }
+        // Try midpoints next
+        const pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+        const midIdx = pts.findIndex((_, i) => {
+            const a = pts[i];
+            const b = pts[(i + 1) % pts.length];
+            const mx = (a.x + b.x) / 2;
+            const my = (a.y + b.y) / 2;
+            const dx = mx - pos.x; const dy = my - pos.y;
+            return (dx * dx + dy * dy) <= hitRadius * hitRadius;
+        });
+        if (midIdx !== -1) {
+            draggingMidIndexRef.current = midIdx;
+            draggingNodeIndexRef.current = null;
         }
     };
 
     const onMouseMove = (e) => {
         if (!isNodeEditMode) return;
         const idx = draggingNodeIndexRef.current;
-        if (idx == null) return;
+        const mid = draggingMidIndexRef.current;
+        if (idx == null && mid == null) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
@@ -603,23 +677,45 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const { x, y, scale } = layer.position;
         const centerX = x * canvas.width;
         const centerY = y * canvas.height;
-        const baseRadiusFactor = layer.baseRadiusFactor ?? 0.4;
-        const radiusX = Math.max(1e-6, Math.min((layer.width + (layer.radiusBump || 0) * 20) * baseRadiusFactor, canvas.width * 0.4) * scale);
-        const radiusY = Math.max(1e-6, Math.min((layer.height + (layer.radiusBump || 0) * 20) * baseRadiusFactor, canvas.height * 0.4) * scale);
+        const radiusX = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale));
+        const radiusY = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale));
 
         const pos = getMousePos(e);
-        const nx = (pos.x - centerX) / radiusX;
-        const ny = (pos.y - centerY) / radiusY;
-        setLayers(prev => prev.map((l, i) => {
-            if (i !== selectedLayerIndex) return l;
-            const nodes = [...(l.nodes || [])];
-            nodes[idx] = { x: nx, y: ny };
-            return { ...l, nodes };
-        }));
+        if (idx != null) {
+            const nx = (pos.x - centerX) / radiusX;
+            const ny = (pos.y - centerY) / radiusY;
+            setLayers(prev => prev.map((l, i) => {
+                if (i !== selectedLayerIndex) return l;
+                const nodes = [...(l.nodes || [])];
+                nodes[idx] = { x: nx, y: ny };
+                return { ...l, nodes };
+            }));
+        } else if (mid != null) {
+            setLayers(prev => prev.map((l, i) => {
+                if (i !== selectedLayerIndex) return l;
+                const nodes = [...(l.nodes || [])];
+                const N = nodes.length;
+                const aIdx = mid;
+                const bIdx = (mid + 1) % N;
+                // current midpoint in canvas space
+                const ax = centerX + nodes[aIdx].x * radiusX;
+                const ay = centerY + nodes[aIdx].y * radiusY;
+                const bx = centerX + nodes[bIdx].x * radiusX;
+                const by = centerY + nodes[bIdx].y * radiusY;
+                const mx = (ax + bx) / 2;
+                const my = (ay + by) / 2;
+                const dx = (pos.x - mx) / radiusX;
+                const dy = (pos.y - my) / radiusY;
+                nodes[aIdx] = { x: nodes[aIdx].x + dx, y: nodes[aIdx].y + dy };
+                nodes[bIdx] = { x: nodes[bIdx].x + dx, y: nodes[bIdx].y + dy };
+                return { ...l, nodes };
+            }));
+        }
     };
 
     const onMouseUp = () => {
         draggingNodeIndexRef.current = null;
+        draggingMidIndexRef.current = null;
     };
 
     return (
