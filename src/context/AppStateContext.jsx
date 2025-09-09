@@ -32,7 +32,10 @@ export const AppStateProvider = ({ children }) => {
 
   // Individual state setters for backward compatibility
   const setIsFrozen = useCallback((value) => {
-    setAppState(prev => ({ ...prev, isFrozen: value }));
+    setAppState(prev => ({
+      ...prev,
+      isFrozen: (typeof value === 'function') ? value(prev.isFrozen) : value,
+    }));
   }, []);
 
   const setBackgroundColor = useCallback((value) => {
@@ -76,7 +79,10 @@ export const AppStateProvider = ({ children }) => {
   }, []);
 
   const setIsOverlayVisible = useCallback((value) => {
-    setAppState(prev => ({ ...prev, isOverlayVisible: value }));
+    setAppState(prev => ({
+      ...prev,
+      isOverlayVisible: (typeof value === 'function') ? value(prev.isOverlayVisible) : value,
+    }));
   }, []);
 
   const setIsNodeEditMode = useCallback((value) => {
@@ -178,4 +184,3 @@ export const AppStateProvider = ({ children }) => {
     </AppStateContext.Provider>
   );
 };
-
