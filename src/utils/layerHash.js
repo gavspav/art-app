@@ -28,6 +28,8 @@ export const calculateVisualHash = (layer) => {
     colors: layer.colors,
     // Node-based shape data (normalized positions)
     nodes: layer.nodes,
+    // Rotation (degrees) affects geometry orientation
+    rotation: layer.rotation,
     
     // Position and scale (from nested position object)
     x: layer.position?.x,
@@ -105,7 +107,7 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
   
   // Define visual properties to check
   const propsToCheck = [
-    'numSides', 'curviness', 'width', 'height', 'noiseAmount',
+    'numSides', 'curviness', 'width', 'height', 'noiseAmount', 'rotation',
     'opacity', 'blendMode', 'colors', 'layerType', 'visible'
   ];
   

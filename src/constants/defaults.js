@@ -38,6 +38,8 @@ export const DEFAULT_LAYER = {
   freq3: 4,
   baseRadiusFactor: 0.4,
   radiusBump: 0,
+  // Rotation (degrees) applied to shape geometry
+  rotation: 0,
 
   // Node editing
   nodes: null, // when set, array of { x: number, y: number } normalized to canvas size (0..1)

@@ -507,6 +507,7 @@ const MainApp = () => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('layersCount', ({ value01 }) => {
       const target = Math.max(1, Math.min(20, Math.round(1 + value01 * 19)));
+      const wasLen = layers.length;
       setLayers(prev => {
         let next = prev;
         if (target > prev.length) {
@@ -517,6 +518,9 @@ const MainApp = () => {
           const additions = Array.from({ length: addCount }, (_, i) => {
             const nextIdx = prev.length + i + 1;
             const nl = buildVariedLayerFrom(last, nextIdx, baseVar);
+            // Ensure new layers are valid shape layers for node editing defaults
+            if (!Array.isArray(nl.nodes) || nl.nodes?.length < 3) nl.nodes = null; // will be initialized on demand in node edit
+            nl.layerType = 'shape';
             last = nl;
             return nl;
           });
@@ -528,11 +532,17 @@ const MainApp = () => {
         // Only update names, preserve all other properties including nodes
         return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
       });
-      // Preserve current selection when increasing; clamp only if out of bounds when decreasing
-      setSelectedLayerIndex((prev) => (prev >= target ? Math.max(0, target - 1) : prev));
+      // Behavior: when increasing via slider, select the newly added topmost layer
+      if (target > wasLen) {
+        // Increasing: select newly added topmost layer
+        setSelectedLayerIndex(Math.max(0, target - 1));
+      } else {
+        // Decreasing: always select the new topmost layer for clarity
+        setSelectedLayerIndex(Math.max(0, target - 1));
+      }
     });
     return unregister;
-  }, [registerParamHandler, setLayers, setSelectedLayerIndex]);
+  }, [registerParamHandler, setLayers, setSelectedLayerIndex, layers.length]);
 
   // Randomize All (momentary trigger on rising edge)
   const rndAllPrevRef = useRef(0);
@@ -917,6 +927,23 @@ const MainApp = () => {
     : DEFAULT_LAYER;
 
   
+  // Ensure nodes exist for the selected layer while in Node Edit mode, especially after layer-count changes
+  useEffect(() => {
+    if (!isNodeEditMode) return;
+    // Only act when we have at least one layer
+    if (!Array.isArray(layers) || layers.length === 0) return;
+    const idx = Math.max(0, Math.min(selectedLayerIndex, layers.length - 1));
+    const layer = layers[idx];
+    if (!layer || layer.layerType !== 'shape') return;
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) return;
+    // Compute a simple regular polygon based on numSides
+    const sides = Math.max(3, Number(layer.numSides) || 3);
+    const nodes = Array.from({ length: sides }, (_, i) => {
+      const a = (i / sides) * Math.PI * 2;
+      return { x: Math.cos(a), y: Math.sin(a) };
+    });
+    setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes } : l)));
+  }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
 
   // Helper: build a new layer by varying from a previous layer using base variation
   const buildVariedLayerFrom = (prev, nameIndex, baseVar) => {
@@ -2128,6 +2155,7 @@ const MainApp = () => {
                       value={layers.length}
                       onChange={(e) => {
                         const target = parseInt(e.target.value, 10);
+                        const wasLen = layers.length;
                         setLayers(prev => {
                           let next = prev;
                           if (target > prev.length) {
@@ -2149,8 +2177,14 @@ const MainApp = () => {
                           // Only update names, preserve all other properties including nodes
                           return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
                         });
-                        // Preserve current selection when increasing; clamp only if out of bounds when decreasing
-                        setSelectedLayerIndex((prev) => (prev >= target ? Math.max(0, target - 1) : prev));
+                        // Behavior: when increasing via slider, select the newly added topmost layer
+                        if (target > wasLen) {
+                          // Increasing: select newly added topmost layer
+                          setSelectedLayerIndex(Math.max(0, target - 1));
+                        } else {
+                          // Decreasing: always select the new topmost layer
+                          setSelectedLayerIndex(Math.max(0, target - 1));
+                        }
                       }}
                     />
                     <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>

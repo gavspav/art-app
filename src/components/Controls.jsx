@@ -182,6 +182,25 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
   );
 };
 
+// Small helper component to show MIDI mapping status and controls for rotation
+const MidiRotationStatus = ({ paramId }) => {
+  const { supported: midiSupported, mappings: midiMappings, beginLearn, clearMapping, mappingLabel, learnParamId } = useMidi() || {};
+  return (
+    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
+      <span className="compact-label" style={{ opacity: 0.8 }}>
+        MIDI: {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+      </span>
+      {midiSupported && (
+        <>
+          {learnParamId === paramId && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+          <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
+          <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+        </>
+      )}
+    </div>
+  );
+};
+
 // Per-layer MIDI Colour control block (RGBA)
 const MidiColorSection = ({ currentLayer, updateLayer }) => {
   const {
@@ -883,6 +902,38 @@ const Controls = forwardRef(({
             <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
           </div>
         ))}
+        {/* Rotation slider for shape layers */}
+        {currentLayer?.layerType === 'shape' && (
+          <div className="control-group" style={{ marginTop: '0.5rem' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Rotate</span>
+              <span style={{ opacity: 0.8 }}>{Number(currentLayer?.rotation ?? 0).toFixed(0)}°</span>
+            </label>
+            <input
+              type="range"
+              min={-180}
+              max={180}
+              step={1}
+              value={Math.max(-180, Math.min(180, Number(currentLayer?.rotation ?? 0)))}
+              onChange={(e) => {
+                let v = parseFloat(e.target.value);
+                if (!Number.isFinite(v)) v = 0;
+                // wrap into [-180,180]
+                const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
+                updateLayer({ rotation: wrapped });
+              }}
+              className="dc-slider"
+            />
+            {/* MIDI Learn for Rotation */}
+            {(() => {
+              const layerKey = (currentLayer?.name || 'Layer').toString();
+              const paramId = `layer:${layerKey}:rotation`;
+              return (
+                <MidiRotationStatus paramId={paramId} />
+              );
+            })()}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1001,6 +1052,21 @@ const Controls = forwardRef(({
     });
     return unregister;
   }, [registerParamHandler, currentLayer?.name, currentLayer?.numColors, updateLayer]);
+
+  // Register per-layer MIDI handler for Rotation (-180..180)
+  useEffect(() => {
+    if (!registerParamHandler || !currentLayer) return;
+    const layerKey = (currentLayer?.name || 'Layer').toString();
+    const paramId = `layer:${layerKey}:rotation`;
+    const unregister = registerParamHandler(paramId, ({ value01 }) => {
+      // Map 0..1 to -180..180 linearly
+      const v = -180 + (value01 * 360);
+      // wrap to [-180,180]
+      const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
+      updateLayer({ rotation: wrapped });
+    });
+    return unregister;
+  }, [registerParamHandler, currentLayer?.name, updateLayer]);
 
   return (
     <div className="controls-panel">

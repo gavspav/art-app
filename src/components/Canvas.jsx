@@ -57,9 +57,20 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     let points = [];
     let usedNodes = false;
 
+    // Allow rotation in range [-180,180]; treat values outside by modulo 360
+    let rotDeg = Number(layer.rotation) || 0;
+    // normalize to [-180,180]
+    rotDeg = ((((rotDeg + 180) % 360) + 360) % 360) - 180;
+    const rotRad = (rotDeg * Math.PI) / 180;
+    const sinR = Math.sin(rotRad);
+    const cosR = Math.cos(rotRad);
+
     const buildDeformedPoints = (nodes) => nodes.map((n, i) => {
-        const baseX = centerX + n.x * radiusX;
-        const baseY = centerY + n.y * radiusY;
+        // apply layer rotation to node before deformation projection
+        const rx = n.x * cosR - n.y * sinR;
+        const ry = n.x * sinR + n.y * cosR;
+        const baseX = centerX + rx * radiusX;
+        const baseY = centerY + ry * radiusY;
         const angle = (i / nodes.length) * Math.PI * 2;
         const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
         const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
@@ -130,7 +141,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         // Organic procedural shape (legacy) - uses precomputed actualFreq1/2/3 and symmetryFactor
 
         for (let i = 0; i < sides; i++) {
-            const angle = (i / sides) * Math.PI * 2;
+            // angle accounts for layer rotation
+            const angle = (i / sides) * Math.PI * 2 + rotRad;
 
             // Phase offset for symmetry control (from old version)
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
@@ -424,15 +436,67 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
 
         const countChanged = prevLayersCountRef.current !== layers.length;
-        // While frozen, ignore selection/mode toggles as a reason to redraw; prevents visible changes on click
-        const considerModeChanged = isFrozen ? false : modeChanged;
-        const needsFullRender = backgroundChanged || considerModeChanged || countChanged ||
+        // Always repaint the background so color changes show immediately (even when frozen)
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, width, height);
+
+        // Redraw on selection/mode toggles too; stable frozen time keeps appearance identical while frozen
+        const needsFullRender = modeChanged || countChanged ||
             Array.from(layerChanges.values()).some(change => change.hasChanged) ||
             layerHashesRef.current.size === 0;
 
         if (!needsFullRender) {
-            console.debug('Canvas render skipped - no visual changes detected');
-            return;
+            // Safety: after clearing the canvas, ensure content is drawn at least once
+            const timeNow = isFrozen ? frozenTimeRef.current : (Date.now() * 0.001);
+            const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
+            if (bg && bg.enabled && bg.src) {
+                try {
+                    const img = new Image();
+                    img.src = bg.src;
+                    const drawIt = () => {
+                        ctx.save();
+                        ctx.globalAlpha = Math.max(0, Math.min(1, Number(bg.opacity) || 1));
+                        const cw = width, ch = height;
+                        const iw = img.naturalWidth || img.width || 0;
+                        const ih = img.naturalHeight || img.height || 0;
+                        if (iw > 0 && ih > 0) {
+                            let dw = cw, dh = ch, dx = 0, dy = 0;
+                            const fit = bg.fit || 'cover';
+                            if (fit === 'stretch') {
+                                dw = cw; dh = ch; dx = 0; dy = 0;
+                            } else if (fit === 'contain' || fit === 'cover') {
+                                const cr = cw / ch;
+                                const ir = iw / ih;
+                                let scale;
+                                if (fit === 'contain') {
+                                    scale = ir > cr ? (cw / iw) : (ch / ih);
+                                } else {
+                                    scale = ir > cr ? (ch / ih) : (cw / iw);
+                                }
+                                dw = iw * scale;
+                                dh = ih * scale;
+                                dx = (cw - dw) / 2;
+                                dy = (ch - dh) / 2;
+                            } else if (fit === 'center') {
+                                dw = iw; dh = ih; dx = (cw - dw) / 2; dy = (ch - dh) / 2;
+                            }
+                            ctx.drawImage(img, dx, dy, dw, dh);
+                        }
+                        ctx.restore();
+                    };
+                    if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
+                } catch {}
+            }
+            layers.forEach((layer, index) => {
+                if (!layer || !layer.position || !layer.visible) return;
+                if (layer.image && layer.image.src) {
+                    drawImage(ctx, layer, canvas, globalBlendMode);
+                } else {
+                    drawShape(ctx, layer, canvas, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode);
+                }
+            });
+            // Do not return; continue to draw overlays (debug grid, node handles)
         }
 
         const changedLayers = Array.from(layerChanges.entries())
@@ -443,7 +507,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             console.debug('Canvas rendering layers:', changedLayers);
         }
 
-        if (backgroundChanged || layerHashesRef.current.size === 0 || modeChanged) {
+        if (backgroundChanged || layerHashesRef.current.size === 0 || modeChanged || countChanged) {
             ctx.clearRect(0, 0, width, height);
             ctx.fillStyle = backgroundColor;
             ctx.fillRect(0, 0, width, height);
@@ -501,6 +565,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         // current time snapshot for this frame (or stable frozen time)
         const nowSec = isFrozen ? frozenTimeRef.current : (Date.now() * 0.001);
+        const forceFullPass = backgroundChanged || modeChanged || countChanged || (layerHashesRef.current.size === 0);
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -510,7 +575,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
             const layerChange = layerChanges.get(index);
 
-            if (backgroundChanged || layerHashesRef.current.size === 0 || layerChange?.hasChanged) {
+            if (forceFullPass || layerChange?.hasChanged) {
                 if (layer.image && layer.image.src) {
                     drawImage(ctx, layer, canvas, globalBlendMode);
                 } else {
@@ -563,7 +628,16 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2;
                 const r = 6;
-                const points = sel.nodes.map(n => ({ x: layerCX + n.x * radiusX, y: layerCY + n.y * radiusY }));
+                // Apply same rotation as drawShape for handle positions
+                const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+                const rotRad = (rotDeg * Math.PI) / 180;
+                const sinR = Math.sin(rotRad);
+                const cosR = Math.cos(rotRad);
+                const points = sel.nodes.map(n => {
+                    const rx = n.x * cosR - n.y * sinR;
+                    const ry = n.x * sinR + n.y * cosR;
+                    return { x: layerCX + rx * radiusX, y: layerCY + ry * radiusY };
+                });
                 points.forEach(p => {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -618,7 +692,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
 
-    }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize]);
+    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize]);
 
     useEffect(() => {
         if (ref) {
@@ -630,16 +704,32 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
-        const layer = layers[selectedLayerIndex];
+        const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer, canvas);
             // Avoid redundant updates
             if (!Array.isArray(layer.nodes) || layer.nodes.length !== nodes.length) {
-                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+                setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes } : l));
             }
         }
     }, [isNodeEditMode, selectedLayerIndex, layers, setLayers]);
+
+    // Additional safety: ensure current layer has nodes after any layers update while in node edit mode
+    // This handles edge cases where nodes may be lost during layer count changes via the slider
+    useEffect(() => {
+        const canvas = localCanvasRef.current;
+        if (!canvas || !isNodeEditMode) return;
+        const layer = layers[selectedLayerIndex];
+        if (!layer || layer.layerType !== 'shape') return;
+        if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
+            const nodes = computeInitialNodes(layer, canvas);
+            setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+            // Seed/refresh cache for this layer
+            nodesCacheRef.current.set(selectedLayerIndex, nodes.map(n => ({ ...n })));
+        }
+    }, [layers, selectedLayerIndex, isNodeEditMode, setLayers]);
 
     // Helper to compare node arrays
     const nodesEqual = (a = [], b = []) => {
@@ -657,18 +747,19 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
-        const layer = layers[selectedLayerIndex];
+        const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (layer.syncNodesToNumSides === false) {
             // For imported SVGs we still want an initial cache for edits
-            if (!nodesCacheRef.current.has(selectedLayerIndex) && Array.isArray(layer.nodes)) {
-                nodesCacheRef.current.set(selectedLayerIndex, [...layer.nodes.map(n => ({...n}))]);
+            if (!nodesCacheRef.current.has(selIndex) && Array.isArray(layer.nodes)) {
+                nodesCacheRef.current.set(selIndex, [...layer.nodes.map(n => ({...n}))]);
             }
             return;
         }
 
         const desired = Math.max(3, layer.numSides || 3);
-        const key = selectedLayerIndex;
+        const key = selIndex;
         // Ensure cache exists
         if (!nodesCacheRef.current.has(key)) {
             const base = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : computeInitialNodes(layer, canvas);
@@ -682,7 +773,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             // Use the first N points from cache
             const nodes = cache.slice(0, desired).map(n => ({ ...n }));
             if (!nodesEqual(layer.nodes, nodes)) {
-                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+                setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes } : l));
             }
         } else {
             // Need to add new points: derive using current best resize, then append to cache
@@ -695,7 +786,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             }
             nodesCacheRef.current.set(key, cache);
             if (!nodesEqual(layer.nodes, resized)) {
-                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes: resized } : l));
+                setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes: resized } : l));
             }
         }
     }, [isNodeEditMode, selectedLayerIndex, layers, setLayers]);
@@ -710,16 +801,17 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (!isNodeEditMode) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const layer = layers[selectedLayerIndex];
+        const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer, canvas);
             // Only update if different or missing
             if (!nodesEqual(layer.nodes, nodes)) {
-                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+                setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes } : l));
             }
             // Seed cache with freshly initialized nodes
-            nodesCacheRef.current.set(selectedLayerIndex, nodes.map(n => ({ ...n })));
+            nodesCacheRef.current.set(selIndex, nodes.map(n => ({ ...n })));
         }
     }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
 
@@ -752,11 +844,18 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale;
         const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale;
 
+        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+        const rotRad = (rotDeg * Math.PI) / 180;
+        const sinR = Math.sin(rotRad);
+        const cosR = Math.cos(rotRad);
+
         const pos = getMousePos(e);
         const hitRadius = 10;
         const idx = layer.nodes.findIndex(n => {
-            const px = centerX + n.x * radiusX;
-            const py = centerY + n.y * radiusY;
+            const rx = n.x * cosR - n.y * sinR;
+            const ry = n.x * sinR + n.y * cosR;
+            const px = centerX + rx * radiusX;
+            const py = centerY + ry * radiusY;
             const dx = px - pos.x;
             const dy = py - pos.y;
             return (dx * dx + dy * dy) <= hitRadius * hitRadius;
@@ -767,7 +866,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             return;
         }
         // Try midpoints next
-        const pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+        const pts = layer.nodes.map(n => {
+            const rx = n.x * cosR - n.y * sinR;
+            const ry = n.x * sinR + n.y * cosR;
+            return { x: centerX + rx * radiusX, y: centerY + ry * radiusY };
+        });
         const midIdx = pts.findIndex((_, i) => {
             const a = pts[i];
             const b = pts[(i + 1) % pts.length];
@@ -808,13 +911,19 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (idx == null && mid == null && !draggingCenter) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const layer = layers[selectedLayerIndex];
+        const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[selIndex];
         if (!layer || !layer.position) return;
         const { x, y, scale } = layer.position;
         const centerX = x * canvas.width;
         const centerY = y * canvas.height;
         const radiusX = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale));
         const radiusY = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale));
+        // Rotation basis for converting between canvas and local node coordinates
+        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+        const rotRad = (rotDeg * Math.PI) / 180;
+        const sinR = Math.sin(rotRad);
+        const cosR = Math.cos(rotRad);
 
         const pos = getMousePos(e);
         if (draggingCenter) {
@@ -822,17 +931,20 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
             const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
             setLayers(prev => prev.map((l, i) => (
-                i === selectedLayerIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
+                i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
             )));
         } else if (idx != null) {
-            const nx = (pos.x - centerX) / radiusX;
-            const ny = (pos.y - centerY) / radiusY;
+            // Convert dragged canvas position back to unrotated local node coords
+            const lx = (pos.x - centerX) / radiusX;
+            const ly = (pos.y - centerY) / radiusY;
+            const nx = lx * cosR + ly * sinR;
+            const ny = -lx * sinR + ly * cosR;
             setLayers(prev => prev.map((l, i) => {
-                if (i !== selectedLayerIndex) return l;
+                if (i !== selIndex) return l;
                 const nodes = [...(l.nodes || [])];
                 nodes[idx] = { x: nx, y: ny };
                 // Update cache first N entries accordingly
-                const cache = nodesCacheRef.current.get(selectedLayerIndex);
+                const cache = nodesCacheRef.current.get(selIndex);
                 if (Array.isArray(cache) && cache.length >= nodes.length) {
                     cache[idx] = { x: nx, y: ny };
                 }
@@ -840,23 +952,34 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             }));
         } else if (mid != null) {
             setLayers(prev => prev.map((l, i) => {
-                if (i !== selectedLayerIndex) return l;
+                if (i !== selIndex) return l;
                 const nodes = [...(l.nodes || [])];
                 const N = nodes.length;
                 const aIdx = mid;
                 const bIdx = (mid + 1) % N;
                 // current midpoint in canvas space
-                const ax = centerX + nodes[aIdx].x * radiusX;
-                const ay = centerY + nodes[aIdx].y * radiusY;
-                const bx = centerX + nodes[bIdx].x * radiusX;
-                const by = centerY + nodes[bIdx].y * radiusY;
+                // compute current endpoints with rotation
+                const arx = nodes[aIdx].x * cosR - nodes[aIdx].y * sinR;
+                const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
+                const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
+                const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
+                const ax = centerX + arx * radiusX;
+                const ay = centerY + ary * radiusY;
+                const bx = centerX + brx * radiusX;
+                const by = centerY + bry * radiusY;
                 const mx = (ax + bx) / 2;
                 const my = (ay + by) / 2;
-                const dx = (pos.x - mx) / radiusX;
-                const dy = (pos.y - my) / radiusY;
-                nodes[aIdx] = { x: nodes[aIdx].x + dx, y: nodes[aIdx].y + dy };
-                nodes[bIdx] = { x: nodes[bIdx].x + dx, y: nodes[bIdx].y + dy };
-                const cache = nodesCacheRef.current.get(selectedLayerIndex);
+                // Convert movement delta back into unrotated local space
+                const dxCanvas = pos.x - mx;
+                const dyCanvas = pos.y - my;
+                const dLocalX = (dxCanvas / radiusX);
+                const dLocalY = (dyCanvas / radiusY);
+                // inverse rotate delta
+                const invDx = dLocalX * cosR + dLocalY * sinR;
+                const invDy = -dLocalX * sinR + dLocalY * cosR;
+                nodes[aIdx] = { x: nodes[aIdx].x + invDx, y: nodes[aIdx].y + invDy };
+                nodes[bIdx] = { x: nodes[bIdx].x + invDx, y: nodes[bIdx].y + invDy };
+                const cache = nodesCacheRef.current.get(selIndex);
                 if (Array.isArray(cache) && cache.length >= nodes.length) {
                     cache[aIdx] = { ...nodes[aIdx] };
                     cache[bIdx] = { ...nodes[bIdx] };
