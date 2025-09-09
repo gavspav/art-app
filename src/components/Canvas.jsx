@@ -348,6 +348,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
 
+    // Cache of last rendered edge-points per layer index
+    const renderedPointsRef = useRef(new Map()); // Map<number, Array<{x,y}>>
+
     // Keep canvas sized to its container (the .canvas-container)
     useEffect(() => {
         const canvas = localCanvasRef.current;
@@ -581,7 +584,50 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
+                    // Intercept path generation by drawing to a Path2D-like tracker
+                    // Easiest: recreate the deformed vertex list similarly to drawShape for caching only
+                    // We piggyback on drawShape for visual correctness, then recompute points similarly here for handle placement
                     drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode, globalBlendMode);
+                    try {
+                        const pts = [];
+                        const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
+                        const centerX = x * canvas.width;
+                        const centerY = y * canvas.height;
+                        const wobble = Number(layer.wobble ?? 0.5);
+                        const amplitudeFactor = Math.max(0, Math.min(1, wobble));
+                        const symmetryFactor = amplitudeFactor;
+                        const freq1 = Number(layer.freq1 ?? 2);
+                        const freq2 = Number(layer.freq2 ?? 3);
+                        const freq3 = Number(layer.freq3 ?? 4);
+                        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+                        const rotRad = (rotDeg * Math.PI) / 180;
+                        const sinR = Math.sin(rotRad);
+                        const cosR = Math.cos(rotRad);
+                        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(((layer.width || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale;
+                        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(((layer.height || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale;
+                        if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                            for (let i = 0; i < layer.nodes.length; i++) {
+                                const n = layer.nodes[i];
+                                const rx = n.x * cosR - n.y * sinR;
+                                const ry = n.x * sinR + n.y * cosR;
+                                const baseX = centerX + rx * radiusX;
+                                const baseY = centerY + ry * radiusY;
+                                const angle = (i / layer.nodes.length) * Math.PI * 2;
+                                const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
+                                const n1 = Math.sin(angle * freq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
+                                const n2 = Math.cos(angle * freq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
+                                const n3 = Math.sin(angle * freq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+                                const offset = (n1 * 20 + n2 * 15 + n3 * 10) * (layer.noiseAmount ?? 0) * amplitudeFactor;
+                                const dx = baseX - centerX;
+                                const dy = baseY - centerY;
+                                const dist = Math.hypot(dx, dy) || 1;
+                                const normX = dx / dist;
+                                const normY = dy / dist;
+                                pts.push({ x: baseX + normX * offset, y: baseY + normY * offset });
+                            }
+                        }
+                        renderedPointsRef.current.set(index, pts);
+                    } catch {}
                 }
             }
         });
@@ -619,25 +665,24 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const layerCX = x * width;
                 const layerCY = y * height;
-                // Use the exact same mapping as drawShape so handles sit on the edge
-                const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
-                const radiusY = sel.viewBoxMapped ? (height / 2) * scale : Math.min((sel.height + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
+                // Prefer cached, last-rendered deformed points for exact alignment
+                let points = renderedPointsRef.current.get(selectedLayerIndex);
+                if (!Array.isArray(points) || points.length !== sel.nodes.length) {
+                    // Fallback: rotated base-node positions
+                    const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
+                    const radiusY = sel.viewBoxMapped ? (height / 2) * scale : Math.min((sel.height + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
+                    const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+                    const rotRad = (rotDeg * Math.PI) / 180;
+                    const sinR = Math.sin(rotRad);
+                    const cosR = Math.cos(rotRad);
+                    points = sel.nodes.map(n => ({ x: layerCX + (n.x * cosR - n.y * sinR) * radiusX, y: layerCY + (n.x * sinR + n.y * cosR) * radiusY }));
+                }
                 ctx.save();
-                // Vertex handles
+                // Vertex handles (base positions with rotation)
                 ctx.fillStyle = '#ffffff';
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2;
                 const r = 6;
-                // Apply same rotation as drawShape for handle positions
-                const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-                const rotRad = (rotDeg * Math.PI) / 180;
-                const sinR = Math.sin(rotRad);
-                const cosR = Math.cos(rotRad);
-                const points = sel.nodes.map(n => {
-                    const rx = n.x * cosR - n.y * sinR;
-                    const ry = n.x * sinR + n.y * cosR;
-                    return { x: layerCX + rx * radiusX, y: layerCY + ry * radiusY };
-                });
                 points.forEach(p => {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -663,7 +708,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 2;
                 const cross = 10;
-                // Compute centroid from current node points so marker updates while editing
+                // Compute centroid from current base points so marker updates while editing
                 let cx = layerCX, cy = layerCY;
                 if (points.length >= 3) {
                     let sx = 0, sy = 0;

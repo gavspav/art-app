@@ -51,11 +51,11 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
     if (movementStyle === 'bounce') {
         const hitVertical = newX > 1 || newX < 0;
         const hitHorizontal = newY > 1 || newY < 0;
-        
+
         if (hitVertical || hitHorizontal) {
             newMovementAngle = calculateBounceAngle(movementAngle, hitVertical, hitHorizontal);
         }
-        
+
         newX = Math.max(0, Math.min(1, newX));
         newY = Math.max(0, Math.min(1, newY));
     } else if (movementStyle === 'drift') {
