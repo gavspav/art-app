@@ -2,13 +2,8 @@ import React, { useRef, useEffect, forwardRef, useMemo, useState } from 'react';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 
-// Gradient cache for memoization
-const gradientCache = new Map();
-
-// Create a cache key for gradients
-const createGradientCacheKey = (colors, centerX, centerY, radiusX, radiusY) => {
-    return `${colors.join(',')}-${centerX}-${centerY}-${radiusX}-${radiusY}`;
-};
+// Image cache to avoid creating new Image() every frame
+const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over') => {
@@ -213,26 +208,15 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         gRadius = Math.max(1, maxDist);
     }
 
-    // Memoized gradient creation (keyed by derived center/radius)
-    const gradientKey = createGradientCacheKey(colors, gCenterX, gCenterY, gRadius, gRadius);
-    let gradient = gradientCache.get(gradientKey);
-
-    if (!gradient) {
-        gradient = ctx.createRadialGradient(
-            gCenterX, gCenterY, 0,
-            gCenterX, gCenterY, gRadius
-        );
-        colors.forEach((color, index) => {
-            gradient.addColorStop(index / (colors.length - 1 || 1), color);
-        });
-
-        if (gradientCache.size > 100) {
-            const firstKey = gradientCache.keys().next().value;
-            gradientCache.delete(firstKey);
-        }
-        gradientCache.set(gradientKey, gradient);
+    // Create gradient for this frame. Prior caching by center/radius caused churn and GC.
+    const gradient = ctx.createRadialGradient(
+        gCenterX, gCenterY, 0,
+        gCenterX, gCenterY, gRadius
+    );
+    const denom = (colors.length - 1) || 1;
+    for (let i = 0; i < colors.length; i++) {
+        gradient.addColorStop(i / denom, colors[i]);
     }
-
     ctx.fillStyle = gradient;
     ctx.fill();
 
@@ -266,13 +250,24 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
         ctx.filter = filters.join(' ');
     }
 
-    const img = new Image();
-    img.src = image.src;
+    // Reuse cached HTMLImageElement per src to avoid allocations and decode thrash
+    let cache = imageCache.get(image.src);
+    if (!cache) {
+        const img = new Image();
+        cache = { img, loaded: false };
+        img.onload = () => { cache.loaded = true; };
+        img.src = image.src;
+        imageCache.set(image.src, cache);
+    }
+    const img = cache.img;
 
     const centerX = x * canvas.width;
     const centerY = y * canvas.height;
-    const imgWidth = img.width * scale;
-    const imgHeight = img.height * scale;
+    const iw0 = img.naturalWidth || img.width || 0;
+    const ih0 = img.naturalHeight || img.height || 0;
+    if (iw0 <= 0 || ih0 <= 0) { ctx.restore(); return; }
+    const imgWidth = iw0 * scale;
+    const imgHeight = ih0 * scale;
 
     if (imageDistortion > 0) {
         const random = createSeededRandom(noiseSeed);
@@ -455,8 +450,15 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
             if (bg && bg.enabled && bg.src) {
                 try {
-                    const img = new Image();
-                    img.src = bg.src;
+                    let cache = imageCache.get(bg.src);
+                    if (!cache) {
+                        const img = new Image();
+                        cache = { img, loaded: false };
+                        img.onload = () => { cache.loaded = true; };
+                        img.src = bg.src;
+                        imageCache.set(bg.src, cache);
+                    }
+                    const img = cache.img;
                     const drawIt = () => {
                         ctx.save();
                         ctx.globalAlpha = Math.max(0, Math.min(1, Number(bg.opacity) || 1));
@@ -506,9 +508,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             .filter(([_, change]) => change.hasChanged)
             .map(([index, change]) => ({ index, reason: change.reason }));
 
-        if (changedLayers.length > 0) {
-            console.debug('Canvas rendering layers:', changedLayers);
-        }
+        // Avoid spamming console per frame; enable if needed for debugging
 
         if (backgroundChanged || layerHashesRef.current.size === 0 || modeChanged || countChanged) {
             ctx.clearRect(0, 0, width, height);
@@ -519,8 +519,15 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
             if (bg && bg.enabled && bg.src) {
                 try {
-                    const img = new Image();
-                    img.src = bg.src;
+                    let cache = imageCache.get(bg.src);
+                    if (!cache) {
+                        const img = new Image();
+                        cache = { img, loaded: false };
+                        img.onload = () => { cache.loaded = true; };
+                        img.src = bg.src;
+                        imageCache.set(bg.src, cache);
+                    }
+                    const img = cache.img;
                     // If image might not be loaded yet, draw synchronously when natural sizes are available
                     const drawIt = () => {
                         ctx.save();
@@ -553,11 +560,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         }
                         ctx.restore();
                     };
-                    if ((img.naturalWidth || 0) > 0) {
-                        drawIt();
-                    } else {
-                        img.onload = drawIt;
-                    }
+                    if ((img.naturalWidth || 0) > 0) { drawIt(); } else { img.onload = drawIt; }
                 } catch {}
             }
         }
