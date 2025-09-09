@@ -104,7 +104,7 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
       <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
         <div style={{ fontWeight: 600 }}>MIDI Position Control</div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Enable manual MIDI control for X/Y/Z; disables animation controls">
-          <input type="checkbox" checked={enabled} onChange={toggleEnabled} />
+          <input type="checkbox" checked={!!enabled} onChange={toggleEnabled} />
           Enable
         </label>
       </div>
@@ -241,7 +241,7 @@ const MidiColorSection = ({ currentLayer, updateLayer }) => {
       <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
         <div style={{ fontWeight: 600 }}>MIDI Colour Control</div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Enable manual MIDI control for colour RGBA">
-          <input type="checkbox" checked={enabled} onChange={toggleEnabled} />
+          <input type="checkbox" checked={!!enabled} onChange={toggleEnabled} />
           Enable
         </label>
       </div>

@@ -94,7 +94,7 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
 
     const animate = useCallback(() => {
         if (isFrozen) {
-            animationFrameId.current = requestAnimationFrame(animate);
+            // Do not advance animation; let other UI changes trigger renders naturally
             return;
         }
 
@@ -106,7 +106,13 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
     }, [isFrozen, setLayers, globalSpeedMultiplier]);
 
     useEffect(() => {
-        animationFrameId.current = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(animationFrameId.current);
-    }, [animate]);
+        // Start loop only when not frozen
+        if (!isFrozen) {
+            animationFrameId.current = requestAnimationFrame(animate);
+        }
+        return () => {
+            if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = null;
+        };
+    }, [animate, isFrozen]);
 };

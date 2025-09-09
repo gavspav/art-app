@@ -36,7 +36,7 @@ export const PARAMETERS = [
     defaultValue: 0.5,
     isRandomizable: true,
     showInOverlay: true,
-    group: 'Shape',
+    group: 'Movement',
   },
   {
     id: 'noiseAmount',
@@ -48,7 +48,7 @@ export const PARAMETERS = [
     defaultValue: 0.5,
     isRandomizable: true,
     showInOverlay: true,
-    group: 'Shape',
+    group: 'Movement',
   },
   {
     id: 'width',

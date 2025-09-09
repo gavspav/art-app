@@ -192,8 +192,8 @@ const Settings = () => {
               <label>
                 <input 
                   type="checkbox" 
-                  checked={includeAppState}
-                  onChange={(e) => setIncludeAppState(e.target.checked)}
+                  checked={!!includeAppState}
+                  onChange={(e) => setIncludeAppState(!!e.target.checked)}
                 />
                 Include app state (layers, background, animation settings)
               </label>
@@ -223,8 +223,8 @@ const Settings = () => {
               <label>
                 <input 
                   type="checkbox" 
-                  checked={loadAppStateOption}
-                  onChange={(e) => setLoadAppStateOption(e.target.checked)}
+                  checked={!!loadAppStateOption}
+                  onChange={(e) => setLoadAppStateOption(!!e.target.checked)}
                 />
                 Load app state if available (layers, background, animation settings)
               </label>
@@ -276,16 +276,16 @@ const Settings = () => {
                 <label>
                   <input 
                     type="checkbox" 
-                    checked={param.isRandomizable} 
-                    onChange={(e) => handleParamChange(param.id, 'isRandomizable', e.target.checked)}
+                    checked={!!param.isRandomizable} 
+                    onChange={(e) => handleParamChange(param.id, 'isRandomizable', !!e.target.checked)}
                   />
                   Randomizable
                 </label>
                 <label>
                   <input 
                     type="checkbox" 
-                    checked={param.showInOverlay} 
-                    onChange={(e) => handleParamChange(param.id, 'showInOverlay', e.target.checked)}
+                    checked={!!param.showInOverlay} 
+                    onChange={(e) => handleParamChange(param.id, 'showInOverlay', !!e.target.checked)}
                   />
                   Show in Overlay
                 </label>

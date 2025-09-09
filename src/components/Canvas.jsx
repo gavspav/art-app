@@ -321,13 +321,20 @@ const computeInitialNodes = (layer, canvas) => {
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, setLayers, classicMode = false }, ref) => {
+const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
     const localCanvasRef = useRef(null);
+    const frozenTimeRef = useRef(0);
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
     const draggingNodeIndexRef = useRef(null);
     const draggingMidIndexRef = useRef(null);
+    const draggingCenterRef = useRef(false);
+    // Cache original nodes during node-edit numSides changes so we can restore when coming back
+    const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
+    // Track previous layer count to force a redraw when layers are added/removed via slider
+    const prevLayersCountRef = useRef(layers.length);
 
     // Keep canvas sized to its container (the .canvas-container)
     useEffect(() => {
@@ -361,7 +368,6 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const layerChanges = useMemo(() => {
         const changes = new Map();
         const currentHashes = new Map();
-
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 changes.set(index, { hasChanged: true, reason: 'malformed' });
@@ -398,6 +404,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         return hasChanged;
     }, [backgroundColor, globalSeed, globalBlendMode]);
 
+    // Keep a stable time snapshot when entering frozen state so re-renders are identical
+    useEffect(() => {
+        if (isFrozen) {
+            frozenTimeRef.current = Date.now() * 0.001;
+        }
+    }, [isFrozen]);
+
     // Optimized render effect with selective updates
     useEffect(() => {
         const canvas = localCanvasRef.current;
@@ -407,7 +420,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         const renderStart = performance.now();
 
-        const needsFullRender = backgroundChanged ||
+        // Force a render when node edit mode toggles or selected layer changes
+        const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
+
+        const countChanged = prevLayersCountRef.current !== layers.length;
+        // While frozen, ignore selection/mode toggles as a reason to redraw; prevents visible changes on click
+        const considerModeChanged = isFrozen ? false : modeChanged;
+        const needsFullRender = backgroundChanged || considerModeChanged || countChanged ||
             Array.from(layerChanges.values()).some(change => change.hasChanged) ||
             layerHashesRef.current.size === 0;
 
@@ -424,7 +443,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             console.debug('Canvas rendering layers:', changedLayers);
         }
 
-        if (backgroundChanged || layerHashesRef.current.size === 0) {
+        if (backgroundChanged || layerHashesRef.current.size === 0 || modeChanged) {
             ctx.clearRect(0, 0, width, height);
             ctx.fillStyle = backgroundColor;
             ctx.fillRect(0, 0, width, height);
@@ -480,6 +499,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.filter = 'blur(1px)';
         }
 
+        // current time snapshot for this frame (or stable frozen time)
+        const nowSec = isFrozen ? frozenTimeRef.current : (Date.now() * 0.001);
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -493,7 +514,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (layer.image && layer.image.src) {
                     drawImage(ctx, layer, canvas, globalBlendMode);
                 } else {
-                    const time = Date.now() * 0.001;
+                    // Use stable frozen time when frozen; live time otherwise
+                    const time = nowSec;
                     drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode, globalBlendMode);
                 }
             }
@@ -530,8 +552,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const sel = layers[selectedLayerIndex];
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
-                const centerX = x * width;
-                const centerY = y * height;
+                const layerCX = x * width;
+                const layerCY = y * height;
                 // Use the exact same mapping as drawShape so handles sit on the edge
                 const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
                 const radiusY = sel.viewBoxMapped ? (height / 2) * scale : Math.min((sel.height + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
@@ -541,7 +563,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2;
                 const r = 6;
-                const points = sel.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+                const points = sel.nodes.map(n => ({ x: layerCX + n.x * radiusX, y: layerCY + n.y * radiusY }));
                 points.forEach(p => {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -562,6 +584,25 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     ctx.fill();
                     ctx.stroke();
                 }
+
+                // Center cross-hair handle to move the whole shape
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                const cross = 10;
+                // Compute centroid from current node points so marker updates while editing
+                let cx = layerCX, cy = layerCY;
+                if (points.length >= 3) {
+                    let sx = 0, sy = 0;
+                    for (let i = 0; i < points.length; i++) { sx += points[i].x; sy += points[i].y; }
+                    cx = sx / points.length;
+                    cy = sy / points.length;
+                }
+                ctx.beginPath();
+                ctx.moveTo(cx - cross, cy);
+                ctx.lineTo(cx + cross, cy);
+                ctx.moveTo(cx, cy - cross);
+                ctx.lineTo(cx, cy + cross);
+                ctx.stroke();
                 ctx.restore();
             }
         }
@@ -572,6 +613,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (renderTime > 16) {
             console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
         }
+
+        // Update trackers after a pass
+        modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
+        prevLayersCountRef.current = layers.length;
 
     }, [layerChanges, backgroundChanged, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize]);
 
@@ -589,26 +634,94 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer, canvas);
-            setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+            // Avoid redundant updates
+            if (!Array.isArray(layer.nodes) || layer.nodes.length !== nodes.length) {
+                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+            }
         }
     }, [isNodeEditMode, selectedLayerIndex, layers, setLayers]);
 
-    // Keep nodes count in sync with numSides while in node edit mode without resetting shape
+    // Helper to compare node arrays
+    const nodesEqual = (a = [], b = []) => {
+        if (!Array.isArray(a) || !Array.isArray(b)) return false;
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            const ax = Number(a[i]?.x); const ay = Number(a[i]?.y);
+            const bx = Number(b[i]?.x); const by = Number(b[i]?.y);
+            if (Math.abs(ax - bx) > 1e-9 || Math.abs(ay - by) > 1e-9) return false;
+        }
+        return true;
+    };
+
+    // Keep nodes count in sync with numSides in node edit mode with a persistent cache
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
         const layer = layers[selectedLayerIndex];
         if (!layer || layer.layerType !== 'shape') return;
-        if (layer.syncNodesToNumSides === false) return; // preserve imported SVG node counts
+        if (layer.syncNodesToNumSides === false) {
+            // For imported SVGs we still want an initial cache for edits
+            if (!nodesCacheRef.current.has(selectedLayerIndex) && Array.isArray(layer.nodes)) {
+                nodesCacheRef.current.set(selectedLayerIndex, [...layer.nodes.map(n => ({...n}))]);
+            }
+            return;
+        }
+
         const desired = Math.max(3, layer.numSides || 3);
-        if (!Array.isArray(layer.nodes) || layer.nodes.length === 0) {
-            const nodes = computeInitialNodes(layer, canvas);
-            setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
-        } else if (layer.nodes.length !== desired) {
-            const nodes = resizeNodes(layer.nodes, desired);
-            setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+        const key = selectedLayerIndex;
+        // Ensure cache exists
+        if (!nodesCacheRef.current.has(key)) {
+            const base = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : computeInitialNodes(layer, canvas);
+            nodesCacheRef.current.set(key, base.map(n => ({ ...n })));
+        }
+        const cache = nodesCacheRef.current.get(key) || [];
+
+        if (desired <= 0) return;
+
+        if (desired <= cache.length) {
+            // Use the first N points from cache
+            const nodes = cache.slice(0, desired).map(n => ({ ...n }));
+            if (!nodesEqual(layer.nodes, nodes)) {
+                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+            }
+        } else {
+            // Need to add new points: derive using current best resize, then append to cache
+            const target = desired;
+            const current = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : (cache.length ? cache.slice(0) : computeInitialNodes(layer, canvas));
+            const resized = resizeNodes(current, target);
+            // Append any new points beyond cache length to cache
+            for (let i = cache.length; i < resized.length; i++) {
+                cache.push({ ...resized[i] });
+            }
+            nodesCacheRef.current.set(key, cache);
+            if (!nodesEqual(layer.nodes, resized)) {
+                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes: resized } : l));
+            }
         }
     }, [isNodeEditMode, selectedLayerIndex, layers, setLayers]);
+
+    // When the number of layers changes, prune stale cache entries and ensure the
+    // currently selected layer has an editable node array.
+    useEffect(() => {
+        // Prune cache for removed layers
+        const keys = Array.from(nodesCacheRef.current.keys());
+        keys.forEach(k => { if (k >= layers.length) nodesCacheRef.current.delete(k); });
+
+        if (!isNodeEditMode) return;
+        const canvas = localCanvasRef.current;
+        if (!canvas) return;
+        const layer = layers[selectedLayerIndex];
+        if (!layer || layer.layerType !== 'shape') return;
+        if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
+            const nodes = computeInitialNodes(layer, canvas);
+            // Only update if different or missing
+            if (!nodesEqual(layer.nodes, nodes)) {
+                setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
+            }
+            // Seed cache with freshly initialized nodes
+            nodesCacheRef.current.set(selectedLayerIndex, nodes.map(n => ({ ...n })));
+        }
+    }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
 
     // Mouse interaction for dragging nodes
     const getMousePos = (evt) => {
@@ -623,8 +736,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         };
     };
 
+    const mouseDownRef = useRef({ x: 0, y: 0, t: 0 });
+
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
+        // If holding a selection modifier (Cmd/Ctrl), skip drag initiation so we can select on mouseup
+        if (e.metaKey || e.ctrlKey) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
@@ -662,6 +779,24 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (midIdx !== -1) {
             draggingMidIndexRef.current = midIdx;
             draggingNodeIndexRef.current = null;
+            draggingCenterRef.current = false;
+            return;
+        }
+        // Try center cross (use centroid to match the drawn crosshair position)
+        {
+            let cx = centerX, cy = centerY;
+            if (pts.length >= 3) {
+                let sx = 0, sy = 0;
+                for (let i = 0; i < pts.length; i++) { sx += pts[i].x; sy += pts[i].y; }
+                cx = sx / pts.length;
+                cy = sy / pts.length;
+            }
+            const dx = cx - pos.x; const dy = cy - pos.y;
+            if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+                draggingCenterRef.current = true;
+                draggingNodeIndexRef.current = null;
+                draggingMidIndexRef.current = null;
+            }
         }
     };
 
@@ -669,7 +804,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (!isNodeEditMode) return;
         const idx = draggingNodeIndexRef.current;
         const mid = draggingMidIndexRef.current;
-        if (idx == null && mid == null) return;
+        const draggingCenter = draggingCenterRef.current;
+        if (idx == null && mid == null && !draggingCenter) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
@@ -681,13 +817,25 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const radiusY = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale));
 
         const pos = getMousePos(e);
-        if (idx != null) {
+        if (draggingCenter) {
+            const pos = getMousePos(e);
+            const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
+            const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
+            setLayers(prev => prev.map((l, i) => (
+                i === selectedLayerIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
+            )));
+        } else if (idx != null) {
             const nx = (pos.x - centerX) / radiusX;
             const ny = (pos.y - centerY) / radiusY;
             setLayers(prev => prev.map((l, i) => {
                 if (i !== selectedLayerIndex) return l;
                 const nodes = [...(l.nodes || [])];
                 nodes[idx] = { x: nx, y: ny };
+                // Update cache first N entries accordingly
+                const cache = nodesCacheRef.current.get(selectedLayerIndex);
+                if (Array.isArray(cache) && cache.length >= nodes.length) {
+                    cache[idx] = { x: nx, y: ny };
+                }
                 return { ...l, nodes };
             }));
         } else if (mid != null) {
@@ -708,20 +856,91 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 const dy = (pos.y - my) / radiusY;
                 nodes[aIdx] = { x: nodes[aIdx].x + dx, y: nodes[aIdx].y + dy };
                 nodes[bIdx] = { x: nodes[bIdx].x + dx, y: nodes[bIdx].y + dy };
+                const cache = nodesCacheRef.current.get(selectedLayerIndex);
+                if (Array.isArray(cache) && cache.length >= nodes.length) {
+                    cache[aIdx] = { ...nodes[aIdx] };
+                    cache[bIdx] = { ...nodes[bIdx] };
+                }
                 return { ...l, nodes };
             }));
         }
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = (e) => {
+        // Treat as a click to select when NOT in node edit mode,
+        // OR when in node edit mode but the user is holding a selection modifier (Cmd/Ctrl)
+        const wantSelect = (!isNodeEditMode) || (isNodeEditMode && (e.metaKey || e.ctrlKey));
+        if (wantSelect) {
+            const canvas = localCanvasRef.current;
+            if (!canvas || !setSelectedLayerIndex) return;
+            const pos = getMousePos(e);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const { width, height } = canvas;
+
+            const buildPath = (layer) => {
+                const p = new Path2D();
+                if (!layer || !layer.position || !layer.visible) return p;
+                const { x, y, scale } = layer.position;
+                const centerX = x * width;
+                const centerY = y * height;
+                const radiusX = layer.viewBoxMapped ? (width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
+                const radiusY = layer.viewBoxMapped ? (height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
+
+                let pts = [];
+                if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
+                    // Build a combined path of subpaths
+                    for (const sp of layer.subpaths) {
+                        if (!Array.isArray(sp) || sp.length < 3) continue;
+                        for (let i = 0; i < sp.length; i++) {
+                            const n = sp[i];
+                            const px = centerX + n.x * radiusX;
+                            const py = centerY + n.y * radiusY;
+                            if (i === 0) p.moveTo(px, py); else p.lineTo(px, py);
+                        }
+                        p.closePath();
+                    }
+                    return p;
+                } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                    pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+                } else {
+                    const sides = Math.max(3, layer.numSides || 3);
+                    for (let i = 0; i < sides; i++) {
+                        const ang = (i / sides) * Math.PI * 2;
+                        pts.push({ x: centerX + Math.cos(ang) * radiusX, y: centerY + Math.sin(ang) * radiusY });
+                    }
+                }
+                if (pts.length >= 3) {
+                    p.moveTo(pts[0].x, pts[0].y);
+                    for (let i = 1; i < pts.length; i++) p.lineTo(pts[i].x, pts[i].y);
+                    p.closePath();
+                }
+                return p;
+            };
+
+            // Iterate from topmost (last drawn) to bottom
+            for (let i = layers.length - 1; i >= 0; i--) {
+                const layer = layers[i];
+                if (!layer || !layer.visible) continue;
+                const path = buildPath(layer);
+                if (ctx.isPointInPath(path, pos.x, pos.y)) {
+                    setSelectedLayerIndex(i);
+                    break;
+                }
+            }
+        }
         draggingNodeIndexRef.current = null;
         draggingMidIndexRef.current = null;
+        draggingCenterRef.current = false;
+
+        // nothing else to do here
     };
 
     return (
         <canvas
             ref={localCanvasRef}
-            style={{ display: 'block', pointerEvents: isNodeEditMode ? 'auto' : 'none' }}
+            style={{ display: 'block', pointerEvents: 'auto' }}
             onMouseDown={onMouseDown}
             onMouseMove={onMouseMove}
             onMouseUp={onMouseUp}

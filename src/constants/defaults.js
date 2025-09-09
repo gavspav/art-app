@@ -13,7 +13,7 @@ export const DEFAULT_LAYER = {
   noiseSpeed: 0.005,
   opacity: 0.8, // Changed to match old version default
   blendMode: 'source-over', // Changed to match old version
-  colors: ["#FFC300", "#FF5733", "#C70039"],
+  colors: ["#0000FF"],
   selectedColor: 0,
 
   // Animation Control Properties (kept top-level for easy access in Controls.jsx)

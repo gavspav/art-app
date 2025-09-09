@@ -8,8 +8,8 @@ const mergeWithDefaults = (savedParams) => {
     return PARAMETERS.map(defaultParam => {
       const savedParam = saved.find(p => p.id === defaultParam.id);
       const merged = savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
-      // Enforce authoritative bounds/labels for width/height and movementSpeed to avoid legacy ranges
-      if (merged.id === 'width' || merged.id === 'height' || merged.id === 'movementSpeed') {
+      // Enforce authoritative bounds/labels/groups for certain params to avoid legacy metadata
+      if (['width','height','movementSpeed','wobble','noiseAmount'].includes(merged.id)) {
         return {
           ...merged,
           label: defaultParam.label,

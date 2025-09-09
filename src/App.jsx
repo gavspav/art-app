@@ -64,6 +64,9 @@ const MainApp = () => {
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
+  // Suppress animation briefly during direct user edits to avoid state races
+  const [suppressAnimation, setSuppressAnimation] = useState(false);
+  const suppressTimerRef = useRef(null);
 
   // --- Import adjust panel state (for multi-file SVG import) ---
   const [showImportAdjust, setShowImportAdjust] = useState(false);
@@ -507,6 +510,7 @@ const MainApp = () => {
       setLayers(prev => {
         let next = prev;
         if (target > prev.length) {
+          // Adding layers: preserve existing layers, only create new ones
           const addCount = target - prev.length;
           const baseVar = (typeof prev?.[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
           let last = prev[prev.length - 1] || DEFAULT_LAYER;
@@ -518,11 +522,14 @@ const MainApp = () => {
           });
           next = [...prev, ...additions];
         } else if (target < prev.length) {
+          // Removing layers: just slice, preserving existing layer objects
           next = prev.slice(0, target);
         }
+        // Only update names, preserve all other properties including nodes
         return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
       });
-      setSelectedLayerIndex((idx) => Math.min(idx, Math.max(0, target - 1)));
+      // Preserve current selection when increasing; clamp only if out of bounds when decreasing
+      setSelectedLayerIndex((prev) => (prev >= target ? Math.max(0, target - 1) : prev));
     });
     return unregister;
   }, [registerParamHandler, setLayers, setSelectedLayerIndex]);
@@ -767,7 +774,23 @@ const MainApp = () => {
     };
   }, []);
 
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier);
+  useAnimation(setLayers, (isFrozen || suppressAnimation), globalSpeedMultiplier);
+
+  // Ensure selected layer has nodes in node-edit mode even after layer-count changes via slider
+  useEffect(() => {
+    if (!isNodeEditMode) return;
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    const layer = layers[idx];
+    if (!layer || layer.layerType !== 'shape') return;
+    if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
+      const desired = Math.max(3, layer.numSides || 6);
+      const nodes = Array.from({ length: desired }, (_, i) => {
+        const a = (i / desired) * Math.PI * 2;
+        return { x: Math.cos(a), y: Math.sin(a) };
+      });
+      setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes } : l)));
+    }
+  }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
 
   // Sidebar resizing handlers
   useEffect(() => {
@@ -879,19 +902,13 @@ const MainApp = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importFitEnabled]);
 
-  // Auto-freeze while in Node Edit mode; restore previous state on exit
+  // Do not auto-freeze when entering Node Edit mode
   useEffect(() => {
-    if (isNodeEditMode) {
-      if (prevFrozenRef.current === null) prevFrozenRef.current = isFrozen;
-      if (!isFrozen) setIsFrozen(true);
-    } else {
-      if (prevFrozenRef.current !== null && isFrozen !== prevFrozenRef.current) {
-        setIsFrozen(prevFrozenRef.current);
-      }
-      prevFrozenRef.current = null;
-    }
+    // Previously, node edit mode forced freezing to simplify editing.
+    // This has been disabled per request; preserve current frozen state.
+    prevFrozenRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNodeEditMode, isFrozen]);
+  }, [isNodeEditMode]);
 
   // Clamp selection to available layers to avoid transient undefined during updates
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
@@ -926,6 +943,11 @@ const MainApp = () => {
     varied.noiseSeed = newSeed;
     varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
     varied.variation = v;
+    // Ensure new layers do not share node-based geometry references
+    // Use procedural shape by default; imported shapes will explicitly set these when needed
+    varied.nodes = null;
+    if (varied.subpaths) delete varied.subpaths;
+    varied.viewBoxMapped = false;
 
     // Geometry and style (respect vary flags)
     if (varyFlags.numSides) varied.numSides = mixRandom(prev.numSides, 3, 20, true);
@@ -992,7 +1014,8 @@ const MainApp = () => {
         const currentKey = JSON.stringify(prev.colors);
         const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
         const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
-        varied.colors = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
+        const chosenArr = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
+        varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
         varied.numColors = varied.colors.length;
       } else if (w >= 0.4) {
         const arr = [...prev.colors];
@@ -1002,7 +1025,7 @@ const MainApp = () => {
             [arr[i], arr[j]] = [arr[j], arr[i]];
           }
         }
-        varied.colors = arr;
+        varied.colors = [...arr];
         varied.numColors = arr.length;
       } else {
         varied.colors = [...prev.colors];
@@ -1014,6 +1037,16 @@ const MainApp = () => {
   };
 
   const updateCurrentLayer = (newProps) => {
+    // Briefly pause animation ONLY for movement-related edits, so RAF doesn't fight position/velocity updates
+    try {
+      const movementKeys = ['movementAngle', 'movementSpeed', 'position', 'scaleMin', 'scaleMax', 'scaleSpeed'];
+      const shouldSuppress = movementKeys.some(k => Object.prototype.hasOwnProperty.call(newProps, k));
+      if (shouldSuppress) {
+        if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+        setSuppressAnimation(true);
+        suppressTimerRef.current = setTimeout(() => setSuppressAnimation(false), 150);
+      }
+    } catch {}
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
       const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, updatedLayers.length - 1)));
@@ -1900,7 +1933,7 @@ const MainApp = () => {
                   )}
                 </div>
                 <label className="compact-label" title="Include Background Color in Randomize All" style={{ marginLeft: 'auto' }}>
-                  <input type="checkbox" checked={getIsRnd('backgroundColor')} onChange={(e) => setIsRnd('backgroundColor', e.target.checked)} />
+                  <input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} />
                   Include
                 </label>
               </div>
@@ -1925,7 +1958,7 @@ const MainApp = () => {
                   </label>
 
                   <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
-                    <input type="checkbox" checked={showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
+                    <input type="checkbox" checked={!!showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
                     MIDI Learn
                   </label>
 
@@ -1933,7 +1966,7 @@ const MainApp = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
                       <label className="compact-label" title="Include Global Speed in Randomize All">
-                        <input type="checkbox" checked={getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} />
+                        <input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} />
                         Include
                       </label>
                     </div>
@@ -2005,7 +2038,7 @@ const MainApp = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <label className="compact-label">Style</label>
                       <label className="compact-label" title="Include Style in Randomize All">
-                        <input type="checkbox" checked={getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} />
+                        <input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} />
                         Include
                       </label>
                     </div>
@@ -2052,7 +2085,7 @@ const MainApp = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span className="compact-label">Opacity: {Number(layers?.[0]?.opacity ?? 1).toFixed(2)}</span>
                       <label className="compact-label" title="Include Opacity in Randomize All">
-                        <input type="checkbox" checked={getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} />
+                        <input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} />
                         Include
                       </label>
                     </div>
@@ -2082,7 +2115,7 @@ const MainApp = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span className="compact-label">Layers</span>
                       <label className="compact-label" title="Include Layer Count in Randomize All">
-                        <input type="checkbox" checked={getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} />
+                        <input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} />
                         Include
                       </label>
                     </div>
@@ -2098,6 +2131,7 @@ const MainApp = () => {
                         setLayers(prev => {
                           let next = prev;
                           if (target > prev.length) {
+                            // Adding layers: preserve existing layers, only create new ones
                             const addCount = target - prev.length;
                             const baseVar = (typeof prev[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
                             let last = prev[prev.length - 1] || DEFAULT_LAYER;
@@ -2109,12 +2143,14 @@ const MainApp = () => {
                             });
                             next = [...prev, ...additions];
                           } else if (target < prev.length) {
+                            // Removing layers: just slice, preserving existing layer objects
                             next = prev.slice(0, target);
                           }
+                          // Only update names, preserve all other properties including nodes
                           return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
                         });
-                        // Always select the last available layer after resizing count
-                        setSelectedLayerIndex(() => Math.max(0, target - 1));
+                        // Preserve current selection when increasing; clamp only if out of bounds when decreasing
+                        setSelectedLayerIndex((prev) => (prev >= target ? Math.max(0, target - 1) : prev));
                       }}
                     />
                     <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
@@ -2132,7 +2168,7 @@ const MainApp = () => {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span className="compact-label">Layer Variation: {Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation).toFixed(2)}</span>
                       <label className="compact-label" title="Include Layer Variation in Randomize All">
-                        <input type="checkbox" checked={getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} />
+                        <input type="checkbox" checked={!!getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} />
                         Include
                       </label>
                     </div>
@@ -2231,6 +2267,7 @@ const MainApp = () => {
             isNodeEditMode={isNodeEditMode}
             selectedLayerIndex={selectedLayerIndex}
             setLayers={setLayers}
+            setSelectedLayerIndex={setSelectedLayerIndex}
             classicMode={classicMode}
           />
           
@@ -2286,16 +2323,16 @@ const MainApp = () => {
                 <input
                   id="adj-fit"
                   type="checkbox"
-                  checked={importFitEnabled}
-                  onChange={(e) => setImportFitEnabled(e.target.checked)}
+                  checked={!!importFitEnabled}
+                  onChange={(e) => setImportFitEnabled(!!e.target.checked)}
                   style={{ justifySelf: 'end' }}
                 />
                 <label htmlFor="adj-debug">Debug Overlay</label>
                 <input
                   id="adj-debug"
                   type="checkbox"
-                  checked={importDebug}
-                  onChange={(e) => { setImportDebug(e.target.checked); window.__artapp_debug_import = !!e.target.checked; }}
+                  checked={!!importDebug}
+                  onChange={(e) => { setImportDebug(!!e.target.checked); window.__artapp_debug_import = !!e.target.checked; }}
                   style={{ justifySelf: 'end' }}
                 />
               </div>
