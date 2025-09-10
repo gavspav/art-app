@@ -65,14 +65,15 @@ const MainApp = () => {
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   // Keep latest values accessible to hotkeys without re-binding listeners
-  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true });
+  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false });
   useEffect(() => {
     hotkeyRef.current = {
       selectedIndex: Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1))),
       layersLen: Array.isArray(layers) ? layers.length : 0,
       overlayVisible: !!isOverlayVisible,
+      nodeEditMode: !!isNodeEditMode,
     };
-  }, [selectedLayerIndex, layers.length, isOverlayVisible]);
+  }, [selectedLayerIndex, layers.length, isOverlayVisible, isNodeEditMode]);
   // Suppress animation briefly during direct user edits to avoid state races
   const [suppressAnimation, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
@@ -819,6 +820,14 @@ const MainApp = () => {
       if (key === 'm') {
         e.preventDefault();
         setShowGlobalMidi(v => !v);
+        return;
+      }
+
+      // N -> Toggle Node Edit mode
+      if (key === 'n') {
+        e.preventDefault();
+        const cur = !!hotkeyRef.current?.nodeEditMode;
+        setIsNodeEditMode(!cur);
         return;
       }
 
