@@ -1061,7 +1061,9 @@ const MainApp = () => {
 
     // Movement
     if (varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
-      varied.movementStyle = prev.movementStyle === 'bounce' ? 'drift' : 'bounce';
+      const styles = ['bounce', 'drift', 'still'];
+      const others = styles.filter(s => s !== prev.movementStyle);
+      varied.movementStyle = others[Math.floor(Math.random() * others.length)] || prev.movementStyle;
     }
     if (varyFlags.movementSpeed) varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
     if (varyFlags.movementAngle) {
@@ -1506,7 +1508,9 @@ const MainApp = () => {
       {
         const p = getParam('movementStyle');
         if (p?.isRandomizable && varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
-          varied.movementStyle = base.movementStyle === 'bounce' ? 'drift' : 'bounce';
+          const styles = Array.isArray(p.options) && p.options.length ? p.options : ['bounce','drift','still'];
+          const others = styles.filter(s => s !== base.movementStyle);
+          varied.movementStyle = others[Math.floor(Math.random() * others.length)] || base.movementStyle;
         }
       }
       {

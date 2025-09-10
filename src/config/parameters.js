@@ -108,7 +108,7 @@ export const PARAMETERS = [
     id: 'movementStyle',
     label: 'Movement Style',
     type: 'dropdown',
-    options: ['bounce', 'drift'],
+    options: ['bounce', 'drift', 'still'],
     defaultValue: 'bounce',
     isRandomizable: true,
     showInOverlay: true,

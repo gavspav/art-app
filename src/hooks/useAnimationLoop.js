@@ -23,8 +23,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
       return prevLayers.map(layer => {
         const newLayer = { ...layer };
 
-        // Movement Logic
-        if (layer.movementSpeed > 0) {
+        // Movement Logic (skip when style is 'still')
+        if (layer.movementSpeed > 0 && layer.movementStyle !== 'still') {
           // Map UI movementSpeed (0..5) to engine units
           const speed = (layer.movementSpeed * 0.001) * globalSpeedMultiplier;
           const angleRad = layer.movementAngle * (Math.PI / 180);
@@ -54,8 +54,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
           newLayer.movementAngle = newAngle;
         }
 
-        // Scale Logic
-        if (layer.scaleSpeed > 0) {
+        // Scale Logic (skip when style is 'still')
+        if (layer.scaleSpeed > 0 && layer.movementStyle !== 'still') {
           const baseScale = layer.baseScale ?? layer.scale ?? 1;
           const scaleFrequency = layer.scaleSpeed * globalSpeedMultiplier;
           // Use a cosine wave to oscillate between 0 and 1. (1 - cos(x)) / 2 maps the [-1, 1] range to [0, 1].

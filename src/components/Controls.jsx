@@ -382,6 +382,11 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     }
   };
 
+  // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
+  const effectiveOptions = id === 'movementStyle'
+    ? ['bounce', 'drift', 'still']
+    : options;
+
   const randomizeThisParam = () => {
     console.log('[Controls] Randomize clicked for param', id);
     if (type === 'slider') {
@@ -631,7 +636,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
               <span>{label}:</span>
             </Header>
             <select value={value} onChange={handleChange}>
-              {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              {(effectiveOptions || options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
             </select>
           </div>
           <SettingsPanel />

@@ -111,6 +111,40 @@ export const AppStateProvider = ({ children }) => {
   // Function to load app state
   const loadAppState = useCallback((newState) => {
     if (newState) {
+      const normalizeLayer = (layer) => {
+        const base = { ...DEFAULT_LAYER, ...layer };
+        const pos = base.position && typeof base.position === 'object' ? base.position : {};
+        const position = {
+          x: Number.isFinite(pos.x) ? pos.x : DEFAULT_LAYER.position.x,
+          y: Number.isFinite(pos.y) ? pos.y : DEFAULT_LAYER.position.y,
+          vx: Number.isFinite(pos.vx) ? pos.vx : 0,
+          vy: Number.isFinite(pos.vy) ? pos.vy : 0,
+          scale: Number.isFinite(pos.scale) ? pos.scale : DEFAULT_LAYER.position.scale,
+          scaleDirection: (pos.scaleDirection === -1 || pos.scaleDirection === 1) ? pos.scaleDirection : 1,
+        };
+        // Clamp common fields
+        position.x = Math.max(-0.2, Math.min(1.2, position.x));
+        position.y = Math.max(-0.2, Math.min(1.2, position.y));
+        position.scale = Math.max(0.05, Math.min(5, position.scale));
+        const movementStyle = ['bounce','drift','still'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
+        const movementSpeed = Number.isFinite(base.movementSpeed) ? Math.max(0, Math.min(5, base.movementSpeed)) : DEFAULT_LAYER.movementSpeed;
+        const movementAngle = Number.isFinite(base.movementAngle) ? ((Math.round(base.movementAngle) % 360) + 360) % 360 : DEFAULT_LAYER.movementAngle;
+        const scaleSpeed = Number.isFinite(base.scaleSpeed) ? Math.max(0, Math.min(0.2, base.scaleSpeed)) : DEFAULT_LAYER.scaleSpeed;
+        const layerOut = {
+          ...base,
+          movementStyle,
+          movementSpeed,
+          movementAngle,
+          scaleSpeed,
+          position,
+        };
+        // Ensure arrays are arrays
+        if (!Array.isArray(layerOut.colors)) layerOut.colors = [...(DEFAULT_LAYER.colors || ['#ffffff'])];
+        // Ensure nodes valid or null
+        if (layerOut.nodes && (!Array.isArray(layerOut.nodes) || layerOut.nodes.length < 3)) layerOut.nodes = null;
+        return layerOut;
+      };
+
       setAppState(prevState => ({
         ...prevState,
         ...newState,
@@ -122,10 +156,9 @@ export const AppStateProvider = ({ children }) => {
           ...(newState.backgroundImage || {})
         },
         // Ensure layers have proper structure
-        layers: newState.layers?.map(layer => ({
-          ...layer,
-          position: layer.position || { ...DEFAULT_LAYER.position }
-        })) || prevState.layers
+        layers: Array.isArray(newState.layers) && newState.layers.length > 0
+          ? newState.layers.map(normalizeLayer)
+          : prevState.layers.map(normalizeLayer)
       }));
       return true;
     }

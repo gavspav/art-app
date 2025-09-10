@@ -20,6 +20,10 @@ const mergeWithDefaults = (savedParams) => {
           group: defaultParam.group,
         };
       }
+      // Force hardcoded options for movementStyle to ensure 'still' is present regardless of saved metadata
+      if (merged.id === 'movementStyle') {
+        return { ...merged, options: ['bounce','drift','still'] };
+      }
       return merged;
     });
   } catch (e) {

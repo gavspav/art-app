@@ -42,10 +42,14 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
     const vx = Math.cos(movementAngle * (Math.PI / 180)) * effectiveSpeed;
     const vy = Math.sin(movementAngle * (Math.PI / 180)) * effectiveSpeed;
 
-    // 2. Update position
-    let newX = x + vx;
-    let newY = y + vy;
+    // 2. Update position (unless style is 'still')
+    let newX = x;
+    let newY = y;
     let newMovementAngle = movementAngle;
+    if (movementStyle !== 'still') {
+        newX = x + vx;
+        newY = y + vy;
+    }
 
     // 3. Handle screen boundaries (immutable)
     if (movementStyle === 'bounce') {
@@ -65,12 +69,15 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
         if (newY < 0) newY = 1;
     }
 
-    // 4. Z-axis scaling (immutable)
-    let newScale = scale + (scaleDirection * scaleSpeed * globalSpeedMultiplier * 0.01);
+    // 4. Z-axis scaling (skip when style is 'still')
+    let newScale = scale;
     let newScaleDirection = scaleDirection;
-    if (newScale > scaleMax || newScale < scaleMin) {
-        newScaleDirection *= -1;
-        newScale = Math.max(scaleMin, Math.min(scaleMax, newScale));
+    if (movementStyle !== 'still') {
+        newScale = scale + (scaleDirection * scaleSpeed * globalSpeedMultiplier * 0.01);
+        if (newScale > scaleMax || newScale < scaleMin) {
+            newScaleDirection *= -1;
+            newScale = Math.max(scaleMin, Math.min(scaleMax, newScale));
+        }
     }
 
     // Return new layer object with updated properties
@@ -81,8 +88,8 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
             ...layer.position,
             x: newX,
             y: newY,
-            vx,
-            vy,
+            vx: (movementStyle === 'still') ? 0 : vx,
+            vy: (movementStyle === 'still') ? 0 : vy,
             scale: newScale,
             scaleDirection: newScaleDirection
         }
