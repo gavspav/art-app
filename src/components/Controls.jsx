@@ -749,7 +749,9 @@ const Controls = forwardRef(({
   onSelectLayer,
   onAddLayer,
   onDeleteLayer,
-  onImportSVG
+  onImportSVG,
+  onMoveLayerUp,
+  onMoveLayerDown
 }, ref) => {
   const { parameters } = useParameters();
 
@@ -1098,6 +1100,26 @@ const Controls = forwardRef(({
               onClick={() => onAddLayer && onAddLayer()}
             >
               +
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Move selected layer up"
+              aria-label="Move selected layer up"
+              onClick={() => onMoveLayerUp && onMoveLayerUp()}
+              disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex >= Math.max(0, (layerNames || []).length - 1)}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm"
+              title="Move selected layer down"
+              aria-label="Move selected layer down"
+              onClick={() => onMoveLayerDown && onMoveLayerDown()}
+              disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex <= 0}
+            >
+              ↓
             </button>
             <button
               type="button"

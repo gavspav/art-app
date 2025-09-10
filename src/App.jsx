@@ -1193,6 +1193,31 @@ const MainApp = () => {
     setSelectedLayerIndex(index);
   };
 
+  // Reorder: move a layer from one index to another, updating selection
+  const moveLayer = (fromIdx, toIdx) => {
+    setLayers(prev => {
+      const n = prev.length;
+      const from = Math.max(0, Math.min(n - 1, fromIdx));
+      const to = Math.max(0, Math.min(n - 1, toIdx));
+      if (n <= 1 || from === to) return prev;
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+    setSelectedLayerIndex(Math.max(0, Math.min(layers.length - 1, toIdx)));
+  };
+
+  const moveSelectedLayerUp = () => {
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    if (idx < layers.length - 1) moveLayer(idx, idx + 1);
+  };
+
+  const moveSelectedLayerDown = () => {
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    if (idx > 0) moveLayer(idx, idx - 1);
+  };
+
   const randomizeLayer = (index, _forcePalette = false) => {
     const randomizableParams = parameters.filter(p => p.isRandomizable);
     const layer = layers[index];
@@ -2339,6 +2364,8 @@ const MainApp = () => {
               onSelectLayer={selectLayer}
               onAddLayer={addNewLayer}
               onDeleteLayer={deleteLayer}
+              onMoveLayerUp={moveSelectedLayerUp}
+              onMoveLayerDown={moveSelectedLayerDown}
               onImportSVG={handleImportSVGClick}
             />
             {/* Layer list removed; use header controls in <Controls /> */}
