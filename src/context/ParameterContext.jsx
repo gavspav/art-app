@@ -7,10 +7,13 @@ const mergeWithDefaults = (savedParams) => {
     const saved = Array.isArray(savedParams) ? savedParams : [];
     return PARAMETERS.map(defaultParam => {
       const savedParam = saved.find(p => p.id === defaultParam.id);
-      const merged = savedParam ? { ...defaultParam, ...savedParam } : defaultParam;
-      // Enforce authoritative bounds/labels/groups for certain params to avoid legacy metadata
-      if (['width','height','movementSpeed','wobble','noiseAmount'].includes(merged.id)) {
-        return {
+      // Start with defaults, then overlay saved fields to avoid missing keys
+      let merged = savedParam ? { ...defaultParam, ...savedParam } : { ...defaultParam };
+
+      // Enforce authoritative bounds/labels/groups for certain params to avoid legacy/broken metadata
+      const forceIds = new Set(['width','height','movementSpeed','wobble','noiseAmount','scaleSpeed','scaleMin','scaleMax']);
+      if (forceIds.has(merged.id)) {
+        merged = {
           ...merged,
           label: defaultParam.label,
           min: defaultParam.min,
@@ -20,10 +23,28 @@ const mergeWithDefaults = (savedParams) => {
           group: defaultParam.group,
         };
       }
+
+      // Harden all sliders: if min/max are invalid (NaN, equal, or reversed), restore from defaults
+      if (merged.type === 'slider') {
+        const isNum = (v) => Number.isFinite(v);
+        const badBounds = !isNum(merged.min) || !isNum(merged.max) || merged.max <= merged.min;
+        if (badBounds) {
+          merged.min = defaultParam.min;
+          merged.max = defaultParam.max;
+        }
+        if (!isNum(merged.step) || merged.step <= 0) merged.step = defaultParam.step;
+        // Clamp defaultValue into bounds
+        const lo = isNum(merged.min) ? merged.min : defaultParam.min;
+        const hi = isNum(merged.max) ? merged.max : defaultParam.max;
+        const dv = isNum(merged.defaultValue) ? merged.defaultValue : defaultParam.defaultValue;
+        merged.defaultValue = Math.min(hi, Math.max(lo, dv));
+      }
+
       // Force hardcoded options for movementStyle to ensure 'still' is present regardless of saved metadata
       if (merged.id === 'movementStyle') {
-        return { ...merged, options: ['bounce','drift','still'] };
+        merged = { ...merged, options: ['bounce','drift','still'] };
       }
+
       return merged;
     });
   } catch (e) {
