@@ -327,6 +327,66 @@ const computeInitialNodes = (layer, canvas) => {
     return nodes;
 };
 
+// Compute deformed node points exactly like drawShape's node path, so handles align.
+// Uses same seeded randomization for frequencies to avoid drift when noise is high.
+const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
+    try {
+        if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
+        const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
+        const centerX = x * (canvas?.width || 0);
+        const centerY = y * (canvas?.height || 0);
+        const radiusX = layer.viewBoxMapped
+            ? ((canvas?.width || 0) / 2) * scale
+            : Math.min(((layer.width || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), (canvas?.width || 0) * 0.4) * scale;
+        const radiusY = layer.viewBoxMapped
+            ? ((canvas?.height || 0) / 2) * scale
+            : Math.min(((layer.height || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), (canvas?.height || 0) * 0.4) * scale;
+
+        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+        const rotRad = (rotDeg * Math.PI) / 180;
+        const sinR = Math.sin(rotRad);
+        const cosR = Math.cos(rotRad);
+
+        const wobble = Number(layer.wobble ?? 0.5);
+        const amplitudeFactor = Math.max(0, Math.min(1, wobble));
+        const symmetryFactor = amplitudeFactor;
+        const freq1 = Number(layer.freq1 ?? 2);
+        const freq2 = Number(layer.freq2 ?? 3);
+        const freq3 = Number(layer.freq3 ?? 4);
+        const rnd = createSeededRandom((globalSeedBase || 0) + (Number(layer.noiseSeed) || 0));
+        const actualFreq1 = freq1 + (rnd() - 0.5) * 3;
+        const actualFreq2 = freq2 + (rnd() - 0.5) * 3;
+        const actualFreq3 = freq3 + (rnd() - 0.5) * 30;
+        const noiseAmount = Number(layer.noiseAmount ?? 0);
+
+        const pts = [];
+        const count = layer.nodes.length;
+        for (let i = 0; i < count; i++) {
+            const n = layer.nodes[i];
+            // rotate base node
+            const rx = n.x * cosR - n.y * sinR;
+            const ry = n.x * sinR + n.y * cosR;
+            const baseX = centerX + rx * radiusX;
+            const baseY = centerY + ry * radiusY;
+            const angle = (i / count) * Math.PI * 2;
+            const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
+            const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
+            const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
+            const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+            const offset = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
+            const dx = baseX - centerX;
+            const dy = baseY - centerY;
+            const dist = Math.hypot(dx, dy) || 1;
+            const normX = dx / dist;
+            const normY = dy / dist;
+            pts.push({ x: baseX + normX * offset, y: baseY + normY * offset });
+        }
+        return pts;
+    } catch {
+        return [];
+    }
+};
+
 // --- Canvas Component ---
 const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
     const localCanvasRef = useRef(null);
@@ -587,50 +647,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    // Intercept path generation by drawing to a Path2D-like tracker
-                    // Easiest: recreate the deformed vertex list similarly to drawShape for caching only
-                    // We piggyback on drawShape for visual correctness, then recompute points similarly here for handle placement
                     drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode, globalBlendMode);
-                    try {
-                        const pts = [];
-                        const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-                        const centerX = x * canvas.width;
-                        const centerY = y * canvas.height;
-                        const wobble = Number(layer.wobble ?? 0.5);
-                        const amplitudeFactor = Math.max(0, Math.min(1, wobble));
-                        const symmetryFactor = amplitudeFactor;
-                        const freq1 = Number(layer.freq1 ?? 2);
-                        const freq2 = Number(layer.freq2 ?? 3);
-                        const freq3 = Number(layer.freq3 ?? 4);
-                        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-                        const rotRad = (rotDeg * Math.PI) / 180;
-                        const sinR = Math.sin(rotRad);
-                        const cosR = Math.cos(rotRad);
-                        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(((layer.width || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale;
-                        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(((layer.height || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale;
-                        if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                            for (let i = 0; i < layer.nodes.length; i++) {
-                                const n = layer.nodes[i];
-                                const rx = n.x * cosR - n.y * sinR;
-                                const ry = n.x * sinR + n.y * cosR;
-                                const baseX = centerX + rx * radiusX;
-                                const baseY = centerY + ry * radiusY;
-                                const angle = (i / layer.nodes.length) * Math.PI * 2;
-                                const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-                                const n1 = Math.sin(angle * freq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
-                                const n2 = Math.cos(angle * freq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
-                                const n3 = Math.sin(angle * freq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
-                                const offset = (n1 * 20 + n2 * 15 + n3 * 10) * (layer.noiseAmount ?? 0) * amplitudeFactor;
-                                const dx = baseX - centerX;
-                                const dy = baseY - centerY;
-                                const dist = Math.hypot(dx, dy) || 1;
-                                const normX = dx / dist;
-                                const normY = dy / dist;
-                                pts.push({ x: baseX + normX * offset, y: baseY + normY * offset });
-                            }
-                        }
+                    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed + index, time);
                         renderedPointsRef.current.set(index, pts);
-                    } catch {}
+                    }
                 }
             }
         });
@@ -899,26 +920,36 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         const pos = getMousePos(e);
         const hitRadius = 10;
-        const idx = layer.nodes.findIndex(n => {
-            const rx = n.x * cosR - n.y * sinR;
-            const ry = n.x * sinR + n.y * cosR;
-            const px = centerX + rx * radiusX;
-            const py = centerY + ry * radiusY;
-            const dx = px - pos.x;
-            const dy = py - pos.y;
-            return (dx * dx + dy * dy) <= hitRadius * hitRadius;
-        });
+        // Prefer deformed points for hit-testing so handles remain clickable under noise
+        const rendered = renderedPointsRef.current.get(selectedLayerIndex);
+        let idx = -1;
+        if (Array.isArray(rendered) && rendered.length === layer.nodes.length) {
+            idx = rendered.findIndex(p => ((p.x - pos.x) ** 2 + (p.y - pos.y) ** 2) <= hitRadius * hitRadius);
+        }
+        if (idx === -1) {
+            idx = layer.nodes.findIndex(n => {
+                const rx = n.x * cosR - n.y * sinR;
+                const ry = n.x * sinR + n.y * cosR;
+                const px = centerX + rx * radiusX;
+                const py = centerY + ry * radiusY;
+                const dx = px - pos.x;
+                const dy = py - pos.y;
+                return (dx * dx + dy * dy) <= hitRadius * hitRadius;
+            });
+        }
         if (idx !== -1) {
             draggingNodeIndexRef.current = idx;
             draggingMidIndexRef.current = null;
             return;
         }
         // Try midpoints next
-        const pts = layer.nodes.map(n => {
-            const rx = n.x * cosR - n.y * sinR;
-            const ry = n.x * sinR + n.y * cosR;
-            return { x: centerX + rx * radiusX, y: centerY + ry * radiusY };
-        });
+        const pts = (Array.isArray(rendered) && rendered.length === layer.nodes.length)
+            ? rendered
+            : layer.nodes.map(n => {
+                const rx = n.x * cosR - n.y * sinR;
+                const ry = n.x * sinR + n.y * cosR;
+                return { x: centerX + rx * radiusX, y: centerY + ry * radiusY };
+            });
         const midIdx = pts.findIndex((_, i) => {
             const a = pts[i];
             const b = pts[(i + 1) % pts.length];
