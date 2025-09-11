@@ -145,7 +145,8 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
  */
 export const calculateLayersHash = (layers) => {
   if (!Array.isArray(layers)) return '';
-  
+  if (layers.length === 0) return '';
+
   const layerHashes = layers.map(layer => calculateCompactVisualHash(layer));
   return simpleHash(layerHashes.join('|'));
 };

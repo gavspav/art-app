@@ -11,7 +11,7 @@ export function useRandomization({
   palettes,
   blendModes,
   layers,
-  selectedLayerIndex,
+  selectedLayerIndex: _selectedLayerIndex,
   randomizePalette,
   randomizeNumColors,
   colorCountMin = 1,
@@ -20,7 +20,7 @@ export function useRandomization({
   seed,
   // helpers
   sampleColorsEven,
-  assignOneColorPerLayer,
+  assignOneColorPerLayer: _assignOneColorPerLayer,
   rotationVaryAcrossLayers = true,
   getIsRnd,
   // setters
@@ -160,8 +160,17 @@ export function useRandomization({
       ? Math.floor(rand() * (defMaxL - defMinL + 1)) + defMinL
       : layers.length;
 
+    // Pick a scene palette. If Include (palette) is ON, try to avoid re-picking the current base palette for visible change.
     let sceneColors = pickPaletteColors(palettes, rand, []);
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
+    if (incPalette) {
+      const curKey = JSON.stringify(currentBase);
+      let guard = 0;
+      // Try a few times to get a different palette than current
+      while (JSON.stringify(sceneColors) === curKey && guard++ < 5) {
+        sceneColors = pickPaletteColors(palettes, rand, currentBase.length ? currentBase : []);
+      }
+    }
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     // If Global Include (palette) is OFF, keep current base; when ON, use a single scene palette
     if (!incPalette) {
@@ -172,7 +181,7 @@ export function useRandomization({
     const sceneMaxN = Math.min(cMaxCap, (sceneColors.length || currentN || cMaxCap));
     const sceneMinN = cMin;
     const sceneN = randomizeNumColors
-      ? (sceneMaxN > 0 ? Math.floor(Math.random() * (sceneMaxN - sceneMinN + 1)) + sceneMinN : currentN)
+      ? (sceneMaxN > 0 ? Math.floor(rand() * (sceneMaxN - sceneMinN + 1)) + sceneMinN : currentN)
       : currentN;
     const baseColors = (sceneColors.length || currentBase.length)
       ? sampleColorsEven(sceneColors.length ? sceneColors : currentBase, Math.max(1, sceneN))
@@ -297,27 +306,38 @@ export function useRandomization({
       layersOut.push({ ...DEFAULT_LAYER, ...varied });
     }
 
-    // Apply palette/numColors to each layer based on toggles
+    // Apply palette/numColors per requirement
     try {
-      for (let i = 0; i < layersOut.length; i++) {
-        const prev = layers[i] || DEFAULT_LAYER;
-        const curColors = Array.isArray(prev.colors) ? prev.colors : [];
-        // If Global Include (palette) is ON, apply the global baseColors; else preserve per-layer palette
-        const srcPalette = incPalette ? baseColors : (curColors.length ? curColors : baseColors);
-        const cMin = Math.max(1, Math.floor(colorCountMin));
-        const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
-        const maxN = Math.min(cMaxCap, (srcPalette.length || cMaxCap));
-        const minN = cMin;
-        let n;
-        if (randomizeNumColors) {
-          n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : (curColors.length || 1);
-        } else {
-          n = incPalette ? Math.min(srcPalette.length, maxN) : (prev.numColors || curColors.length || 1);
+      if (incPalette) {
+        // Spread one distinct colour per layer from the global scene palette
+        const singles = sampleColorsEven(baseColors, Math.max(1, layerCount));
+        for (let i = 0; i < layersOut.length; i++) {
+          const c = singles[i % singles.length];
+          layersOut[i].colors = [c];
+          layersOut[i].numColors = 1;
+          layersOut[i].selectedColor = 0;
         }
-        const next = sampleColorsEven(srcPalette, Math.max(1, n));
-        layersOut[i].colors = next;
-        layersOut[i].numColors = next.length;
-        layersOut[i].selectedColor = 0;
+      } else {
+        // Respect per-layer color randomization settings (global toggles control behavior)
+        for (let i = 0; i < layersOut.length; i++) {
+          const prev = layers[i] || DEFAULT_LAYER;
+          const curColors = Array.isArray(prev.colors) ? prev.colors : [];
+          // Per-layer palette choice: if global randomizePalette is ON, pick per layer; else keep current
+          const perLayerPalette = randomizePalette
+            ? (pickPaletteColors(palettes, rand, curColors) || curColors)
+            : curColors;
+          const cMin = Math.max(1, Math.floor(colorCountMin));
+          const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
+          const maxN = Math.min(cMaxCap, (perLayerPalette.length || cMaxCap));
+          const minN = cMin;
+          const n = randomizeNumColors
+            ? (maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1))
+            : (prev.numColors || curColors.length || 1);
+          const next = sampleColorsEven(perLayerPalette.length ? perLayerPalette : curColors, Math.max(1, n));
+          layersOut[i].colors = next;
+          layersOut[i].numColors = next.length;
+          layersOut[i].selectedColor = 0;
+        }
       }
     } catch {}
 
@@ -361,6 +381,20 @@ export function useRandomization({
     const incLayers = getIsRnd('layersCount');
     const incPalette = getIsRnd('globalPaletteIndex');
     const incRotation = getIsRnd('rotation');
+    const incVariation = getIsRnd('variation');
+
+    // Variation handling (base layer): preserve unless included, then sample
+    const pVar = parameters.find(p => p.id === 'variation');
+    const prevBaseVar = Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation);
+    const classicSampledVar = (() => {
+      if (!incVariation || !pVar || pVar.type !== 'slider') return prevBaseVar;
+      const rmin = Number.isFinite(pVar.randomMin) ? pVar.randomMin : pVar.min;
+      const rmax = Number.isFinite(pVar.randomMax) ? pVar.randomMax : pVar.max;
+      const low = Math.min(rmin ?? pVar.min, rmax ?? pVar.max);
+      const high = Math.max(rmin ?? pVar.min, rmax ?? pVar.max);
+      let v = low + rnd() * (high - low);
+      return clamp(v, pVar.min, pVar.max);
+    })();
 
     // Scene palette
     let baseColors = pickPaletteColors(palettes, rnd, []);
@@ -417,14 +451,27 @@ export function useRandomization({
       const angleRad = layer.movementAngle * (Math.PI / 180);
       layer.vx = Math.cos(angleRad) * (layer.movementSpeed * 0.001);
       layer.vy = Math.sin(angleRad) * (layer.movementSpeed * 0.001);
-      layer.scaleMin = 0.2;
-      layer.scaleMax = 1.5;
-      layer.scaleSpeed = 0.05;
+      // Randomize Z scale parameters for variety (independent of include flags)
+      // scaleSpeed in [0, 0.2], biased toward small
+      layer.scaleSpeed = Number((rnd() * 0.2).toFixed(3));
+      // scaleMin in [0, 0.8]
+      const sMin = Math.max(0, Math.min(0.8, Number((rnd() * 0.8).toFixed(2))));
+      // scaleMax at least sMin + 0.2, up to 2.0
+      const sMaxCandidate = sMin + 0.2 + rnd() * 1.8;
+      const sMax = Math.max(sMin + 0.2, Math.min(2.0, sMaxCandidate));
+      layer.scaleMin = Number(sMin.toFixed(2));
+      layer.scaleMax = Number(sMax.toFixed(2));
       layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
       return layer;
     };
 
     const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
+
+    // Apply base layer variation: preserve old or sampled when included
+    if (newLayers.length > 0) {
+      const v = classicSampledVar;
+      newLayers[0].variation = Number(v?.toFixed ? v.toFixed(2) : v);
+    }
 
     // Apply colours based on Include flag for palette
     if (incPalette) {
@@ -461,7 +508,9 @@ export function useRandomization({
     setSelectedLayerIndex(0);
 
     if (incBG) setBackgroundColor(randomBackgroundColor());
-    if (incBlend) setGlobalBlendMode('source-over');
+    if (incBlend && Array.isArray(blendModes) && blendModes.length) {
+      setGlobalBlendMode(blendModes[Math.floor(rnd() * blendModes.length)]);
+    }
     if (incSpeed) {
       const p = parameters.find(pp => pp.id === 'globalSpeedMultiplier');
       const smin = Number.isFinite(p?.min) ? p.min : 0;

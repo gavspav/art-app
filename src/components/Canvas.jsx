@@ -9,14 +9,31 @@ const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: bo
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over') => {
     // Destructure properties from the layer and its nested position object
     const {
-        numSides: sides, curviness, wobble = 0.5, width, height,
-        colors, /*blendMode,*/ opacity, noiseAmount, noiseSeed,
+        numSides: sides,
+        curviness,
+        wobble = 0.5,
+        width,
+        height,
+        colors = [],
+        /*blendMode,*/
+        opacity = 1,
+        noiseAmount = 0,
+        noiseSeed = 1,
         // New parameters from old version
-        freq1 = 2, freq2 = 3, freq3 = 4,
-        baseRadiusFactor = 0.4
-    } = layer;
-    const { x, y, scale } = layer.position;
-    const random = createSeededRandom(globalSeed + noiseSeed);
+        freq1 = 2,
+        freq2 = 3,
+        freq3 = 4,
+        baseRadiusFactor = 0.4,
+    } = layer || {};
+    const pos = layer?.position || { x: 0.5, y: 0.5, scale: 1 };
+    let px = Number(pos.x);
+    let py = Number(pos.y);
+    let ps = Number(pos.scale);
+    if (!Number.isFinite(px)) px = 0.5;
+    if (!Number.isFinite(py)) py = 0.5;
+    if (!Number.isFinite(ps)) ps = 1;
+    const x = px, y = py, scale = ps;
+    const random = createSeededRandom((Number(globalSeed) || 1) + (Number(noiseSeed) || 0));
 
     // Precompute frequencies and symmetry factor for noise deformation (shared between node and procedural shapes)
     const actualFreq1 = freq1 + (random() - 0.5) * 3;
@@ -26,22 +43,22 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     const symmetryFactor = amplitudeFactor; // preserve existing variable usages
 
     ctx.save();
-    ctx.globalAlpha = opacity;
+    ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
     const centerX = x * canvas.width;
     const centerY = y * canvas.height;
 
     // Radius mapping: if viewBoxMapped, map unit nodes to canvas half-size so SVG viewBox normalization aligns
-    const radiusX = layer.viewBoxMapped
+    const radiusX = layer?.viewBoxMapped
         ? (canvas.width / 2) * scale
-        : Math.min((width + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.width * 0.4) * scale;
-    const radiusY = layer.viewBoxMapped
+        : Math.min((width + (layer?.radiusBump || 0) * 20 || 0) * baseRadiusFactor, canvas.width * 0.4) * scale;
+    const radiusY = layer?.viewBoxMapped
         ? (canvas.height / 2) * scale
-        : Math.min((height + layer.radiusBump * 20 || 0) * baseRadiusFactor, canvas.height * 0.4) * scale;
+        : Math.min((height + (layer?.radiusBump || 0) * 20 || 0) * baseRadiusFactor, canvas.height * 0.4) * scale;
 
     // Defensive check for non-finite values
-    if (!isFinite(radiusX) || !isFinite(radiusY)) {
+    if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || !Number.isFinite(centerX) || !Number.isFinite(centerY)) {
         // Skip draw on invalid radius
         ctx.restore();
         return;
@@ -207,13 +224,18 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     }
 
     // Create gradient for this frame. Prior caching by center/radius caused churn and GC.
+    // Ensure we have at least 2 valid color stops
+    const stops = (Array.isArray(colors) && colors.length >= 2)
+        ? colors
+        : (Array.isArray(colors) && colors.length === 1 ? [colors[0], colors[0]] : ['#000000', '#000000']);
+
     const gradient = ctx.createRadialGradient(
         gCenterX, gCenterY, 0,
         gCenterX, gCenterY, gRadius
     );
-    const denom = (colors.length - 1) || 1;
-    for (let i = 0; i < colors.length; i++) {
-        gradient.addColorStop(i / denom, colors[i]);
+    const denom = (stops.length - 1) || 1;
+    for (let i = 0; i < stops.length; i++) {
+        gradient.addColorStop(i / denom, stops[i]);
     }
     ctx.fillStyle = gradient;
     ctx.fill();
@@ -291,7 +313,10 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
         imageHue = 0, imageSaturation = 100, imageDistortion = 0,
         noiseSeed = 1
     } = layer;
-    const { x, y, scale } = layer.position;
+    const pos = layer?.position || { x: 0.5, y: 0.5, scale: 1 };
+    const x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0.5;
+    const y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0.5;
+    const scale = Number.isFinite(Number(pos.scale)) ? Number(pos.scale) : 1;
 
     if (!image || !image.src) return;
 

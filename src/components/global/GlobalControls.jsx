@@ -315,7 +315,6 @@ const GlobalControls = ({
               value={layers.length}
               onChange={(e) => {
                 const target = parseInt(e.target.value, 10);
-                const wasLen = layers.length;
                 setLayers(prev => {
                   let next = prev;
                   if (target > prev.length) {

@@ -44,13 +44,13 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
   };
 
   // Handlers for sliders
-  const onX = (e) => updateLayer({ position: { ...currentLayer.position, x: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
-  const onY = (e) => updateLayer({ position: { ...currentLayer.position, y: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
+  const onX = (e) => updateLayer({ position: { ...(currentLayer?.position || {}), x: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
+  const onY = (e) => updateLayer({ position: { ...(currentLayer?.position || {}), y: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
   const onZ = (e) => {
     let v = parseFloat(e.target.value);
     if (!Number.isFinite(v)) v = scaleMin;
     v = Math.max(scaleMin, Math.min(scaleMax, v));
-    updateLayer({ position: { ...currentLayer.position, scale: v } });
+    updateLayer({ position: { ...(currentLayer?.position || {}), scale: v } });
   };
 
   // MIDI handlers for position are now registered globally so that layers update even when not selected.
@@ -72,7 +72,7 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
         // store previous values on the layer
         _prevMovementSpeed: prevMove,
         _prevScaleSpeed: prevScale,
-        position: { ...currentLayer.position, vx: 0, vy: 0 },
+        position: { ...(currentLayer?.position || {}), vx: 0, vy: 0 },
       });
     } else {
       // Restore previous speeds (fallback to defaults if missing)
@@ -96,7 +96,7 @@ const MidiPositionSection = ({ currentLayer, updateLayer }) => {
         // clear cached prev values to avoid stale state
         _prevMovementSpeed: undefined,
         _prevScaleSpeed: undefined,
-        position: { ...currentLayer.position, vx, vy },
+        position: { ...(currentLayer?.position || {}), vx, vy },
       });
     }
   };
@@ -343,7 +343,8 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     supported: midiSupported,
   } = useMidi() || {};
 
-  let value = currentLayer[id];
+  // Guard against undefined currentLayer during initial mounts
+  let value = currentLayer?.[id];
 
   // Special mapping for scale - it should update position.scale, not width/height
   if (id === 'scale') {
@@ -369,7 +370,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     // Custom mapping for scale
     if (id === 'scale') {
       // Update position.scale for uniform scaling
-      updateLayer({ position: { ...currentLayer.position, scale: newValue } });
+      updateLayer({ position: { ...(currentLayer?.position || {}), scale: newValue } });
     } else {
       updateLayer({ [id]: newValue });
     }
@@ -391,7 +392,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
       if (step === 1) rnd = Math.round(rnd);
       const clamped = Math.min(max, Math.max(min, rnd));
       if (id === 'scale') {
-        updateLayer({ position: { ...currentLayer.position, scale: clamped } });
+        updateLayer({ position: { ...(currentLayer?.position || {}), scale: clamped } });
       } else {
         updateLayer({ [id]: clamped });
       }
@@ -446,14 +447,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
     e.stopPropagation();
     const checked = !!e.target.checked;
     console.log('[Vary] header flag', key, checked, 'for param', id);
-    const nextVary = { ...(currentLayer.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
+    const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
     updateLayer({ vary: nextVary });
   };
 
   // Determine visibility but do not return yet to preserve hook order
   const hidden = (
-    (currentLayer.layerType === 'image' && param.group === 'Shape') ||
-    (currentLayer.layerType !== 'image' && param.group === 'Image Effects')
+    ((currentLayer?.layerType === 'image') && param.group === 'Shape') ||
+    ((currentLayer?.layerType !== 'image') && param.group === 'Image Effects')
   );
 
   const onClickSettings = (e) => {
@@ -479,7 +480,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
         mapped = Math.round((mapped - lo) / st) * st + lo;
         mapped = Math.max(lo, Math.min(hi, mapped));
         if (id === 'scale') {
-          updateLayer({ position: { ...currentLayer.position, scale: mapped } });
+          updateLayer({ position: { ...(currentLayer?.position || {}), scale: mapped } });
         } else {
           updateLayer({ [id]: mapped });
         }
@@ -832,7 +833,7 @@ const Controls = forwardRef(({
   const handleLayerNumColorsChange = (e) => {
     let n = parseInt(e.target.value, 10);
     if (!Number.isFinite(n) || n < 1) n = 1;
-    const base = Array.isArray(currentLayer.colors) ? currentLayer.colors : [];
+    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
     const pIdx = matchPaletteIndex(base);
     let newColors = [];
     if (pIdx !== -1) {

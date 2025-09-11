@@ -201,26 +201,26 @@ Acceptance for Phase 5
 ## Phase 6 — Testing & Tooling (Optional but Recommended)
 
 1) Add Vitest + React Testing Library
-- [ ] Install and configure:
+- [x] Install and configure:
   ```bash
   npm i -D vitest @testing-library/react @testing-library/user-event @testing-library/jest-dom
   ```
-- [ ] Add `vitest` config and scripts (e.g., `npm run test`).
+- [x] Add `vitest` config and scripts (e.g., `npm run test`).
 
 2) Unit Tests for Utilities
-- [ ] Tests for `colorUtils` (HSL/HEX, hexToRgb).
-- [ ] Tests for `paletteUtils` (even sampling, distribution).
-- [ ] Tests for `mathUtils` and `randomUtils`.
+- [x] Tests for `colorUtils` (HSL/HEX, hexToRgb).
+- [x] Tests for `paletteUtils` (even sampling, distribution).
+- [x] Tests for `mathUtils` and `randomUtils`.
 
 Acceptance for Phase 6
-- [ ] `npm run test` passes.
+- [x] `npm run test` passes.
 
 ---
 
 ## Phase 7 — Documentation
 
-- [ ] Update `README.md` with new architecture, directories, and contributing notes.
-- [ ] Document the seeded randomness policy and how to reproduce scenes.
+- [x] Update `README.md` with new architecture, directories, and contributing notes.
+- [x] Document the seeded randomness policy and how to reproduce scenes.
 
 ---
 

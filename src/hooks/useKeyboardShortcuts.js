@@ -107,6 +107,7 @@ export function useKeyboardShortcuts({
     setIsOverlayVisible,
     setIsNodeEditMode,
     setSelectedLayerIndex,
+    setZIgnore,
     hotkeyRef,
   ]);
 }

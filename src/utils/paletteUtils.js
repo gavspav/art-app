@@ -27,10 +27,6 @@ export function distributeColorsAcrossLayers(colors = [], layerCount = 0) {
     const take = base + (i < extra ? 1 : 0);
     for (let j = 0; j < take; j++) out[i].push(src[idx++]);
   }
-  // Round-robin remaining colours if any
-  for (let i = L; i < src.length; i++) {
-    out[i % L].push(src[i]);
-  }
   return out;
 }
 

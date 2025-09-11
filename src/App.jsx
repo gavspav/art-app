@@ -73,8 +73,7 @@ const MainApp = () => {
   // Removed Global Colours UI
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
-  const { enterFullscreen, exitFullscreen, isFullscreen } = useFullscreen(containerRef);
-  const toggleFullscreen = useCallback(() => (isFullscreen ? exitFullscreen() : enterFullscreen()), [isFullscreen, enterFullscreen, exitFullscreen]);
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   // Keep latest values accessible to hotkeys without re-binding listeners
