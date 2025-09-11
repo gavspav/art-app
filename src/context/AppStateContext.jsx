@@ -32,6 +32,8 @@ export const AppStateProvider = ({ children }) => {
     randomizeNumColors: true,
     // Rotation randomization behavior
     rotationVaryAcrossLayers: true,
+    // Global: allow colour fading to continue while frozen
+    colorFadeWhileFrozen: true,
   });
 
   // Individual state setters for backward compatibility
@@ -114,6 +116,10 @@ export const AppStateProvider = ({ children }) => {
 
   const setRotationVaryAcrossLayers = useCallback((value) => {
     setAppState(prev => ({ ...prev, rotationVaryAcrossLayers: !!value }));
+  }, []);
+
+  const setColorFadeWhileFrozen = useCallback((value) => {
+    setAppState(prev => ({ ...prev, colorFadeWhileFrozen: !!value }));
   }, []);
 
   // Function to get current app state for saving
@@ -219,6 +225,7 @@ export const AppStateProvider = ({ children }) => {
     setRandomizePalette,
     setRandomizeNumColors,
     setRotationVaryAcrossLayers,
+    setColorFadeWhileFrozen,
 
     // State management functions
     getCurrentAppState,

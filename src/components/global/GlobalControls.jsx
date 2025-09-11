@@ -20,6 +20,9 @@ const GlobalControls = ({
   setGlobalSpeedMultiplier,
   getIsRnd,
   setIsRnd,
+  // Fade while frozen
+  colorFadeWhileFrozen,
+  setColorFadeWhileFrozen,
   // MIDI
   midiSupported,
   beginLearn,
@@ -171,6 +174,9 @@ const GlobalControls = ({
         <div className="global-compact-row">
           <label className="compact-label">
             <input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze
+          </label>
+          <label className="compact-label" title="Continue palette colour fading while frozen">
+            <input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade while frozen
           </label>
           <label className="compact-label" title="Ignore Z movement (disable scaling animation)">
             <input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ignore

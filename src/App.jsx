@@ -48,6 +48,8 @@ const MainApp = () => {
     randomizePalette, setRandomizePalette,
     randomizeNumColors, setRandomizeNumColors,
     rotationVaryAcrossLayers, setRotationVaryAcrossLayers,
+    // Global: fade while frozen
+    colorFadeWhileFrozen, setColorFadeWhileFrozen,
   } = useAppState();
 
   // MIDI context
@@ -1016,6 +1018,8 @@ const MainApp = () => {
               setBackgroundImage={setBackgroundImage}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
               zIgnore={zIgnore}
@@ -1119,6 +1123,7 @@ const MainApp = () => {
             ref={canvasRef}
             layers={layers}
             isFrozen={isFrozen}
+            colorFadeWhileFrozen={colorFadeWhileFrozen}
             backgroundColor={backgroundColor}
             globalSeed={globalSeed}
             globalBlendMode={globalBlendMode}

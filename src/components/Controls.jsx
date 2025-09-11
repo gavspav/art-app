@@ -1143,34 +1143,71 @@ const Controls = forwardRef(({
                   Randomise palette
                 </label>
                 <label className="compact-label" title="Allow randomize to change number of colours">
-                  <input
-                    type="checkbox"
-                    checked={!!randomizeNumColors}
-                    onChange={(e) => setRandomizeNumColors && setRandomizeNumColors(!!e.target.checked)}
-                  />
-                  Randomise number of colours
-                </label>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
-                <label className="compact-label">Min</label>
                 <input
-                  type="number"
-                  min={1}
-                  max={colorCountMax || 8}
-                  value={Math.max(1, Number(colorCountMin || 1))}
-                  onChange={(e) => setColorCountMin && setColorCountMin(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                  type="checkbox"
+                  checked={!!randomizePalette}
+                  onChange={(e) => setRandomizePalette && setRandomizePalette(!!e.target.checked)}
                 />
-                <label className="compact-label">Max</label>
+                Randomise palette
+              </label>
+              <label className="compact-label" title="Allow randomize to change number of colours">
                 <input
-                  type="number"
-                  min={colorCountMin || 1}
-                  max={32}
-                  value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
-                  onChange={(e) => setColorCountMax && setColorCountMax(Math.max(Number(colorCountMin || 1), parseInt(e.target.value || '8', 10)))}
+                  type="checkbox"
+                  checked={!!randomizeNumColors}
+                  onChange={(e) => setRandomizeNumColors && setRandomizeNumColors(!!e.target.checked)}
                 />
-              </div>
+                Randomise number of colours
+              </label>
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
+              <label className="compact-label">Min</label>
+              <input
+                type="number"
+                min={1}
+                max={colorCountMax || 8}
+                value={Math.max(1, Number(colorCountMin || 1))}
+                onChange={(e) => setColorCountMin && setColorCountMin(Math.max(1, parseInt(e.target.value || '1', 10)))}
+              />
+              <label className="compact-label">Max</label>
+              <input
+                type="number"
+                min={colorCountMin || 1}
+                max={32}
+                value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
+                onChange={(e) => setColorCountMax && setColorCountMax(Math.max(Number(colorCountMin || 1), parseInt(e.target.value || '8', 10)))}
+              />
+            </div>
+          </div>
           )}
+          {/* Animate colours (fade between palette stops) */}
+          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
+            <div className="compact-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+              <label className="compact-label" title="Fade smoothly between the colours in this layer's palette">Animate colours</label>
+              <input
+                type="checkbox"
+                checked={!!currentLayer?.colorFadeEnabled}
+                onChange={(e) => updateLayer({ colorFadeEnabled: !!e.target.checked })}
+              />
+            </div>
+            {!!currentLayer?.colorFadeEnabled && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <div className="compact-row" style={{ alignItems: 'center', gap: '0.6rem' }}>
+                  <label className="compact-label">Fade speed</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={4}
+                    step={0.01}
+                    value={Math.max(0, Math.min(4, Number(currentLayer?.colorFadeSpeed ?? 0.5)))}
+                    onChange={(e) => updateLayer({ colorFadeSpeed: parseFloat(e.target.value) })}
+                    className="dc-slider"
+                  />
+                  <span style={{ minWidth: 48, textAlign: 'right', opacity: 0.85 }}>{Number(currentLayer?.colorFadeSpeed ?? 0.5).toFixed(2)}</span>
+                </div>
+                <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
+              </div>
+            )}
+          </div>
 
           <ColorPicker 
             label="Colours"

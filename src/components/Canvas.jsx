@@ -1,12 +1,13 @@
 import React, { useRef, useEffect, forwardRef, useMemo, useState } from 'react';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
-const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over') => {
+const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
     // Destructure properties from the layer and its nested position object
     const {
         numSides: sides,
@@ -24,6 +25,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         freq2 = 3,
         freq3 = 4,
         baseRadiusFactor = 0.4,
+        // New: color fading
+        colorFadeEnabled = false,
+        colorFadeSpeed = 0.0,
     } = layer || {};
     const pos = layer?.position || { x: 0.5, y: 0.5, scale: 1 };
     let px = Number(pos.x);
@@ -223,19 +227,39 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         gRadius = Math.max(1, maxDist);
     }
 
-    // Create gradient for this frame. Prior caching by center/radius caused churn and GC.
-    // Ensure we have at least 2 valid color stops
-    const stops = (Array.isArray(colors) && colors.length >= 2)
+    // Color fill: if animating colours, fill with a single blended colour (no gradient)
+    // Otherwise, use the existing radial gradient from the palette.
+    const baseStops = (Array.isArray(colors) && colors.length >= 2)
         ? colors
         : (Array.isArray(colors) && colors.length === 1 ? [colors[0], colors[0]] : ['#000000', '#000000']);
 
+    if (colorFadeEnabled && baseStops.length >= 2 && (Number(colorFadeSpeed) || 0) > 0) {
+        const n = baseStops.length;
+        const speed = Math.max(0, Number(colorFadeSpeed) || 0);
+        const ct = (colorTimeArg != null ? colorTimeArg : time) || 0;
+        const s = ct * speed; // colours per second
+        const i0 = ((Math.floor(s) % n) + n) % n;
+        const i1 = (i0 + 1) % n;
+        const t = s - Math.floor(s);
+        const a = hexToRgb(baseStops[i0] || '#000000');
+        const b = hexToRgb(baseStops[i1] || '#000000');
+        const r = a.r + (b.r - a.r) * t;
+        const g = a.g + (b.g - a.g) * t;
+        const b2 = a.b + (b.b - a.b) * t;
+        ctx.fillStyle = rgbToHex({ r, g, b: b2 });
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
+
+    // Non-animated: use gradient between palette stops
     const gradient = ctx.createRadialGradient(
         gCenterX, gCenterY, 0,
         gCenterX, gCenterY, gRadius
     );
-    const denom = (stops.length - 1) || 1;
-    for (let i = 0; i < stops.length; i++) {
-        gradient.addColorStop(i / denom, stops[i]);
+    const denom = (baseStops.length - 1) || 1;
+    for (let i = 0; i < baseStops.length; i++) {
+        gradient.addColorStop(i / denom, baseStops[i]);
     }
     ctx.fillStyle = gradient;
     ctx.fill();
@@ -473,7 +497,7 @@ const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
+const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, colorFadeWhileFrozen = true, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
     const layerHashesRef = useRef(new Map());
@@ -717,12 +741,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
                 } catch (e) { /* ignore image draw error */ }
             }
+            const colorTimeNow = (isFrozen && !colorFadeWhileFrozen) ? timeNow : (Date.now() * 0.001);
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
                 } else {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow));
                 }
             });
             // Do not return; continue to draw overlays (debug grid, node handles)
@@ -811,7 +836,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, time, isNodeEditMode, globalBlendMode));
+                    const colorTimeNow = (isFrozen && !colorFadeWhileFrozen) ? time : (Date.now() * 0.001);
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, time, isNodeEditMode, globalBlendMode, colorTimeNow));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
                         const pts = computeDeformedNodePoints(layer, canvas, globalSeed + index, time);
                         renderedPointsRef.current.set(index, pts);
