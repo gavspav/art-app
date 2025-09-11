@@ -681,14 +681,15 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         }
 
         // Draw draggable node + midpoint handles for selected layer when in node edit mode
-        if (isNodeEditMode && selectedLayerIndex != null && layers[selectedLayerIndex]) {
-            const sel = layers[selectedLayerIndex];
+        if (isNodeEditMode && selectedLayerIndex != null && Array.isArray(layers) && layers.length > 0) {
+            const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+            const sel = layers[clampedIndex];
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const layerCX = x * width;
                 const layerCY = y * height;
                 // Prefer cached, last-rendered deformed points for exact alignment
-                let points = renderedPointsRef.current.get(selectedLayerIndex);
+                let points = renderedPointsRef.current.get(clampedIndex);
                 if (!Array.isArray(points) || points.length !== sel.nodes.length) {
                     // Fallback: rotated base-node positions
                     const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;

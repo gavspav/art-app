@@ -125,26 +125,27 @@ Acceptance for Phase 2
 Goal: Remove duplication and centralize helpers.
 
 1) Color Utilities
-- [ ] Create `src/utils/colorUtils.js`.
-- [ ] Add a single `hslToHex(h, s, l)` and `hexToRgb(hex)` implementation.
-- [ ] Replace all duplicated conversions in `App.jsx` and `Canvas.jsx`.
+- [x] Create `src/utils/colorUtils.js`.
+- [x] Add a single `hslToHex(h, s, l)` and `hexToRgb(hex)` implementation.
+- [x] Replace duplicated conversions/usages in `App.jsx`, `useRandomization.js`, `useMIDIHandlers.js`, and `Controls.jsx`.
 
 2) Palette Utilities
-- [ ] Create `src/utils/paletteUtils.js` with:
-  - [ ] `sampleColorsEven(base, count)`
-  - [ ] `distributeColorsAcrossLayers(colors, layerCount)`
-  - [ ] `assignOneColorPerLayer(layers, colors)` (pure, returns next layers)
-- [ ] Replace inline versions in `App.jsx`.
+- [x] Create `src/utils/paletteUtils.js` with:
+  - [x] `sampleColorsEven(base, count)`
+  - [x] `distributeColorsAcrossLayers(colors, layerCount)`
+  - [x] `assignOneColorPerLayer(layers, colors)` (pure, returns next layers)
+- [x] Replace inline versions in `App.jsx`.
 
 3) Math Utilities
-- [ ] Create `src/utils/mathUtils.js` with:
-  - [ ] `clamp(v, min, max)`
-  - [ ] `mixRandom(base, min, max, w, { integer })`
+- [x] Create `src/utils/mathUtils.js` with:
+  - [x] `clamp(v, min, max)`
+  - [x] `mixRandom(base, min, max, w, { integer })`
+  - [x] Replace inline `clamp/mixRandom` where used (`useRandomization.js`, `App.jsx` vary logic).
 
 4) Random Utilities
-- [ ] Create `src/utils/randomUtils.js`.
-- [ ] Provide wrappers around `createSeededRandom(seed)` and helpers like `pick(array, rnd)` using seeded RNG.
-- [ ] Replace `Math.random()` in randomization paths for reproducibility (see Bug Fixes).
+- [x] Create `src/utils/randomUtils.js`.
+- [x] Provide wrappers around `createSeededRandom(seed)` and helpers like `pick(array, rnd)` using seeded RNG.
+- [ ] Replace `Math.random()` in randomization paths for reproducibility (see Phase 4 Consistent Seeded Randomness).
 
 Acceptance for Phase 3
 - [ ] No duplicate HSL/HEX conversions remain.
@@ -155,31 +156,33 @@ Acceptance for Phase 3
 ## Phase 4 — Bug Fixes & Logical Corrections
 
 1) Timer Cleanup to Avoid Leaks
-- [ ] In `App.jsx`, add effect cleanup for `suppressTimerRef` (animation suppression timeout).
-- [ ] In `pages/Settings.jsx`, store timeout ID when showing messages and clear in cleanup.
+- [x] In `App.jsx`, add effect cleanup for `suppressTimerRef` (animation suppression timeout).
+- [x] In `pages/Settings.jsx`, store timeout ID when showing messages and clear in cleanup.
 
 2) Consistent Seeded Randomness
-- [ ] Replace `Math.random()` in randomization flows with a seeded RNG (`createSeededRandom`) when determinism is desired.
-- [ ] Document where true entropy is acceptable (e.g., Quick Random for user-initiated non-deterministic actions).
+- [x] Replace `Math.random()` in randomization flows with a seeded RNG (`createSeededRandom`) when determinism is desired.
+- [x] Document where true entropy is acceptable (e.g., Quick Random for user-initiated non-deterministic actions).
 
 3) Effect Dependencies
-- [ ] Revisit `// eslint-disable-next-line react-hooks/exhaustive-deps` occurrences in `App.jsx`.
-- [ ] Either add missing dependencies or wrap values in refs to avoid stale closures.
+- [x] Revisit `// eslint-disable-next-line react-hooks/exhaustive-deps` occurrences in `App.jsx`.
+- [x] Either add missing dependencies or wrap values in refs to avoid stale closures.
+- [x] Either add missing dependencies or wrap values in refs to avoid stale closures. (Intentionally documented exceptions remain in `Controls.jsx` and `useImportAdjust.js`.)
 
 4) Index Clamping
-- [ ] Standardize `clampedSelectedIndex` usage everywhere indexes into `layers`.
-- [ ] Add guards for empty layers arrays in all layer access points.
+- [x] Standardize `clampedSelectedIndex` usage everywhere indexes into `layers`.
+- [x] Add guards for empty layers arrays in all layer access points.
 
 5) Canvas Dimension Guards
-- [ ] Ensure `Canvas.jsx` gracefully handles zero-sized canvas (skip draw or delay until hydrated).
+- [x] Ensure `Canvas.jsx` gracefully handles zero-sized canvas (skip draw or delay until hydrated). (Not needed: ResizeObserver enforces >= 1×1; optional early-return left out by design.)
 
 6) Redundant/Fragile Logic
-- [ ] Simplify palette candidate picking (remove repeated ternary).
-- [ ] Validate palette structure before use (array vs. object with `colors`).
+- [x] Simplify palette candidate picking (remove repeated ternary).
+- [x] Validate palette structure before use (array vs. object with `colors`).
 
 Acceptance for Phase 4
-- [ ] No outstanding ESLint warnings from effects.
-- [ ] No memory leaks when navigating away or unmounting.
+- [x] No outstanding ESLint warnings from effects.
+- [x] No memory leaks when navigating away or unmounting.
+- [x] No memory leaks when navigating away or unmounting.
 
 ---
 

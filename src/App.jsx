@@ -15,6 +15,8 @@ import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
+import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure } from './utils/paletteUtils.js';
+import { clamp as clampUtil, mixRandom as mixRandomUtil } from './utils/mathUtils.js';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
@@ -86,6 +88,18 @@ const MainApp = () => {
   const [suppressAnimation, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
 
+  // Cleanup any pending suppression timer on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (suppressTimerRef.current) {
+          clearTimeout(suppressTimerRef.current);
+          suppressTimerRef.current = null;
+        }
+      } catch {}
+    };
+  }, []);
+
   // --- Import adjust panel state (moved to hook) ---
   const {
     showImportAdjust, setShowImportAdjust,
@@ -109,10 +123,17 @@ const MainApp = () => {
   } = useParameters();
   const { getCurrentAppState, loadAppState } = useAppState();
 
-  // Helpers for ParameterContext metadata
-  const getParam = (id) => parameters.find(p => p.id === id) || {};
-  const getIsRnd = (id) => !!getParam(id).isRandomizable;
-  const setIsRnd = (id, v) => updateParameter && updateParameter(id, 'isRandomizable', !!v);
+  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
+  const [includeRnd, setIncludeRnd] = useState({
+    backgroundColor: true,
+    globalSpeedMultiplier: true,
+    globalBlendMode: true,
+    globalOpacity: true,
+    layersCount: true,
+    variation: true,
+  });
+  const getIsRnd = (id) => !!includeRnd[id];
+  const setIsRnd = (id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v }));
 
   // No local popovers; inline checkboxes next to controls
 
@@ -149,20 +170,7 @@ const MainApp = () => {
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
-    const L = Math.max(0, Math.floor(layerCount));
-    const out = Array.from({ length: L }, () => []);
-    const src = Array.isArray(colors) ? colors : [];
-    if (L === 0 || src.length === 0) return out;
-    // Ensure at least one color per layer by cycling if needed
-    for (let i = 0; i < Math.max(src.length, L); i++) {
-      const col = src[i % src.length];
-      out[i % L].push(col);
-    }
-    // If there are remaining colors beyond L, continue round-robin assignment
-    for (let i = L; i < src.length; i++) {
-      out[i % L].push(src[i]);
-    }
-    return out;
+    return distributeColorsAcrossLayersUtil(colors, layerCount);
   };
 
   /* eslint-disable no-unused-vars */
@@ -178,29 +186,17 @@ const MainApp = () => {
   /* eslint-enable no-unused-vars */
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
-  const sampleColorsEven = (base = [], count = 0) => {
-    const n = Math.max(0, Math.floor(count));
-    if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
-    if (n === 1) return [base[0]];
-    const out = [];
-    for (let _i = 0; _i < n; _i++) {
-      const t = (n === 1) ? 0 : (_i / (n - 1));
-      const idx2 = Math.round(t * (base.length - 1));
-      out.push(base[idx2]);
-    }
-    return out;
-  };
+  // Memoized to provide a stable function identity to child components/hooks
+  const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
-  // Assign exactly one colour per layer from a palette or list, cycling if needed
-  const assignOneColorPerLayer = (colors) => {
-    const src = Array.isArray(colors) ? colors : [];
-    setLayers(prev => prev.map((l, i) => {
-      const col = src.length ? src[i % src.length] : '#000000';
-      return { ...l, colors: [col], numColors: 1, selectedColor: 0 };
-    }));
-  };
-
-  // Removed Global Colours state and helpers
+  // Assign exactly one colour per layer using pure util (applied to state)
+  // Memoized to provide a stable function identity to child components/hooks
+  const assignOneColorPerLayer = useCallback((colors) => {
+    setLayers(prev => {
+      const next = distributeColorsAcrossLayersUtil(prev.length, colors);
+      return prev.map((l, i) => ({ ...l, colors: next[i] || ["#ffffff"], numColors: (next[i] || ["#ffffff"]).length, selectedColor: 0 }));
+    });
+  }, [setLayers]);
 
   const handleImportFile = async (e) => {
     const file = e.target.files[0];
@@ -584,7 +580,6 @@ const MainApp = () => {
     // Previously, node edit mode forced freezing to simplify editing.
     // This has been disabled per request; preserve current frozen state.
     prevFrozenRef.current = null; // keep state; intentional no-op
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNodeEditMode]);
 
   // Clamp selection to available layers to avoid transient undefined during updates
@@ -618,15 +613,9 @@ const MainApp = () => {
     const w = Math.max(0, Math.min(1, v / 3)); // normalize 0..3 -> 0..1
     const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
 
-    const mixRandom = (prevVal, min, max, integer = false) => {
-      const rnd = min + Math.random() * (max - min);
-      let next = prevVal * (1 - w) + rnd * w;
-      next = Math.min(max, Math.max(min, next));
-      if (integer) next = Math.round(next);
-      return next;
-    };
+    const mixRandom = (prevVal, min, max, integer = false) => mixRandomUtil(prevVal, min, max, w, integer);
 
-    const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
+    const clamp = clampUtil;
 
     const random = createSeededRandom(Math.random());
     const newSeed = random();
@@ -775,6 +764,7 @@ const MainApp = () => {
     colorCountMin,
     colorCountMax,
     classicMode,
+    seed: globalSeed,
     sampleColorsEven,
     assignOneColorPerLayer,
     getIsRnd,
@@ -806,11 +796,10 @@ const MainApp = () => {
     const layer = layers[idx];
     if (!layer) return;
     const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
+    // NOTE: This path intentionally uses true entropy for quick exploration
+    // Deterministic flows are handled inside useRandomization via seeded RNG
     const srcPalette = randomizePalette
-      ? (() => {
-          const pick = palettes[Math.floor(Math.random() * palettes.length)];
-          return Array.isArray(pick) ? pick : (pick.colors || baseColors);
-        })()
+      ? pickPaletteColors(palettes, Math.random, baseColors)
       : baseColors;
     const cMin = Math.max(1, Math.floor(colorCountMin));
     const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));

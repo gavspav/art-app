@@ -5,6 +5,7 @@ import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
 import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Per-layer MIDI Position control block
 const MidiPositionSection = ({ currentLayer, updateLayer }) => {
@@ -224,15 +225,6 @@ const MidiColorSection = ({ currentLayer, updateLayer }) => {
   const selIdx = Number.isFinite(currentLayer?.selectedColor) ? currentLayer.selectedColor : 0;
   const curHex = colors[selIdx] || '#000000';
 
-  const hexToRgb = (hex) => {
-    const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
-    if (!m) return { r: 0, g: 0, b: 0 };
-    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-  };
-  const rgbToHex = ({ r, g, b }) => {
-    const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-    return `#${c(r)}${c(g)}${c(b)}`;
-  };
 
   const curRGB = hexToRgb(curHex);
 
@@ -751,6 +743,11 @@ const Controls = forwardRef(({
   setRandomizePalette,
   randomizeNumColors,
   setRandomizeNumColors,
+  colorCountMin,
+  colorCountMax,
+  setColorCountMin,
+  setColorCountMax,
+  onRandomizeLayerColors,
   layerNames,
   selectedLayerIndex,
   onSelectLayer,

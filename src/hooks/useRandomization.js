@@ -1,3 +1,8 @@
+import { useMemo } from 'react';
+import { hslToHex } from '../utils/colorUtils.js';
+import { clamp } from '../utils/mathUtils.js';
+import { createSeededRandom } from '../utils/random.js';
+import { getColorsFromPalette, pickPaletteColors } from '../utils/paletteUtils.js';
 // Randomization hook: provides modern/classic/randomize-layer/scene functions
 export function useRandomization({
   // inputs and helpers
@@ -12,6 +17,7 @@ export function useRandomization({
   colorCountMin = 1,
   colorCountMax = 8,
   classicMode,
+  seed,
   // helpers
   sampleColorsEven,
   assignOneColorPerLayer,
@@ -23,37 +29,30 @@ export function useRandomization({
   setGlobalBlendMode,
   setGlobalSpeedMultiplier,
 }) {
-  const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
+  // Seeded RNG persistent across renders for deterministic but varying sequences
+  const rand = useMemo(() => (
+    Number.isFinite(seed) ? createSeededRandom(Number(seed)) : Math.random
+  ), [seed]);
 
+  // Local mix using seeded RNG
+  const mixRand = (baseVal, min, max, w, integer = false) => {
+    const rnd = min + rand() * Math.max(0, (max - min));
+    let next = baseVal * (1 - w) + rnd * w;
+    next = clamp(next, min, max);
+    if (integer) next = Math.round(next);
+    return next;
+  };
   const randomBackgroundColor = () => {
-    const h = Math.floor(Math.random() * 360);
-    const s = Math.floor(40 + Math.random() * 40);
-    const l = Math.floor(25 + Math.random() * 55);
-    const hslToHex = (hh, ss, ll) => {
-      const s1 = ss / 100;
-      const l1 = ll / 100;
-      const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-      const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
-      const m = l1 - c / 2;
-      let r = 0, g = 0, b = 0;
-      if (hh < 60) { r = c; g = x; b = 0; }
-      else if (hh < 120) { r = x; g = c; b = 0; }
-      else if (hh < 180) { r = 0; g = c; b = x; }
-      else if (hh < 240) { r = 0; g = x; b = c; }
-      else if (hh < 300) { r = x; g = 0; b = c; }
-      else { r = c; g = 0; b = x; }
-      const toHex = (v) => {
-        const n = Math.round((v + m) * 255);
-        return n.toString(16).padStart(2, '0');
-      };
-      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-    };
+    const h = Math.floor(rand() * 360);
+    const s = Math.floor(40 + rand() * 40);
+    const l = Math.floor(25 + rand() * 55);
     return hslToHex(h, s, l);
   };
 
   const randomizeLayer = (index, _forcePalette = false) => {
     const randomizableParams = parameters.filter(p => p.isRandomizable);
-    const layer = layers[index];
+    const idx = Math.max(0, Math.min(Number.isFinite(index) ? index : 0, Math.max(0, layers.length - 1)));
+    const layer = layers[idx];
     const newProps = {};
 
     randomizableParams.forEach(param => {
@@ -65,7 +64,7 @@ export function useRandomization({
           const rmax = Number.isFinite(param.randomMax) ? param.randomMax : param.max;
           const low = Math.min(rmin ?? param.min, rmax ?? param.max);
           const high = Math.max(rmin ?? param.min, rmax ?? param.max);
-          let rawValue = low + Math.random() * (high - low);
+          let rawValue = low + rand() * (high - low);
           rawValue = Math.min(param.max, Math.max(param.min, rawValue));
           const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
           newProps[param.id] = finalValue;
@@ -73,7 +72,7 @@ export function useRandomization({
         }
         default:
           if (param.type === 'dropdown' && param.options) {
-            newProps[param.id] = param.options[Math.floor(Math.random() * param.options.length)];
+            newProps[param.id] = param.options[Math.floor(rand() * param.options.length)];
           }
       }
     });
@@ -86,8 +85,8 @@ export function useRandomization({
       const currentN = Number.isFinite(layer.numColors) ? layer.numColors : (baseColors.length || 0);
       let nextPalette = baseColors;
       if (doPalette) {
-        const pick = palettes[Math.floor(Math.random() * palettes.length)];
-        nextPalette = Array.isArray(pick) ? pick : (pick.colors || baseColors);
+        const colors = pickPaletteColors(palettes, rand, baseColors);
+        nextPalette = colors.length ? colors : baseColors;
       }
       let nextN = currentN;
       if (doCount) {
@@ -95,7 +94,7 @@ export function useRandomization({
         const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
         const maxN = Math.min(cMaxCap, (nextPalette.length || cMaxCap));
         const minN = cMin;
-        nextN = Math.max(1, Math.floor(Math.random() * (maxN - minN + 1)) + minN);
+        nextN = Math.max(1, Math.floor(rand() * (maxN - minN + 1)) + minN);
       }
       const nextColors = sampleColorsEven(nextPalette.length ? nextPalette : baseColors, nextN || currentN || 1);
       newProps.colors = nextColors;
@@ -103,7 +102,7 @@ export function useRandomization({
       newProps.selectedColor = 0;
     }
 
-    const updatedLayer = { ...layers[index], ...newProps };
+    const updatedLayer = { ...(layers[idx] || DEFAULT_LAYER), ...newProps };
     if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
       const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
       updatedLayer.vx = Math.cos(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
@@ -113,7 +112,8 @@ export function useRandomization({
   };
 
   const randomizeAnimationOnly = (index) => {
-    const layer = layers[index];
+    const idx = Math.max(0, Math.min(Number.isFinite(index) ? index : 0, Math.max(0, layers.length - 1)));
+    const layer = layers[idx];
     if (!layer) return null;
     const sampleSliderParam = (id, defMin, defMax, roundInt = false) => {
       const p = parameters.find(pp => pp.id === id);
@@ -122,11 +122,11 @@ export function useRandomization({
         const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
         const low = Math.min(rmin ?? p.min, rmax ?? p.max);
         const high = Math.max(rmin ?? p.min, rmax ?? p.max);
-        let v = low + Math.random() * (high - low);
+        let v = low + rand() * (high - low);
         v = Math.min(p.max, Math.max(p.min, v));
         return p.step === 1 || roundInt ? Math.round(v) : v;
       }
-      let v = defMin + Math.random() * (defMax - defMin);
+      let v = defMin + rand() * (defMax - defMin);
       return roundInt ? Math.round(v) : v;
     };
     const newProps = {};
@@ -148,23 +148,15 @@ export function useRandomization({
     const incLayers = getIsRnd('layersCount');
 
     const getParam = (id) => parameters.find(p => p.id === id);
-    const mixRandom = (baseVal, min, max, w, integer = false) => {
-      const rnd = min + Math.random() * Math.max(0, (max - min));
-      let next = baseVal * (1 - w) + rnd * w;
-      next = clamp(next, min, max);
-      if (integer) next = Math.round(next);
-      return next;
-    };
 
     const layersParam = parameters.find(p => p.id === 'layersCount');
     const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
     const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 8;
     const layerCount = incLayers
-      ? Math.floor(Math.random() * (defMaxL - defMinL + 1)) + defMinL
+      ? Math.floor(rand() * (defMaxL - defMinL + 1)) + defMinL
       : layers.length;
 
-    let scenePreset = palettes[Math.floor(Math.random() * palettes.length)];
-    let sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
+    let sceneColors = pickPaletteColors(palettes, rand, []);
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     if (!randomizePalette) {
@@ -194,7 +186,7 @@ export function useRandomization({
       const rmax = Number.isFinite(pVar.randomMax) ? pVar.randomMax : pVar.max;
       const low = Math.min(rmin ?? pVar.min, rmax ?? pVar.max);
       const high = Math.max(rmin ?? pVar.min, rmax ?? pVar.max);
-      let v = low + Math.random() * (high - low);
+      let v = low + rand() * (high - low);
       return clamp(v, pVar.min, pVar.max);
     })();
     for (let idx = 0; idx < Math.max(1, layerCount); idx++) {
@@ -207,12 +199,12 @@ export function useRandomization({
 
       // IMPORTANT: Randomize All should affect core properties regardless of per-layer vary flags.
       // Use variation only to scale the intensity of the change.
-      varied.numSides = Math.max(3, Math.round(mixRandom(prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, w, true)));
-      varied.curviness = Number(mixRandom(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, w).toFixed(3));
-      varied.noiseAmount = Number(mixRandom(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, w).toFixed(2));
-      varied.wobble = Number(mixRandom(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, w).toFixed(3));
-      varied.width = Math.round(mixRandom(prev.width ?? DEFAULT_LAYER.width, 10, 900, w, true));
-      varied.height = Math.round(mixRandom(prev.height ?? DEFAULT_LAYER.height, 10, 900, w, true));
+      varied.numSides = Math.max(3, Math.round(mixRand(prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, w, true)));
+      varied.curviness = Number(mixRand(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, w).toFixed(3));
+      varied.noiseAmount = Number(mixRand(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, w).toFixed(2));
+      varied.wobble = Number(mixRand(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, w).toFixed(3));
+      varied.width = Math.round(mixRand(prev.width ?? DEFAULT_LAYER.width, 10, 900, w, true));
+      varied.height = Math.round(mixRand(prev.height ?? DEFAULT_LAYER.height, 10, 900, w, true));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
@@ -221,21 +213,21 @@ export function useRandomization({
         const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
         let nextStyle = cur;
         const changeProb = Math.max(0.3, w); // ensure some chance even at low variation
-        if (styles.length && Math.random() < changeProb) {
+        if (styles.length && rand() < changeProb) {
           const others = styles.filter(s => s !== cur);
           const pool = others.length ? others : styles;
-          nextStyle = pool[Math.floor(Math.random() * pool.length)];
+          nextStyle = pool[Math.floor(rand() * pool.length)];
         }
         varied.movementStyle = nextStyle;
       }
-      varied.movementSpeed = Number(mixRandom(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, w).toFixed(3));
+      varied.movementSpeed = Number(mixRand(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, w).toFixed(3));
       {
-        const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360, true);
+        const nextAngle = mixRand(prev.movementAngle ?? 45, 0, 360, true);
         varied.movementAngle = ((nextAngle % 360) + 360) % 360;
       }
 
       // Scale
-      varied.scaleSpeed = Number(mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2, w).toFixed(3));
+      varied.scaleSpeed = Number(mixRand(prev.scaleSpeed ?? 0.05, 0, 0.2, w).toFixed(3));
       let nextScaleMin = prev.scaleMin ?? 0.2;
       let nextScaleMax = prev.scaleMax ?? 1.5;
       // Keep scale bounds as non-randomizable defaults; do not change unless your design later permits
@@ -246,8 +238,8 @@ export function useRandomization({
       const baseX = prev.position?.x ?? 0.5;
       const baseY = prev.position?.y ?? 0.5;
       const jitter = 0.15 * w;
-      const jx = (Math.random() * 2 - 1) * jitter;
-      const jy = (Math.random() * 2 - 1) * jitter;
+      const jx = (rand() * 2 - 1) * jitter;
+      const jy = (rand() * 2 - 1) * jitter;
       const nx = clamp(baseX + jx, 0.0, 1.0);
       const ny = clamp(baseY + jy, 0.0, 1.0);
       varied.position = {
@@ -267,16 +259,16 @@ export function useRandomization({
       if (Array.isArray(prev.colors) && prev.colors.length) {
         if (w >= 0.75) {
           const currentKey = JSON.stringify(prev.colors);
-          const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
-          const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
-          const chosenArr = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
+          const candidates = palettes.filter(p => JSON.stringify(getColorsFromPalette(p)) !== currentKey);
+          const pool = candidates.length ? candidates : palettes;
+          const chosenArr = getColorsFromPalette(pool[Math.max(0, Math.min(pool.length - 1, Math.floor(rand() * pool.length)))]);
           varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
           varied.numColors = varied.colors.length;
         } else if (w >= 0.4) {
           const arr = [...prev.colors];
           for (let i = arr.length - 1; i > 0; i--) {
-            if (Math.random() < 0.5 * w) {
-              const j = Math.floor(Math.random() * (i + 1));
+            if (rand() < 0.5 * w) {
+              const j = Math.floor(rand() * (i + 1));
               [arr[i], arr[j]] = [arr[j], arr[i]];
             }
           }
@@ -319,7 +311,7 @@ export function useRandomization({
       const p = getParam('globalOpacity');
       const omin = Number.isFinite(p?.min) ? p.min : 0;
       const omax = Number.isFinite(p?.max) ? p.max : 1;
-      const oval = omin + Math.random() * Math.max(0, omax - omin);
+      const oval = omin + rand() * Math.max(0, omax - omin);
       layersOut.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
     }
 
@@ -334,19 +326,19 @@ export function useRandomization({
     // Background
     if (incBG) setBackgroundColor(randomBackgroundColor());
     // Blend
-    if (incBlend) setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
+    if (incBlend) setGlobalBlendMode(blendModes[Math.floor(rand() * blendModes.length)]);
     // Speed
     if (incSpeed) {
       const p = getParam('globalSpeedMultiplier');
       const smin = Number.isFinite(p?.min) ? p.min : 0;
       const smax = Number.isFinite(p?.max) ? p.max : 5;
-      const sval = smin + Math.random() * Math.max(0, smax - smin);
+      const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
   };
 
   const classicRandomizeAll = () => {
-    const rnd = Math.random;
+    const rnd = rand;
     const incBG = getIsRnd('backgroundColor');
     const incSpeed = getIsRnd('globalSpeedMultiplier');
     const incBlend = getIsRnd('globalBlendMode');
@@ -354,8 +346,7 @@ export function useRandomization({
     const incLayers = getIsRnd('layersCount');
 
     // Scene palette
-    let scenePreset = palettes[Math.floor(rnd() * palettes.length)];
-    let baseColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
+    let baseColors = pickPaletteColors(palettes, rnd, []);
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     if (!randomizePalette) baseColors = currentBase.length ? currentBase : baseColors;

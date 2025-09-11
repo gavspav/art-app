@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { useAppState } from '../context/AppStateContext.jsx';
@@ -8,6 +8,7 @@ const Settings = () => {
   const { parameters, updateParameter, saveParameters, loadParameters, saveFullConfiguration, loadFullConfiguration, deleteConfiguration, getSavedConfigList, resetToDefaults } = useParameters();
   const { getCurrentAppState, loadAppState, resetAppState } = useAppState();
   const [message, setMessage] = useState('');
+  const msgTimerRef = useRef(null);
   const [saveFilename, setSaveFilename] = useState('');
   const [loadFilename, setLoadFilename] = useState('');
   const [savedConfigs, setSavedConfigs] = useState([]);
@@ -106,8 +107,25 @@ const Settings = () => {
 
   const showMessage = (msg, isError = false) => {
     setMessage({ text: msg, isError });
-    setTimeout(() => setMessage(''), 3000);
+    try {
+      if (msgTimerRef.current) {
+        clearTimeout(msgTimerRef.current);
+        msgTimerRef.current = null;
+      }
+    } catch {}
+    msgTimerRef.current = setTimeout(() => setMessage(''), 3000);
   };
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (msgTimerRef.current) {
+          clearTimeout(msgTimerRef.current);
+          msgTimerRef.current = null;
+        }
+      } catch {}
+    };
+  }, []);
 
   const handleSave = () => {
     const filename = saveFilename.trim() || 'default';

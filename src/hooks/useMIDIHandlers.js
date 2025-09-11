@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Consolidates all MIDI registerParamHandler effects
 export function useMIDIHandlers({
@@ -179,15 +180,6 @@ export function useMIDIHandlers({
   // Background Color (RGB)
   useEffect(() => {
     if (!registerParamHandler) return;
-    const hexToRgb = (hex) => {
-      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
-      if (!m) return { r: 0, g: 0, b: 0 };
-      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-    };
-    const rgbToHex = ({ r, g, b }) => {
-      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-      return `#${c(r)}${c(g)}${c(b)}`;
-    };
 
     const idR = 'backgroundColorR';
     const idG = 'backgroundColorG';
@@ -210,16 +202,6 @@ export function useMIDIHandlers({
   useEffect(() => {
     if (!registerParamHandler) return;
     const unsubs = [];
-
-    const hexToRgb = (hex) => {
-      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
-      if (!m) return { r: 0, g: 0, b: 0 };
-      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-    };
-    const rgbToHex = ({ r, g, b }) => {
-      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-      return `#${c(r)}${c(g)}${c(b)}`;
-    };
 
     layers.forEach((layer, index) => {
       const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
