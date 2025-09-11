@@ -578,6 +578,78 @@ const MainApp = () => {
     e.preventDefault();
   };
 
+  // Screen capture recording (Phase 1)
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const pickBestMime = () => {
+    try {
+      const candidates = [
+        'video/mp4;codecs=h264',
+        'video/mp4',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ];
+      for (const m of candidates) {
+        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+      }
+    } catch {}
+    return 'video/webm';
+  };
+  const startRecording = () => {
+    try {
+      const canvas = canvasRef.current;
+      if (!canvas || !canvas.captureStream) {
+        alert('Canvas captureStream not supported in this browser.');
+        return;
+      }
+      const mimeType = pickBestMime();
+      const fps = 60;
+      const stream = canvas.captureStream(fps);
+      const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+      recordedChunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data); };
+      rec.onstop = () => {
+        try {
+          const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+          const url = URL.createObjectURL(blob);
+          const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `artapp-${Date.now()}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+        } catch {}
+      };
+      mediaRecorderRef.current = rec;
+      rec.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.warn('Failed to start recording', err);
+      alert('Failed to start recording.');
+    }
+  };
+  const stopRecording = () => {
+    try {
+      const rec = mediaRecorderRef.current;
+      if (rec && rec.state !== 'inactive') {
+        rec.stop();
+      }
+    } catch {}
+    setIsRecording(false);
+  };
+  useEffect(() => {
+    return () => {
+      try {
+        const rec = mediaRecorderRef.current;
+        if (rec && rec.state !== 'inactive') rec.stop();
+      } catch {}
+    };
+  }, []);
+
   // (moved: import adjust recompute logic is inside useImportAdjust)
 
   // Do not auto-freeze when entering Node Edit mode
@@ -896,23 +968,7 @@ const MainApp = () => {
 
   // randomizeScene provided by hook
 
-  // Randomize only the colors (and optionally color count) per layer based on global toggles
-  // eslint-disable-next-line no-unused-vars
-  const randomizeColorsOnly = () => {
-    // Choose a palette (if enabled) and assign exactly one colour per layer
-    if (randomizePalette) {
-      const picked = palettes[Math.floor(Math.random() * palettes.length)];
-      const paletteColors = Array.isArray(picked) ? picked : (picked.colors || []);
-      const nextColors = paletteColors.length ? paletteColors : ['#ffffff', '#000000'];
-      assignOneColorPerLayer(nextColors);
-    } else {
-      // If not changing palette, pick a single colour from current base and apply per layer
-      const base = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : ['#ffffff'];
-      const colour = base.length ? base[Math.floor(Math.random() * base.length)] : '#ffffff';
-      assignOneColorPerLayer([colour]);
-    }
-  };
-
+  // Download helper for exporting image
   const downloadImage = () => {
     const canvas = canvasRef.current;
     const link = document.createElement('a');
@@ -1095,6 +1151,9 @@ const MainApp = () => {
             onRandomize={randomizeScene}
             onToggleFullscreen={toggleFullscreen}
             isFullscreen={isFullscreen}
+            onStartRecording={startRecording}
+            onStopRecording={stopRecording}
+            isRecording={isRecording}
           />
         </div>
       </main>
