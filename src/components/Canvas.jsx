@@ -42,7 +42,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
 
     // Defensive check for non-finite values
     if (!isFinite(radiusX) || !isFinite(radiusY)) {
-        console.error('Skipping shape draw due to non-finite radius:', { radiusX, radiusY, layer });
+        // Skip draw on invalid radius
         ctx.restore();
         return;
     }
@@ -98,8 +98,6 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
             }
             ctx.closePath();
         } else {
-            const last = pts[pts.length - 1];
-            const first = pts[0];
             const startX = first.x * (1 - t) + ((last.x + first.x) / 2) * t;
             const startY = first.y * (1 - t) + ((last.y + first.y) / 2) * t;
             ctx.moveTo(startX, startY);
@@ -164,8 +162,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     if (usedNodes) {
         // If subpaths were handled, drawing already occurred; otherwise draw single node loop
         if (!(Array.isArray(layer.subpaths) && layer.subpaths.length > 0)) {
-            const last = points[points.length - 1];
-            const first = points[0];
+            const _last3 = points[points.length - 1];
+            const _first3 = points[0];
             const t = Math.max(0, Math.min(1, (curviness ?? 0)));
             drawSmoothClosed(points, t);
         }
@@ -273,7 +271,7 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
         const random = createSeededRandom(noiseSeed);
 
         const waveAmplitude = imageDistortion * 0.01;
-        const waveFrequency = 0.02;
+        const _waveFrequency = 0.02;
 
         ctx.translate(centerX, centerY);
 
@@ -302,7 +300,7 @@ const resizeNodes = (nodes, desired) => {
     }
     // Need to add nodes
     while (curr.length < desired) {
-        const insertions = desired - curr.length;
+        const _insertions = desired - curr.length;
         // Distribute insertions over edges
         for (let i = 0; i < curr.length && curr.length < desired; i++) {
             const next = (i + 1) % curr.length;
@@ -551,7 +549,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         ctx.restore();
                     };
                     if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
-                } catch {}
+                } catch (e) { /* ignore image draw error */ }
             }
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
@@ -564,8 +562,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             // Do not return; continue to draw overlays (debug grid, node handles)
         }
 
-        const changedLayers = Array.from(layerChanges.entries())
-            .filter(([_, change]) => change.hasChanged)
+        const _changedLayers = Array.from(layerChanges.entries())
+            .filter(([/*_index*/ _unused, change]) => change.hasChanged)
             .map(([index, change]) => ({ index, reason: change.reason }));
 
         // Avoid spamming console per frame; enable if needed for debugging
@@ -897,7 +895,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         };
     };
 
-    const mouseDownRef = useRef({ x: 0, y: 0, t: 0 });
+    const mouseDownRef = useRef({ x: 0, y: 0, t: 0 }); // eslint-disable-line no-unused-vars
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;

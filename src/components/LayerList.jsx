@@ -1,7 +1,7 @@
 import React from 'react';
 import { DEFAULT_LAYER } from '../constants/defaults';
 
-const LayerList = ({ layers, selectedLayerIndex, onSelectLayer, onAddLayer, onDeleteLayer, setLayers }) => {
+const LayerList = ({ layers, selectedLayerIndex, onSelectLayer, onAddLayer, onDeleteLayer, setLayers: _setLayers /* eslint-disable-line no-unused-vars */ }) => {
   return (
     <div className="layer-list">
       <h3>Layers</h3>

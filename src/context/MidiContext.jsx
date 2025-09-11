@@ -188,3 +188,4 @@ export const MidiProvider = ({ children }) => {
     </MidiContext.Provider>
   );
 };
+/* eslint-disable react-refresh/only-export-components */

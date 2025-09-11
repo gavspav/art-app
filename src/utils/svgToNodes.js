@@ -162,7 +162,7 @@ export function extractAllPathsWithTransforms(svgString, sampleCount = 0) {
 
       // Apply CTM (includes ancestor transforms)
       let m = null;
-      try { m = el.getCTM && el.getCTM(); } catch {}
+      try { m = el.getCTM && el.getCTM(); } catch (e) { /* ignore CTM failure */ }
       const pts = rawPts.map(pt => {
         if (m && typeof m.a === 'number') {
           const x = pt.x * m.a + pt.y * m.c + m.e;
@@ -186,6 +186,7 @@ export function extractAllPathsWithTransforms(svgString, sampleCount = 0) {
     document.body.removeChild(liveSvg);
     return results;
   } catch (e) {
+    // Swallow parse errors; callers can handle empty array
     console.warn('extractAllPathsWithTransforms: failed', e);
     return [];
   }
@@ -240,7 +241,7 @@ export function extractMergedNodesWithTransforms(svgString, sampleCount = 0, opt
     const pushTransformed = (el, pts) => {
       if (!pts || pts.length === 0) return;
       let m = null;
-      try { m = el.getCTM && el.getCTM(); } catch {}
+      try { m = el.getCTM && el.getCTM(); } catch (e) { /* ignore CTM failure */ }
       const transformed = [];
       if (m && typeof m.a === 'number') {
         for (let i = 0; i < pts.length; i++) {
@@ -285,14 +286,14 @@ export function extractMergedNodesWithTransforms(svgString, sampleCount = 0, opt
         const h = parseFloat(el.getAttribute('height') || '0');
         const rx = parseFloat(el.getAttribute('rx') || '0');
         const ry = parseFloat(el.getAttribute('ry') || '0');
-        if (w <= 0 || h <= 0) continue;
+        if (w <= 0 || h <= 0) { /* skip degenerate rect */ continue; }
         const outline = [];
         const segments = Math.max(16, Math.min(128, sampleCount > 0 ? sampleCount : 64));
         if (rx > 0 || ry > 0) {
           const crx = Math.max(0, rx);
           const cry = Math.max(0, ry || rx);
           // Approximate rounded rect by sampling per corner arcs and straight edges
-          const corners = [
+          const corners = [ // eslint-disable-line no-unused-vars
             { cx: x + crx, cy: y + cry, sx: x, sy: y + cry, ex: x + crx, ey: y }, // top-left arc end points
             { cx: x + w - crx, cy: y + cry, sx: x + w - crx, sy: y, ex: x + w, ey: y + cry }, // top-right
             { cx: x + w - crx, cy: y + h - cry, sx: x + w, sy: y + h - cry, ex: x + w - crx, ey: y + h }, // bottom-right
@@ -335,7 +336,7 @@ export function extractMergedNodesWithTransforms(svgString, sampleCount = 0, opt
         const cy = parseFloat(el.getAttribute('cy') || '0');
         const rx = tag === 'circle' ? parseFloat(el.getAttribute('r') || '0') : parseFloat(el.getAttribute('rx') || '0');
         const ry = tag === 'circle' ? parseFloat(el.getAttribute('r') || '0') : parseFloat(el.getAttribute('ry') || '0');
-        if (!(rx > 0 && ry > 0)) continue;
+        if (!(rx > 0 && ry > 0)) { /* skip degenerate circle/ellipse */ continue; }
         const steps = Math.max(32, Math.min(512, sampleCount > 0 ? sampleCount : 128));
         const pts = [];
         for (let i = 0; i < steps; i++) {

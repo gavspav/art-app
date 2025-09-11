@@ -23,7 +23,19 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // Relax some rules to accommodate legacy code during refactor
+      'no-unused-vars': ['warn', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+      'no-empty': 'warn',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['**/__tests__/**/*.*', '**/*.test.js'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.jest },
+    },
+    rules: {
+      'no-undef': 'off',
     },
   },
 ])

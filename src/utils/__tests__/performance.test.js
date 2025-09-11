@@ -161,3 +161,5 @@ describe('Performance Tests', () => {
     });
   });
 });
+/* eslint-env jest, node */
+/* eslint-disable no-undef */

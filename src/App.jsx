@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
@@ -9,11 +9,19 @@ import { svgStringToNodes, samplePath, extractMergedNodesWithTransforms } from '
 import { createSeededRandom } from './utils/random';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
+import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
+import { useImportAdjust } from './hooks/useImportAdjust.js';
+import { useLayerManagement } from './hooks/useLayerManagement.js';
+import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
-import BackgroundColorPicker from './components/BackgroundColorPicker';
+import GlobalControls from './components/global/GlobalControls.jsx';
+import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
+import SidebarResizer from './components/global/SidebarResizer.jsx';
+import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -78,22 +86,24 @@ const MainApp = () => {
   const [suppressAnimation, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
 
-  // --- Import adjust panel state (for multi-file SVG import) ---
-  const [showImportAdjust, setShowImportAdjust] = useState(false);
-  const [importAdjust, setImportAdjust] = useState({ dx: 0, dy: 0, s: 1 });
-  const importBaseRef = useRef([]); // stores base x,y,scale to apply offsets uniformly
-  const [importFitEnabled, setImportFitEnabled] = useState(true);
-  const [importDebug, setImportDebug] = useState(false);
-  const importRawRef = useRef([]); // pre-fit baseline positions
+  // --- Import adjust panel state (moved to hook) ---
+  const {
+    showImportAdjust, setShowImportAdjust,
+    importAdjust, setImportAdjust,
+    importFitEnabled, setImportFitEnabled,
+    importDebug, setImportDebug,
+    importBaseRef, importRawRef,
+    recomputeImportLayout, applyImportAdjust,
+  } = useImportAdjust({ setLayers });
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
 
   // Config save/load from contexts
   const {
-    saveParameters,
+    /* unused: saveParameters */
     loadParameters,
-    saveFullConfiguration,
+    /* unused: saveFullConfiguration */
     loadFullConfiguration,
     getSavedConfigList,
   } = useParameters();
@@ -155,6 +165,7 @@ const MainApp = () => {
     return out;
   };
 
+  /* eslint-disable no-unused-vars */
   const applyDistributedColors = (colors) => {
     setLayers(prev => {
       const parts = distributeColorsAcrossLayers(colors, prev.length);
@@ -164,6 +175,7 @@ const MainApp = () => {
       });
     });
   };
+  /* eslint-enable no-unused-vars */
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   const sampleColorsEven = (base = [], count = 0) => {
@@ -171,10 +183,10 @@ const MainApp = () => {
     if (!Array.isArray(base) || base.length === 0 || n === 0) return [];
     if (n === 1) return [base[0]];
     const out = [];
-    for (let i = 0; i < n; i++) {
-      const t = (n === 1) ? 0 : (i / (n - 1));
-      const idx = Math.round(t * (base.length - 1));
-      out.push(base[idx]);
+    for (let _i = 0; _i < n; _i++) {
+      const t = (n === 1) ? 0 : (_i / (n - 1));
+      const idx2 = Math.round(t * (base.length - 1));
+      out.push(base[idx2]);
     }
     return out;
   };
@@ -197,7 +209,7 @@ const MainApp = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       // Apply MIDI mappings immediately if present
-      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch {}
+      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch (e) { /* ignore */ }
       // Save imported JSON into localStorage under a unique name, then load via existing loaders
       const base = file.name.replace(/\.json$/i, '') || 'imported';
       const existing = new Set(getSavedConfigList());
@@ -217,7 +229,7 @@ const MainApp = () => {
         loadAppState(res.appState);
       }
       alert(`Imported '${name}'`);
-    } catch (err) {
+  } catch (err) {
       console.warn('Failed to import JSON', err);
       alert('Failed to import JSON');
     } finally {
@@ -363,7 +375,7 @@ const MainApp = () => {
         if (newLayers.length > 1 && uniq.length > 1) {
           console.warn('SVG import: files have different viewBox/size. Relative positions may be incorrect. Unique refs:', uniq);
         }
-      } catch {}
+      } catch (e) { /* ignore */ }
 
       // Debug summary in console
       try {
@@ -377,7 +389,7 @@ const MainApp = () => {
           nodes: Array.isArray(l.nodes) ? l.nodes.length : 0,
         }));
         console.table(summary);
-      } catch {}
+      } catch (e) { /* ignore */ }
 
       // Store RAW baseline before any fit
       importRawRef.current = newLayers.map(l => ({
@@ -467,262 +479,6 @@ const MainApp = () => {
     }
   };
 
-  // --- MIDI handlers for global controls ---
-  // Global Speed (0..5)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('globalSpeedMultiplier', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const scaled = +(v * 5).toFixed(2);
-      setGlobalSpeedMultiplier(scaled);
-    });
-    return unregister;
-  }, [registerParamHandler, setGlobalSpeedMultiplier]);
-
-  // Layer Variation (0..3) controlled by global/base layer [0]
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('variation', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
-      setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: mapped } : l)));
-    });
-    return unregister;
-  }, [registerParamHandler, setLayers]);
-
-  // Global Blend Mode (dropdown over blendModes)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('globalBlendMode', ({ value01 }) => {
-      const opts = Array.isArray(blendModes) ? blendModes : [];
-      if (!opts.length) return;
-      const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(value01 * opts.length)));
-      setGlobalBlendMode(opts[idx]);
-    });
-    return unregister;
-  }, [registerParamHandler, setGlobalBlendMode]);
-
-  // Global Opacity for all layers (0..1)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('globalOpacity', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
-    });
-    return unregister;
-  }, [registerParamHandler, setLayers]);
-
-  // Layers Count (1..20)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('layersCount', ({ value01 }) => {
-      const target = Math.max(1, Math.min(20, Math.round(1 + value01 * 19)));
-      const wasLen = layers.length;
-      setLayers(prev => {
-        let next = prev;
-        if (target > prev.length) {
-          // Adding layers: preserve existing layers, only create new ones
-          const addCount = target - prev.length;
-          const baseVar = (typeof prev?.[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
-          let last = prev[prev.length - 1] || DEFAULT_LAYER;
-          const additions = Array.from({ length: addCount }, (_, i) => {
-            const nextIdx = prev.length + i + 1;
-            const nl = buildVariedLayerFrom(last, nextIdx, baseVar);
-            // Ensure new layers are valid shape layers for node editing defaults
-            if (!Array.isArray(nl.nodes) || nl.nodes?.length < 3) nl.nodes = null; // will be initialized on demand in node edit
-            nl.layerType = 'shape';
-            last = nl;
-            return nl;
-          });
-          next = [...prev, ...additions];
-        } else if (target < prev.length) {
-          // Removing layers: just slice, preserving existing layer objects
-          next = prev.slice(0, target);
-        }
-        // Only update names, preserve all other properties including nodes
-        return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
-      });
-      // Behavior: when increasing via slider, select the newly added topmost layer
-      if (target > wasLen) {
-        // Increasing: select newly added topmost layer
-        setSelectedLayerIndex(Math.max(0, target - 1));
-      } else {
-        // Decreasing: always select the new topmost layer for clarity
-        setSelectedLayerIndex(Math.max(0, target - 1));
-      }
-    });
-    return unregister;
-  }, [registerParamHandler, setLayers, setSelectedLayerIndex, layers.length]);
-
-  // Randomize All (momentary trigger on rising edge)
-  const rndAllPrevRef = useRef(0);
-
-  // Randomize Current Layer (momentary trigger on rising edge)
-  const rndLayerPrevRef = useRef(0);
-
-  // Global Palette Index -> assign one colour per layer
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('globalPaletteIndex', ({ value01 }) => {
-      const list = Array.isArray(palettes) ? palettes : [];
-      if (!list.length) return;
-      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
-      const chosen = list[idx];
-      const colors = Array.isArray(chosen) ? chosen : (chosen?.colors || []);
-      const count = Math.max(1, layers.length);
-      const nextColors = sampleColorsEven(colors, count);
-      assignOneColorPerLayer(nextColors);
-    });
-    return unregister;
-  }, [registerParamHandler, layers.length]);
-
-  // --- Global per-layer MIDI Position handlers (work in background) ---
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unsubs = [];
-
-    const clamp01 = (v) => Math.max(0, Math.min(1, v));
-
-    layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idX = `layer:${layerKey}:posX`;
-      const idY = `layer:${layerKey}:posY`;
-      const idZ = `layer:${layerKey}:posZ`;
-
-      // X
-      unsubs.push(registerParamHandler(idX, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const r = layer?.midiPosRangeX || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
-        )));
-      }));
-
-      // Y
-      unsubs.push(registerParamHandler(idY, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const r = layer?.midiPosRangeY || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
-        )));
-      }));
-
-      // Z (scale)
-      unsubs.push(registerParamHandler(idZ, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
-        const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
-        const r = layer?.midiPosRangeZ || { min: scaleMin, max: scaleMax };
-        const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
-        const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
-        const mapped = outMin + value01 * (outMax - outMin);
-        const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
-        setLayers(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
-        )));
-      }));
-    });
-
-    return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
-    // Re-register if layer list, names, ranges, or enable flags change
-  }, [registerParamHandler, setLayers, layers]);
-
-  // --- MIDI handlers for Background Color (RGB) ---
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const hexToRgb = (hex) => {
-      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
-      if (!m) return { r: 0, g: 0, b: 0 };
-      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-    };
-    const rgbToHex = ({ r, g, b }) => {
-      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-      return `#${c(r)}${c(g)}${c(b)}`;
-    };
-
-    const idR = 'backgroundColorR';
-    const idG = 'backgroundColorG';
-    const idB = 'backgroundColorB';
-
-    const setChannel = (channel) => ({ value01 }) => {
-      const cur = hexToRgb(backgroundColor || '#000000');
-      const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
-      const next = { ...cur, [channel]: v255 };
-      setBackgroundColor(rgbToHex(next));
-    };
-
-    const u1 = registerParamHandler(idR, setChannel('r'));
-    const u2 = registerParamHandler(idG, setChannel('g'));
-    const u3 = registerParamHandler(idB, setChannel('b'));
-    return () => { if (typeof u1 === 'function') u1(); if (typeof u2 === 'function') u2(); if (typeof u3 === 'function') u3(); };
-  }, [registerParamHandler, backgroundColor, setBackgroundColor]);
-
-  // --- Global per-layer MIDI Colour handlers (RGBA) ---
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unsubs = [];
-
-    const hexToRgb = (hex) => {
-      const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
-      if (!m) return { r: 0, g: 0, b: 0 };
-      return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-    };
-    const rgbToHex = ({ r, g, b }) => {
-      const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
-      return `#${c(r)}${c(g)}${c(b)}`;
-    };
-
-    layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idR = `layer:${layerKey}:colorR`;
-      const idG = `layer:${layerKey}:colorG`;
-      const idB = `layer:${layerKey}:colorB`;
-      const idA = `layer:${layerKey}:colorA`;
-
-      const updateChannel = (channel, value01) => {
-        if (!layer?.manualMidiColorEnabled) return;
-        const selIdx = Number.isFinite(layer?.selectedColor) ? layer.selectedColor : 0;
-        const colors = Array.isArray(layer?.colors) ? layer.colors : [];
-        const curHex = colors[selIdx] || '#000000';
-        const cur = hexToRgb(curHex);
-        const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
-        const next = { ...cur, [channel]: v255 };
-        const nextHex = rgbToHex(next);
-        setLayers(prev => prev.map((l, i) => {
-          if (i !== index) return l;
-          const arr = Array.isArray(l.colors) ? [...l.colors] : [];
-          const si = Number.isFinite(l.selectedColor) ? l.selectedColor : 0;
-          arr[si] = nextHex;
-          return { ...l, colors: arr };
-        }));
-      };
-
-      // R
-      unsubs.push(registerParamHandler(idR, ({ value01 }) => {
-        updateChannel('r', value01);
-      }));
-      // G
-      unsubs.push(registerParamHandler(idG, ({ value01 }) => {
-        updateChannel('g', value01);
-      }));
-      // B
-      unsubs.push(registerParamHandler(idB, ({ value01 }) => {
-        updateChannel('b', value01);
-      }));
-      // A (opacity)
-      unsubs.push(registerParamHandler(idA, ({ value01 }) => {
-        if (!layer?.manualMidiColorEnabled) return;
-        const v = Math.max(0, Math.min(1, value01));
-        setLayers(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
-      }));
-    });
-
-    return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
-  }, [registerParamHandler, setLayers, layers]);
 
   useEffect(() => {
     setLayers(prevLayers => 
@@ -778,87 +534,6 @@ const MainApp = () => {
     );
   }, []);
 
-  // Keyboard shortcuts: Space=Freeze, H=overlay, F=fullscreen, R=randomize, M=MIDI UI, [ / ] = layer prev/next, 1-9 = pick layer
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ignore when focus is on inputs, selects, textareas, or contenteditable
-      const tag = (e.target?.tagName || '').toLowerCase();
-      const isTypingTarget = tag === 'input' || tag === 'select' || tag === 'textarea' || (e.target?.isContentEditable === true);
-      if (isTypingTarget) return;
-
-      const key = (e.key || '').toLowerCase();
-      // Spacebar -> toggle Freeze
-      if (e.code === 'Space') {
-        e.preventDefault();
-        setIsFrozen(prev => !prev);
-        return;
-      }
-
-      // H -> toggle controls overlay
-      if (key === 'h') {
-        e.preventDefault();
-        const cur = hotkeyRef.current?.overlayVisible;
-        setIsOverlayVisible(!cur);
-        return;
-      }
-
-      // F -> toggle fullscreen
-      if (key === 'f') {
-        e.preventDefault();
-        toggleFullscreen();
-        return;
-      }
-
-      // R -> Randomize All
-      if (key === 'r') {
-        e.preventDefault();
-        handleRandomizeAll();
-        return;
-      }
-
-      // M -> Toggle MIDI Learn visibility (global controls section)
-      if (key === 'm') {
-        e.preventDefault();
-        setShowGlobalMidi(v => !v);
-        return;
-      }
-
-      // N -> Toggle Node Edit mode
-      if (key === 'n') {
-        e.preventDefault();
-        const cur = !!hotkeyRef.current?.nodeEditMode;
-        setIsNodeEditMode(!cur);
-        return;
-      }
-
-      // [ or ] -> Select previous/next layer
-      if (key === '[' || key === ']') {
-        e.preventDefault();
-        const idx = Number(hotkeyRef.current?.selectedIndex) || 0;
-        const len = Number(hotkeyRef.current?.layersLen) || 0;
-        if (len <= 0) return;
-        const next = key === '[' ? Math.max(0, idx - 1) : Math.min(len - 1, idx + 1);
-        setSelectedLayerIndex(next);
-        return;
-      }
-
-      // 1..9 -> Select corresponding layer (1-based)
-      if (key >= '1' && key <= '9') {
-        e.preventDefault();
-        const digit = parseInt(key, 10);
-        const len = Number(hotkeyRef.current?.layersLen) || 0;
-        const target = Math.max(0, Math.min(len - 1, digit - 1));
-        setSelectedLayerIndex(target);
-        return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
   useAnimation(setLayers, (isFrozen || suppressAnimation), globalSpeedMultiplier);
 
   // Ensure selected layer has nodes in node-edit mode even after layer-count changes via slider
@@ -902,96 +577,13 @@ const MainApp = () => {
     e.preventDefault();
   };
 
-  // Apply import adjust sliders to all current layers from base snapshot
-  const applyImportAdjust = (next) => {
-    setImportAdjust(next);
-    recomputeImportLayout(next, importFitEnabled);
-  };
-
-  const recomputeImportLayout = (adj = importAdjust, fit = importFitEnabled) => {
-    const raw = importRawRef.current || [];
-    if (!showImportAdjust || !Array.isArray(raw) || raw.length === 0) return;
-    // Build working copy from raw baseline
-    setLayers(prev => {
-      const layersCopy = prev.map((l, i) => {
-        const b = raw[i] || { x: 0.5, y: 0.5, s: 1 };
-        return { ...l, position: { ...(l.position || {}), x: b.x, y: b.y, scale: b.s } };
-      });
-
-      if (fit && layersCopy.length > 1) {
-        const margin = 0.02;
-        const meta = layersCopy.map(l => {
-          const s = Number(l.position?.scale) || 1;
-          let maxAbsX = 0, maxAbsY = 0;
-          const nodes = Array.isArray(l.nodes) ? l.nodes : [];
-          nodes.forEach(n => { const ax = Math.abs(n.x)||0, ay = Math.abs(n.y)||0; if(ax>maxAbsX)maxAbsX=ax; if(ay>maxAbsY)maxAbsY=ay; });
-          const px = Number(l.position?.x) || 0.5;
-          const py = Number(l.position?.y) || 0.5;
-          return { px, py, s, maxAbsX, maxAbsY };
-        });
-        const bounds = meta.reduce((acc, m) => {
-          const halfW = (m.maxAbsX || 1) * 0.5 * m.s;
-          const halfH = (m.maxAbsY || 1) * 0.5 * m.s;
-          const minX = m.px - halfW, maxX = m.px + halfW;
-          const minY = m.py - halfH, maxY = m.py + halfH;
-          if (minX < acc.minX) acc.minX = minX;
-          if (maxX > acc.maxX) acc.maxX = maxX;
-          if (minY < acc.minY) acc.minY = minY;
-          if (maxY > acc.maxY) acc.maxY = maxY;
-          return acc;
-        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-        const widthFrac = Math.max(0.0001, bounds.maxX - bounds.minX);
-        const heightFrac = Math.max(0.0001, bounds.maxY - bounds.minY);
-        const fitX = (1 - 2*margin) / widthFrac;
-        const fitY = (1 - 2*margin) / heightFrac;
-        const sFit = Math.min(1, fitX, fitY);
-        if (sFit < 1) layersCopy.forEach(l => { l.position.scale = (Number(l.position.scale)||1) * sFit; });
-        // recentre
-        const bounds2 = meta.reduce((acc, m) => {
-          const s2 = m.s * (sFit < 1 ? sFit : 1);
-          const halfW = (m.maxAbsX || 1) * 0.5 * s2;
-          const halfH = (m.maxAbsY || 1) * 0.5 * s2;
-          const minX = m.px - halfW, maxX = m.px + halfW;
-          const minY = m.py - halfH, maxY = m.py + halfH;
-          if (minX < acc.minX) acc.minX = minX;
-          if (maxX > acc.maxX) acc.maxX = maxX;
-          if (minY < acc.minY) acc.minY = minY;
-          if (maxY > acc.maxY) acc.maxY = maxY;
-          return acc;
-        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-        const cx = (bounds2.minX + bounds2.maxX)/2, cy = (bounds2.minY + bounds2.maxY)/2;
-        const dx = 0.5 - cx, dy = 0.5 - cy;
-        layersCopy.forEach(l => {
-          l.position.x = Math.min(1, Math.max(0, (Number(l.position.x)||0.5) + dx));
-          l.position.y = Math.min(1, Math.max(0, (Number(l.position.y)||0.5) + dy));
-        });
-      }
-
-      // Apply user offsets (allow slight overscan so movement feels responsive near edges)
-      const clampMin = -0.2, clampMax = 1.2;
-      layersCopy.forEach((l, i) => {
-        l.position.x = Math.min(clampMax, Math.max(clampMin, (Number(l.position.x)||0.5) + (adj.dx||0)));
-        l.position.y = Math.min(clampMax, Math.max(clampMin, (Number(l.position.y)||0.5) + (adj.dy||0)));
-        l.position.scale = Math.min(5, Math.max(0.05, (Number(l.position.scale)||1) * (adj.s||1)));
-      });
-
-      return layersCopy;
-    });
-  };
-
-  useEffect(() => {
-    // Recompute layout live when toggles or sliders change
-    if (showImportAdjust && (importRawRef.current || []).length > 0) {
-      recomputeImportLayout(importAdjust, importFitEnabled);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [importFitEnabled]);
+  // (moved: import adjust recompute logic is inside useImportAdjust)
 
   // Do not auto-freeze when entering Node Edit mode
   useEffect(() => {
     // Previously, node edit mode forced freezing to simplify editing.
     // This has been disabled per request; preserve current frozen state.
-    prevFrozenRef.current = null;
+    prevFrozenRef.current = null; // keep state; intentional no-op
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNodeEditMode]);
 
@@ -1140,158 +732,58 @@ const MainApp = () => {
     return { ...DEFAULT_LAYER, ...varied };
   };
 
-  const updateCurrentLayer = (newProps) => {
-    // Briefly pause animation ONLY for movement-related edits, so RAF doesn't fight position/velocity updates
-    try {
-      const movementKeys = ['movementAngle', 'movementSpeed', 'position', 'scaleMin', 'scaleMax', 'scaleSpeed'];
-      const shouldSuppress = movementKeys.some(k => Object.prototype.hasOwnProperty.call(newProps, k));
-      if (shouldSuppress) {
-        if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
-        setSuppressAnimation(true);
-        suppressTimerRef.current = setTimeout(() => setSuppressAnimation(false), 150);
-      }
-    } catch {}
-    setLayers(prevLayers => {
-      const updatedLayers = [...prevLayers];
-      const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, updatedLayers.length - 1)));
-      const currentLayer = updatedLayers[idx];
-      const updatedLayer = { ...currentLayer, ...newProps };
+  // Layer management via hook
+  const {
+    updateCurrentLayer,
+    addNewLayer,
+    deleteLayer,
+    selectLayer,
+    moveSelectedLayerUp,
+    moveSelectedLayerDown,
+  } = useLayerManagement({
+    layers,
+    setLayers,
+    selectedLayerIndex,
+    setSelectedLayerIndex,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    isNodeEditMode,
+    setSuppressAnimation,
+    suppressTimerRef,
+  });
 
-      if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
-        const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
-        // Map UI movementSpeed (0..5) to engine units
-        updatedLayer.vx = Math.cos(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
-        updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
-      }
+  // Colour randomization settings (min/max count)
+  const [colorCountMin, setColorCountMin] = useState(1);
+  const [colorCountMax, setColorCountMax] = useState(8);
 
-      const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, updatedLayers.length - 1));
-      updatedLayers[clampedIndex] = updatedLayer;
-      return updatedLayers;
-    });
-  };
-
-  const addNewLayer = () => {
-    const baseVar = (typeof layers?.[0]?.variation === 'number') ? layers[0].variation : DEFAULT_LAYER.variation;
-    const prev = layers[layers.length - 1] || DEFAULT_LAYER;
-    const nextLayer = buildVariedLayerFrom(prev, layers.length + 1, baseVar);
-    setLayers([...layers, nextLayer]);
-    setSelectedLayerIndex(layers.length);
-  };
-
-  const deleteLayer = (index) => {
-    if (layers.length <= 1) return;
-    const newLayers = layers
-      .filter((_, i) => i !== index)
-      .map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
-    setLayers(newLayers);
-    if (selectedLayerIndex >= index) {
-      setSelectedLayerIndex(Math.max(0, selectedLayerIndex - 1));
-    }
-  };
-
-  const selectLayer = (index) => {
-    setSelectedLayerIndex(index);
-  };
-
-  // Reorder: move a layer from one index to another, updating selection
-  const moveLayer = (fromIdx, toIdx) => {
-    setLayers(prev => {
-      const n = prev.length;
-      const from = Math.max(0, Math.min(n - 1, fromIdx));
-      const to = Math.max(0, Math.min(n - 1, toIdx));
-      if (n <= 1 || from === to) return prev;
-      const next = [...prev];
-      const [item] = next.splice(from, 1);
-      next.splice(to, 0, item);
-      return next;
-    });
-    setSelectedLayerIndex(Math.max(0, Math.min(layers.length - 1, toIdx)));
-  };
-
-  const moveSelectedLayerUp = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    if (idx < layers.length - 1) moveLayer(idx, idx + 1);
-  };
-
-  const moveSelectedLayerDown = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    if (idx > 0) moveLayer(idx, idx - 1);
-  };
-
-  const randomizeLayer = (index, _forcePalette = false) => {
-    const randomizableParams = parameters.filter(p => p.isRandomizable);
-    const layer = layers[index];
-
-    const newProps = {};
-    randomizableParams.forEach(param => {
-        // Do not randomize per-layer opacity; global opacity is controlled elsewhere
-        if (param.id === 'opacity') return;
-        if (layer.layerType === 'image' && param.group === 'Shape') {
-            return; // Skip shape params for image layers
-        }
-        switch (param.type) {
-            case 'slider': {
-                // Respect optional per-parameter random range overrides
-                const rmin = Number.isFinite(param.randomMin) ? param.randomMin : param.min;
-                const rmax = Number.isFinite(param.randomMax) ? param.randomMax : param.max;
-                const low = Math.min(rmin ?? param.min, rmax ?? param.max);
-                const high = Math.max(rmin ?? param.min, rmax ?? param.max);
-                let rawValue = low + Math.random() * (high - low);
-                // Clamp to authoritative slider bounds
-                rawValue = Math.min(param.max, Math.max(param.min, rawValue));
-                const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
-                newProps[param.id] = finalValue;
-                
-                // Debug logging for numSides
-                if (param.id === 'numSides') {
-                  console.log(`Randomizing numSides (randomizeLayer): min=${param.min}, max=${param.max}, rawRange=[${rmin}, ${rmax}], final=${finalValue}`);
-                }
-                break;
-            }
-            default:
-                if (param.type === 'dropdown' && param.options) {
-                    newProps[param.id] = param.options[Math.floor(Math.random() * param.options.length)];
-                }
-        }
-    });
-
-    // Color randomization gated by global toggles
-    const doPalette = !!randomizePalette;
-    const doCount = !!randomizeNumColors;
-    if (doPalette || doCount) {
-      const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
-      const currentN = Number.isFinite(layer.numColors) ? layer.numColors : (baseColors.length || 0);
-
-      let nextPalette = baseColors;
-      if (doPalette) {
-        const pick = palettes[Math.floor(Math.random() * palettes.length)];
-        nextPalette = Array.isArray(pick) ? pick : (pick.colors || baseColors);
-      }
-
-      let nextN = currentN;
-      if (doCount) {
-        const maxN = Math.min(5, (nextPalette.length || 5));
-        const minN = Math.min(3, maxN);
-        nextN = Math.max(1, Math.floor(Math.random() * (maxN - minN + 1)) + minN);
-      }
-
-      const nextColors = sampleColorsEven(nextPalette.length ? nextPalette : baseColors, nextN || currentN || 1);
-      newProps.colors = nextColors;
-      newProps.numColors = nextColors.length;
-      newProps.selectedColor = 0;
-    }
-
-    const updatedLayer = { ...layers[index], ...newProps };
-
-    if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
-        const angleRad = updatedLayer.movementAngle * (Math.PI / 180);
-        // Map UI movementSpeed (0..5) to engine units
-        updatedLayer.vx = Math.cos(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
-        updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
-    }
-
-    return updatedLayer;
-  };
+  // Randomization suite via hook
+  const {
+    modernRandomizeAll,
+    classicRandomizeAll,
+    randomizeLayer,
+    randomizeAnimationOnly,
+    randomizeScene,
+  } = useRandomization({
+    parameters,
+    DEFAULT_LAYER,
+    palettes,
+    blendModes,
+    layers,
+    selectedLayerIndex,
+    randomizePalette,
+    randomizeNumColors,
+    colorCountMin,
+    colorCountMax,
+    classicMode,
+    sampleColorsEven,
+    assignOneColorPerLayer,
+    getIsRnd,
+    setLayers,
+    setSelectedLayerIndex,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    setGlobalSpeedMultiplier,
+  });
 
   const randomizeCurrentLayer = (randomizePalette = false) => {
     const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
@@ -1299,57 +791,7 @@ const MainApp = () => {
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
-  // Register MIDI: Randomize Current Layer (rising-edge)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('randomizeLayer', ({ value01 }) => {
-      const prev = rndLayerPrevRef.current || 0;
-      const cur = Math.max(0, Math.min(1, value01));
-      if (prev < 0.5 && cur >= 0.5) {
-        randomizeCurrentLayer(false);
-      }
-      rndLayerPrevRef.current = cur;
-    });
-    return unregister;
-  }, [registerParamHandler, randomizeCurrentLayer]);
-
-  // Randomize only animation-related settings for a single layer
-  const randomizeAnimationOnly = (index) => {
-    const layer = layers[index];
-    if (!layer) return layer;
-
-    const getParam = (id) => parameters.find(p => p.id === id);
-    const sampleSlider = (id) => {
-      const p = getParam(id);
-      if (!p || p.type !== 'slider' || p.isRandomizable === false) return undefined;
-      const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
-      const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
-      const low = Math.min(rmin ?? p.min, rmax ?? p.max);
-      const high = Math.max(rmin ?? p.min, rmax ?? p.max);
-      let v = low + Math.random() * (high - low);
-      v = Math.min(p.max, Math.max(p.min, v));
-      return p.step === 1 ? Math.round(v) : v;
-    };
-    const sampleDropdown = (id) => {
-      const p = getParam(id);
-      if (!p || p.type !== 'dropdown' || p.isRandomizable === false || !Array.isArray(p.options) || p.options.length === 0) return undefined;
-      return p.options[Math.floor(Math.random() * p.options.length)];
-    };
-
-    const newProps = {};
-    const ms = sampleDropdown('movementStyle'); if (ms !== undefined) newProps.movementStyle = ms;
-    const spd = sampleSlider('movementSpeed'); if (spd !== undefined) newProps.movementSpeed = spd;
-    const ang = sampleSlider('movementAngle'); if (ang !== undefined) newProps.movementAngle = ((Math.round(ang) % 360) + 360) % 360;
-    const sspd = sampleSlider('scaleSpeed'); if (sspd !== undefined) newProps.scaleSpeed = sspd;
-
-    const updated = { ...layer, ...newProps };
-    if (newProps.movementAngle !== undefined || newProps.movementSpeed !== undefined) {
-      const angleRad = updated.movementAngle * (Math.PI / 180);
-      updated.vx = Math.cos(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
-      updated.vy = Math.sin(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
-    }
-    return updated;
-  };
+  // randomizeAnimationOnly provided by hook
 
   const randomizeAnimationForCurrentLayer = () => {
     const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
@@ -1358,554 +800,80 @@ const MainApp = () => {
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
-  // --- Modern randomizer (existing) ---
-  const modernRandomizeAll = () => {
-    // Global gating flags
-    const incBG = getIsRnd('backgroundColor');
-    const incSpeed = getIsRnd('globalSpeedMultiplier');
-    const incBlend = getIsRnd('globalBlendMode');
-    const incOpacity = getIsRnd('globalOpacity');
-    const incLayers = getIsRnd('layersCount');
-
-    // Helper utilities
-    const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
-    const mixRandom = (baseVal, min, max, w, integer = false) => {
-      const rnd = min + Math.random() * Math.max(0, (max - min));
-      let next = baseVal * (1 - w) + rnd * w;
-      next = clamp(next, min, max);
-      if (integer) next = Math.round(next);
-      return next;
-    };
-
-    // Parameter helpers
-    const getParam = (id) => parameters.find(p => p.id === id);
-    const sampleSlider = (id) => {
-      const p = getParam(id);
-      if (!p || p.type !== 'slider' || p.isRandomizable === false) return undefined;
-      const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
-      const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
-      const low = Math.min(rmin ?? p.min, rmax ?? p.max);
-      const high = Math.max(rmin ?? p.min, rmax ?? p.max);
-      let v = low + Math.random() * (high - low);
-      v = clamp(v, p.min, p.max);
-      return p.step === 1 ? Math.round(v) : v;
-    };
-    const sampleDropdown = (id) => {
-      const p = getParam(id);
-      if (!p || p.type !== 'dropdown' || p.isRandomizable === false || !Array.isArray(p.options) || p.options.length === 0) return undefined;
-      return p.options[Math.floor(Math.random() * p.options.length)];
-    };
-
-    // Decide number of layers (gated by layersCount)
-    const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
-    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 8;
-    const layerCount = incLayers
-      ? Math.floor(Math.random() * (defMaxL - defMinL + 1)) + defMinL
-      : layers.length;
-
-    // Choose a base scene palette/size with gating
-    let scenePreset = palettes[Math.floor(Math.random() * palettes.length)];
-    let sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
-    const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
-    const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
-    if (!randomizePalette) {
-      sceneColors = currentBase.length ? currentBase : (sceneColors || []);
-    }
-    const sceneMaxN = Math.min(5, (sceneColors.length || currentN || 5));
-    const sceneMinN = Math.min(3, sceneMaxN);
-    const sceneN = randomizeNumColors
-      ? (sceneMaxN > 0 ? Math.floor(Math.random() * (sceneMaxN - sceneMinN + 1)) + sceneMinN : currentN)
-      : currentN;
-    const baseColors = (sceneColors.length || currentBase.length)
-      ? sampleColorsEven(sceneColors.length ? sceneColors : currentBase, Math.max(1, sceneN))
-      : ["#FFC300", "#FF5733", "#C70039"]; // fallback
-    const basePaletteName = (Array.isArray(scenePreset) ? undefined : scenePreset?.name);
-
-    // Base variation from parameter metadata when available
-    const baseVariation = (() => {
-      const p = getParam('variation');
-      if (!p || p.type !== 'slider' || p.isRandomizable === false) return DEFAULT_LAYER.variation ?? 0.2;
-      return sampleSlider('variation');
-    })();
-    const w = clamp((baseVariation ?? 0) / 3, 0, 1);
-
-    const varyFlags = (currentLayer?.vary || DEFAULT_LAYER.vary || {});
-
-    const currentOpacity = Number(layers?.[0]?.opacity ?? DEFAULT_LAYER.opacity);
-    const base = {
-      ...DEFAULT_LAYER,
-      name: 'Layer 1',
-      seed: Math.random(),
-      noiseSeed: Math.random(),
-      variation: Number(baseVariation?.toFixed ? baseVariation.toFixed(2) : baseVariation),
-      numSides: sampleSlider('numSides') ?? DEFAULT_LAYER.numSides,
-      curviness: sampleSlider('curviness') ?? DEFAULT_LAYER.curviness,
-      wobble: sampleSlider('wobble') ?? DEFAULT_LAYER.wobble,
-      noiseAmount: sampleSlider('noiseAmount') ?? DEFAULT_LAYER.noiseAmount,
-      width: sampleSlider('width') ?? DEFAULT_LAYER.width,
-      height: sampleSlider('height') ?? DEFAULT_LAYER.height,
-      // Opacity: keep existing unless globally randomized later
-      opacity: currentOpacity,
-      movementStyle: sampleDropdown('movementStyle') ?? DEFAULT_LAYER.movementStyle,
-      movementSpeed: sampleSlider('movementSpeed') ?? DEFAULT_LAYER.movementSpeed,
-      movementAngle: sampleSlider('movementAngle') ?? DEFAULT_LAYER.movementAngle,
-      scaleSpeed: sampleSlider('scaleSpeed') ?? DEFAULT_LAYER.scaleSpeed,
-      // Respect non-randomizable scale bounds
-      scaleMin: DEFAULT_LAYER.scaleMin,
-      scaleMax: DEFAULT_LAYER.scaleMax,
-      colors: baseColors,
-      numColors: baseColors.length,
-      selectedColor: 0,
-      position: {
-        ...DEFAULT_LAYER.position,
-        x: Math.random(),
-        y: Math.random(),
-      },
-      vary: { ...varyFlags },
-    };
-
-    // Compute velocity
-    {
-      const angleRad = base.movementAngle * (Math.PI / 180);
-      base.vx = Math.cos(angleRad) * (base.movementSpeed * 0.001) * 1.0;
-      base.vy = Math.sin(angleRad) * (base.movementSpeed * 0.001) * 1.0;
-    }
-
-    // Create remaining layers by varying from the base using its variation and param ranges
-    const layersOut = [base];
-    for (let i = 1; i < layerCount; i++) {
-      const varied = { ...base };
-      varied.name = `Layer ${i + 1}`;
-      // new seeds
-      varied.seed = Math.random();
-      varied.noiseSeed = Math.random();
-      // ensure vary flags are not shared by reference across layers
-      varied.vary = { ...varyFlags };
-
-      // Vary geometry and style relative to base via parameter metadata
-      {
-        const p = getParam('numSides'); if (p?.isRandomizable && varyFlags.numSides) varied.numSides = mixRandom(base.numSides, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-      {
-        const p = getParam('curviness'); if (p?.isRandomizable && varyFlags.curviness) varied.curviness = mixRandom(base.curviness, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-      {
-        const p = getParam('wobble'); if (p?.isRandomizable && varyFlags.wobble) varied.wobble = mixRandom(base.wobble, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-      {
-        const p = getParam('noiseAmount'); if (p?.isRandomizable && varyFlags.noiseAmount) varied.noiseAmount = mixRandom(base.noiseAmount, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-      {
-        const p = getParam('width'); if (p?.isRandomizable && varyFlags.width) varied.width = mixRandom(base.width, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-      {
-        const p = getParam('height'); if (p?.isRandomizable && varyFlags.height) varied.height = mixRandom(base.height, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-
-      // Image Effects (gated by per-layer vary flags)
-      {
-        const p = getParam('imageBlur'); if (p?.isRandomizable && varyFlags.imageBlur) varied.imageBlur = mixRandom(base.imageBlur, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-      {
-        const p = getParam('imageBrightness'); if (p?.isRandomizable && varyFlags.imageBrightness) varied.imageBrightness = mixRandom(base.imageBrightness, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-      {
-        const p = getParam('imageContrast'); if (p?.isRandomizable && varyFlags.imageContrast) varied.imageContrast = mixRandom(base.imageContrast, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-      {
-        const p = getParam('imageHue'); if (p?.isRandomizable && varyFlags.imageHue) {
-          const nextHue = mixRandom(base.imageHue, p.randomMin ?? p.min, p.randomMax ?? p.max, w, true);
-          varied.imageHue = ((nextHue % 360) + 360) % 360;
-        }
-      }
-      {
-        const p = getParam('imageSaturation'); if (p?.isRandomizable && varyFlags.imageSaturation) varied.imageSaturation = mixRandom(base.imageSaturation, p.randomMin ?? p.min, p.randomMax ?? p.max, w, p.step === 1);
-      }
-      {
-        const p = getParam('imageDistortion'); if (p?.isRandomizable && varyFlags.imageDistortion) varied.imageDistortion = mixRandom(base.imageDistortion, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-
-      // Opacity: keep constant to avoid per-layer randomization
-      varied.opacity = base.opacity;
-
-      // Movement
-      {
-        const p = getParam('movementStyle');
-        if (p?.isRandomizable && varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
-          const styles = Array.isArray(p.options) && p.options.length ? p.options : ['bounce','drift','still'];
-          const others = styles.filter(s => s !== base.movementStyle);
-          varied.movementStyle = others[Math.floor(Math.random() * others.length)] || base.movementStyle;
-        }
-      }
-      {
-        const p = getParam('movementSpeed'); if (p?.isRandomizable && varyFlags.movementSpeed) varied.movementSpeed = mixRandom(base.movementSpeed, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-      {
-        const p = getParam('movementAngle'); if (p?.isRandomizable && varyFlags.movementAngle) {
-          const nextAngle = mixRandom(base.movementAngle, p.randomMin ?? p.min, p.randomMax ?? p.max, w, true);
-          varied.movementAngle = ((nextAngle % 360) + 360) % 360;
-        }
-      }
-      {
-        const p = getParam('scaleSpeed'); if (p?.isRandomizable && varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(base.scaleSpeed, p.randomMin ?? p.min, p.randomMax ?? p.max, w);
-      }
-
-      // Position jitter
-      const jitter = 0.15 * w;
-      const jx = (Math.random() * 2 - 1) * jitter;
-      const jy = (Math.random() * 2 - 1) * jitter;
-      const nx = clamp(base.position.x + jx, 0.0, 1.0);
-      const ny = clamp(base.position.y + jy, 0.0, 1.0);
-      varied.position = { ...base.position, x: nx, y: ny };
-
-        // Colors: gate palette/count randomization
-      if (!randomizePalette && !randomizeNumColors) {
-        varied.colors = [...base.colors];
-        varied.numColors = base.numColors;
-      } else {
-        if (baseVariation > 2 && randomizePalette) {
-          const candidates = palettes.filter(p => p.name !== basePaletteName);
-          const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
-          const newCols = sampleColorsEven((picked?.colors || []), base.numColors || base.colors.length || 3);
-          varied.colors = newCols.length ? newCols : [...base.colors];
-          varied.numColors = varied.colors.length;
-        } else if (baseVariation > 1 && randomizePalette) {
-          const candidates = palettes.filter(p => p.name !== basePaletteName);
-          const picked = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length || palettes.length))];
-          const n = base.numColors || base.colors.length || 3;
-          const keepCount = Math.max(1, Math.round(n * (2 - baseVariation)));
-          const newCount = Math.max(0, n - keepCount);
-          const fromBase = [...base.colors].sort(() => Math.random() - 0.5).slice(0, keepCount);
-          const fromPicked = sampleColorsEven((picked?.colors || []), newCount);
-          const mixed = [...fromBase, ...fromPicked];
-          // Shuffle mixed result slightly
-          for (let k = mixed.length - 1; k > 0; k--) {
-            if (Math.random() < 0.5) {
-              const j = Math.floor(Math.random() * (k + 1));
-              [mixed[k], mixed[j]] = [mixed[j], mixed[k]];
-            }
-          }
-          varied.colors = mixed.length ? mixed : [...base.colors];
-          varied.numColors = varied.colors.length;
-        } else {
-          // Variation <= 1: optional shuffles only if palette randomization allowed
-          if (randomizePalette && w >= 0.75) {
-            const arr = [...base.colors];
-            for (let k = arr.length - 1; k > 0; k--) {
-              if (Math.random() < 0.8) {
-                const j = Math.floor(Math.random() * (k + 1));
-                [arr[k], arr[j]] = [arr[j], arr[k]];
-              }
-            }
-            varied.colors = arr;
-            varied.numColors = arr.length;
-          } else if (randomizePalette && w >= 0.4) {
-            const arr = [...base.colors];
-            for (let k = arr.length - 1; k > 0; k--) {
-              if (Math.random() < 0.4) {
-                const j = Math.floor(Math.random() * (k + 1));
-                [arr[k], arr[j]] = [arr[j], arr[k]];
-              }
-            }
-            varied.colors = arr;
-            varied.numColors = arr.length;
-          } else {
-            varied.colors = [...base.colors];
-            varied.numColors = base.numColors;
-          }
-        }
-      }
-
-      // Recompute velocity
-      {
-        const angleRad = varied.movementAngle * (Math.PI / 180);
-        varied.vx = Math.cos(angleRad) * (varied.movementSpeed * 0.001) * 1.0;
-        varied.vy = Math.sin(angleRad) * (varied.movementSpeed * 0.001) * 1.0;
-      }
-
-      layersOut.push(varied);
-    }
-
-    // Apply one colour per layer by spreading the scene palette across layers
-    try {
-      const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
-      for (let i = 0; i < layersOut.length; i++) {
-        const c = singleColours[i % singleColours.length];
-        layersOut[i].colors = [c];
-        layersOut[i].numColors = 1;
-        layersOut[i].selectedColor = 0;
-      }
-    } catch {}
-
-    // Apply global opacity randomization if enabled
-    if (incOpacity) {
-      const p = getParam('globalOpacity');
-      const omin = Number.isFinite(p?.min) ? p.min : 0;
-      const omax = Number.isFinite(p?.max) ? p.max : 1;
-      const oval = omin + Math.random() * Math.max(0, omax - omin);
-      layersOut.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
-    }
-
-    setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
-    setSelectedLayerIndex(0);
-
-    // Background color (gated) - choose independent colour, not from palette
-    if (incBG) {
-      const h = Math.floor(Math.random() * 360);
-      const s = Math.floor(40 + Math.random() * 40);
-      const l = Math.floor(25 + Math.random() * 55);
-      const hslToHex = (hh, ss, ll) => {
-        const s1 = ss / 100, l1 = ll / 100;
-        const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-        const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
-        const m = l1 - c / 2;
-        let r=0,g=0,b=0;
-        if (hh < 60) { r = c; g = x; }
-        else if (hh < 120) { r = x; g = c; }
-        else if (hh < 180) { g = c; b = x; }
-        else if (hh < 240) { g = x; b = c; }
-        else if (hh < 300) { r = x; b = c; }
-        else { r = c; b = x; }
-        const toHex = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-      };
-      setBackgroundColor(hslToHex(h, s, l));
-    }
-    // Global blend mode (gated)
-    if (incBlend) {
-      setGlobalBlendMode(blendModes[Math.floor(Math.random() * blendModes.length)]);
-    }
-    // Global speed (gated)
-    if (incSpeed) {
-      const p = getParam('globalSpeedMultiplier');
-      const smin = Number.isFinite(p?.min) ? p.min : 0;
-      const smax = Number.isFinite(p?.max) ? p.max : 5;
-      const sval = smin + Math.random() * Math.max(0, smax - smin);
-      setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
-    }
-  };
-
-  // --- Classic randomizer (CodePen-like) ---
-  const classicRandomizeAll = () => {
-    const rnd = Math.random;
-
-    // Global gating flags
-    const incBG = getIsRnd('backgroundColor');
-    const incSpeed = getIsRnd('globalSpeedMultiplier');
-    const incBlend = getIsRnd('globalBlendMode');
-    const incOpacity = getIsRnd('globalOpacity');
-    const incLayers = getIsRnd('layersCount');
-
-    // 1. Choose scene palette once (gated)
-    let scenePreset = palettes[Math.floor(rnd() * palettes.length)];
-    let sceneColors = Array.isArray(scenePreset) ? scenePreset : (scenePreset.colors || []);
-    const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
-    const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
-    if (!randomizePalette) {
-      sceneColors = currentBase.length ? currentBase : sceneColors;
-    }
-    let baseColors = sceneColors.length ? sceneColors : ['#FF5733', '#C70039', '#900C3F'];
+  // Randomize only colors for the current layer according to toggles and min/max
+  const randomizeCurrentLayerColors = () => {
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+    const layer = layers[idx];
+    if (!layer) return;
+    const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
+    const srcPalette = randomizePalette
+      ? (() => {
+          const pick = palettes[Math.floor(Math.random() * palettes.length)];
+          return Array.isArray(pick) ? pick : (pick.colors || baseColors);
+        })()
+      : baseColors;
+    const cMin = Math.max(1, Math.floor(colorCountMin));
+    const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
+    let n = Number.isFinite(layer.numColors) ? layer.numColors : (baseColors.length || 1);
     if (randomizeNumColors) {
-      const maxN = Math.min(5, baseColors.length || 5);
-      const minN = Math.min(3, maxN);
-      const n = Math.floor(rnd() * (maxN - minN + 1)) + minN;
-      baseColors = sampleColorsEven(baseColors, n);
-    } else {
-      baseColors = sampleColorsEven(baseColors, Math.max(1, currentN));
+      const maxN = Math.min(cMaxCap, (srcPalette.length || cMaxCap));
+      const minN = cMin;
+      n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : 1;
     }
-
-    // 2. Number of layers (gated)
-    const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
-    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 20;
-    const layerCount = incLayers ? (Math.floor(rnd() * (defMaxL - defMinL + 1)) + defMinL) : layers.length;
-
-    const buildLayer = (idx) => {
-      const layer = { ...DEFAULT_LAYER };
-      layer.name = `Layer ${idx + 1}`;
-      layer.layerType = 'shape';
-      layer.seed = rnd();
-      layer.noiseSeed = rnd();
-
-      // Geometry
-      layer.numSides = Math.floor(3 + rnd() * 17); // 3..20
-      layer.curviness = Number((0.3 + rnd() * 1.2).toFixed(3)); // 0.3..1.5
-      layer.wobble = rnd();
-      layer.noiseAmount = Number((rnd() * 8).toFixed(2));
-      layer.width = Math.floor(10 + rnd() * 890);
-      layer.height = Math.floor(10 + rnd() * 890);
-
-      // Appearance
-      layer.colors = baseColors;
-      layer.numColors = baseColors.length;
-      // Global opacity target: keep current unless gated randomization is on (applied after creation)
-      layer.opacity = Number(layers?.[0]?.opacity ?? 0.8);
-
-      // Movement (bounce only)
-      layer.movementStyle = 'bounce';
-      layer.movementAngle = Math.floor(rnd() * 360);
-      layer.movementSpeed = Number((Math.pow(rnd(), 4) * 5).toFixed(3)); // quartic scaling mapped to 0..5 UI scale
-      const angleRad = layer.movementAngle * (Math.PI / 180);
-      layer.vx = Math.cos(angleRad) * (layer.movementSpeed * 0.001);
-      layer.vy = Math.sin(angleRad) * (layer.movementSpeed * 0.001);
-
-      // Scale / Z
-      layer.scaleMin = 0.2;
-      layer.scaleMax = 1.5;
-      layer.scaleSpeed = 0.05;
-
-      // Position centreish
-      layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
-
-      return layer;
-    };
-
-    const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
-
-    // One colour per layer: spread baseColors across layers
-    try {
-      const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
-      for (let i = 0; i < newLayers.length; i++) {
-        const c = singleColours[i % singleColours.length];
-        newLayers[i].colors = [c];
-        newLayers[i].numColors = 1;
-        newLayers[i].selectedColor = 0;
-      }
-    } catch {}
-
-    // 3. Commit state
-    // Apply global opacity randomization if enabled
-    if (incOpacity) {
-      const p = parameters.find(pp => pp.id === 'globalOpacity');
-      const omin = Number.isFinite(p?.min) ? p.min : 0;
-      const omax = Number.isFinite(p?.max) ? p.max : 1;
-      const oval = omin + rnd() * Math.max(0, omax - omin);
-      newLayers.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
-    }
-
-    setLayers(newLayers);
-    setSelectedLayerIndex(0);
-
-    // 4. Global settings (gated)
-    if (incBG) {
-      // independent background colour
-      const h = Math.floor(rnd() * 360);
-      const s = Math.floor(40 + rnd() * 40);
-      const l = Math.floor(25 + rnd() * 55);
-      const hslToHex = (hh, ss, ll) => {
-        const s1 = ss / 100, l1 = ll / 100;
-        const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-        const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
-        const m = l1 - c / 2;
-        let r=0,g=0,b=0;
-        if (hh < 60) { r = c; g = x; }
-        else if (hh < 120) { r = x; g = c; }
-        else if (hh < 180) { g = c; b = x; }
-        else if (hh < 240) { g = x; b = c; }
-        else if (hh < 300) { r = x; b = c; }
-        else { r = c; b = x; }
-        const toHex = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-      };
-      setBackgroundColor(hslToHex(h, s, l));
-    }
-    if (incBlend) {
-      setGlobalBlendMode('source-over');
-    }
-    if (incSpeed) {
-      const p = parameters.find(pp => pp.id === 'globalSpeedMultiplier');
-      const smin = Number.isFinite(p?.min) ? p.min : 0;
-      const smax = Number.isFinite(p?.max) ? p.max : 5;
-      const sval = smin + rnd() * Math.max(0, smax - smin);
-      setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
-    }
-
-    // Ensure blur will be applied via classicMode flag, and opacity unified
+    const nextColors = sampleColorsEven(srcPalette, Math.max(1, n));
+    const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
+    setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
-  // Wrapper that chooses algorithm based on classicMode flag
-  // Generate a visually pleasant random color independent of layer palettes
-  const randomBackgroundColor = () => {
-    // Use HSL for wide gamut; avoid extremes for nicer backgrounds
-    const h = Math.floor(Math.random() * 360);
-    const s = Math.floor(40 + Math.random() * 40); // 40%..80%
-    const l = Math.floor(25 + Math.random() * 55); // 25%..80%
-    // Convert to hex for consistency with the rest of the app
-    const hslToHex = (hh, ss, ll) => {
-      const s1 = ss / 100;
-      const l1 = ll / 100;
-      const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-      const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
-      const m = l1 - c / 2;
-      let r = 0, g = 0, b = 0;
-      if (hh < 60) { r = c; g = x; b = 0; }
-      else if (hh < 120) { r = x; g = c; b = 0; }
-      else if (hh < 180) { r = 0; g = c; b = x; }
-      else if (hh < 240) { r = 0; g = x; b = c; }
-      else if (hh < 300) { r = x; g = 0; b = c; }
-      else { r = c; g = 0; b = x; }
-      const toHex = (v) => {
-        const n = Math.round((v + m) * 255);
-        return n.toString(16).padStart(2, '0');
-      };
-      return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-    };
-    return hslToHex(h, s, l);
-  };
+  // randomBackgroundColor handled within useRandomization
 
-  const handleRandomizeAll = () => {
+  const handleRandomizeAll = useCallback(() => {
     if (classicMode) classicRandomizeAll();
     else modernRandomizeAll();
-  };
+  }, [classicMode, classicRandomizeAll, modernRandomizeAll]);
 
-  // Register MIDI: Randomize All (rising-edge)
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('randomizeAll', ({ value01 }) => {
-      const prev = rndAllPrevRef.current || 0;
-      const cur = Math.max(0, Math.min(1, value01));
-      if (prev < 0.5 && cur >= 0.5) {
-        handleRandomizeAll();
-      }
-      rndAllPrevRef.current = cur;
-    });
-    return unregister;
-  }, [registerParamHandler, handleRandomizeAll]);
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    setIsFrozen,
+    toggleFullscreen,
+    handleRandomizeAll,
+    setShowGlobalMidi,
+    setIsOverlayVisible,
+    setIsNodeEditMode,
+    setSelectedLayerIndex,
+    hotkeyRef,
+  });
 
-  // Register MIDI: Global Palette Preset -> applies to currently selected layer
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unregister = registerParamHandler('globalPaletteIndex', ({ value01 }) => {
-      const list = palettes || [];
-      if (!Array.isArray(list) || list.length === 0) return;
-      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
-      const pick = list[idx];
-      const src = Array.isArray(pick) ? pick : (pick?.colors || []);
-      setLayers(prev => {
-        const sel = Math.max(0, Math.min(clampedSelectedIndex, Math.max(0, prev.length - 1)));
-        const layer = prev[sel] || {};
-        const count = Number.isFinite(layer?.numColors)
-          ? layer.numColors
-          : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (src.length || 1));
-        const nextColors = sampleColorsEven(src, Math.max(1, count));
-        return prev.map((l, i) => (i === sel ? { ...l, colors: nextColors, numColors: nextColors.length, selectedColor: 0 } : l));
-      });
-    });
-    return unregister;
-  }, [registerParamHandler, clampedSelectedIndex, setLayers]);
+  // MIDI helper refs and handlers integration
+  const rndAllPrevRef = useRef(0);
+  const rndLayerPrevRef = useRef(0);
 
-  const randomizeScene = () => {
-    if (classicMode) return classicRandomizeAll();
+  // Centralize all MIDI handlers
+  const selectedIdxForMidi = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+  useMIDIHandlers({
+    registerParamHandler,
+    setGlobalSpeedMultiplier,
+    setGlobalBlendMode,
+    blendModes,
+    layers,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    palettes,
+    sampleColorsEven,
+    assignOneColorPerLayer,
+    backgroundColor,
+    setBackgroundColor,
+    rndAllPrevRef,
+    handleRandomizeAll,
+    clampedSelectedIndex: selectedIdxForMidi,
+  });
 
-    // fallback to modern variant of per-layer randomization
-    const newLayers = layers.map((layer, index) => randomizeLayer(index));
-    setLayers(newLayers);
-    // Pick an entirely independent background colour
-    setBackgroundColor(randomBackgroundColor());
-  };
+  // randomizeScene provided by hook
 
   // Randomize only the colors (and optionally color count) per layer based on global toggles
+  // eslint-disable-next-line no-unused-vars
   const randomizeColorsOnly = () => {
     // Choose a palette (if enabled) and assign exactly one colour per layer
     if (randomizePalette) {
@@ -1959,383 +927,47 @@ const MainApp = () => {
             </div>
           </div>
           <div className="sidebar-content">
-            {/* Global controls section */}
-            <div className="control-card">
-              <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span>Global</span>
-                <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
-                {showGlobalMidi && (
-                  <>
-                    <button
-                      className="btn-compact-secondary"
-                      onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }}
-                      disabled={!midiSupported}
-                      title="MIDI Learn: Randomize All"
-                    >
-                      Learn
-                    </button>
-                    <button
-                      className="btn-compact-secondary"
-                      onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }}
-                      disabled={!midiSupported || !midiMappings?.randomizeAll}
-                      title="Clear MIDI for Randomize All"
-                    >
-                      Clear
-                    </button>
-                    {midiSupported && (
-                      <span className="compact-label" style={{ opacity: 0.8 }}>
-                        {midiMappings?.randomizeAll ? (mappingLabel ? mappingLabel(midiMappings.randomizeAll) : 'Mapped') : 'Not mapped'}
-                        {learnParamId === 'randomizeAll' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
-                      </span>
-                    )}
-                  </>
-                )}
-              </h3>
-              <div className="control-group" style={{ margin: 0 }}>
-                {/* Background Color with inline include toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 600 }}>Background</span>
-                  <BackgroundColorPicker compact inline hideLabel showMidi={showGlobalMidi} color={backgroundColor} onChange={setBackgroundColor} />
-                  <label className="compact-label" title="Enable background image">
-                    <input
-                      type="checkbox"
-                      checked={!!backgroundImage?.enabled}
-                      onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))}
-                    />
-                    Img
-                  </label>
-                  {backgroundImage?.enabled && (
-                    <>
-                      {/* Background Image mini controls */}
-                      <input
-                        type="file"
-                        accept="image/png, image/jpeg"
-                        title="Set background image"
-                        aria-label="Set background image"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const src = String(ev.target?.result || '');
-                            setBackgroundImage(prev => ({ ...(prev || {}), src, enabled: true }));
-                          };
-                          reader.readAsDataURL(file);
-                          // allow selecting same file again later
-                          e.target.value = '';
-                        }}
-                        style={{ width: 24 }}
-                      />
-                      <label className="compact-label" title="Background image opacity">
-                        Opac
-                        <input
-                          type="range"
-                          className="compact-range"
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          value={Math.max(0, Math.min(1, Number(backgroundImage?.opacity ?? 1)))}
-                          onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), opacity: parseFloat(e.target.value) }))}
-                          style={{ width: 80 }}
-                        />
-                      </label>
-                      <select
-                        className="compact-select"
-                        value={backgroundImage?.fit || 'cover'}
-                        onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), fit: e.target.value }))}
-                        title="Background image fit"
-                        aria-label="Background image fit"
-                      >
-                        <option value="cover">cover</option>
-                        <option value="contain">contain</option>
-                        <option value="stretch">stretch</option>
-                        <option value="center">center</option>
-                      </select>
-                      <button
-                        type="button"
-                        className="btn-compact-secondary"
-                        title="Clear background image"
-                        onClick={() => setBackgroundImage({ src: null, enabled: false, opacity: 1, fit: 'cover' })}
-                      >
-                        Clear
-                      </button>
-                    </>
-                  )}
-                </div>
-                <label className="compact-label" title="Include Background Color in Randomize All" style={{ marginLeft: 'auto' }}>
-                  <input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} />
-                  Include
-                </label>
-              </div>
+            {/* Global controls extracted */}
+            {/* Global controls now rendered by component */}
+            <GlobalControls
+              backgroundColor={backgroundColor}
+              setBackgroundColor={setBackgroundColor}
+              backgroundImage={backgroundImage}
+              setBackgroundImage={setBackgroundImage}
+              isFrozen={isFrozen}
+              setIsFrozen={setIsFrozen}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
+              showGlobalMidi={showGlobalMidi}
+              setShowGlobalMidi={setShowGlobalMidi}
+              globalSpeedMultiplier={globalSpeedMultiplier}
+              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+              getIsRnd={getIsRnd}
+              setIsRnd={setIsRnd}
+              midiSupported={midiSupported}
+              beginLearn={beginLearn}
+              clearMapping={clearMapping}
+              midiMappings={midiMappings}
+              mappingLabel={mappingLabel}
+              learnParamId={learnParamId}
+              palettes={palettes}
+              blendModes={blendModes}
+              globalBlendMode={globalBlendMode}
+              setGlobalBlendMode={setGlobalBlendMode}
+              midiInputs={midiInputs}
+              midiInputId={midiInputId}
+              setMidiInputId={setMidiInputId}
+              layers={layers}
+              sampleColorsEven={sampleColorsEven}
+              assignOneColorPerLayer={assignOneColorPerLayer}
+              setLayers={setLayers}
+              DEFAULT_LAYER={DEFAULT_LAYER}
+              buildVariedLayerFrom={buildVariedLayerFrom}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              handleRandomizeAll={handleRandomizeAll}
+            />
+            
 
-                <div className="global-compact-row">
-                  <label className="compact-label">
-                    <input
-                      type="checkbox"
-                      checked={isFrozen}
-                      onChange={(e) => setIsFrozen(e.target.checked)}
-                    />
-                    Freeze
-                  </label>
-
-                  <label className="compact-label">
-                    <input
-                      type="checkbox"
-                      checked={classicMode}
-                      onChange={(e) => setClassicMode(e.target.checked)}
-                    />
-                    Classic Mode
-                  </label>
-
-                  <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
-                    <input type="checkbox" checked={!!showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} />
-                    MIDI Learn
-                  </label>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
-                      <label className="compact-label" title="Include Global Speed in Randomize All">
-                        <input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} />
-                        Include
-                      </label>
-                    </div>
-                    <input
-                      className="compact-range"
-                      type="range"
-                      min={0}
-                      max={5}
-                      step={0.01}
-                      value={globalSpeedMultiplier}
-                      onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
-                    />
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label className="compact-label">Palette</label>
-                      <label className="compact-label" title="Allow Randomize All to change the palette">
-                        <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); setRandomizePalette(!!e.target.checked); }} />
-                        Include
-                      </label>
-                    </div>
-                    <select
-                      className="compact-select"
-                      value={(() => {
-                        const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
-                        const idx = palettes.findIndex(p => {
-                          const src = Array.isArray(p) ? p : (p?.colors || []);
-                          const sampled = sampleColorsEven(src, Math.max(1, layers.length));
-                          return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || '')); 
-                        });
-                        return idx === -1 ? 'custom' : String(idx);
-                      })()}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'custom') return;
-                        const idx = parseInt(val, 10);
-                        if (!Number.isFinite(idx) || !palettes[idx]) return;
-                        const pick = palettes[idx];
-                        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
-                        const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
-                        assignOneColorPerLayer(nextColors);
-                      }}
-                    >
-                      <option value="custom">Custom</option>
-                      {palettes.map((p, i) => (
-                        <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
-                      ))}
-                    </select>
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <label className="compact-label">Style</label>
-                      <label className="compact-label" title="Include Style in Randomize All">
-                        <input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} />
-                        Include
-                      </label>
-                    </div>
-                    <select
-                      className="compact-select"
-                      value={globalBlendMode}
-                      onChange={(e) => setGlobalBlendMode(e.target.value)}
-                    >
-                      {blendModes.map(m => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span className="compact-label">MIDI Input</span>
-                    </div>
-                    {!midiSupported ? (
-                      <div className="compact-label" style={{ opacity: 0.7 }}>Not supported</div>
-                    ) : (
-                      <select
-                        className="compact-select"
-                        value={midiInputId || ''}
-                        onChange={(e) => setMidiInputId && setMidiInputId(e.target.value)}
-                      >
-                        <option value="">— None —</option>
-                        {(midiInputs || []).map(inp => (
-                          <option key={inp.id} value={inp.id}>{inp.name || 'Input'}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span className="compact-label">Opacity: {Number(layers?.[0]?.opacity ?? 1).toFixed(2)}</span>
-                      <label className="compact-label" title="Include Opacity in Randomize All">
-                        <input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} />
-                        Include
-                      </label>
-                    </div>
-                    <input
-                      className="compact-range"
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.01}
-                      value={Number(layers?.[0]?.opacity ?? 1)}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
-                      }}
-                    />
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span className="compact-label">Layers</span>
-                      <label className="compact-label" title="Include Layer Count in Randomize All">
-                        <input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} />
-                        Include
-                      </label>
-                    </div>
-                    <input
-                      className="compact-range"
-                      type="range"
-                      min={1}
-                      max={20}
-                      step={1}
-                      value={layers.length}
-                      onChange={(e) => {
-                        const target = parseInt(e.target.value, 10);
-                        const wasLen = layers.length;
-                        setLayers(prev => {
-                          let next = prev;
-                          if (target > prev.length) {
-                            // Adding layers: preserve existing layers, only create new ones
-                            const addCount = target - prev.length;
-                            const baseVar = (typeof prev[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
-                            let last = prev[prev.length - 1] || DEFAULT_LAYER;
-                            const additions = Array.from({ length: addCount }, (_, i) => {
-                              const nextIdx = prev.length + i + 1;
-                              const nextLayer = buildVariedLayerFrom(last, nextIdx, baseVar);
-                              last = nextLayer;
-                              return nextLayer;
-                            });
-                            next = [...prev, ...additions];
-                          } else if (target < prev.length) {
-                            // Removing layers: just slice, preserving existing layer objects
-                            next = prev.slice(0, target);
-                          }
-                          // Only update names, preserve all other properties including nodes
-                          return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
-                        });
-                        // Behavior: when increasing via slider, select the newly added topmost layer
-                        if (target > wasLen) {
-                          // Increasing: select newly added topmost layer
-                          setSelectedLayerIndex(Math.max(0, target - 1));
-                        } else {
-                          // Decreasing: always select the new topmost layer
-                          setSelectedLayerIndex(Math.max(0, target - 1));
-                        }
-                      }}
-                    />
-                    <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                        {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="compact-field">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span className="compact-label">Layer Variation: {Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation).toFixed(2)}</span>
-                      <label className="compact-label" title="Include Layer Variation in Randomize All">
-                        <input type="checkbox" checked={!!getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} />
-                        Include
-                      </label>
-                    </div>
-                    <input
-                      className="compact-range"
-                      type="range"
-                      min={0}
-                      max={3}
-                      step={0.01}
-                      value={Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation)}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: v } : l)));
-                      }}
-                    />
-                    {showGlobalMidi && (
-                      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                        <span className="compact-label" style={{ opacity: 0.8 }}>
-                          MIDI: {midiSupported ? (midiMappings?.variation ? (mappingLabel ? mappingLabel(midiMappings.variation) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                        </span>
-                        {learnParamId === 'variation' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variation'); }} disabled={!midiSupported}>Learn</button>
-                        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variation'); }} disabled={!midiSupported || !midiMappings?.variation}>Clear</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
             <Controls
               ref={controlsRef}
               currentLayer={currentLayer}
@@ -2359,6 +991,11 @@ const MainApp = () => {
               setRandomizePalette={setRandomizePalette}
               randomizeNumColors={randomizeNumColors}
               setRandomizeNumColors={setRandomizeNumColors}
+              colorCountMin={colorCountMin}
+              colorCountMax={colorCountMax}
+              setColorCountMin={setColorCountMin}
+              setColorCountMax={setColorCountMax}
+              onRandomizeLayerColors={randomizeCurrentLayerColors}
               layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
               selectedLayerIndex={clampedSelectedIndex}
               onSelectLayer={selectLayer}
@@ -2374,12 +1011,7 @@ const MainApp = () => {
 
         {/* Draggable divider between sidebar and canvas */}
         {(!isFullscreen && isOverlayVisible) && (
-          <div
-            className="sidebar-resizer"
-            onMouseDown={startResize}
-            title="Drag to resize controls"
-            aria-label="Resize sidebar"
-          />
+          <SidebarResizer onStartResize={startResize} />
         )}
         
         {/* Hidden file inputs */}
@@ -2413,100 +1045,27 @@ const MainApp = () => {
           
           {/* Import Adjust Panel (multi-file SVG import) */}
           {showImportAdjust && (
-            <div
-              style={{
-                position: 'absolute', right: 16, bottom: 80, zIndex: 10,
-                background: 'rgba(20,20,20,0.9)', color: '#fff',
-                padding: '12px', borderRadius: 8, width: 320,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.4)', pointerEvents: 'auto'
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>Adjust Imported Layers</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
-                <label htmlFor="adj-x">X Offset</label>
-                <span style={{ opacity: 0.8 }}>{importAdjust.dx.toFixed(2)}</span>
-                <input
-                  id="adj-x"
-                  type="range"
-                  min={-0.5}
-                  max={0.5}
-                  step={0.01}
-                  value={importAdjust.dx}
-                  onChange={(e) => applyImportAdjust({ ...importAdjust, dx: parseFloat(e.target.value) })}
-                  style={{ gridColumn: '1 / span 2' }}
-                />
-                <label htmlFor="adj-y">Y Offset</label>
-                <span style={{ opacity: 0.8 }}>{importAdjust.dy.toFixed(2)}</span>
-                <input
-                  id="adj-y"
-                  type="range"
-                  min={-0.5}
-                  max={0.5}
-                  step={0.01}
-                  value={importAdjust.dy}
-                  onChange={(e) => applyImportAdjust({ ...importAdjust, dy: parseFloat(e.target.value) })}
-                  style={{ gridColumn: '1 / span 2' }}
-                />
-                <label htmlFor="adj-s">Scale</label>
-                <span style={{ opacity: 0.8 }}>{importAdjust.s.toFixed(2)}x</span>
-                <input
-                  id="adj-s"
-                  type="range"
-                  min={0.25}
-                  max={2}
-                  step={0.01}
-                  value={importAdjust.s}
-                  onChange={(e) => applyImportAdjust({ ...importAdjust, s: parseFloat(e.target.value) })}
-                  style={{ gridColumn: '1 / span 2' }}
-                />
-                <label htmlFor="adj-fit">Fit To Window</label>
-                <input
-                  id="adj-fit"
-                  type="checkbox"
-                  checked={!!importFitEnabled}
-                  onChange={(e) => setImportFitEnabled(!!e.target.checked)}
-                  style={{ justifySelf: 'end' }}
-                />
-                <label htmlFor="adj-debug">Debug Overlay</label>
-                <input
-                  id="adj-debug"
-                  type="checkbox"
-                  checked={!!importDebug}
-                  onChange={(e) => { setImportDebug(!!e.target.checked); window.__artapp_debug_import = !!e.target.checked; }}
-                  style={{ justifySelf: 'end' }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                <button
-                  className="btn"
-                  onClick={() => { applyImportAdjust({ dx: 0, dy: 0, s: 1 }); }}
-                  style={{ padding: '6px 10px' }}
-                >
-                  Reset
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => setShowImportAdjust(false)}
-                  style={{ padding: '6px 10px' }}
-                >
-                  Done
-                </button>
-              </div>
+            <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
+              <ImportAdjustPanel
+                importAdjust={importAdjust}
+                onChange={(adj)=> applyImportAdjust(adj)}
+                fitEnabled={importFitEnabled}
+                onToggleFit={()=> setImportFitEnabled(v=>!v)}
+                debug={importDebug}
+                onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
+                onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
+                onClose={()=> setShowImportAdjust(false)}
+              />
             </div>
           )}
           
           {/* Floating Action Buttons */}
-          <div className="floating-actions" style={{ pointerEvents: 'auto' }}>
-            <button onClick={downloadImage} className="fab" title="Download PNG">
-              ⬇
-            </button>
-            <button onClick={randomizeScene} className="fab" title="Randomize Scene">
-              🎲
-            </button>
-            <button onClick={toggleFullscreen} className="fab" title={isFullscreen ? 'Exit Fullscreen' : 'Go Fullscreen'}>
-              {isFullscreen ? '⤓' : '⤢'}
-            </button>
-          </div>
+          <FloatingActionButtons
+            onDownload={downloadImage}
+            onRandomize={randomizeScene}
+            onToggleFullscreen={toggleFullscreen}
+            isFullscreen={isFullscreen}
+          />
         </div>
       </main>
     </div>

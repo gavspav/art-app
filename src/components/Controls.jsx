@@ -10,7 +10,8 @@ import { useMidi } from '../context/MidiContext.jsx';
 const MidiPositionSection = ({ currentLayer, updateLayer }) => {
   const {
     mappings: midiMappings,
-    registerParamHandler,
+    /* registerParamHandler intentionally unused here; handlers are global */
+    // registerParamHandler,
     beginLearn,
     clearMapping,
     mappingLabel,
@@ -725,21 +726,27 @@ const Controls = forwardRef(({
   updateLayer, 
   randomizeCurrentLayer,
   randomizeAnimationOnly,
+  /* eslint-disable no-unused-vars */
   randomizeAll, 
   isFrozen, 
   setIsFrozen,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
+  /* eslint-enable no-unused-vars */
   // decoupled: do not pass full layers array to avoid frequent re-renders
-  setLayers,
+  setLayers: _setLayers, // eslint-disable-line no-unused-vars
   // new lightweight props derived from the first/base layer
+  /* eslint-disable no-unused-vars */
   baseColors,
   baseNumColors,
+  /* eslint-enable no-unused-vars */
   isNodeEditMode,
   showMidi,
   setIsNodeEditMode,
+  /* eslint-disable no-unused-vars */
   classicMode,
   setClassicMode,
+  /* eslint-enable no-unused-vars */
   randomizePalette,
   setRandomizePalette,
   randomizeNumColors,
@@ -760,6 +767,8 @@ const Controls = forwardRef(({
   const [deleteIndex, setDeleteIndex] = useState(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
   // Tab state must be initialized before any early returns to keep hook order stable
   const [activeTab, setActiveTab] = useState('Shape');
+  // Local UI state for Colours settings panel
+  const [showColourSettings, setShowColourSettings] = useState(false);
 
   useEffect(() => {
     setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
@@ -838,6 +847,7 @@ const Controls = forwardRef(({
     updateLayer({ numColors: n, colors: newColors, selectedColor: 0 });
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
@@ -1019,11 +1029,79 @@ const Controls = forwardRef(({
           </div>
         )}
 
-        <ColorPicker 
-          label="Colours"
-          colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
-          onChange={handleLayerColorChange}
-        />
+        {/* Colours header with settings and random icons */}
+        <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
+          <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontWeight: 600 }}>Colours</div>
+            <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Randomize colours for this layer"
+                aria-label="Randomize colours"
+                onClick={(e) => { e.stopPropagation(); onRandomizeLayerColors && onRandomizeLayerColors(); }}
+              >
+                🎲
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title="Colour settings"
+                aria-label="Colour settings"
+                onClick={(e) => { e.stopPropagation(); setShowColourSettings(s => !s); }}
+              >
+                ⚙
+              </button>
+            </div>
+          </div>
+          {/* Colour settings panel */}
+          {showColourSettings && (
+            <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <label className="compact-label" title="Allow randomize to change palette">
+                  <input
+                    type="checkbox"
+                    checked={!!randomizePalette}
+                    onChange={(e) => setRandomizePalette && setRandomizePalette(!!e.target.checked)}
+                  />
+                  Randomise palette
+                </label>
+                <label className="compact-label" title="Allow randomize to change number of colours">
+                  <input
+                    type="checkbox"
+                    checked={!!randomizeNumColors}
+                    onChange={(e) => setRandomizeNumColors && setRandomizeNumColors(!!e.target.checked)}
+                  />
+                  Randomise number of colours
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
+                <label className="compact-label">Min</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={colorCountMax || 8}
+                  value={Math.max(1, Number(colorCountMin || 1))}
+                  onChange={(e) => setColorCountMin && setColorCountMin(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                />
+                <label className="compact-label">Max</label>
+                <input
+                  type="number"
+                  min={colorCountMin || 1}
+                  max={32}
+                  value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
+                  onChange={(e) => setColorCountMax && setColorCountMax(Math.max(Number(colorCountMin || 1), parseInt(e.target.value || '8', 10)))}
+                />
+              </div>
+            </div>
+          )}
+
+          <ColorPicker 
+            label="Colours"
+            colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
+            onChange={handleLayerColorChange}
+          />
+        </div>
       </div>
     </div>
   );

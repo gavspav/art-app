@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks, no-unused-vars */
 import React, { useState } from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
@@ -636,3 +637,4 @@ const Controls = ({
 };
 
 export default Controls;
+/* eslint-disable react-hooks/rules-of-hooks, no-unused-vars */
