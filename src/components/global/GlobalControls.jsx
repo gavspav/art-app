@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 
 // A full-featured Global Controls panel, mirroring the original inline UI
@@ -45,6 +45,19 @@ const GlobalControls = ({
   // Actions
   handleRandomizeAll,
 }) => {
+  const paletteValue = useMemo(() => {
+    try {
+      const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
+      const idx = palettes.findIndex(p => {
+        const src = Array.isArray(p) ? p : (p?.colors || []);
+        const sampled = sampleColorsEven(src, Math.max(1, layers.length));
+        return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
+      });
+      return idx === -1 ? 'custom' : String(idx);
+    } catch {
+      return 'custom';
+    }
+  }, [palettes, layers, sampleColorsEven]);
   return (
     <div className="control-card">
       <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -191,15 +204,7 @@ const GlobalControls = ({
             </div>
             <select
               className="compact-select"
-              value={(() => {
-                const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
-                const idx = palettes.findIndex(p => {
-                  const src = Array.isArray(p) ? p : (p?.colors || []);
-                  const sampled = sampleColorsEven(src, Math.max(1, layers.length));
-                  return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
-                });
-                return idx === -1 ? 'custom' : String(idx);
-              })()}
+              value={paletteValue}
               onChange={(e) => {
                 const val = e.target.value;
                 if (val === 'custom') return;
@@ -374,4 +379,23 @@ const GlobalControls = ({
   );
 };
 
-export default GlobalControls;
+const areGlobalPropsEqual = (prev, next) => {
+  const prevBGI = prev.backgroundImage || {};
+  const nextBGI = next.backgroundImage || {};
+  return (
+    prev.backgroundColor === next.backgroundColor &&
+    prevBGI.enabled === nextBGI.enabled &&
+    prevBGI.src === nextBGI.src &&
+    prevBGI.opacity === nextBGI.opacity &&
+    prevBGI.fit === nextBGI.fit &&
+    prev.isFrozen === next.isFrozen &&
+    prev.classicMode === next.classicMode &&
+    prev.showGlobalMidi === next.showGlobalMidi &&
+    prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
+    prev.globalBlendMode === next.globalBlendMode &&
+    prev.midiInputId === next.midiInputId &&
+    prev.layers === next.layers
+  );
+};
+
+export default React.memo(GlobalControls, areGlobalPropsEqual);

@@ -760,7 +760,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
 
-    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize]);
+    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize.width, canvasSize.height]);
 
     useEffect(() => {
         if (ref) {
@@ -1149,4 +1149,18 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     );
 });
 
-export default Canvas;
+// Prevent unnecessary re-renders when props are unchanged
+const areCanvasPropsEqual = (prev, next) => {
+  return (
+    prev.backgroundColor === next.backgroundColor &&
+    prev.globalSeed === next.globalSeed &&
+    prev.globalBlendMode === next.globalBlendMode &&
+    prev.isNodeEditMode === next.isNodeEditMode &&
+    prev.isFrozen === next.isFrozen &&
+    prev.selectedLayerIndex === next.selectedLayerIndex &&
+    prev.classicMode === next.classicMode &&
+    prev.layers === next.layers
+  );
+};
+
+export default React.memo(Canvas, areCanvasPropsEqual);

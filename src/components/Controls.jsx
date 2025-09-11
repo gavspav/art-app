@@ -1,4 +1,4 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
@@ -226,7 +226,7 @@ const MidiColorSection = ({ currentLayer, updateLayer }) => {
   const curHex = colors[selIdx] || '#000000';
 
 
-  const curRGB = hexToRgb(curHex);
+  const curRGB = useMemo(() => hexToRgb(curHex), [curHex]);
 
   const setChannel = (channel) => (e) => {
     const v = Math.max(0, Math.min(255, Math.round(parseFloat(e.target.value)))) || 0;
@@ -376,9 +376,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
   };
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
-  const effectiveOptions = id === 'movementStyle'
-    ? ['bounce', 'drift', 'still']
-    : options;
+  const effectiveOptions = useMemo(() => (
+    id === 'movementStyle' ? ['bounce', 'drift', 'still'] : options
+  ), [id, options]);
 
   const randomizeThisParam = () => {
     console.log('[Controls] Randomize clicked for param', id);
@@ -1327,4 +1327,4 @@ const Controls = forwardRef(({
   );
 });
 
-export default Controls;
+export default React.memo(Controls);

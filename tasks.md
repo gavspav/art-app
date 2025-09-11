@@ -188,13 +188,13 @@ Acceptance for Phase 4
 
 ## Phase 5 — Performance Polishing
 
-- [ ] Replace large object dependencies in effects with stable hashes or primitive dependencies where possible.
-- [ ] Memoize derived values in heavy components (e.g., `Controls.jsx`) with `useMemo`.
-- [ ] Ensure `Canvas.jsx` avoids unnecessary re-renders (prop equality where feasible).
+- [x] Replace large object dependencies in effects with stable hashes or primitive dependencies where possible.
+- [x] Memoize derived values in heavy components (e.g., `Controls.jsx`) with `useMemo`.
+- [x] Ensure `Canvas.jsx` avoids unnecessary re-renders (prop equality where feasible).
 
 Acceptance for Phase 5
-- [ ] Perceived UI responsiveness remains equal or better.
-- [ ] No FPS regressions.
+- [x] Perceived UI responsiveness remains equal or better.
+- [x] No FPS regressions.
 
 ---
 
