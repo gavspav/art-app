@@ -484,12 +484,91 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
+    const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
+    const draggingKindRef = useRef(null); // 'node' | 'mid' | null
+    const [historyTick, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
 
     // Cache of last rendered edge-points per layer index
     const renderedPointsRef = useRef(new Map()); // Map<number, Array<{x,y}>>
+
+    // Helper utilities for node-edit history
+    const cloneNodes = (nodes = []) => (Array.isArray(nodes) ? nodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : []);
+    const equalNodes = (a = [], b = []) => {
+        if (!Array.isArray(a) || !Array.isArray(b)) return false;
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            const ax = Number(a[i]?.x); const ay = Number(a[i]?.y);
+            const bx = Number(b[i]?.x); const by = Number(b[i]?.y);
+            if (Math.abs(ax - bx) > 1e-9 || Math.abs(ay - by) > 1e-9) return false;
+        }
+        return true;
+    };
+    const initHistoryBaseline = (idx) => {
+        try {
+            const layer = layers[idx];
+            if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 1) return;
+            const snap = cloneNodes(layer.nodes);
+            historyRef.current = { stack: [snap], index: 0, layerIndex: idx };
+            setHistoryTick(t => t + 1);
+        } catch {}
+    };
+    const pushHistorySnapshot = () => {
+        try {
+            const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+            if (historyRef.current.layerIndex !== idx) return; // not tracking this layer
+            const layer = layers[idx];
+            if (!layer || !Array.isArray(layer.nodes)) return;
+            const snap = cloneNodes(layer.nodes);
+            const cur = historyRef.current;
+            const last = cur.stack[cur.index];
+            if (last && equalNodes(last, snap)) return; // avoid duplicates
+            // Drop redo branch if any
+            if (cur.index < cur.stack.length - 1) cur.stack = cur.stack.slice(0, cur.index + 1);
+            cur.stack.push(snap);
+            // Cap to 5 entries by trimming earliest
+            while (cur.stack.length > 5) {
+                cur.stack.shift();
+            }
+            cur.index = cur.stack.length - 1;
+            setHistoryTick(t => t + 1);
+        } catch {}
+    };
+    const applySnapshot = (idx, snap) => {
+        try {
+            if (!Array.isArray(snap) || snap.length < 1) return;
+            const cloned = cloneNodes(snap);
+            // Keep the node-sync cache aligned so a following effect doesn't overwrite our undo state
+            try {
+                const cache = nodesCacheRef.current;
+                if (cache && typeof cache.set === 'function') {
+                    cache.set(idx, cloned.map(n => ({ ...n })));
+                }
+            } catch {}
+            setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes: cloned } : l)));
+        } catch {}
+    };
+    const undoOnce = () => {
+        const cur = historyRef.current;
+        const idx = cur.layerIndex;
+        if (idx < 0) return;
+        if (cur.index <= 0) return;
+        cur.index -= 1;
+        applySnapshot(idx, cur.stack[cur.index]);
+        setHistoryTick(t => t + 1);
+    };
+    const redoOnce = () => {
+        const cur = historyRef.current;
+        const idx = cur.layerIndex;
+        if (idx < 0) return;
+        if (cur.index >= cur.stack.length - 1) return;
+        cur.index += 1;
+        applySnapshot(idx, cur.stack[cur.index]);
+        setHistoryTick(t => t + 1);
+    };
 
     // Keep canvas sized to its container (the .canvas-container)
     useEffect(() => {
@@ -1026,6 +1105,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (idx !== -1) {
             draggingNodeIndexRef.current = idx;
             draggingMidIndexRef.current = null;
+            draggingKindRef.current = 'node';
             return;
         }
         // Try midpoints next
@@ -1048,6 +1128,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingMidIndexRef.current = midIdx;
             draggingNodeIndexRef.current = null;
             draggingCenterRef.current = false;
+            draggingKindRef.current = 'mid';
             return;
         }
         // Try center cross (use centroid to match the drawn crosshair position)
@@ -1064,6 +1145,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingCenterRef.current = true;
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
+                draggingKindRef.current = null;
             }
         }
     };
@@ -1218,21 +1300,67 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 }
             }
         }
+        // If we just finished dragging a node or a midpoint, push a snapshot
+        if (isNodeEditMode && (draggingKindRef.current === 'node' || draggingKindRef.current === 'mid')) {
+            pushHistorySnapshot();
+        }
+
         draggingNodeIndexRef.current = null;
         draggingMidIndexRef.current = null;
         draggingCenterRef.current = false;
+        draggingKindRef.current = null;
 
         // nothing else to do here
     };
 
+    // Initialize baseline snapshot when enabling node edit, switching layer,
+  // or when the selected layer gains nodes (e.g., after auto-init)
+  useEffect(() => {
+    if (!isNodeEditMode) {
+      // Reset when leaving node edit mode
+      historyRef.current = { stack: [], index: -1, layerIndex: -1 };
+      setHistoryTick(t => t + 1);
+      return;
+    }
+    const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+    const sel = layers[idx];
+    const nodeLen = Array.isArray(sel?.nodes) ? sel.nodes.length : 0;
+    // Initialize when switching tracked layer, or if no baseline yet but nodes now exist
+    if (historyRef.current.layerIndex !== idx || (historyRef.current.index < 0 && nodeLen > 0)) {
+      initHistoryBaseline(idx);
+    }
+  }, [isNodeEditMode, selectedLayerIndex, layers.length, layers[selectedLayerIndex]?.nodes?.length]);
+
     return (
-        <canvas
-            ref={localCanvasRef}
-            style={{ display: 'block', pointerEvents: 'auto' }}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-        />
+        <>
+          <canvas
+              ref={localCanvasRef}
+              style={{ display: 'block', pointerEvents: 'auto' }}
+              onMouseDown={onMouseDown}
+              onMouseMove={onMouseMove}
+              onMouseUp={onMouseUp}
+          />
+          {isNodeEditMode && (
+            <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', gap: 10, zIndex: 9000 }}>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48 }}
+                title="Undo node edit"
+                aria-label="Undo node edit"
+                onClick={undoOnce}
+                disabled={!(historyRef.current.layerIndex >= 0 && historyRef.current.index > 0)}
+              >↶</button>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48 }}
+                title="Redo node edit"
+                aria-label="Redo node edit"
+                onClick={redoOnce}
+                disabled={!(historyRef.current.layerIndex >= 0 && historyRef.current.index < historyRef.current.stack.length - 1)}
+              >↷</button>
+            </div>
+          )}
+        </>
     );
 });
 
