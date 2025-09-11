@@ -21,7 +21,7 @@ const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
 };
 
 // Pure function to update layer animation state
-const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
+const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => {
     const { 
         movementStyle = 'bounce', 
         movementSpeed = 0, 
@@ -63,16 +63,15 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
         newX = Math.max(0, Math.min(1, newX));
         newY = Math.max(0, Math.min(1, newY));
     } else if (movementStyle === 'drift') {
-        if (newX > 1) newX = 0;
-        if (newX < 0) newX = 1;
-        if (newY > 1) newY = 0;
-        if (newY < 0) newY = 1;
+        // Toroidal wrap using modulo for pixel-perfect continuity
+        newX = ((newX % 1) + 1) % 1;
+        newY = ((newY % 1) + 1) % 1;
     }
 
-    // 4. Z-axis scaling (skip when style is 'still')
+    // 4. Z-axis scaling (skip when style is 'still' or globally ignored)
     let newScale = scale;
     let newScaleDirection = scaleDirection;
-    if (movementStyle !== 'still') {
+    if (movementStyle !== 'still' && !zIgnore) {
         newScale = scale + (scaleDirection * scaleSpeed * globalSpeedMultiplier * 0.01);
         if (newScale > scaleMax || newScale < scaleMin) {
             newScaleDirection *= -1;
@@ -96,7 +95,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier) => {
     };
 };
 
-export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
+export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false) => {
     const animationFrameId = useRef(null);
 
     const animate = useCallback(() => {
@@ -106,11 +105,11 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
         }
 
         setLayers(prevLayers =>
-            prevLayers.map(layer => updateLayerAnimation(layer, globalSpeedMultiplier))
+            prevLayers.map(layer => updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore))
         );
 
         animationFrameId.current = requestAnimationFrame(animate);
-    }, [isFrozen, setLayers, globalSpeedMultiplier]);
+    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore]);
 
     useEffect(() => {
         // Start loop only when not frozen

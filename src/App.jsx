@@ -15,7 +15,7 @@ import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
-import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure } from './utils/paletteUtils.js';
+import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure, pickPaletteColors } from './utils/paletteUtils.js';
 import { clamp as clampUtil, mixRandom as mixRandomUtil } from './utils/mathUtils.js';
 
 import Canvas from './components/Canvas';
@@ -43,9 +43,11 @@ const MainApp = () => {
     isOverlayVisible, setIsOverlayVisible,
     isNodeEditMode, setIsNodeEditMode,
     classicMode, setClassicMode,
+    zIgnore, setZIgnore,
     // Color randomization toggles
     randomizePalette, setRandomizePalette,
     randomizeNumColors, setRandomizeNumColors,
+    rotationVaryAcrossLayers, setRotationVaryAcrossLayers,
   } = useAppState();
 
   // MIDI context
@@ -71,7 +73,8 @@ const MainApp = () => {
   // Removed Global Colours UI
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
-  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
+  const { enterFullscreen, exitFullscreen, isFullscreen } = useFullscreen(containerRef);
+  const toggleFullscreen = useCallback(() => (isFullscreen ? exitFullscreen() : enterFullscreen()), [isFullscreen, enterFullscreen, exitFullscreen]);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   // Keep latest values accessible to hotkeys without re-binding listeners
@@ -82,8 +85,9 @@ const MainApp = () => {
       layersLen: Array.isArray(layers) ? layers.length : 0,
       overlayVisible: !!isOverlayVisible,
       nodeEditMode: !!isNodeEditMode,
+      zIgnore: !!zIgnore,
     };
-  }, [selectedLayerIndex, layers.length, isOverlayVisible, isNodeEditMode]);
+  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore]);
   // Suppress animation briefly during direct user edits to avoid state races
   const [suppressAnimation, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
@@ -189,13 +193,14 @@ const MainApp = () => {
   // Memoized to provide a stable function identity to child components/hooks
   const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
-  // Assign exactly one colour per layer using pure util (applied to state)
+  // Assign exactly ONE colour per layer (cycled) so Global palette preset can be detected reliably
   // Memoized to provide a stable function identity to child components/hooks
   const assignOneColorPerLayer = useCallback((colors) => {
-    setLayers(prev => {
-      const next = distributeColorsAcrossLayersUtil(prev.length, colors);
-      return prev.map((l, i) => ({ ...l, colors: next[i] || ["#ffffff"], numColors: (next[i] || ["#ffffff"]).length, selectedColor: 0 }));
-    });
+    const src = Array.isArray(colors) ? colors : [];
+    setLayers(prev => prev.map((l, i) => {
+      const col = src.length ? src[i % src.length] : '#ffffff';
+      return { ...l, colors: [col], numColors: 1, selectedColor: 0 };
+    }));
   }, [setLayers]);
 
   const handleImportFile = async (e) => {
@@ -530,7 +535,8 @@ const MainApp = () => {
     );
   }, []);
 
-  useAnimation(setLayers, (isFrozen || suppressAnimation), globalSpeedMultiplier);
+  // Run animation loop hook (side-effecting hook, no return value)
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
 
   // Ensure selected layer has nodes in node-edit mode even after layer-count changes via slider
   useEffect(() => {
@@ -767,6 +773,7 @@ const MainApp = () => {
     seed: globalSeed,
     sampleColorsEven,
     assignOneColorPerLayer,
+    rotationVaryAcrossLayers,
     getIsRnd,
     setLayers,
     setSelectedLayerIndex,
@@ -809,12 +816,40 @@ const MainApp = () => {
       const minN = cMin;
       n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : 1;
     }
-    const nextColors = sampleColorsEven(srcPalette, Math.max(1, n));
+    let nextColors = sampleColorsEven(srcPalette, Math.max(1, n));
+    // Fallbacks when both toggles are off: ensure a visible change
+    if (!randomizePalette && !randomizeNumColors) {
+      const same = Array.isArray(baseColors) && baseColors.length === nextColors.length && baseColors.every((c, i) => c === nextColors[i]);
+      if (same) {
+        if ((baseColors?.length || 0) <= 1) {
+          // Single colour: pick a different colour from a palette
+          const pool = pickPaletteColors(palettes, Math.random, baseColors.length ? baseColors : ['#ffffff']);
+          if (pool.length) {
+            // Try to pick a colour that's different
+            let pick = pool[Math.floor(Math.random() * pool.length)];
+            if (baseColors.length && pool.length > 1) {
+              let guard = 0;
+              while (pick === baseColors[0] && guard++ < 8) {
+                pick = pool[Math.floor(Math.random() * pool.length)];
+              }
+            }
+            nextColors = [pick];
+            n = 1;
+          }
+        } else {
+          // Multiple colours: rotate by a random offset to change order deterministically
+          const arr = [...baseColors];
+          const len = arr.length;
+          const offset = Math.max(1, Math.floor(Math.random() * len));
+          nextColors = Array.from({ length: len }, (_, i) => arr[(i + offset) % len]);
+        }
+      }
+    }
     const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   };
 
-  // randomBackgroundColor handled within useRandomization
+  // randomizeBackgroundColor handled within useRandomization
 
   const handleRandomizeAll = useCallback(() => {
     if (classicMode) classicRandomizeAll();
@@ -831,6 +866,7 @@ const MainApp = () => {
     setIsNodeEditMode,
     setSelectedLayerIndex,
     hotkeyRef,
+    setZIgnore,
   });
 
   // MIDI helper refs and handlers integration
@@ -927,6 +963,8 @@ const MainApp = () => {
               setIsFrozen={setIsFrozen}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
+              zIgnore={zIgnore}
+              setZIgnore={setZIgnore}
               showGlobalMidi={showGlobalMidi}
               setShowGlobalMidi={setShowGlobalMidi}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -985,6 +1023,10 @@ const MainApp = () => {
               setColorCountMin={setColorCountMin}
               setColorCountMax={setColorCountMax}
               onRandomizeLayerColors={randomizeCurrentLayerColors}
+              rotationVaryAcrossLayers={rotationVaryAcrossLayers}
+              setRotationVaryAcrossLayers={setRotationVaryAcrossLayers}
+              getIsRnd={getIsRnd}
+              setIsRnd={setIsRnd}
               layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
               selectedLayerIndex={clampedSelectedIndex}
               onSelectLayer={selectLayer}

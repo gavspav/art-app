@@ -21,6 +21,7 @@ export function useRandomization({
   // helpers
   sampleColorsEven,
   assignOneColorPerLayer,
+  rotationVaryAcrossLayers = true,
   getIsRnd,
   // setters
   setLayers,
@@ -42,6 +43,7 @@ export function useRandomization({
     if (integer) next = Math.round(next);
     return next;
   };
+  const wrapTo180 = (deg) => (((deg + 180) % 360) + 360) % 360 - 180;
   const randomBackgroundColor = () => {
     const h = Math.floor(rand() * 360);
     const s = Math.floor(40 + rand() * 40);
@@ -146,6 +148,8 @@ export function useRandomization({
     const incBlend = getIsRnd('globalBlendMode');
     const incOpacity = getIsRnd('globalOpacity');
     const incLayers = getIsRnd('layersCount');
+    const incPalette = getIsRnd('globalPaletteIndex');
+    const incRotation = getIsRnd('rotation');
 
     const getParam = (id) => parameters.find(p => p.id === id);
 
@@ -159,7 +163,8 @@ export function useRandomization({
     let sceneColors = pickPaletteColors(palettes, rand, []);
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
-    if (!randomizePalette) {
+    // If Global Include (palette) is OFF, keep current base; when ON, use a single scene palette
+    if (!incPalette) {
       sceneColors = currentBase.length ? currentBase : (sceneColors || []);
     }
     const cMin = Math.max(1, Math.floor(colorCountMin));
@@ -189,6 +194,13 @@ export function useRandomization({
       let v = low + rand() * (high - low);
       return clamp(v, pVar.min, pVar.max);
     })();
+    // If rotation should not vary across layers, sample one rotation (for the Rotate slider)
+    const uniformRotation = (() => {
+      if (!incRotation || rotationVaryAcrossLayers) return null;
+      const base = mixRand(layers?.[0]?.rotation ?? 0, -180, 180, 1, true);
+      return wrapTo180(base);
+    })();
+
     for (let idx = 0; idx < Math.max(1, layerCount); idx++) {
       const prev = layers[idx] || DEFAULT_LAYER;
       const varied = { ...prev };
@@ -221,9 +233,11 @@ export function useRandomization({
         varied.movementStyle = nextStyle;
       }
       varied.movementSpeed = Number(mixRand(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, w).toFixed(3));
-      {
-        const nextAngle = mixRand(prev.movementAngle ?? 45, 0, 360, true);
-        varied.movementAngle = ((nextAngle % 360) + 360) % 360;
+      if (incRotation) {
+        const nextRot = (uniformRotation !== null)
+          ? uniformRotation
+          : wrapTo180(mixRand(prev.rotation ?? 0, -180, 180, 1, true));
+        varied.rotation = nextRot;
       }
 
       // Scale
@@ -288,7 +302,8 @@ export function useRandomization({
       for (let i = 0; i < layersOut.length; i++) {
         const prev = layers[i] || DEFAULT_LAYER;
         const curColors = Array.isArray(prev.colors) ? prev.colors : [];
-        const srcPalette = randomizePalette ? baseColors : (curColors.length ? curColors : baseColors);
+        // If Global Include (palette) is ON, apply the global baseColors; else preserve per-layer palette
+        const srcPalette = incPalette ? baseColors : (curColors.length ? curColors : baseColors);
         const cMin = Math.max(1, Math.floor(colorCountMin));
         const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
         const maxN = Math.min(cMaxCap, (srcPalette.length || cMaxCap));
@@ -297,7 +312,7 @@ export function useRandomization({
         if (randomizeNumColors) {
           n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : (curColors.length || 1);
         } else {
-          n = randomizePalette ? Math.min(srcPalette.length, maxN) : (prev.numColors || curColors.length || 1);
+          n = incPalette ? Math.min(srcPalette.length, maxN) : (prev.numColors || curColors.length || 1);
         }
         const next = sampleColorsEven(srcPalette, Math.max(1, n));
         layersOut[i].colors = next;
@@ -344,12 +359,15 @@ export function useRandomization({
     const incBlend = getIsRnd('globalBlendMode');
     const incOpacity = getIsRnd('globalOpacity');
     const incLayers = getIsRnd('layersCount');
+    const incPalette = getIsRnd('globalPaletteIndex');
+    const incRotation = getIsRnd('rotation');
 
     // Scene palette
     let baseColors = pickPaletteColors(palettes, rnd, []);
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
-    if (!randomizePalette) baseColors = currentBase.length ? currentBase : baseColors;
+    // Only change global base colors if Include (palette) is ON
+    if (!incPalette) baseColors = currentBase.length ? currentBase : baseColors;
     if (randomizeNumColors) {
       const maxN = Math.min(5, baseColors.length || 5);
       const minN = Math.min(3, maxN);
@@ -364,6 +382,11 @@ export function useRandomization({
     const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
     const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 20;
     const layerCount = incLayers ? (Math.floor(rnd() * (defMaxL - defMinL + 1)) + defMinL) : layers.length;
+
+    // If rotation should not vary across layers, sample once (classic) for Rotate slider
+    const classicUniformRotation = (!incRotation || rotationVaryAcrossLayers)
+      ? null
+      : (((Math.floor(rnd() * 360) + 180) % 360) - 180);
 
     const buildLayer = (idx) => {
       const layer = { ...DEFAULT_LAYER };
@@ -381,7 +404,15 @@ export function useRandomization({
       layer.numColors = baseColors.length;
       layer.opacity = Number(layers?.[0]?.opacity ?? 0.8);
       layer.movementStyle = 'bounce';
-      layer.movementAngle = Math.floor(rnd() * 360);
+      // movementAngle remains independent; do not gate by rotation include flag
+      layer.movementAngle = layers?.[idx]?.movementAngle ?? DEFAULT_LAYER.movementAngle;
+      // Apply rotation when included
+      if (incRotation) {
+        const r = (classicUniformRotation !== null) ? classicUniformRotation : (((Math.floor(rnd() * 360) + 180) % 360) - 180);
+        layer.rotation = r;
+      } else {
+        layer.rotation = layers?.[idx]?.rotation ?? 0;
+      }
       layer.movementSpeed = Number((Math.pow(rnd(), 4) * 5).toFixed(3));
       const angleRad = layer.movementAngle * (Math.PI / 180);
       layer.vx = Math.cos(angleRad) * (layer.movementSpeed * 0.001);
@@ -395,16 +426,28 @@ export function useRandomization({
 
     const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
 
-    // Spread single colour per layer
-    try {
-      const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
+    // Apply colours based on Include flag for palette
+    if (incPalette) {
+      // Spread single colour per layer from the global base palette
+      try {
+        const singleColours = sampleColorsEven(baseColors, Math.max(1, layerCount));
+        for (let i = 0; i < newLayers.length; i++) {
+          const c = singleColours[i % singleColours.length];
+          newLayers[i].colors = [c];
+          newLayers[i].numColors = 1;
+          newLayers[i].selectedColor = 0;
+        }
+      } catch {}
+    } else {
+      // Preserve previous per-layer colours and counts
       for (let i = 0; i < newLayers.length; i++) {
-        const c = singleColours[i % singleColours.length];
-        newLayers[i].colors = [c];
-        newLayers[i].numColors = 1;
+        const prev = layers[i];
+        const cur = Array.isArray(prev?.colors) ? prev.colors : [];
+        newLayers[i].colors = cur.length ? [...cur] : newLayers[i].colors;
+        newLayers[i].numColors = Number.isFinite(prev?.numColors) ? prev.numColors : (cur.length || newLayers[i].numColors);
         newLayers[i].selectedColor = 0;
       }
-    } catch {}
+    }
 
     if (incOpacity) {
       const p = parameters.find(pp => pp.id === 'globalOpacity');

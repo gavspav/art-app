@@ -748,6 +748,11 @@ const Controls = forwardRef(({
   setColorCountMin,
   setColorCountMax,
   onRandomizeLayerColors,
+  // rotate options
+  rotationVaryAcrossLayers,
+  setRotationVaryAcrossLayers,
+  getIsRnd,
+  setIsRnd,
   layerNames,
   selectedLayerIndex,
   onSelectLayer,
@@ -766,6 +771,10 @@ const Controls = forwardRef(({
   const [activeTab, setActiveTab] = useState('Shape');
   // Local UI state for Colours settings panel
   const [showColourSettings, setShowColourSettings] = useState(false);
+  // Local UI state for Rotate settings
+  const [showRotateSettings, setShowRotateSettings] = useState(false);
+  const [rotateMin, setRotateMin] = useState(-180);
+  const [rotateMax, setRotateMax] = useState(180);
 
   useEffect(() => {
     setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
@@ -919,10 +928,40 @@ const Controls = forwardRef(({
         {/* Rotation slider for shape layers */}
         {currentLayer?.layerType === 'shape' && (
           <div className="control-group" style={{ marginTop: '0.5rem' }}>
-            <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Rotate</span>
-              <span style={{ opacity: 0.8 }}>{Number(currentLayer?.rotation ?? 0).toFixed(0)}°</span>
-            </label>
+            <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ fontWeight: 600 }}>Rotate</span>
+                <span style={{ opacity: 0.8 }}>{Number(currentLayer?.rotation ?? 0).toFixed(0)}°</span>
+              </div>
+              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Randomize rotation"
+                  aria-label="Randomize rotation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const low = Math.min(rotateMin, rotateMax);
+                    const high = Math.max(rotateMin, rotateMax);
+                    let v = low + Math.random() * Math.max(0, high - low);
+                    // wrap into [-180,180]
+                    const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
+                    updateLayer({ rotation: wrapped });
+                  }}
+                >
+                  🎲
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  title="Rotation settings"
+                  aria-label="Rotation settings"
+                  onClick={(e) => { e.stopPropagation(); setShowRotateSettings(s => !s); }}
+                >
+                  ⚙
+                </button>
+              </div>
+            </div>
             <input
               type="range"
               min={-180}
@@ -938,6 +977,54 @@ const Controls = forwardRef(({
               }}
               className="dc-slider"
             />
+            {showRotateSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input
+                    type="number"
+                    step={1}
+                    min={-360}
+                    max={360}
+                    value={Number.isFinite(rotateMin) ? rotateMin : -180}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setRotateMin(Number.isFinite(v) ? v : -180);
+                    }}
+                  />
+                  <label className="compact-label">Max</label>
+                  <input
+                    type="number"
+                    step={1}
+                    min={-360}
+                    max={360}
+                    value={Number.isFinite(rotateMax) ? rotateMax : 180}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setRotateMax(Number.isFinite(v) ? v : 180);
+                    }}
+                  />
+                </div>
+                <div className="compact-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                  <label className="compact-label" title="Sample one rotation for all layers or vary per layer when randomizing all">
+                    <input
+                      type="checkbox"
+                      checked={!!rotationVaryAcrossLayers}
+                      onChange={(e) => setRotationVaryAcrossLayers && setRotationVaryAcrossLayers(!!e.target.checked)}
+                    />
+                    Vary across layers
+                  </label>
+                  <label className="compact-label" title="Include rotation in Randomize All">
+                    <input
+                      type="checkbox"
+                      checked={!!(getIsRnd && getIsRnd('rotation'))}
+                      onChange={(e) => setIsRnd && setIsRnd('rotation', !!e.target.checked)}
+                    />
+                    Include in Randomize All
+                  </label>
+                </div>
+              </div>
+            )}
             {/* MIDI Learn for Rotation */}
             {(() => {
               const layerKey = (currentLayer?.name || 'Layer').toString();
@@ -960,16 +1047,7 @@ const Controls = forwardRef(({
         {/* MIDI Colour Control */}
         <MidiColorSection currentLayer={currentLayer} updateLayer={updateLayer} />
 
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the color preset">
-            <input type="checkbox" checked={!!randomizePalette} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizePalette', e.target.checked); setRandomizePalette(!!e.target.checked); }} />
-            Randomise palette
-          </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Allow Randomize All to change the number of colors">
-            <input type="checkbox" checked={!!randomizeNumColors} onChange={(e) => { e.stopPropagation(); console.log('[Colors] randomizeNumColors', e.target.checked); setRandomizeNumColors(!!e.target.checked); }} />
-            Randomise number of colours
-          </label>
-        </div>
+        {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
 
         <label>Number of colours:</label>
         <input

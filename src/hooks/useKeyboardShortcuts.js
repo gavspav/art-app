@@ -10,6 +10,7 @@ export function useKeyboardShortcuts({
   setIsOverlayVisible,
   setIsNodeEditMode,
   setSelectedLayerIndex,
+  setZIgnore,
   hotkeyRef,
 }) {
   useEffect(() => {
@@ -61,6 +62,14 @@ export function useKeyboardShortcuts({
         e.preventDefault();
         const cur = !!hotkeyRef?.current?.nodeEditMode;
         setIsNodeEditMode?.(!cur);
+        return;
+      }
+
+      // Z -> Toggle Z-Ignore (disable Z scaling movement)
+      if (key === 'z') {
+        e.preventDefault();
+        const cur = !!hotkeyRef?.current?.zIgnore;
+        setZIgnore?.(!cur);
         return;
       }
 

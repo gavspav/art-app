@@ -25,9 +25,13 @@ export const AppStateProvider = ({ children }) => {
     isOverlayVisible: true,
     isNodeEditMode: false,
     classicMode: false,
+    // Z-axis movement ignore (disable all Z scaling movement)
+    zIgnore: false,
     // Global randomization toggles for palette and color count
     randomizePalette: true,
     randomizeNumColors: true,
+    // Rotation randomization behavior
+    rotationVaryAcrossLayers: true,
   });
 
   // Individual state setters for backward compatibility
@@ -94,6 +98,11 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, classicMode: !!value }));
   }, []);
 
+  // Toggle Z-Ignore (disable Z movement)
+  const setZIgnore = useCallback((value) => {
+    setAppState(prev => ({ ...prev, zIgnore: !!value }));
+  }, []);
+
   // Global toggles for color randomization behavior
   const setRandomizePalette = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizePalette: !!value }));
@@ -101,6 +110,10 @@ export const AppStateProvider = ({ children }) => {
 
   const setRandomizeNumColors = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
+  }, []);
+
+  const setRotationVaryAcrossLayers = useCallback((value) => {
+    setAppState(prev => ({ ...prev, rotationVaryAcrossLayers: !!value }));
   }, []);
 
   // Function to get current app state for saving
@@ -202,8 +215,10 @@ export const AppStateProvider = ({ children }) => {
     setIsOverlayVisible,
     setIsNodeEditMode,
     setClassicMode,
+    setZIgnore,
     setRandomizePalette,
     setRandomizeNumColors,
+    setRotationVaryAcrossLayers,
 
     // State management functions
     getCurrentAppState,

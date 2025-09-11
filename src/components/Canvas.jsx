@@ -221,6 +221,68 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     ctx.restore();
 };
 
+// --- Toroidal Wrapping Helpers ---
+// Estimate half-extents of the drawn content for a layer in pixels
+const estimateLayerHalfExtents = (layer, canvas) => {
+    try {
+        const w = canvas.width || 0;
+        const h = canvas.height || 0;
+        const scale = Number(layer?.position?.scale ?? 1);
+        if (layer?.image?.src) {
+            const cache = imageCache.get(layer.image.src);
+            const img = cache?.img;
+            const iw = (img?.naturalWidth || img?.width || 0) * scale;
+            const ih = (img?.naturalHeight || img?.height || 0) * scale;
+            return { rx: iw / 2, ry: ih / 2 };
+        }
+        // Shape: mirror radius computation from drawShape
+        const baseRadiusFactor = Number(layer?.baseRadiusFactor ?? 0.4);
+        const radiusX = layer?.viewBoxMapped
+            ? (w / 2) * scale
+            : Math.min(((layer?.width || 0) + (layer?.radiusBump || 0) * 20) * baseRadiusFactor, w * 0.4) * scale;
+        const radiusY = layer?.viewBoxMapped
+            ? (h / 2) * scale
+            : Math.min(((layer?.height || 0) + (layer?.radiusBump || 0) * 20) * baseRadiusFactor, h * 0.4) * scale;
+        return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
+    } catch {
+        return { rx: 0, ry: 0 };
+    }
+};
+
+// Draw a layer with toroidal wrapping for 'drift' movement
+const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
+    const w = canvas.width;
+    const h = canvas.height;
+    // Only wrap when drifting; otherwise a single draw is sufficient
+    const isDrift = (layer?.movementStyle === 'drift');
+    if (!isDrift) {
+        drawFn(ctx, layer, canvas, ...args);
+        return;
+    }
+
+    const { x = 0.5, y = 0.5 } = layer?.position || {};
+    const cx = x * w;
+    const cy = y * h;
+    const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
+
+    // Determine which neighbor offsets are needed
+    const offsetsX = [0];
+    const offsetsY = [0];
+    if (cx - rx < 0) offsetsX.push(w);      // needs +W copy
+    if (cx + rx > w) offsetsX.push(-w);     // needs -W copy
+    if (cy - ry < 0) offsetsY.push(h);      // needs +H copy
+    if (cy + ry > h) offsetsY.push(-h);     // needs -H copy
+
+    for (let oy of offsetsY) {
+        for (let ox of offsetsX) {
+            ctx.save();
+            ctx.translate(ox, oy);
+            drawFn(ctx, layer, canvas, ...args);
+            ctx.restore();
+        }
+    }
+};
+
 // --- Image Drawing Logic ---
 const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     const {
@@ -554,9 +616,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
-                    drawImage(ctx, layer, canvas, globalBlendMode);
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
                 } else {
-                    drawShape(ctx, layer, canvas, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode);
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode));
                 }
             });
             // Do not return; continue to draw overlays (debug grid, node handles)
@@ -641,11 +703,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
             if (forceFullPass || layerChange?.hasChanged) {
                 if (layer.image && layer.image.src) {
-                    drawImage(ctx, layer, canvas, globalBlendMode);
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    drawShape(ctx, layer, canvas, globalSeed + index, time, isNodeEditMode, globalBlendMode);
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, time, isNodeEditMode, globalBlendMode));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
                         const pts = computeDeformedNodePoints(layer, canvas, globalSeed + index, time);
                         renderedPointsRef.current.set(index, pts);

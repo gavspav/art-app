@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "echo 'Tests would run here - consider adding Jest or Vitest for full testing'"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "react": "^19.1.0",

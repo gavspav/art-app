@@ -10,6 +10,8 @@ const GlobalControls = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
+  zIgnore,
+  setZIgnore,
   classicMode,
   setClassicMode,
   showGlobalMidi,
@@ -169,6 +171,9 @@ const GlobalControls = ({
         <div className="global-compact-row">
           <label className="compact-label">
             <input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze
+          </label>
+          <label className="compact-label" title="Ignore Z movement (disable scaling animation)">
+            <input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ignore
           </label>
           <label className="compact-label">
             <input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode
