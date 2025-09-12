@@ -329,7 +329,7 @@ const MidiColorSection = ({ currentLayer, updateLayer }) => {
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -367,12 +367,45 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer }) => {
       default:
         newValue = e.target.value;
     }
-    // Custom mapping for scale
-    if (id === 'scale') {
-      // Update position.scale for uniform scaling
-      updateLayer({ position: { ...(currentLayer?.position || {}), scale: newValue } });
+    // Determine if we should apply to all layers (when 'Vary across layers' is OFF for this param)
+    const varyKey = (() => {
+      switch (id) {
+        case 'numSides': return 'numSides';
+        case 'curviness': return 'curviness';
+        case 'wobble': return 'wobble';
+        case 'noiseAmount': return 'noiseAmount';
+        case 'width': return 'width';
+        case 'height': return 'height';
+        case 'movementStyle': return 'movementStyle';
+        case 'movementSpeed': return 'movementSpeed';
+        case 'movementAngle': return 'movementAngle';
+        case 'scaleSpeed': return 'scaleSpeed';
+        case 'imageBlur': return 'imageBlur';
+        case 'imageBrightness': return 'imageBrightness';
+        case 'imageContrast': return 'imageContrast';
+        case 'imageHue': return 'imageHue';
+        case 'imageSaturation': return 'imageSaturation';
+        case 'imageDistortion': return 'imageDistortion';
+        default: return null;
+      }
+    })();
+
+    const applyToAll = !!varyKey && !Boolean(currentLayer?.vary?.[varyKey]);
+
+    if (applyToAll && typeof setLayers === 'function') {
+      // Apply the change across all layers
+      if (id === 'scale') {
+        setLayers(prev => prev.map(l => ({ ...l, position: { ...(l.position || {}), scale: newValue } })));
+      } else {
+        setLayers(prev => prev.map(l => ({ ...l, [id]: newValue })));
+      }
     } else {
-      updateLayer({ [id]: newValue });
+      // Apply only to current layer
+      if (id === 'scale') {
+        updateLayer({ position: { ...(currentLayer?.position || {}), scale: newValue } });
+      } else {
+        updateLayer({ [id]: newValue });
+      }
     }
   };
 
@@ -909,7 +942,7 @@ const Controls = forwardRef(({
           <div style={{ marginTop: '0.5rem' }}>
             {movementParams.map(param => (
               <div key={param.id}>
-                <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
+                <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
               </div>
             ))}
           </div>
@@ -923,7 +956,7 @@ const Controls = forwardRef(({
       <div className="control-card">
         {shapeParams.map(param => (
           <div key={param.id}>
-            <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} />
+            <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
           </div>
         ))}
         {/* Rotation slider for shape layers */}

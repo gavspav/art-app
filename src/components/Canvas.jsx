@@ -189,19 +189,10 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
             drawSmoothClosed(points, t);
         }
     } else {
-        // Legacy smoothing for procedural shapes
+        // Apply curviness smoothing to procedural shapes as well
         if (points.length >= 2) {
-            const last = points[points.length - 1];
-            const first = points[0];
-            ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
-            for (let i = 0; i < points.length; i++) {
-                const current = points[i];
-                const next = points[(i + 1) % points.length];
-                const midX = (current.x + next.x) / 2;
-                const midY = (current.y + next.y) / 2;
-                ctx.quadraticCurveTo(current.x, current.y, midX, midY);
-            }
-            ctx.closePath();
+            const t = Math.max(0, Math.min(1, (curviness ?? 0)));
+            drawSmoothClosed(points, t);
         } else if (points.length === 1) {
             // Single point; nothing to draw as shape
             ctx.moveTo(points[0].x, points[0].y);

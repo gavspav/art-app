@@ -316,7 +316,7 @@ const GlobalControls = ({
               className="compact-range"
               type="range"
               min={1}
-              max={20}
+              max={1000}
               step={1}
               value={layers.length}
               onChange={(e) => {
