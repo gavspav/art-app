@@ -137,8 +137,8 @@ const MainApp = () => {
     layersCount: true,
     variation: true,
   });
-  const getIsRnd = (id) => !!includeRnd[id];
-  const setIsRnd = (id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v }));
+  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
+  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
 
   // No local popovers; inline checkboxes next to controls
 

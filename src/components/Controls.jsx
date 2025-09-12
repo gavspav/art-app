@@ -1312,9 +1312,13 @@ const Controls = forwardRef(({
               value={Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}
               onChange={(e) => onSelectLayer && onSelectLayer(parseInt(e.target.value, 10))}
             >
-              {(layerNames || []).map((name, i) => (
-                <option key={i} value={i}>{name || `Layer ${i + 1}`}</option>
-              ))}
+              {(layerNames || []).map((_, i) => {
+                const idx = Math.max(0, (layerNames?.length || 0) - 1 - i);
+                const name = (layerNames && layerNames[idx]) || `Layer ${idx + 1}`;
+                return (
+                  <option key={idx} value={idx}>{name}</option>
+                );
+              })}
             </select>
             <button
               type="button"
@@ -1426,9 +1430,13 @@ const Controls = forwardRef(({
                 value={deleteIndex}
                 onChange={(e) => setDeleteIndex(parseInt(e.target.value, 10))}
               >
-                {(layerNames || []).map((name, i) => (
-                  <option key={i} value={i}>{name || `Layer ${i + 1}`}</option>
-                ))}
+                {(layerNames || []).map((_, i) => {
+                  const idx = Math.max(0, (layerNames?.length || 0) - 1 - i);
+                  const name = (layerNames && layerNames[idx]) || `Layer ${idx + 1}`;
+                  return (
+                    <option key={idx} value={idx}>{name}</option>
+                  );
+                })}
               </select>
             </div>
             <div style={{ display: 'flex', gap: '0.4rem' }}>

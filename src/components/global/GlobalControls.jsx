@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 
 // A full-featured Global Controls panel, mirroring the original inline UI
@@ -63,6 +63,29 @@ const GlobalControls = ({
       return 'custom';
     }
   }, [palettes, layers, sampleColorsEven]);
+  
+  // Settings panel visibility toggles
+  const [showSpeedSettings, setShowSpeedSettings] = useState(false);
+  const [showOpacitySettings, setShowOpacitySettings] = useState(false);
+  const [showLayersSettings, setShowLayersSettings] = useState(false);
+  const [showVariationSettings, setShowVariationSettings] = useState(false);
+
+  // Numeric bounds (min/max/step) for sliders
+  const [speedMin, setSpeedMin] = useState(0);
+  const [speedMax, setSpeedMax] = useState(5);
+  const [speedStep, setSpeedStep] = useState(0.01);
+
+  const [opacityMin, setOpacityMin] = useState(0);
+  const [opacityMax, setOpacityMax] = useState(1);
+  const [opacityStep, setOpacityStep] = useState(0.01);
+
+  const [layersMin, setLayersMin] = useState(1);
+  const [layersMax, setLayersMax] = useState(1000);
+  const [layersStep, setLayersStep] = useState(1);
+
+  const [variationMin, setVariationMin] = useState(0);
+  const [variationMax, setVariationMax] = useState(3);
+  const [variationStep, setVariationStep] = useState(0.01);
   return (
     <div className="control-card">
       <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -170,6 +193,7 @@ const GlobalControls = ({
             Include
           </label>
         </div>
+        {/* No settings panel for Background (non-numeric) */}
 
         <div className="global-compact-row">
           <label className="compact-label">
@@ -191,17 +215,36 @@ const GlobalControls = ({
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Global Speed settings"
+                aria-label="Global Speed settings"
+                onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Include Global Speed in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={0} max={5} step={0.01} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
+            <input className="compact-range" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
             {showGlobalMidi && (
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
+              </div>
+            )}
+            {showSpeedSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={speedMin} onChange={(e) => setSpeedMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={speedMax} onChange={(e) => setSpeedMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={speedStep} onChange={(e) => setSpeedStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
               </div>
             )}
           </div>
@@ -240,6 +283,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
               </div>
             )}
+            {/* No settings panel for Palette (non-numeric) */}
           </div>
 
           <div className="compact-field">
@@ -260,6 +304,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
               </div>
             )}
+            {/* No settings panel for Style (non-numeric) */}
           </div>
 
           <div className="compact-field">
@@ -274,11 +319,19 @@ const GlobalControls = ({
                 {(midiInputs || []).map(inp => (<option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>))}
               </select>
             )}
+            {/* No settings panel for MIDI Input (non-numeric) */}
           </div>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Global Opacity</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Global Opacity settings"
+                aria-label="Global Opacity settings"
+                onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Include Opacity in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /> Include
               </label>
@@ -286,9 +339,9 @@ const GlobalControls = ({
             <input
               className="compact-range"
               type="range"
-              min={0}
-              max={1}
-              step={0.01}
+              min={opacityMin}
+              max={opacityMax}
+              step={opacityStep}
               value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1}
               onChange={(e) => {
                 const v = Math.max(0, Math.min(1, parseFloat(e.target.value)));
@@ -303,11 +356,30 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
               </div>
             )}
+            {showOpacitySettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={opacityMin} onChange={(e) => setOpacityMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={opacityMax} onChange={(e) => setOpacityMax(parseFloat(e.target.value) || 1)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={opacityStep} onChange={(e) => setOpacityStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Layers</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Layers settings"
+                aria-label="Layers settings"
+                onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Include Layer Count in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /> Include
               </label>
@@ -315,9 +387,9 @@ const GlobalControls = ({
             <input
               className="compact-range"
               type="range"
-              min={1}
-              max={1000}
-              step={1}
+              min={layersMin}
+              max={layersMax}
+              step={layersStep}
               value={layers.length}
               onChange={(e) => {
                 const target = parseInt(e.target.value, 10);
@@ -351,11 +423,30 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
               </div>
             )}
+            {showLayersSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={1} value={layersMin} onChange={(e) => setLayersMin(parseInt(e.target.value, 10) || 1)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={1} value={layersMax} onChange={(e) => setLayersMax(parseInt(e.target.value, 10) || 1)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={1} value={layersStep} onChange={(e) => setLayersStep(parseInt(e.target.value, 10) || 1)} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Layer Variation: {Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation).toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Layer Variation settings"
+                aria-label="Layer Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationSettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Include Layer Variation in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} /> Include
               </label>
@@ -363,9 +454,9 @@ const GlobalControls = ({
             <input
               className="compact-range"
               type="range"
-              min={0}
-              max={3}
-              step={0.01}
+              min={variationMin}
+              max={variationMax}
+              step={variationStep}
               value={Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation)}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
@@ -382,6 +473,18 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variation'); }} disabled={!midiSupported || !midiMappings?.variation}>Clear</button>
               </div>
             )}
+            {showVariationSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={variationMin} onChange={(e) => setVariationMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={variationMax} onChange={(e) => setVariationMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={variationStep} onChange={(e) => setVariationStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -394,11 +497,14 @@ const areGlobalPropsEqual = (prev, next) => {
   const nextBGI = next.backgroundImage || {};
   return (
     prev.backgroundColor === next.backgroundColor &&
+    prev.getIsRnd === next.getIsRnd &&
     prevBGI.enabled === nextBGI.enabled &&
     prevBGI.src === nextBGI.src &&
     prevBGI.opacity === nextBGI.opacity &&
     prevBGI.fit === nextBGI.fit &&
     prev.isFrozen === next.isFrozen &&
+    prev.zIgnore === next.zIgnore &&
+    prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.classicMode === next.classicMode &&
     prev.showGlobalMidi === next.showGlobalMidi &&
     prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&

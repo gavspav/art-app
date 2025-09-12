@@ -943,7 +943,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
 
-    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, canvasSize.width, canvasSize.height]);
+    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, isFrozen, colorFadeWhileFrozen, canvasSize.width, canvasSize.height]);
 
     useEffect(() => {
         if (ref) {
