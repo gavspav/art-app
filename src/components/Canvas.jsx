@@ -738,7 +738,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
                 } else {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow));
+                    // Use stable seed independent of render index so reordering layers doesn't change their appearance
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow));
                 }
             });
             // Do not return; continue to draw overlays (debug grid, node handles)
@@ -828,9 +829,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
                     const colorTimeNow = (isFrozen && !colorFadeWhileFrozen) ? time : (Date.now() * 0.001);
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed + index, time, isNodeEditMode, globalBlendMode, colorTimeNow));
+                    // Use stable seed independent of render index so reordering layers doesn't change their appearance
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeNow));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed + index, time);
+                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed, time);
                         renderedPointsRef.current.set(index, pts);
                     }
                 }

@@ -491,13 +491,28 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
   );
 
   const onClickSettings = (e) => {
+    // Do nothing on click; primary action handled on mousedown to avoid lost click
     e.stopPropagation();
-    console.log('[Controls] Settings toggled for param', id);
-    setShowSettings(s => !s);
+    console.log('[Controls] Settings button CLICK (ignored, handled on mousedown) for param', id, 'label:', label);
   };
 
   const onClickRandomize = (e) => {
+    // Do nothing on click; primary action handled on mousedown to avoid lost click
     e.stopPropagation();
+    console.log('[Controls] Randomize button CLICK (ignored, handled on mousedown) for param', id, 'label:', label);
+  };
+
+  // Extra instrumentation to detect if events are being swallowed by overlays
+  const onMouseDownSettings = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[Controls] Settings button MOUSEDOWN for param', id, 'label:', label);
+    setShowSettings(s => !s);
+  };
+  const onMouseDownRandomize = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log('[Controls] Randomize button MOUSEDOWN for param', id, 'label:', label);
     randomizeThisParam();
   };
 
@@ -532,100 +547,106 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
   if (hidden) return null;
 
   const Header = ({ children }) => (
-    <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1 }}>
+    <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1000 }}>
       <div>{children}</div>
-      <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-        <button
-          type="button"
-          onClick={onClickSettings}
-          title="Parameter settings"
-          aria-label={`Settings for ${label}`}
-          className="icon-btn"
-          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 2 }}
-          tabIndex={0}
-        >
-          ⚙
-        </button>
+      <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative', zIndex: 1001, userSelect: 'none' }}>
         <button
           type="button"
           onClick={onClickRandomize}
+          onMouseDown={onMouseDownRandomize}
           title="Randomize this parameter"
           aria-label={`Randomize ${label}`}
           className="icon-btn"
-          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 2 }}
+          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 1002 }}
           tabIndex={0}
         >
           🎲
         </button>
+        <button
+          type="button"
+          onClick={onClickSettings}
+          onMouseDown={onMouseDownSettings}
+          title="Parameter settings"
+          aria-label={`Settings for ${label}`}
+          aria-pressed={showSettings ? 'true' : 'false'}
+          className="icon-btn"
+          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 1003 }}
+          tabIndex={0}
+        >
+          ⚙{showSettings ? '•' : ''}
+        </button>
       </div>
     </div>
   );
-
-  const SettingsPanel = () => (
-    <div className="dc-settings" style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', display: showSettings ? 'block' : 'none' }}>
-      {type === 'slider' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
-          <label>Min</label>
-          <input type="number" value={min} onChange={onMetaChange('min')} />
-          <label>Max</label>
-          <input type="number" value={max} onChange={onMetaChange('max')} />
-          <label>Step</label>
-          <input type="number" value={step} step="0.001" onChange={onMetaChange('step')} />
-          <label>Rand Min</label>
-          <input type="number" value={Number.isFinite(param.randomMin) ? param.randomMin : min} onChange={onMetaChange('randomMin')} />
-          <label>Rand Max</label>
-          <input type="number" value={Number.isFinite(param.randomMax) ? param.randomMax : max} onChange={onMetaChange('randomMax')} />
-        </div>
-      )}
-      {type !== 'slider' && (
-        <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
-      )}
-      <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-        {varyKey && (
-          <label title="Allow this parameter to vary across layers" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-            <input type="checkbox" checked={!!(currentLayer?.vary?.[varyKey])} onChange={toggleVaryFlag} />
-            Vary across layers
-          </label>
+  
+  // Inline settings panel for this parameter (scoped to DynamicControlBase)
+  const SettingsPanel = () => {
+    if (!showSettings) return null;
+    return (
+      <div className="dc-settings" style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', position: 'relative', zIndex: 3 }}>
+        {type === 'slider' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+            <label>Min</label>
+            <input type="number" value={min} onChange={onMetaChange('min')} />
+            <label>Max</label>
+            <input type="number" value={max} onChange={onMetaChange('max')} />
+            <label>Step</label>
+            <input type="number" value={step} step="0.001" onChange={onMetaChange('step')} />
+            <label>Rand Min</label>
+            <input type="number" value={Number.isFinite(param.randomMin) ? param.randomMin : min} onChange={onMetaChange('randomMin')} />
+            <label>Rand Max</label>
+            <input type="number" value={Number.isFinite(param.randomMax) ? param.randomMax : max} onChange={onMetaChange('randomMax')} />
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
         )}
-        <label title="Include this parameter when using Randomize All" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-          <input type="checkbox" checked={!!param.isRandomizable} onChange={onToggleRandomizable} />
-          Include in Randomize All
-        </label>
-      </div>
-      <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-            <strong>MIDI</strong>
-            <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-              {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
+        <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {varyKey && (
+            <label title="Allow this parameter to vary across layers" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <input type="checkbox" checked={!!(currentLayer?.vary?.[varyKey])} onChange={toggleVaryFlag} />
+              Vary across layers
+            </label>
+          )}
+          <label title="Include this parameter when using Randomize All" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+            <input type="checkbox" checked={!!param.isRandomizable} onChange={onToggleRandomizable} />
+            Include in Randomize All
+          </label>
+        </div>
+        <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+              <strong>MIDI</strong>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
+                {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
+                disabled={!midiSupported}
+                title="Click, then move a MIDI control to map"
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
+                disabled={!midiSupported || !(midiMappings && midiMappings[id])}
+                title="Clear MIDI mapping for this parameter"
+              >
+                Clear
+              </button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '0.4rem' }}>
-            <button
-              type="button"
-              className="btn-compact-secondary"
-              onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
-              disabled={!midiSupported}
-              title="Click, then move a MIDI control to map"
-            >
-              Learn
-            </button>
-            <button
-              type="button"
-              className="btn-compact-secondary"
-              onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
-              disabled={!midiSupported || !(midiMappings && midiMappings[id])}
-              title="Clear MIDI mapping for this parameter"
-            >
-              Clear
-            </button>
-          </div>
         </div>
       </div>
-    </div>
-  );
-
+    );
+  };
+  
   switch (type) {
     case 'slider': {
       // Ensure displayed value is clamped within slider bounds even if state is out-of-range
@@ -649,6 +670,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
               value={displayValue}
               onChange={handleChange}
               className="dc-slider"
+              style={{ position: 'relative', zIndex: 0 }}
             />
           </div>
           <SettingsPanel />
@@ -678,6 +700,10 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
 // or when the param metadata object reference changes (e.g., min/max/options updates).
 const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
   if (prev.param !== next.param) return false; // param metadata changed
+
+  // Force re-render when the active layer changes so event handlers don't capture a stale layer
+  if (prev.currentLayer !== next.currentLayer) return false;
+  if ((prev.currentLayer?.name || '') !== (next.currentLayer?.name || '')) return false;
 
   const id = prev.param?.id;
   if (!id) return false;
@@ -941,7 +967,7 @@ const Controls = forwardRef(({
           </div>
           <div style={{ marginTop: '0.5rem' }}>
             {movementParams.map(param => (
-              <div key={param.id}>
+              <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
                 <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
               </div>
             ))}
@@ -955,7 +981,7 @@ const Controls = forwardRef(({
     <div className="tab-section">
       <div className="control-card">
         {shapeParams.map(param => (
-          <div key={param.id}>
+          <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
             <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
           </div>
         ))}
