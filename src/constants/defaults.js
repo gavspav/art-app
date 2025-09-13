@@ -107,6 +107,14 @@ export const DEFAULT_LAYER = {
     imageHue: true,
     imageSaturation: true,
     imageDistortion: true,
+
+    // Colours
+    colors: true,       // allow palette/colour set to vary across layers
+    numColors: true,    // allow number of colours to vary across layers
+
+    // Animate colours controls
+    colorFadeEnabled: true,
+    colorFadeSpeed: true,
   },
 };
 

@@ -488,8 +488,18 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
     e.stopPropagation();
     const checked = !!e.target.checked;
     console.log('[Vary] header flag', key, checked, 'for param', id);
-    const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
-    updateLayer({ vary: nextVary });
+    // Apply the vary flag to ALL layers so behavior is consistent everywhere,
+    // and new layers (which copy vary flags from previous) inherit correctly.
+    if (typeof setLayers === 'function') {
+      setLayers(prev => prev.map(l => ({
+        ...l,
+        vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), [key]: checked },
+      })));
+    } else {
+      // Fallback: update only current layer if setLayers is unavailable
+      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
+      updateLayer({ vary: nextVary });
+    }
   };
 
   // Determine visibility but do not return yet to preserve hook order
@@ -736,19 +746,26 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
 const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
   if (prev.param !== next.param) return false; // param metadata changed
 
-  // Force re-render when the active layer changes so event handlers don't capture a stale layer
-  if (prev.currentLayer !== next.currentLayer) return false;
-  if ((prev.currentLayer?.name || '') !== (next.currentLayer?.name || '')) return false;
+  // Force re-render *only* when the selected layer actually changes (by index / name),
+  // not on every animation tick that mutates layer position/velocity. This keeps
+  // the component mounted during animation so mouseup events still hit the same
+  // element, fixing lost-click issues.
+  const prevName = prev.currentLayer?.name;
+  const nextName = next.currentLayer?.name;
+  if (prevName !== nextName) return false;
 
   const id = prev.param?.id;
   if (!id) return false;
 
+  // If the Include-in-Randomize flag changes, re-render so the checkbox reflects it immediately
+  if (!!prev.param?.isRandomizable !== !!next.param?.isRandomizable) return false;
+
+  // Compare displayed value; ignore other animating props
   const getValue = (cl, pid) => {
     if (!cl) return undefined;
     if (pid === 'scale') return cl.position?.scale;
     return cl[pid];
   };
-
   const prevVal = getValue(prev.currentLayer, id);
   const nextVal = getValue(next.currentLayer, id);
   if (prevVal !== nextVal) return false;
@@ -760,6 +777,9 @@ const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
       case 'curviness': return 'curviness';
       case 'wobble': return 'wobble';
       case 'noiseAmount': return 'noiseAmount';
+      case 'radiusFactor': return 'radiusFactor';
+      case 'radiusFactorX': return 'radiusFactorX';
+      case 'radiusFactorY': return 'radiusFactorY';
       case 'width': return 'width';
       case 'height': return 'height';
       case 'movementStyle': return 'movementStyle';
@@ -918,10 +938,15 @@ const Controls = forwardRef(({
     return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
   });
 
-  // PER-LAYER color handlers — apply only to the selected layer
+  // Color handlers — if vary.colors is OFF, apply to ALL layers
   const handleLayerColorChange = (newColors) => {
     const arr = Array.isArray(newColors) ? newColors : [];
-    updateLayer({ colors: arr, numColors: arr.length, selectedColor: 0 });
+    const varyColors = !!(currentLayer?.vary?.colors);
+    if (!varyColors && typeof _setLayers === 'function') {
+      _setLayers(prev => prev.map(l => ({ ...l, colors: [...arr], numColors: arr.length, selectedColor: 0 })));
+    } else {
+      updateLayer({ colors: arr, numColors: arr.length, selectedColor: 0 });
+    }
   };
 
   const handleLayerNumColorsChange = (e) => {
@@ -945,7 +970,12 @@ const Controls = forwardRef(({
     } else {
       newColors = sampleColors(palettes[0]?.colors || ['#000000'], n);
     }
-    updateLayer({ numColors: n, colors: newColors, selectedColor: 0 });
+    const varyNumColors = !!(currentLayer?.vary?.numColors);
+    if (!varyNumColors && typeof _setLayers === 'function') {
+      _setLayers(prev => prev.map(l => ({ ...l, numColors: n, colors: [...newColors], selectedColor: 0 })));
+    } else {
+      updateLayer({ numColors: n, colors: newColors, selectedColor: 0 });
+    }
   };
 
   // eslint-disable-next-line no-unused-vars
@@ -1170,7 +1200,12 @@ const Controls = forwardRef(({
                   ? currentLayer.numColors
                   : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+                const varyColors = !!(currentLayer?.vary?.colors);
+                if (!varyColors && typeof _setLayers === 'function') {
+                  _setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
+                } else {
+                  updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+                }
               }
             }
           }}
@@ -1236,14 +1271,6 @@ const Controls = forwardRef(({
                   />
                   Randomise palette
                 </label>
-                <label className="compact-label" title="Allow randomize to change number of colours">
-                <input
-                  type="checkbox"
-                  checked={!!randomizePalette}
-                  onChange={(e) => setRandomizePalette && setRandomizePalette(!!e.target.checked)}
-                />
-                Randomise palette
-              </label>
               <label className="compact-label" title="Allow randomize to change number of colours">
                 <input
                   type="checkbox"
@@ -1251,6 +1278,51 @@ const Controls = forwardRef(({
                   onChange={(e) => setRandomizeNumColors && setRandomizeNumColors(!!e.target.checked)}
                 />
                 Randomise number of colours
+              </label>
+              {/* Vary across layers toggles for Colours */}
+              <label
+                className="compact-label"
+                title="Allow colour palette to vary across layers"
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!(currentLayer?.vary?.colors)}
+                  onChange={(e) => {
+                    const checked = !!e.target.checked;
+                    if (typeof setLayers === 'function') {
+                      setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: checked } })));
+                    } else {
+                      updateLayer({ vary: { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colors: checked } });
+                    }
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); }}
+                  onClick={(e) => { e.stopPropagation(); }}
+                />
+                Vary palette across layers
+              </label>
+              <label
+                className="compact-label"
+                title="Allow the number of colours to vary across layers"
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!(currentLayer?.vary?.numColors)}
+                  onChange={(e) => {
+                    const checked = !!e.target.checked;
+                    if (typeof setLayers === 'function') {
+                      setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: checked } })));
+                    } else {
+                      updateLayer({ vary: { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), numColors: checked } });
+                    }
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); }}
+                  onClick={(e) => { e.stopPropagation(); }}
+                />
+                Vary number of colours across layers
               </label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
@@ -1275,13 +1347,105 @@ const Controls = forwardRef(({
           )}
           {/* Animate colours (fade between palette stops) */}
           <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-            <div className="compact-row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label" title="Fade smoothly between the colours in this layer's palette">Animate colours</label>
-              <input
-                type="checkbox"
-                checked={!!currentLayer?.colorFadeEnabled}
-                onChange={(e) => updateLayer({ colorFadeEnabled: !!e.target.checked })}
-              />
+            <div className="compact-row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <label className="compact-label" title="Fade smoothly between the colours in this layer's palette"
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!currentLayer?.colorFadeEnabled}
+                  onChange={(e) => {
+                    const v = !!e.target.checked;
+                    const varyFade = !!(currentLayer?.vary?.colorFadeEnabled);
+                    const ensureTwoStops = (arr) => {
+                      if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
+                      if (arr.length === 1) return [arr[0], arr[0]];
+                      return arr;
+                    };
+                    if (!varyFade && typeof _setLayers === 'function') {
+                      // Broadcast enable + speed + ensure >=2 stops across all layers using matched palette when possible
+                      const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
+                      const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
+                      _setLayers(prev => prev.map(l => {
+                        const arr = Array.isArray(l.colors) ? l.colors : [];
+                        let out = arr;
+                        if (v) {
+                          if (arr.length < 2) {
+                            const idx = matchPaletteIndex(arr);
+                            if (idx !== -1 && palettes[idx]) {
+                              out = sampleColors(palettes[idx].colors, Math.max(2, l.numColors || 2));
+                            } else {
+                              out = (arr.length >= 1) ? [arr[0], arr[0]] : (palettes?.[0]?.colors ? sampleColors(palettes[0].colors, 2) : ['#000000', '#ffffff']);
+                            }
+                          }
+                        }
+                        return { ...l, colorFadeEnabled: v, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
+                      }));
+                    } else {
+                      const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
+                      const next = { colorFadeEnabled: v };
+                      if (v && baseSpeed <= 0) next.colorFadeSpeed = 0.5;
+                      const curCols = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+                      if (v && curCols.length < 2) next.colors = ensureTwoStops(curCols);
+                      updateLayer(next);
+                    }
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); }}
+                  onClick={(e) => { e.stopPropagation(); }}
+                />
+                Animate colours
+              </label>
+              <label className="compact-label" title="Vary Animate colours across layers"
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!(currentLayer?.vary?.colorFadeEnabled)}
+                  onChange={(e) => {
+                    const checked = !!e.target.checked;
+                    const ensureTwoStops = (arr) => {
+                      if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
+                      if (arr.length === 1) return [arr[0], arr[0]];
+                      return arr;
+                    };
+                    if (typeof _setLayers === 'function') {
+                      if (!checked) {
+                        // Turning vary OFF: broadcast selected layer's current animate state and ensure >=2 stops per layer
+                        const selEnabled = !!(currentLayer?.colorFadeEnabled);
+                        const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
+                        const selSpeed = selEnabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
+                        _setLayers(prev => prev.map(l => {
+                          const arr = Array.isArray(l.colors) ? l.colors : [];
+                          let out = arr;
+                          if (selEnabled) {
+                            if (arr.length < 2) {
+                              const idx = matchPaletteIndex(arr);
+                              if (idx !== -1 && palettes[idx]) {
+                                out = sampleColors(palettes[idx].colors, Math.max(2, l.numColors || 2));
+                              } else {
+                                out = (arr.length >= 1) ? [arr[0], arr[0]] : (palettes?.[0]?.colors ? sampleColors(palettes[0].colors, 2) : ['#000000', '#ffffff']);
+                              }
+                            }
+                          }
+                          return { ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: false }, colorFadeEnabled: selEnabled, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
+                        }));
+                      } else {
+                        // Turning vary ON: just set the flag
+                        _setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: true } })));
+                      }
+                    } else {
+                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: checked };
+                      updateLayer({ vary: nextVary });
+                    }
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); }}
+                  onClick={(e) => { e.stopPropagation(); }}
+                />
+                Vary across layers
+              </label>
             </div>
             {!!currentLayer?.colorFadeEnabled && (
               <div style={{ marginTop: '0.5rem' }}>
@@ -1293,7 +1457,15 @@ const Controls = forwardRef(({
                     max={4}
                     step={0.01}
                     value={Math.max(0, Math.min(4, Number(currentLayer?.colorFadeSpeed ?? 0.5)))}
-                    onChange={(e) => updateLayer({ colorFadeSpeed: parseFloat(e.target.value) })}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      const varyFade = !!(currentLayer?.vary?.colorFadeEnabled);
+                      if (!varyFade && typeof _setLayers === 'function') {
+                        _setLayers(prev => prev.map(l => ({ ...l, colorFadeSpeed: v })));
+                      } else {
+                        updateLayer({ colorFadeSpeed: v });
+                      }
+                    }}
                     className="dc-slider"
                   />
                   <span style={{ minWidth: 48, textAlign: 'right', opacity: 0.85 }}>{Number(currentLayer?.colorFadeSpeed ?? 0.5).toFixed(2)}</span>
@@ -1340,7 +1512,12 @@ const Controls = forwardRef(({
         : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
-      updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+      const varyColors = !!(currentLayer?.vary?.colors);
+      if (!varyColors && typeof _setLayers === 'function') {
+        _setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
+      } else {
+        updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+      }
     });
     return unregister;
   }, [registerParamHandler, currentLayer?.name, currentLayer?.numColors, updateLayer]);

@@ -772,27 +772,37 @@ const MainApp = () => {
     varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
     varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
 
-    // Colors: keep similar for small variation, may change for higher
+    // Colors: respect vary flags
     if (Array.isArray(prev.colors) && prev.colors.length) {
-      if (w >= 0.75) {
-        const currentKey = JSON.stringify(prev.colors);
-        const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
-        const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
-        const chosenArr = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
-        varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
-        varied.numColors = varied.colors.length;
-      } else if (w >= 0.4) {
-        const arr = [...prev.colors];
-        for (let i = arr.length - 1; i > 0; i--) {
-          if (Math.random() < 0.5 * w) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [arr[i], arr[j]] = [arr[j], arr[i]];
+      if (varyFlags.colors) {
+        if (w >= 0.75) {
+          const currentKey = JSON.stringify(prev.colors);
+          const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
+          const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
+          const chosenArr = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
+          varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
+        } else if (w >= 0.4) {
+          const arr = [...prev.colors];
+          for (let i = arr.length - 1; i > 0; i--) {
+            if (Math.random() < 0.5 * w) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
           }
+          varied.colors = [...arr];
+        } else {
+          varied.colors = [...prev.colors];
         }
-        varied.colors = [...arr];
-        varied.numColors = arr.length;
       } else {
+        // Not varying palette across layers: keep previous colours exactly
         varied.colors = [...prev.colors];
+      }
+      // Number of colours: respect vary flag; otherwise preserve previous
+      if (varyFlags.numColors) {
+        varied.numColors = Array.isArray(varied.colors) && varied.colors.length
+          ? varied.colors.length
+          : (prev.numColors ?? prev.colors.length);
+      } else {
         varied.numColors = prev.numColors ?? prev.colors.length;
       }
     }
