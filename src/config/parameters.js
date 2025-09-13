@@ -87,10 +87,34 @@ export const PARAMETERS = [
     group: 'Shape',
   },
 
-  // Layer Variation (was in Animation)
+  // Layer Variation — split into three controls
   {
-    id: 'variation',
-    label: 'Layer Variation',
+    id: 'variationShape',
+    label: 'Shape Variation',
+    type: 'slider',
+    min: 0,
+    max: 3,
+    step: 0.1,
+    defaultValue: 0.2,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'General',
+  },
+  {
+    id: 'variationAnim',
+    label: 'Animation Variation',
+    type: 'slider',
+    min: 0,
+    max: 3,
+    step: 0.1,
+    defaultValue: 0.2,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'General',
+  },
+  {
+    id: 'variationColor',
+    label: 'Colour Variation',
     type: 'slider',
     min: 0,
     max: 3,

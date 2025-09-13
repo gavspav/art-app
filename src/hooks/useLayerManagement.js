@@ -48,7 +48,11 @@ export function useLayerManagement({
   };
 
   const addNewLayer = () => {
-    const baseVar = (typeof layers?.[0]?.variation === 'number') ? layers[0].variation : DEFAULT_LAYER.variation;
+    const baseVar = {
+      shape: (typeof layers?.[0]?.variationShape === 'number') ? layers[0].variationShape : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationShape),
+      anim: (typeof layers?.[0]?.variationAnim === 'number') ? layers[0].variationAnim : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationAnim),
+      color: (typeof layers?.[0]?.variationColor === 'number') ? layers[0].variationColor : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationColor),
+    };
     const prev = layers[layers.length - 1] || DEFAULT_LAYER;
     const nextLayer = buildVariedLayerFrom(prev, layers.length + 1, baseVar);
     setLayers([...layers, nextLayer]);

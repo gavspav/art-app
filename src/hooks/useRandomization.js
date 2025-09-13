@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { hslToHex } from '../utils/colorUtils.js';
+import { hslToHex, hexToHsl } from '../utils/colorUtils.js';
 import { clamp } from '../utils/mathUtils.js';
 import { createSeededRandom } from '../utils/random.js';
 import { getColorsFromPalette, pickPaletteColors } from '../utils/paletteUtils.js';
@@ -49,6 +49,26 @@ export function useRandomization({
     const s = Math.floor(40 + rand() * 40);
     const l = Math.floor(25 + rand() * 55);
     return hslToHex(h, s, l);
+  };
+
+  // Subtle HSL perturbation helper for colour arrays (perceptual)
+  const perturbColorsHSL = (arr, amount, rnd) => {
+    const out = [];
+    const a = Math.max(0, Math.min(1, amount || 0));
+    // Nonlinear scaling (quadratic) so low amounts cause very small shifts
+    const aN = a * a;
+    const hueMax = 1 + 24 * aN;     // ~1deg at tiny values up to ~25deg at a=1
+    const satMax = 1 + 18 * aN;     // percentage points
+    const lightMax = 1 + 18 * aN;   // percentage points
+    for (let i = 0; i < arr.length; i++) {
+      const hex = arr[i] || '#000000';
+      const { h, s, l } = hexToHsl(hex);
+      const h2 = ((h + (rnd() * 2 - 1) * hueMax) % 360 + 360) % 360;
+      const s2 = Math.max(0, Math.min(100, s + (rnd() * 2 - 1) * satMax));
+      const l2 = Math.max(0, Math.min(100, l + (rnd() * 2 - 1) * lightMax));
+      out.push(hslToHex(h2, s2, l2));
+    }
+    return out;
   };
 
   const randomizeLayer = (index, _forcePalette = false) => {
@@ -192,21 +212,34 @@ export function useRandomization({
       : ["#FFC300", "#FF5733", "#C70039"];
 
     const layersOut = [];
-    // Decide variation intensity source:
-    // - Always use the current base layer's variation value to drive intensity
-    // - If the user included 'variation' in Randomize All, resample a new variation value from parameter metadata
-    const includeVar = !!getIsRnd('variation');
-    const pVar = parameters.find(p => p.id === 'variation');
-    const currentBaseVariation = Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation);
-    const sampledVariation = (() => {
-      if (!includeVar || !pVar || pVar.type !== 'slider') return currentBaseVariation;
-      const rmin = Number.isFinite(pVar.randomMin) ? pVar.randomMin : pVar.min;
-      const rmax = Number.isFinite(pVar.randomMax) ? pVar.randomMax : pVar.max;
-      const low = Math.min(rmin ?? pVar.min, rmax ?? pVar.max);
-      const high = Math.max(rmin ?? pVar.min, rmax ?? pVar.max);
+    // Variation intensities: separate shape/anim/color paths
+    const includeVarShape = !!getIsRnd('variationShape');
+    const includeVarAnim = !!getIsRnd('variationAnim');
+    const includeVarColor = !!getIsRnd('variationColor');
+    const pVarShape = parameters.find(p => p.id === 'variationShape');
+    const pVarAnim = parameters.find(p => p.id === 'variationAnim');
+    const pVarColor = parameters.find(p => p.id === 'variationColor');
+    const currentShape = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
+    const currentAnim = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
+    const currentColor = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
+    const sampleVarFromParam = (param, fallback) => {
+      if (!param || param.type !== 'slider') return fallback;
+      const rmin = Number.isFinite(param.randomMin) ? param.randomMin : param.min;
+      const rmax = Number.isFinite(param.randomMax) ? param.randomMax : param.max;
+      const low = Math.min(rmin ?? param.min, rmax ?? param.max);
+      const high = Math.max(rmin ?? param.min, rmax ?? param.max);
       let v = low + rand() * (high - low);
-      return clamp(v, pVar.min, pVar.max);
-    })();
+      return clamp(v, param.min, param.max);
+    };
+    const sampledShape = includeVarShape ? sampleVarFromParam(pVarShape, currentShape) : currentShape;
+    const sampledAnim = includeVarAnim ? sampleVarFromParam(pVarAnim, currentAnim) : currentAnim;
+    const sampledColor = includeVarColor ? sampleVarFromParam(pVarColor, currentColor) : currentColor;
+    const boostAboveOne = (v) => {
+      let x = Number(v) || 0;
+      if (x > 1) x = 1 + (x - 1) * 1.4;
+      if (x < 0) x = 0; if (x > 3) x = 3;
+      return x;
+    };
     // If rotation should not vary across layers, sample one rotation (for the Rotate slider)
     const uniformRotation = (() => {
       if (!incRotation || rotationVaryAcrossLayers) return null;
@@ -218,20 +251,21 @@ export function useRandomization({
       const prev = layers[idx] || DEFAULT_LAYER;
       const varied = { ...prev };
 
-      // Variation weight uses current or sampled variation value
-      const baseVariation = sampledVariation;
-      const w = clamp((Number(baseVariation) || 0) / 3, 0, 1);
+      // Variation weights come from the sampled per-category values
+      const wShape = clamp((Number(sampledShape) || 0) / 3, 0, 1);
+      const wAnim = clamp((Number(sampledAnim) || 0) / 3, 0, 1);
+      const wColor = clamp(boostAboveOne(sampledColor) / 3, 0, 1);
 
       // IMPORTANT: Randomize All should affect core properties regardless of per-layer vary flags.
       // Use variation only to scale the intensity of the change.
-      varied.numSides = Math.max(3, Math.round(mixRand(prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, w, true)));
-      varied.curviness = Number(mixRand(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, w).toFixed(3));
-      varied.noiseAmount = Number(mixRand(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, w).toFixed(2));
-      varied.wobble = Number(mixRand(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, w).toFixed(3));
+      varied.numSides = Math.max(3, Math.round(mixRand(prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, wShape, true)));
+      varied.curviness = Number(mixRand(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, wShape).toFixed(3));
+      varied.noiseAmount = Number(mixRand(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, wShape).toFixed(2));
+      varied.wobble = Number(mixRand(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, wShape).toFixed(3));
       // Use relative size instead of pixel width/height
       const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.4);
       const rfMin = 0.05, rfMax = 0.45;
-      varied.radiusFactor = Number(mixRand(baseRF, rfMin, rfMax, w).toFixed(3));
+      varied.radiusFactor = Number(mixRand(baseRF, rfMin, rfMax, wShape).toFixed(3));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
@@ -239,7 +273,7 @@ export function useRandomization({
         const styles = ['bounce', 'drift', 'still'];
         const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
         let nextStyle = cur;
-        const changeProb = Math.max(0.3, w); // ensure some chance even at low variation
+        const changeProb = Math.max(0.3, wAnim); // ensure some chance even at low variation
         if (styles.length && rand() < changeProb) {
           const others = styles.filter(s => s !== cur);
           const pool = others.length ? others : styles;
@@ -247,7 +281,7 @@ export function useRandomization({
         }
         varied.movementStyle = nextStyle;
       }
-      varied.movementSpeed = Number(mixRand(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, w).toFixed(3));
+      varied.movementSpeed = Number(mixRand(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, wAnim).toFixed(3));
       if (incRotation) {
         const nextRot = (uniformRotation !== null)
           ? uniformRotation
@@ -256,7 +290,7 @@ export function useRandomization({
       }
 
       // Scale
-      varied.scaleSpeed = Number(mixRand(prev.scaleSpeed ?? 0.05, 0, 0.2, w).toFixed(3));
+      varied.scaleSpeed = Number(mixRand(prev.scaleSpeed ?? 0.05, 0, 0.2, wAnim).toFixed(3));
       let nextScaleMin = prev.scaleMin ?? 0.2;
       let nextScaleMax = prev.scaleMax ?? 1.5;
       // Keep scale bounds as non-randomizable defaults; do not change unless your design later permits
@@ -266,7 +300,7 @@ export function useRandomization({
       // Position jitter
       const baseX = prev.position?.x ?? 0.5;
       const baseY = prev.position?.y ?? 0.5;
-      const jitter = 0.15 * w;
+      const jitter = 0.15 * wAnim;
       const jx = (rand() * 2 - 1) * jitter;
       const jy = (rand() * 2 - 1) * jitter;
       const nx = clamp(baseX + jx, 0.0, 1.0);
@@ -284,28 +318,49 @@ export function useRandomization({
       varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
       varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
 
-      // Colors: small shuffle based on variation weight; not gated by vary flags
+      // Colors (continuous response):
+      // - wColor === 0: no change
+      // - Otherwise: compute continuous perturbation magnitude; increase probability of shuffle and palette swap as w grows
       if (Array.isArray(prev.colors) && prev.colors.length) {
-        if (w >= 0.75) {
-          const currentKey = JSON.stringify(prev.colors);
-          const candidates = palettes.filter(p => JSON.stringify(getColorsFromPalette(p)) !== currentKey);
-          const pool = candidates.length ? candidates : palettes;
-          const chosenArr = getColorsFromPalette(pool[Math.max(0, Math.min(pool.length - 1, Math.floor(rand() * pool.length)))]);
-          varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
-          varied.numColors = varied.colors.length;
-        } else if (w >= 0.4) {
-          const arr = [...prev.colors];
-          for (let i = arr.length - 1; i > 0; i--) {
-            if (rand() < 0.5 * w) {
-              const j = Math.floor(rand() * (i + 1));
-              [arr[i], arr[j]] = [arr[j], arr[i]];
-            }
-          }
-          varied.colors = [...arr];
-          varied.numColors = arr.length;
-        } else {
+        if (wColor <= 0) {
           varied.colors = [...prev.colors];
           varied.numColors = prev.numColors ?? prev.colors.length;
+        } else {
+          // Continuous magnitudes and probabilities
+          const uniqueCount = (() => { try { return new Set(prev.colors.map(c => (c || '').toLowerCase())).size; } catch { return prev.colors.length; } })();
+          const amt = Math.max(0.02, wColor); // base magnitude
+          // Quadratic easing so small w produce small changes, larger w accelerate
+          const a2 = amt * amt;
+          // Probabilities for operations
+          const pPalette = Math.max(0, Math.min(1, (wColor - 0.5) / 0.5)); // 0 at 0.5, 1 at 1.0
+          const pShuffle = Math.max(0, Math.min(1, (wColor - 0.1) / 0.5)); // start around 0.1, 1 by 0.6
+
+          // First decide if we do a palette swap
+          if (rand() < pPalette) {
+            const currentKey = JSON.stringify(prev.colors);
+            const candidates = palettes.filter(p => JSON.stringify(getColorsFromPalette(p)) !== currentKey);
+            const pool = candidates.length ? candidates : palettes;
+            const chosenArr = getColorsFromPalette(pool[Math.max(0, Math.min(pool.length - 1, Math.floor(rand() * pool.length)))]);
+            varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [...prev.colors];
+            varied.numColors = varied.colors.length;
+          } else if (uniqueCount > 1 && rand() < pShuffle) {
+            // Shuffle with fallback to ensure visible change
+            const arr = [...prev.colors];
+            for (let i = arr.length - 1; i > 0; i--) {
+              if (rand() < 0.4 + 0.4 * a2) { // increase swap chance with w
+                const j = Math.floor(rand() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+              }
+            }
+            const same = arr.length === prev.colors.length && arr.every((c, i) => c === prev.colors[i]);
+            varied.colors = same ? [...arr.slice(1), arr[0]] : [...arr];
+            varied.numColors = arr.length;
+          } else {
+            // Subtle/strong perturbation depending on amt
+            const perturbed = perturbColorsHSL(prev.colors, amt, rand);
+            varied.colors = perturbed;
+            varied.numColors = perturbed.length;
+          }
         }
       }
 
@@ -356,9 +411,11 @@ export function useRandomization({
       layersOut.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
     }
 
-    // If variation was included, apply the newly sampled variation to the base layer
-    if (includeVar && layersOut.length > 0) {
-      layersOut[0].variation = Number(sampledVariation.toFixed ? sampledVariation.toFixed(2) : sampledVariation);
+    // Apply sampled base variations when included
+    if (layersOut.length > 0) {
+      if (includeVarShape) layersOut[0].variationShape = Number(sampledShape.toFixed ? sampledShape.toFixed(2) : sampledShape);
+      if (includeVarAnim) layersOut[0].variationAnim = Number(sampledAnim.toFixed ? sampledAnim.toFixed(2) : sampledAnim);
+      if (includeVarColor) layersOut[0].variationColor = Number(sampledColor.toFixed ? sampledColor.toFixed(2) : sampledColor);
     }
 
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
@@ -387,20 +444,29 @@ export function useRandomization({
     const incLayers = getIsRnd('layersCount');
     const incPalette = getIsRnd('globalPaletteIndex');
     const incRotation = getIsRnd('rotation');
-    const incVariation = getIsRnd('variation');
+    const incVarShape = getIsRnd('variationShape');
+    const incVarAnim = getIsRnd('variationAnim');
+    const incVarColor = getIsRnd('variationColor');
 
     // Variation handling (base layer): preserve unless included, then sample
-    const pVar = parameters.find(p => p.id === 'variation');
-    const prevBaseVar = Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation);
-    const classicSampledVar = (() => {
-      if (!incVariation || !pVar || pVar.type !== 'slider') return prevBaseVar;
-      const rmin = Number.isFinite(pVar.randomMin) ? pVar.randomMin : pVar.min;
-      const rmax = Number.isFinite(pVar.randomMax) ? pVar.randomMax : pVar.max;
-      const low = Math.min(rmin ?? pVar.min, rmax ?? pVar.max);
-      const high = Math.max(rmin ?? pVar.min, rmax ?? pVar.max);
+    const pVS = parameters.find(p => p.id === 'variationShape');
+    const pVA = parameters.find(p => p.id === 'variationAnim');
+    const pVC = parameters.find(p => p.id === 'variationColor');
+    const prevVS = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
+    const prevVA = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
+    const prevVC = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
+    const sampleClassic = (p, fb) => {
+      if (!p || p.type !== 'slider') return fb;
+      const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
+      const rmax = Number.isFinite(p.randomMax) ? p.randomMax : p.max;
+      const low = Math.min(rmin ?? p.min, rmax ?? p.max);
+      const high = Math.max(rmin ?? p.min, rmax ?? p.max);
       let v = low + rnd() * (high - low);
-      return clamp(v, pVar.min, pVar.max);
-    })();
+      return clamp(v, p.min, p.max);
+    };
+    const sampledVS = incVarShape ? sampleClassic(pVS, prevVS) : prevVS;
+    const sampledVA = incVarAnim ? sampleClassic(pVA, prevVA) : prevVA;
+    const sampledVC = incVarColor ? sampleClassic(pVC, prevVC) : prevVC;
 
     // Scene palette
     let baseColors = pickPaletteColors(palettes, rnd, []);
@@ -468,16 +534,19 @@ export function useRandomization({
       layer.scaleMin = Number(sMin.toFixed(2));
       layer.scaleMax = Number(sMax.toFixed(2));
       layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
+      // Apply base variations to base layer only; others will vary from this baseline when added later
+      if (idx === 0) {
+        layer.variationShape = sampledVS;
+        layer.variationAnim = sampledVA;
+        layer.variationColor = sampledVC;
+        layer.variation = Number(layer.variation ?? sampledVS); // keep legacy populated
+      }
       return layer;
     };
 
     const newLayers = Array.from({ length: layerCount }, (_, idx) => buildLayer(idx));
 
-    // Apply base layer variation: preserve old or sampled when included
-    if (newLayers.length > 0) {
-      const v = classicSampledVar;
-      newLayers[0].variation = Number(v?.toFixed ? v.toFixed(2) : v);
-    }
+    // Base variations were set in buildLayer for idx 0
 
     // Apply colours based on Include flag for palette
     if (incPalette) {

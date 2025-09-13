@@ -78,6 +78,10 @@ const MainApp = () => {
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
+  // Simple recording state (placeholder)
+  const [isRecording, setIsRecording] = useState(false);
+  const startRecording = useCallback(() => setIsRecording(true), []);
+  const stopRecording = useCallback(() => setIsRecording(false), []);
   // Keep latest values accessible to hotkeys without re-binding listeners
   const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false });
   useEffect(() => {
@@ -105,6 +109,41 @@ const MainApp = () => {
     };
   }, []);
 
+  // Sidebar resize handlers
+  const onSidebarMouseMove = useCallback((e) => {
+    const st = dragRef.current || {};
+    if (!st.dragging) return;
+    const dx = (e.clientX || 0) - (st.startX || 0);
+    const nextW = Math.max(240, Math.min(800, (st.startW || 350) + dx));
+    setSidebarWidth(nextW);
+  }, []);
+
+  const onSidebarMouseUp = useCallback(() => {
+    const st = dragRef.current || {};
+    if (!st.dragging) return;
+    dragRef.current = { ...st, dragging: false };
+    window.removeEventListener('mousemove', onSidebarMouseMove);
+    window.removeEventListener('mouseup', onSidebarMouseUp);
+  }, [onSidebarMouseMove]);
+
+  const startResize = useCallback((e) => {
+    try { e.preventDefault(); } catch {}
+    const sx = Number(e?.clientX) || 0;
+    dragRef.current = { dragging: true, startX: sx, startW: sidebarWidth };
+    window.addEventListener('mousemove', onSidebarMouseMove);
+    window.addEventListener('mouseup', onSidebarMouseUp);
+  }, [sidebarWidth, onSidebarMouseMove, onSidebarMouseUp]);
+
+  useEffect(() => {
+    // Cleanup listeners on unmount just in case
+    return () => {
+      try {
+        window.removeEventListener('mousemove', onSidebarMouseMove);
+        window.removeEventListener('mouseup', onSidebarMouseUp);
+      } catch {}
+    };
+  }, [onSidebarMouseMove, onSidebarMouseUp]);
+
   // --- Import adjust panel state (moved to hook) ---
   const {
     showImportAdjust, setShowImportAdjust,
@@ -114,6 +153,9 @@ const MainApp = () => {
     importBaseRef, importRawRef,
     recomputeImportLayout, applyImportAdjust,
   } = useImportAdjust({ setLayers });
+
+  // Start animation loop (position, bounce/drift, z-scale)
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
 
   // Remember prior frozen state when entering node edit mode
   const prevFrozenRef = useRef(null);
@@ -135,6 +177,11 @@ const MainApp = () => {
     globalBlendMode: true,
     globalOpacity: true,
     layersCount: true,
+    // Split variation include flags
+    variationShape: true,
+    variationAnim: true,
+    variationColor: true,
+    // legacy key kept for backward compat with saved states; not used by new UI
     variation: true,
   });
   const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
@@ -158,6 +205,12 @@ const MainApp = () => {
       console.warn('Failed to export JSON', e);
     }
   };
+
+  // Clamp selection and expose currentLayer for Controls
+  const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
+  const currentLayer = (Array.isArray(layers) && layers.length > 0)
+    ? (layers[clampedSelectedIndex] || layers[0])
+    : DEFAULT_LAYER;
 
   const handleQuickSave = () => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
@@ -203,6 +256,250 @@ const MainApp = () => {
       return { ...l, colors: [col], numColors: 1, selectedColor: 0 };
     }));
   }, [setLayers]);
+
+  // Build a new layer by varying from a previous layer using split variation weights
+  const buildVariedLayerFrom = (prev, nameIndex, baseVar) => {
+    const clamp = clampUtil;
+    const mix = (prevVal, min, max, w, integer = false) => mixRandomUtil(prevVal, min, max, w, integer);
+    // Resolve separate variation intensities (0..3)
+    const vShapeBase = Number(prev?.variationShape ?? prev?.variation ?? DEFAULT_LAYER.variationShape ?? 0.2);
+    const vAnimBase = Number(prev?.variationAnim ?? prev?.variation ?? DEFAULT_LAYER.variationAnim ?? 0.2);
+    const vColorBase = Number(prev?.variationColor ?? prev?.variation ?? DEFAULT_LAYER.variationColor ?? 0.2);
+    const v = (baseVar && typeof baseVar === 'object')
+      ? { shape: Number(baseVar.shape ?? vShapeBase), anim: Number(baseVar.anim ?? vAnimBase), color: Number(baseVar.color ?? vColorBase) }
+      : { shape: Number(baseVar ?? vShapeBase), anim: Number(baseVar ?? vAnimBase), color: Number(baseVar ?? vColorBase) };
+    const wShape = clamp((v.shape || 0) / 3, 0, 1);
+    const wAnim = clamp((v.anim || 0) / 3, 0, 1);
+    const boostAboveOne = (x) => {
+      let z = Number(x) || 0;
+      if (z > 1) z = 1 + (z - 1) * 1.4;
+      if (z < 0) z = 0; if (z > 3) z = 3;
+      return z;
+    };
+    const wColor = clamp(boostAboveOne(v.color || 0) / 3, 0, 1);
+
+    const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
+
+    const rand = createSeededRandom(Math.random());
+    const newSeed = rand();
+
+    const varied = { ...(prev || DEFAULT_LAYER) };
+    varied.name = `Layer ${nameIndex}`;
+    varied.seed = newSeed;
+    varied.noiseSeed = newSeed;
+    varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
+    // Preserve legacy and split variations
+    varied.variation = Number(prev?.variation ?? DEFAULT_LAYER.variation);
+    varied.variationShape = Number(v.shape);
+    varied.variationAnim = Number(v.anim);
+    varied.variationColor = Number(v.color);
+
+    // Shape and appearance (use wShape)
+    const mixShape = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wShape, integer);
+    if (varyFlags.numSides) varied.numSides = Math.max(3, Math.round(mixShape(prev.numSides ?? 6, 3, 20, true)));
+    if (varyFlags.curviness) varied.curviness = Number(mixShape(prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
+    if (varyFlags.wobble) varied.wobble = Number(mixShape(prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
+    if (varyFlags.noiseAmount) varied.noiseAmount = Number(mixShape(prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
+    if (varyFlags.width) varied.width = Math.max(10, Math.round(mixShape(prev.width ?? 250, 10, 900, true)));
+    if (varyFlags.height) varied.height = Math.max(10, Math.round(mixShape(prev.height ?? 250, 10, 900, true)));
+    if (varyFlags.radiusFactor) {
+      const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
+      varied.radiusFactor = Number(mixShape(baseRF, 0.02, 0.9).toFixed(3));
+    }
+    if (varyFlags.radiusFactorX) {
+      const baseRFX = Number(prev.radiusFactorX ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
+      varied.radiusFactorX = Number(mixShape(baseRFX, 0.02, 0.9).toFixed(3));
+    }
+    if (varyFlags.radiusFactorY) {
+      const baseRFY = Number(prev.radiusFactorY ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
+      varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
+    }
+
+    // Movement (use wAnim)
+    const mixAnim = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wAnim, integer);
+    if (varyFlags.movementStyle && wAnim > 0.7 && Math.random() < wAnim) {
+      const styles = ['bounce', 'drift', 'still'];
+      const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
+      const others = styles.filter(s => s !== cur);
+      varied.movementStyle = (others[Math.floor(Math.random() * others.length)] || cur);
+    }
+    if (varyFlags.movementSpeed) varied.movementSpeed = Number(mixAnim(prev.movementSpeed ?? 1, 0, 5).toFixed(3));
+    if (varyFlags.movementAngle) {
+      const nextA = mixAnim(prev.movementAngle ?? 45, 0, 360, true);
+      varied.movementAngle = ((nextA % 360) + 360) % 360;
+    }
+    if (varyFlags.scaleSpeed) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
+    let nextScaleMin = prev.scaleMin ?? 0.2;
+    let nextScaleMax = prev.scaleMax ?? 1.5;
+    if (varyFlags.scaleMin) nextScaleMin = mixAnim(prev.scaleMin ?? 0.2, 0.1, 2);
+    if (varyFlags.scaleMax) nextScaleMax = mixAnim(prev.scaleMax ?? 1.5, 0.5, 3);
+    varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
+    varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
+
+    // Image effects (treat as animation/appearance; use wAnim)
+    if (varyFlags.imageBlur) varied.imageBlur = Number(mixAnim(prev.imageBlur ?? 0, 0, 20).toFixed(2));
+    if (varyFlags.imageBrightness) varied.imageBrightness = Math.round(mixAnim(prev.imageBrightness ?? 100, 0, 200, true));
+    if (varyFlags.imageContrast) varied.imageContrast = Math.round(mixAnim(prev.imageContrast ?? 100, 0, 200, true));
+    if (varyFlags.imageHue) {
+      const nextHue = mixAnim(prev.imageHue ?? 0, 0, 360, true);
+      varied.imageHue = ((nextHue % 360) + 360) % 360;
+    }
+    if (varyFlags.imageSaturation) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
+    if (varyFlags.imageDistortion) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
+
+    // Position jitter (use wAnim)
+    const baseX = prev.position?.x ?? 0.5;
+    const baseY = prev.position?.y ?? 0.5;
+    const jitter = 0.15 * wAnim;
+    const jx = (Math.random() * 2 - 1) * jitter;
+    const jy = (Math.random() * 2 - 1) * jitter;
+    const nx = clamp(baseX + jx, 0.0, 1.0);
+    const ny = clamp(baseY + jy, 0.0, 1.0);
+    varied.position = {
+      ...(prev.position || DEFAULT_LAYER.position),
+      x: nx,
+      y: ny,
+      scale: prev.position?.scale ?? 1.0,
+      scaleDirection: prev.position?.scaleDirection ?? 1,
+    };
+
+    // Recompute velocity from angle/speed
+    {
+      const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
+      const spd = (varied.movementSpeed ?? prev.movementSpeed ?? 0) * 0.001;
+      varied.vx = Math.cos(angleRad) * spd;
+      varied.vy = Math.sin(angleRad) * spd;
+    }
+
+    // Colors (use wColor) — unified thresholds like Randomize All
+    if (Array.isArray(prev.colors) && prev.colors.length) {
+      if (varyFlags.colors) {
+        if (wColor <= 0) {
+          varied.colors = [...prev.colors];
+          varied.numColors = prev.numColors ?? prev.colors.length;
+        } else if (wColor >= 0.6) {
+          const nextPalette = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
+          varied.colors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
+          varied.numColors = varied.colors.length;
+        } else if (wColor >= 0.15) {
+          const uniqueCount = (() => { try { return new Set(prev.colors.map(c => (c || '').toLowerCase())).size; } catch { return prev.colors.length; } })();
+          if (uniqueCount <= 1) {
+            const amt = Math.max(0.02, wColor);
+            const hueMax = 1 + 24 * (amt * amt);
+            const satMax = 1 + 18 * (amt * amt);
+            const lightMax = 1 + 18 * (amt * amt);
+            const perturbed = (prev.colors || []).map(hex => {
+              const toHsl = (h) => {
+                const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
+                let R=0,G=0,B=0; if (m) { R=parseInt(m[1],16); G=parseInt(m[2],16); B=parseInt(m[3],16); }
+                const r1=R/255,g1=G/255,b1=B/255;
+                const max=Math.max(r1,g1,b1),min=Math.min(r1,g1,b1);
+                let hh=0, ss=0; const ll=(max+min)/2;
+                if (max!==min){const d=max-min; ss= ll>0.5? d/(2-max-min): d/(max-min); switch(max){case r1: hh=(g1-b1)/d+(g1<b1?6:0); break; case g1: hh=(b1-r1)/d+2; break; case b1: hh=(r1-g1)/d+4; break;} hh/=6;}
+                return { h: hh*360, s: ss*100, l: ll*100 };
+              };
+              const fromHsl = (h,s,l) => {
+                const s1=s/100,l1=l/100; const c=(1-Math.abs(2*l1-1))*(s1);
+                const x=c*(1-Math.abs(((h/60)%2)-1)); const m=l1-c/2; let r=0,g=0,b=0;
+                if (h<60){r=c;g=x;b=0;} else if (h<120){r=x;g=c;b=0;} else if (h<180){r=0;g=c;b=x;} else if (h<240){r=0;g=x;b=c;} else if (h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+                const toHex=(v)=>Math.round((v+m)*255).toString(16).padStart(2,'0');
+                return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+              };
+              const { h, s, l } = toHsl(hex);
+              const h2 = ((h + (Math.random()*2-1)*hueMax)%360 + 360)%360;
+              const s2 = Math.max(0, Math.min(100, s + (Math.random()*2-1)*satMax));
+              const l2 = Math.max(0, Math.min(100, l + (Math.random()*2-1)*lightMax));
+              return fromHsl(h2, s2, l2);
+            });
+            varied.colors = perturbed;
+            varied.numColors = perturbed.length;
+          } else {
+            const arr = [...prev.colors];
+            for (let i = arr.length - 1; i > 0; i--) {
+              if (Math.random() < 0.5 * wColor) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+              }
+            }
+            const same = arr.length === prev.colors.length && arr.every((c, i) => c === prev.colors[i]);
+            varied.colors = same ? [...arr.slice(1), arr[0]] : [...arr];
+            varied.numColors = arr.length;
+          }
+        } else if (wColor > 0) {
+          // Subtle HSL perturbation for perceptual similarity
+          const amt = Math.max(0.05, wColor);
+          const hueMax = 2 + 8 * amt;
+          const satMax = 2 + 6 * amt;
+          const lightMax = 2 + 6 * amt;
+          const perturbed = (prev.colors || []).map(hex => {
+            const toHsl = (h) => {
+              const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
+              let R=0,G=0,B=0; if (m) { R=parseInt(m[1],16); G=parseInt(m[2],16); B=parseInt(m[3],16); }
+              const r=R/255,g=B/255,b=G/255; // order fixed below; compute properly via rgb->hsl
+              // Use simple conversion inline to avoid circular imports
+              const r1=R/255,g1=G/255,b1=B/255;
+              const max=Math.max(r1,g1,b1),min=Math.min(r1,g1,b1);
+              let hh=0, ss=0; const ll=(max+min)/2;
+              if (max!==min){const d=max-min; ss= ll>0.5? d/(2-max-min): d/(max-min); switch(max){case r1: hh=(g1-b1)/d+(g1<b1?6:0); break; case g1: hh=(b1-r1)/d+2; break; case b1: hh=(r1-g1)/d+4; break;} hh/=6;}
+              return { h: hh*360, s: ss*100, l: ll*100 };
+            };
+            const fromHsl = (h,s,l) => {
+              // reuse existing hslToHex indirectly via manual conversion to avoid extra import context
+              const s1=s/100,l1=l/100; const c=(1-Math.abs(2*l1-1))* (s1);
+              const x=c*(1-Math.abs(((h/60)%2)-1)); const m=l1-c/2; let r=0,g=0,b=0;
+              if (h<60){r=c;g=x;b=0;} else if (h<120){r=x;g=c;b=0;} else if (h<180){r=0;g=c;b=x;} else if (h<240){r=0;g=x;b=c;} else if (h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
+              const toHex=(v)=>Math.round((v+m)*255).toString(16).padStart(2,'0');
+              return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+            };
+            const { h, s, l } = toHsl(hex);
+            const h2 = ((h + (Math.random()*2-1)*hueMax)%360 + 360)%360;
+            const s2 = Math.max(0, Math.min(100, s + (Math.random()*2-1)*satMax));
+            const l2 = Math.max(0, Math.min(100, l + (Math.random()*2-1)*lightMax));
+            return fromHsl(h2, s2, l2);
+          });
+          varied.colors = perturbed;
+          varied.numColors = perturbed.length;
+        } else {
+          varied.colors = [...prev.colors];
+          varied.numColors = prev.numColors ?? prev.colors.length;
+        }
+      } else {
+        varied.colors = [...prev.colors];
+        varied.numColors = prev.numColors ?? prev.colors.length;
+      }
+    }
+
+    // If previous layer has edited nodes, vary shape from those nodes
+    try {
+      const prevNodes = Array.isArray(prev.nodes) ? prev.nodes : null;
+      const desired = Math.max(3, Number(varied.numSides ?? prev.numSides ?? 6));
+      if (prevNodes && prevNodes.length >= 3) {
+        let nodes = prevNodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 }));
+        // Resize
+        if (nodes.length !== desired) {
+          if (nodes.length > desired) {
+            nodes = nodes.slice(0, desired);
+          } else {
+            while (nodes.length < desired) {
+              const N = nodes.length;
+              const k = Math.floor(Math.random() * N);
+              const next = (k + 1) % N;
+              nodes.splice(next, 0, { x: (nodes[k].x + nodes[next].x) / 2, y: (nodes[k].y + nodes[next].y) / 2 });
+            }
+          }
+        }
+        const jitterAmt = 0.12 * wShape;
+        varied.nodes = nodes.map(n => ({ x: Math.max(-1, Math.min(1, n.x + (Math.random() * 2 - 1) * jitterAmt)), y: Math.max(-1, Math.min(1, n.y + (Math.random() * 2 - 1) * jitterAmt)) }));
+        varied.syncNodesToNumSides = prev.syncNodesToNumSides;
+      } else {
+        varied.nodes = null;
+      }
+    } catch {
+      varied.nodes = null;
+    }
+
+    return varied;
+  };
 
   const handleImportFile = async (e) => {
     const file = e.target.files[0];
@@ -482,333 +779,7 @@ const MainApp = () => {
   };
 
 
-  useEffect(() => {
-    setLayers(prevLayers => 
-      prevLayers.map(layer => {
-        if (layer.vx === 0 && layer.vy === 0) {
-          const angleRad = layer.movementAngle * (Math.PI / 180);
-          return {
-            ...layer,
-            // Map UI movementSpeed (0..5) to engine units
-            vx: Math.cos(angleRad) * (layer.movementSpeed * 0.001) * 1.0,
-            vy: Math.sin(angleRad) * (layer.movementSpeed * 0.001) * 1.0,
-          };
-        }
-        return layer;
-      })
-    );
-  }, []);
-
-  // Keep Canvas in sync with background image via a global bridge (read by Canvas.jsx)
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.__artapp_bgimg = backgroundImage || { src: null, enabled: false, opacity: 1, fit: 'cover' };
-    }
-  }, [backgroundImage]);
-
-  // Normalize any persisted out-of-range values (e.g., curviness) once on load
-  useEffect(() => {
-    setLayers(prevLayers =>
-      prevLayers.map(layer => ({
-        ...layer,
-        curviness: Math.min(1, Math.max(0, typeof layer.curviness === 'number' ? layer.curviness : 1)),
-      }))
-    );
-  }, []);
-
-  // One-time migration: scale legacy movementSpeed values (<= 0.02) to new 0–5 UI scale
-  useEffect(() => {
-    setLayers(prevLayers =>
-      prevLayers.map(layer => {
-        const ms = layer.movementSpeed;
-        if (typeof ms === 'number' && ms <= 0.02) {
-          const scaled = Math.min(5, Math.max(0, ms * 1000));
-          const angleRad = layer.movementAngle * (Math.PI / 180);
-          return {
-            ...layer,
-            movementSpeed: scaled,
-            vx: Math.cos(angleRad) * (scaled * 0.001) * 1.0,
-            vy: Math.sin(angleRad) * (scaled * 0.001) * 1.0,
-          };
-        }
-        return layer;
-      })
-    );
-  }, []);
-
-  // Run animation loop hook (side-effecting hook, no return value)
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
-
-  // Ensure selected layer has nodes in node-edit mode even after layer-count changes via slider
-  useEffect(() => {
-    if (!isNodeEditMode) return;
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    const layer = layers[idx];
-    if (!layer || layer.layerType !== 'shape') return;
-    if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
-      const desired = Math.max(3, layer.numSides || 6);
-      const nodes = Array.from({ length: desired }, (_, i) => {
-        const a = (i / desired) * Math.PI * 2;
-        return { x: Math.cos(a), y: Math.sin(a) };
-      });
-      setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes } : l)));
-    }
-  }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
-
-  // Sidebar resizing handlers
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!dragRef.current.dragging) return;
-      const dx = e.clientX - dragRef.current.startX;
-      const next = Math.max(220, Math.min(600, dragRef.current.startW + dx));
-      setSidebarWidth(next);
-      e.preventDefault();
-    };
-    const onUp = () => {
-      if (dragRef.current.dragging) dragRef.current.dragging = false;
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, []);
-
-  const startResize = (e) => {
-    dragRef.current = { dragging: true, startX: e.clientX, startW: sidebarWidth };
-    e.preventDefault();
-  };
-
-  // Screen capture recording (Phase 1)
-  const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const recordedChunksRef = useRef([]);
-  const pickBestMime = () => {
-    try {
-      const candidates = [
-        'video/mp4;codecs=h264',
-        'video/mp4',
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm',
-      ];
-      for (const m of candidates) {
-        if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
-      }
-    } catch {}
-    return 'video/webm';
-  };
-  const startRecording = () => {
-    try {
-      const canvas = canvasRef.current;
-      if (!canvas || !canvas.captureStream) {
-        alert('Canvas captureStream not supported in this browser.');
-        return;
-      }
-      const mimeType = pickBestMime();
-      const fps = 60;
-      const stream = canvas.captureStream(fps);
-      const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
-      recordedChunksRef.current = [];
-      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data); };
-      rec.onstop = () => {
-        try {
-          const blob = new Blob(recordedChunksRef.current, { type: mimeType });
-          const url = URL.createObjectURL(blob);
-          const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `artapp-${Date.now()}.${ext}`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 5000);
-        } catch {}
-      };
-      mediaRecorderRef.current = rec;
-      rec.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.warn('Failed to start recording', err);
-      alert('Failed to start recording.');
-    }
-  };
-  const stopRecording = () => {
-    try {
-      const rec = mediaRecorderRef.current;
-      if (rec && rec.state !== 'inactive') {
-        rec.stop();
-      }
-    } catch {}
-    setIsRecording(false);
-  };
-  useEffect(() => {
-    return () => {
-      try {
-        const rec = mediaRecorderRef.current;
-        if (rec && rec.state !== 'inactive') rec.stop();
-      } catch {}
-    };
-  }, []);
-
-  // (moved: import adjust recompute logic is inside useImportAdjust)
-
-  // Do not auto-freeze when entering Node Edit mode
-  useEffect(() => {
-    // Previously, node edit mode forced freezing to simplify editing.
-    // This has been disabled per request; preserve current frozen state.
-    prevFrozenRef.current = null; // keep state; intentional no-op
-  }, [isNodeEditMode]);
-
-  // Clamp selection to available layers to avoid transient undefined during updates
-  const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-  const currentLayer = (layers.length > 0)
-    ? (layers[clampedSelectedIndex] || layers[0])
-    : DEFAULT_LAYER;
-
-  
-  // Ensure nodes exist for the selected layer while in Node Edit mode, especially after layer-count changes
-  useEffect(() => {
-    if (!isNodeEditMode) return;
-    // Only act when we have at least one layer
-    if (!Array.isArray(layers) || layers.length === 0) return;
-    const idx = Math.max(0, Math.min(selectedLayerIndex, layers.length - 1));
-    const layer = layers[idx];
-    if (!layer || layer.layerType !== 'shape') return;
-    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) return;
-    // Compute a simple regular polygon based on numSides
-    const sides = Math.max(3, Number(layer.numSides) || 3);
-    const nodes = Array.from({ length: sides }, (_, i) => {
-      const a = (i / sides) * Math.PI * 2;
-      return { x: Math.cos(a), y: Math.sin(a) };
-    });
-    setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes } : l)));
-  }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
-
-  // Helper: build a new layer by varying from a previous layer using base variation
-  const buildVariedLayerFrom = (prev, nameIndex, baseVar) => {
-    const v = typeof baseVar === 'number' ? baseVar : (typeof prev?.variation === 'number' ? prev.variation : (DEFAULT_LAYER.variation ?? 0.2));
-    const w = Math.max(0, Math.min(1, v / 3)); // normalize 0..3 -> 0..1
-    const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
-
-    const mixRandom = (prevVal, min, max, integer = false) => mixRandomUtil(prevVal, min, max, w, integer);
-
-    const clamp = clampUtil;
-
-    const random = createSeededRandom(Math.random());
-    const newSeed = random();
-
-    const varied = { ...(prev || DEFAULT_LAYER) };
-    varied.name = `Layer ${nameIndex}`;
-    varied.seed = newSeed;
-    varied.noiseSeed = newSeed;
-    varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
-    varied.variation = v;
-    // Ensure new layers do not share node-based geometry references
-    // Use procedural shape by default; imported shapes will explicitly set these when needed
-    varied.nodes = null;
-    if (varied.subpaths) delete varied.subpaths;
-    varied.viewBoxMapped = false;
-
-    // Geometry and style (respect vary flags)
-    if (varyFlags.numSides) varied.numSides = mixRandom(prev.numSides, 3, 20, true);
-    if (varyFlags.curviness) varied.curviness = mixRandom(prev.curviness ?? 1.0, 0.0, 1.0);
-    if (varyFlags.wobble) varied.wobble = mixRandom(prev.wobble ?? 0.5, 0.0, 1.0);
-    if (varyFlags.noiseAmount) varied.noiseAmount = mixRandom(prev.noiseAmount ?? 0.5, 0, 8);
-    if (varyFlags.width) varied.width = mixRandom(prev.width ?? 250, 10, 900, true);
-    if (varyFlags.height) varied.height = mixRandom(prev.height ?? 250, 10, 900, true);
-
-    // Movement
-    if (varyFlags.movementStyle && w > 0.7 && Math.random() < w) {
-      const styles = ['bounce', 'drift', 'still'];
-      const others = styles.filter(s => s !== prev.movementStyle);
-      varied.movementStyle = others[Math.floor(Math.random() * others.length)] || prev.movementStyle;
-    }
-    if (varyFlags.movementSpeed) varied.movementSpeed = mixRandom(prev.movementSpeed ?? 1, 0, 5);
-    if (varyFlags.movementAngle) {
-      const nextAngle = mixRandom(prev.movementAngle ?? 45, 0, 360, true);
-      varied.movementAngle = ((nextAngle % 360) + 360) % 360;
-    }
-
-    // Z scaling
-    if (varyFlags.scaleSpeed) varied.scaleSpeed = mixRandom(prev.scaleSpeed ?? 0.05, 0, 0.2);
-    let nextScaleMin = prev.scaleMin ?? 0.2;
-    let nextScaleMax = prev.scaleMax ?? 1.5;
-    if (varyFlags.scaleMin) nextScaleMin = mixRandom(prev.scaleMin ?? 0.2, 0.1, 2);
-    if (varyFlags.scaleMax) nextScaleMax = mixRandom(prev.scaleMax ?? 1.5, 0.5, 3);
-    varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
-    varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
-
-    // Image Effects
-    if (varyFlags.imageBlur) varied.imageBlur = mixRandom(prev.imageBlur ?? 0, 0, 20);
-    if (varyFlags.imageBrightness) varied.imageBrightness = mixRandom(prev.imageBrightness ?? 100, 0, 200, true);
-    if (varyFlags.imageContrast) varied.imageContrast = mixRandom(prev.imageContrast ?? 100, 0, 200, true);
-    if (varyFlags.imageHue) {
-      const nextHue = mixRandom(prev.imageHue ?? 0, 0, 360, true);
-      varied.imageHue = ((nextHue % 360) + 360) % 360;
-    }
-    if (varyFlags.imageSaturation) varied.imageSaturation = mixRandom(prev.imageSaturation ?? 100, 0, 200, true);
-    if (varyFlags.imageDistortion) varied.imageDistortion = mixRandom(prev.imageDistortion ?? 0, 0, 50);
-
-    // Position
-    const baseX = prev.position?.x ?? 0.5;
-    const baseY = prev.position?.y ?? 0.5;
-    const jitter = 0.15 * w;
-    const jx = (Math.random() * 2 - 1) * jitter;
-    const jy = (Math.random() * 2 - 1) * jitter;
-    const nx = clamp(baseX + jx, 0.0, 1.0);
-    const ny = clamp(baseY + jy, 0.0, 1.0);
-    varied.position = {
-      ...(prev.position || DEFAULT_LAYER.position),
-      x: nx,
-      y: ny,
-      scale: prev.position?.scale ?? 1.0,
-      scaleDirection: prev.position?.scaleDirection ?? 1,
-    };
-
-    // Velocity
-    const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
-    varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
-    varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
-
-    // Colors: respect vary flags
-    if (Array.isArray(prev.colors) && prev.colors.length) {
-      if (varyFlags.colors) {
-        if (w >= 0.75) {
-          const currentKey = JSON.stringify(prev.colors);
-          const candidates = palettes.filter(p => JSON.stringify(p) !== currentKey);
-          const chosen = (candidates.length ? candidates : palettes)[Math.floor(Math.random() * (candidates.length ? candidates.length : palettes.length))];
-          const chosenArr = Array.isArray(chosen) ? chosen : (chosen.colors || prev.colors);
-          varied.colors = Array.isArray(chosenArr) ? [...chosenArr] : [];
-        } else if (w >= 0.4) {
-          const arr = [...prev.colors];
-          for (let i = arr.length - 1; i > 0; i--) {
-            if (Math.random() < 0.5 * w) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [arr[i], arr[j]] = [arr[j], arr[i]];
-            }
-          }
-          varied.colors = [...arr];
-        } else {
-          varied.colors = [...prev.colors];
-        }
-      } else {
-        // Not varying palette across layers: keep previous colours exactly
-        varied.colors = [...prev.colors];
-      }
-      // Number of colours: respect vary flag; otherwise preserve previous
-      if (varyFlags.numColors) {
-        varied.numColors = Array.isArray(varied.colors) && varied.colors.length
-          ? varied.colors.length
-          : (prev.numColors ?? prev.colors.length);
-      } else {
-        varied.numColors = prev.numColors ?? prev.colors.length;
-      }
-    }
-
-    return { ...DEFAULT_LAYER, ...varied };
-  };
+  // (Removed invalid useEffect block accidentally inserted earlier)
 
   // Layer management via hook
   const {

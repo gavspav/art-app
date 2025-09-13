@@ -28,3 +28,27 @@ export function rgbToHex({ r, g, b }) {
   const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
   return `#${c(r)}${c(g)}${c(b)}`;
 }
+
+// r, g, b in [0..255] -> { h: 0..360, s: 0..100, l: 0..100 }
+export function rgbToHsl(r, g, b) {
+  const r1 = (r || 0) / 255, g1 = (g || 0) / 255, b1 = (b || 0) / 255;
+  const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max - min);
+    switch (max) {
+      case r1: h = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
+      case g1: h = (b1 - r1) / d + 2; break;
+      case b1: h = (r1 - g1) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+export function hexToHsl(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return rgbToHsl(r, g, b);
+}

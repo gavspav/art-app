@@ -27,8 +27,11 @@ export const DEFAULT_LAYER = {
   scaleMin: 0.0,
   scaleMax: 1.5,
 
-  // Old version animation parameters
-  variation: 0.2,
+  // Variation controls (legacy + split)
+  variation: 0.2, // legacy single control (kept for backward-compat)
+  variationShape: 0.2,
+  variationAnim: 0.2,
+  variationColor: 0.2,
 
   // Seeding
   seed: 1,

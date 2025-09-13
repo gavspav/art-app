@@ -68,7 +68,9 @@ const GlobalControls = ({
   const [showSpeedSettings, setShowSpeedSettings] = useState(false);
   const [showOpacitySettings, setShowOpacitySettings] = useState(false);
   const [showLayersSettings, setShowLayersSettings] = useState(false);
-  const [showVariationSettings, setShowVariationSettings] = useState(false);
+  const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
+  const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
+  const [showVariationColorSettings, setShowVariationColorSettings] = useState(false);
 
   // Numeric bounds (min/max/step) for sliders
   const [speedMin, setSpeedMin] = useState(0);
@@ -83,9 +85,16 @@ const GlobalControls = ({
   const [layersMax, setLayersMax] = useState(1000);
   const [layersStep, setLayersStep] = useState(1);
 
-  const [variationMin, setVariationMin] = useState(0);
-  const [variationMax, setVariationMax] = useState(3);
-  const [variationStep, setVariationStep] = useState(0.01);
+  // Independent ranges for each Variation slider
+  const [variationShapeMin, setVariationShapeMin] = useState(0);
+  const [variationShapeMax, setVariationShapeMax] = useState(3);
+  const [variationShapeStep, setVariationShapeStep] = useState(0.01);
+  const [variationAnimMin, setVariationAnimMin] = useState(0);
+  const [variationAnimMax, setVariationAnimMax] = useState(3);
+  const [variationAnimStep, setVariationAnimStep] = useState(0.01);
+  const [variationColorMin, setVariationColorMin] = useState(0);
+  const [variationColorMax, setVariationColorMax] = useState(3);
+  const [variationColorStep, setVariationColorStep] = useState(0.01);
   return (
     <div className="control-card">
       <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -397,7 +406,11 @@ const GlobalControls = ({
                   let next = prev;
                   if (target > prev.length) {
                     const addCount = target - prev.length;
-                    const baseVar = (typeof prev[0]?.variation === 'number') ? prev[0].variation : DEFAULT_LAYER.variation;
+                    const baseVar = {
+                      shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
+                      anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
+                      color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
+                    };
                     let last = prev[prev.length - 1] || DEFAULT_LAYER;
                     const additions = Array.from({ length: addCount }, (_, i) => {
                       const nextIdx = prev.length + i + 1;
@@ -439,49 +452,88 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Layer Variation: {Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation).toFixed(2)}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Layer Variation settings"
-                aria-label="Layer Variation settings"
-                onClick={(e) => { e.stopPropagation(); setShowVariationSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Layer Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variation')} onChange={(e) => setIsRnd('variation', e.target.checked)} /> Include
+              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}</span>
+              <button type="button" className="icon-btn sm" title="Variation settings" aria-label="Variation settings" onClick={(e) => { e.stopPropagation(); setShowVariationShapeSettings(s => !s); }}>⚙</button>
+              <label className="compact-label" title="Include Shape Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationShape')} onChange={(e) => setIsRnd('variationShape', e.target.checked)} /> Include
               </label>
             </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationMin}
-              max={variationMax}
-              step={variationStep}
-              value={Number(layers?.[0]?.variation ?? DEFAULT_LAYER.variation)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: v } : l)));
-              }}
-            />
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>
-                  MIDI: {midiSupported ? (midiMappings?.variation ? (mappingLabel ? mappingLabel(midiMappings.variation) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                </span>
-                {learnParamId === 'variation' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variation'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variation'); }} disabled={!midiSupported || !midiMappings?.variation}>Clear</button>
-              </div>
-            )}
-            {showVariationSettings && (
+            <input className="compact-range" type="range" min={variationShapeMin} max={variationShapeMax} step={variationShapeStep} value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: v } : l))); }} />
+            {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationMin} onChange={(e) => setVariationMin(parseFloat(e.target.value) || 0)} />
+                  <input type="number" step={0.01} value={variationShapeMin} onChange={(e) => setVariationShapeMin(parseFloat(e.target.value) || 0)} />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationMax} onChange={(e) => setVariationMax(parseFloat(e.target.value) || 0)} />
+                  <input type="number" step={0.01} value={variationShapeMax} onChange={(e) => setVariationShapeMax(parseFloat(e.target.value) || 0)} />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationStep} onChange={(e) => setVariationStep(parseFloat(e.target.value) || 0.01)} />
+                  <input type="number" step={0.001} value={variationShapeStep} onChange={(e) => setVariationShapeStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Variation settings"
+                aria-label="Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationAnimSettings(s => !s); }}
+              >⚙</button>
+              <label className="compact-label" title="Include Animation Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationAnim')} onChange={(e) => setIsRnd('variationAnim', e.target.checked)} /> Include
+              </label>
+            </div>
+            <input className="compact-range" type="range" min={variationAnimMin} max={variationAnimMax} step={variationAnimStep} value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: v } : l))); }} />
+            {showVariationAnimSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={variationAnimMin} onChange={(e) => setVariationAnimMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={variationAnimMax} onChange={(e) => setVariationAnimMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={variationAnimStep} onChange={(e) => setVariationAnimStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Variation settings"
+                aria-label="Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationColorSettings(s => !s); }}
+              >⚙</button>
+              <label className="compact-label" title="Include Colour Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationColor')} onChange={(e) => setIsRnd('variationColor', e.target.checked)} /> Include
+              </label>
+            </div>
+            <input className="compact-range" type="range" min={variationColorMin} max={variationColorMax} step={variationColorStep} value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: v } : l))); }} />
+            {showGlobalMidi && (
+              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
+                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                {learnParamId === 'variationColor' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationColor'); }} disabled={!midiSupported}>Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
+              </div>
+            )}
+            {showVariationColorSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={variationColorMin} onChange={(e) => setVariationColorMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={variationColorMax} onChange={(e) => setVariationColorMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={variationColorStep} onChange={(e) => setVariationColorStep(parseFloat(e.target.value) || 0.01)} />
                 </div>
               </div>
             )}

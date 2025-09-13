@@ -204,7 +204,7 @@ const MidiRotationStatus = ({ paramId }) => {
 };
 
 // Per-layer MIDI Colour control block (RGBA)
-const MidiColorSection = ({ currentLayer, updateLayer }) => {
+const MidiColorSection = ({ currentLayer, updateLayer, setLayers }) => {
   const {
     mappings: midiMappings,
     beginLearn,
@@ -234,7 +234,14 @@ const MidiColorSection = ({ currentLayer, updateLayer }) => {
     const nextHex = rgbToHex(next);
     const nextColors = [...colors];
     nextColors[selIdx] = nextHex;
-    updateLayer({ colors: nextColors });
+    const n = Math.max(1, nextColors.length);
+    const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
+    if (!varyColorsEffective && typeof setLayers === 'function') {
+      // Broadcast updated palette across all layers when not varying colours
+      setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: n, selectedColor: 0 })));
+    } else {
+      updateLayer({ colors: nextColors });
+    }
   };
   const setAlpha = (e) => {
     let v = parseFloat(e.target.value);
@@ -393,6 +400,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
 
     const applyToAll = !!varyKey && !Boolean(currentLayer?.vary?.[varyKey]);
 
+    const makeRegularNodes = (sides) => {
+      const n = Math.max(3, Math.round(Number(sides) || 3));
+      return Array.from({ length: n }, (_, i) => {
+        const a = (i / n) * Math.PI * 2;
+        return { x: Math.cos(a), y: Math.sin(a) };
+      });
+    };
+
     if (applyToAll && typeof setLayers === 'function') {
       // Apply the change across all layers
       if (id === 'scale') {
@@ -400,6 +415,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       } else if (id === 'radiusFactor') {
         // Master Size updates X and Y as well
         setLayers(prev => prev.map(l => ({ ...l, radiusFactor: newValue, radiusFactorX: newValue, radiusFactorY: newValue })));
+      } else if (id === 'numSides') {
+        setLayers(prev => prev.map(l => {
+          if (l.layerType === 'shape' && l.syncNodesToNumSides) {
+            const nodes = makeRegularNodes(newValue);
+            return { ...l, numSides: Math.max(3, Math.round(newValue)), nodes };
+          }
+          return { ...l, numSides: Math.max(3, Math.round(newValue)) };
+        }));
       } else {
         setLayers(prev => prev.map(l => ({ ...l, [id]: newValue })));
       }
@@ -410,6 +433,13 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       } else if (id === 'radiusFactor') {
         // Master Size updates X and Y as well
         updateLayer({ radiusFactor: newValue, radiusFactorX: newValue, radiusFactorY: newValue });
+      } else if (id === 'numSides') {
+        // When editing number of sides, regenerate nodes if syncing is enabled
+        if (currentLayer?.layerType === 'shape' && currentLayer?.syncNodesToNumSides) {
+          updateLayer({ numSides: Math.max(3, Math.round(newValue)), nodes: makeRegularNodes(newValue) });
+        } else {
+          updateLayer({ numSides: Math.max(3, Math.round(newValue)) });
+        }
       } else {
         updateLayer({ [id]: newValue });
       }
@@ -841,7 +871,7 @@ const Controls = forwardRef(({
   setGlobalSpeedMultiplier,
   /* eslint-enable no-unused-vars */
   // decoupled: do not pass full layers array to avoid frequent re-renders
-  setLayers: _setLayers, // eslint-disable-line no-unused-vars
+  setLayers, // eslint-disable-line no-unused-vars
   // new lightweight props derived from the first/base layer
   /* eslint-disable no-unused-vars */
   baseColors,
@@ -938,45 +968,7 @@ const Controls = forwardRef(({
     return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
   });
 
-  // Color handlers — if vary.colors is OFF, apply to ALL layers
-  const handleLayerColorChange = (newColors) => {
-    const arr = Array.isArray(newColors) ? newColors : [];
-    const varyColors = !!(currentLayer?.vary?.colors);
-    if (!varyColors && typeof _setLayers === 'function') {
-      _setLayers(prev => prev.map(l => ({ ...l, colors: [...arr], numColors: arr.length, selectedColor: 0 })));
-    } else {
-      updateLayer({ colors: arr, numColors: arr.length, selectedColor: 0 });
-    }
-  };
-
-  const handleLayerNumColorsChange = (e) => {
-    let n = parseInt(e.target.value, 10);
-    if (!Number.isFinite(n) || n < 1) n = 1;
-    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-    const pIdx = matchPaletteIndex(base);
-    let newColors = [];
-    if (pIdx !== -1) {
-      newColors = sampleColors(palettes[pIdx].colors, n);
-    } else if (base.length > 0) {
-      if (n <= base.length) newColors = base.slice(0, n);
-      else {
-        newColors = [...base];
-        let i = 0;
-        while (newColors.length < n) {
-          newColors.push(base[i % base.length]);
-          i++;
-        }
-      }
-    } else {
-      newColors = sampleColors(palettes[0]?.colors || ['#000000'], n);
-    }
-    const varyNumColors = !!(currentLayer?.vary?.numColors);
-    if (!varyNumColors && typeof _setLayers === 'function') {
-      _setLayers(prev => prev.map(l => ({ ...l, numColors: n, colors: [...newColors], selectedColor: 0 })));
-    } else {
-      updateLayer({ numColors: n, colors: newColors, selectedColor: 0 });
-    }
-  };
+  // (Removed old duplicate color handlers; consolidated below)
 
   // eslint-disable-next-line no-unused-vars
   const handleImageUpload = (event) => {
@@ -1033,7 +1025,7 @@ const Controls = forwardRef(({
           <div style={{ marginTop: '0.5rem' }}>
             {movementParams.map(param => (
               <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
-                <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
+                <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={setLayers} />
               </div>
             ))}
           </div>
@@ -1047,7 +1039,7 @@ const Controls = forwardRef(({
       <div className="control-card">
         {shapeParams.map(param => (
           <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
-            <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={_setLayers} />
+            <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={setLayers} />
           </div>
         ))}
         {/* Rotation slider for shape layers */}
@@ -1166,11 +1158,40 @@ const Controls = forwardRef(({
 
   // Appearance tab removed
 
+  // Colour handlers: apply to all layers if vary across layers is OFF
+  const handleLayerColorChange = (newColors) => {
+    const arr = Array.isArray(newColors) ? newColors : [];
+    const n = Math.max(1, arr.length);
+    // Effective vary: only vary per-layer if BOTH palette vary and animate-colours vary are ON
+    const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
+    if (!varyColorsEffective && typeof setLayers === 'function') {
+      setLayers(prev => prev.map(l => ({ ...l, colors: [...arr], numColors: n, selectedColor: 0 })));
+    } else {
+      updateLayer({ colors: [...arr], numColors: n, selectedColor: 0 });
+    }
+  };
+
+  const handleLayerNumColorsChange = (e) => {
+    let n = parseInt(e.target.value, 10);
+    if (!Number.isFinite(n) || n < 1) n = 1;
+    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+    let next = base.slice(0, n);
+    while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
+    // If either numColors vary is OFF or animate-colours vary is OFF, broadcast
+    const varyNumEffective = !!(currentLayer?.vary?.numColors) && !!(currentLayer?.vary?.colorFadeEnabled);
+    if (!varyNumEffective && typeof setLayers === 'function') {
+      // Broadcast same palette and count across all layers when not varying number of colours
+      setLayers(prev => prev.map(l => ({ ...l, colors: [...next], numColors: n, selectedColor: 0 })));
+    } else {
+      updateLayer({ colors: next, numColors: n, selectedColor: 0 });
+    }
+  };
+
   const renderColorsTab = () => (
     <div className="tab-section">
       <div className="control-card">
         {/* MIDI Colour Control */}
-        <MidiColorSection currentLayer={currentLayer} updateLayer={updateLayer} />
+        <MidiColorSection currentLayer={currentLayer} updateLayer={updateLayer} setLayers={setLayers} />
 
         {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
 
@@ -1200,9 +1221,9 @@ const Controls = forwardRef(({
                   ? currentLayer.numColors
                   : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                const varyColors = !!(currentLayer?.vary?.colors);
-                if (!varyColors && typeof _setLayers === 'function') {
-                  _setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
+                const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
+                if (!varyColorsEffective && typeof setLayers === 'function') {
+                  setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
                 } else {
                   updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
                 }
@@ -1291,10 +1312,31 @@ const Controls = forwardRef(({
                   checked={!!(currentLayer?.vary?.colors)}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
+                    const baseColors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+                    const n = Number.isFinite(currentLayer?.numColors) ? Math.max(1, currentLayer.numColors) : (baseColors.length || 1);
                     if (typeof setLayers === 'function') {
-                      setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: checked } })));
+                      if (!checked) {
+                        // Turning vary OFF: unify palettes across all layers to the selected layer's palette
+                        setLayers(prev => prev.map(l => ({
+                          ...l,
+                          vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: false },
+                          colors: [...baseColors],
+                          numColors: n,
+                          selectedColor: 0,
+                        })));
+                      } else {
+                        // Turning vary ON: just set the flag
+                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: true } })));
+                      }
                     } else {
-                      updateLayer({ vary: { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colors: checked } });
+                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colors: checked };
+                      const nextUpdate = { vary: nextVary };
+                      if (!checked) {
+                        nextUpdate.colors = [...baseColors];
+                        nextUpdate.numColors = n;
+                        nextUpdate.selectedColor = 0;
+                      }
+                      updateLayer(nextUpdate);
                     }
                   }}
                   onMouseDown={(e) => { e.stopPropagation(); }}
@@ -1313,10 +1355,33 @@ const Controls = forwardRef(({
                   checked={!!(currentLayer?.vary?.numColors)}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
+                    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+                    const n = Number.isFinite(currentLayer?.numColors) ? Math.max(1, currentLayer.numColors) : (base.length || 1);
+                    let next = base.slice(0, n);
+                    while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
                     if (typeof setLayers === 'function') {
-                      setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: checked } })));
+                      if (!checked) {
+                        // Turning vary OFF: unify colour count (and palette) across layers to selected layer's
+                        setLayers(prev => prev.map(l => ({
+                          ...l,
+                          vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: false },
+                          colors: [...next],
+                          numColors: n,
+                          selectedColor: 0,
+                        })));
+                      } else {
+                        // Turning vary ON: just set the flag
+                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: true } })));
+                      }
                     } else {
-                      updateLayer({ vary: { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), numColors: checked } });
+                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), numColors: checked };
+                      const nextUpdate = { vary: nextVary };
+                      if (!checked) {
+                        nextUpdate.colors = [...next];
+                        nextUpdate.numColors = n;
+                        nextUpdate.selectedColor = 0;
+                      }
+                      updateLayer(nextUpdate);
                     }
                   }}
                   onMouseDown={(e) => { e.stopPropagation(); }}
@@ -1364,23 +1429,13 @@ const Controls = forwardRef(({
                       if (arr.length === 1) return [arr[0], arr[0]];
                       return arr;
                     };
-                    if (!varyFade && typeof _setLayers === 'function') {
-                      // Broadcast enable + speed + ensure >=2 stops across all layers using matched palette when possible
+                    if (!varyFade && typeof setLayers === 'function') {
+                      // Broadcast enable + speed + ensure >=2 stops across all layers
                       const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
                       const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                      _setLayers(prev => prev.map(l => {
+                      setLayers(prev => prev.map(l => {
                         const arr = Array.isArray(l.colors) ? l.colors : [];
-                        let out = arr;
-                        if (v) {
-                          if (arr.length < 2) {
-                            const idx = matchPaletteIndex(arr);
-                            if (idx !== -1 && palettes[idx]) {
-                              out = sampleColors(palettes[idx].colors, Math.max(2, l.numColors || 2));
-                            } else {
-                              out = (arr.length >= 1) ? [arr[0], arr[0]] : (palettes?.[0]?.colors ? sampleColors(palettes[0].colors, 2) : ['#000000', '#ffffff']);
-                            }
-                          }
-                        }
+                        const out = v ? ensureTwoStops(arr) : arr;
                         return { ...l, colorFadeEnabled: v, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
                       }));
                     } else {
@@ -1411,30 +1466,20 @@ const Controls = forwardRef(({
                       if (arr.length === 1) return [arr[0], arr[0]];
                       return arr;
                     };
-                    if (typeof _setLayers === 'function') {
+                    if (typeof setLayers === 'function') {
                       if (!checked) {
                         // Turning vary OFF: broadcast selected layer's current animate state and ensure >=2 stops per layer
                         const selEnabled = !!(currentLayer?.colorFadeEnabled);
                         const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
                         const selSpeed = selEnabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                        _setLayers(prev => prev.map(l => {
+                        setLayers(prev => prev.map(l => {
                           const arr = Array.isArray(l.colors) ? l.colors : [];
-                          let out = arr;
-                          if (selEnabled) {
-                            if (arr.length < 2) {
-                              const idx = matchPaletteIndex(arr);
-                              if (idx !== -1 && palettes[idx]) {
-                                out = sampleColors(palettes[idx].colors, Math.max(2, l.numColors || 2));
-                              } else {
-                                out = (arr.length >= 1) ? [arr[0], arr[0]] : (palettes?.[0]?.colors ? sampleColors(palettes[0].colors, 2) : ['#000000', '#ffffff']);
-                              }
-                            }
-                          }
+                          const out = selEnabled ? ensureTwoStops(arr) : arr;
                           return { ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: false }, colorFadeEnabled: selEnabled, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
                         }));
                       } else {
                         // Turning vary ON: just set the flag
-                        _setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: true } })));
+                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: true } })));
                       }
                     } else {
                       const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: checked };
@@ -1460,8 +1505,8 @@ const Controls = forwardRef(({
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
                       const varyFade = !!(currentLayer?.vary?.colorFadeEnabled);
-                      if (!varyFade && typeof _setLayers === 'function') {
-                        _setLayers(prev => prev.map(l => ({ ...l, colorFadeSpeed: v })));
+                      if (!varyFade && typeof setLayers === 'function') {
+                        setLayers(prev => prev.map(l => ({ ...l, colorFadeSpeed: v })));
                       } else {
                         updateLayer({ colorFadeSpeed: v });
                       }
@@ -1512,9 +1557,9 @@ const Controls = forwardRef(({
         : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
-      const varyColors = !!(currentLayer?.vary?.colors);
-      if (!varyColors && typeof _setLayers === 'function') {
-        _setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
+      const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
+      if (!varyColorsEffective && typeof setLayers === 'function') {
+        setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: count, selectedColor: 0 })));
       } else {
         updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
       }
