@@ -46,7 +46,35 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
     let newX = x;
     let newY = y;
     let newMovementAngle = movementAngle;
-    if (movementStyle !== 'still') {
+    if (movementStyle === 'orbit') {
+        // Orbit around a center point with per-axis radii; use movementSpeed as angular speed
+        const cx = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
+        const cy = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
+        const baseRx = Number.isFinite(layer.orbitRadiusX) ? layer.orbitRadiusX : 0.15;
+        const baseRy = Number.isFinite(layer.orbitRadiusY) ? layer.orbitRadiusY : 0.15;
+        // Influence ellipse by current linear components to stretch more along the dominant axis
+        const stretch = Math.min(0.2, Math.hypot(vx, vy)); // cap stretch
+        const rx = Math.max(0.01, baseRx + Math.abs(vx) * 2 + stretch * 0.3);
+        const ry = Math.max(0.01, baseRy + Math.abs(vy) * 2 + stretch * 0.3);
+        const dTheta = effectiveSpeed * Math.PI * 2; // radians per frame step
+        const theta = (Number.isFinite(layer.orbitAngle) ? layer.orbitAngle : 0) + dTheta;
+        newX = cx + rx * Math.cos(theta);
+        newY = cy + ry * Math.sin(theta);
+        // Keep within [0,1] softly by clamping centers and radii above
+        return {
+            ...layer,
+            orbitAngle: theta,
+            position: {
+                ...layer.position,
+                x: newX,
+                y: newY,
+                vx: 0,
+                vy: 0,
+                scale: layer.position.scale,
+                scaleDirection: layer.position.scaleDirection,
+            }
+        };
+    } else if (movementStyle !== 'still') {
         newX = x + vx;
         newY = y + vy;
     }

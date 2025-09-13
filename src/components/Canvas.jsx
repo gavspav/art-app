@@ -522,6 +522,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const draggingNodeIndexRef = useRef(null);
     const draggingMidIndexRef = useRef(null);
     const draggingCenterRef = useRef(false);
+    const draggingOrbitCenterRef = useRef(false);
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -594,7 +595,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     cache.set(idx, cloned.map(n => ({ ...n })));
                 }
             } catch {}
-            setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes: cloned } : l)));
+            setLayers(prev => prev.map((l, i) => i === idx ? { ...l, nodes: cloned } : l));
         } catch {}
     };
     const undoOnce = () => {
@@ -970,7 +971,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.restore();
         }
 
-        // Draw draggable node + midpoint handles for selected layer when in node edit mode
+        // Draw draggable node + midpoint handles and orbit center for selected layer when in node edit mode
         if (isNodeEditMode && selectedLayerIndex != null && Array.isArray(layers) && layers.length > 0) {
             const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
             const sel = layers[clampedIndex];
@@ -1034,6 +1035,23 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.lineTo(cx + cross, cy);
                 ctx.moveTo(cx, cy - cross);
                 ctx.lineTo(cx, cy + cross);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Always draw Orbit center handle (white dot with red border)
+            {
+                const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
+                const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
+                const ox = ocx * width;
+                const oy = ocy * height;
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(ox, oy, 6, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#ff3333';
                 ctx.stroke();
                 ctx.restore();
             }
@@ -1195,7 +1213,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
-        if (!layer || !Array.isArray(layer.nodes)) return;
+        if (!layer) return;
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const centerX = x * canvas.width;
         const centerY = y * canvas.height;
@@ -1219,6 +1237,25 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         const pos = getMousePos(e);
         const hitRadius = 10;
+
+        // Orbit center handle can be dragged regardless of node presence
+        {
+            const ocx = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
+            const ocy = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
+            const ox = ocx * canvas.width;
+            const oy = ocy * canvas.height;
+            const dx = ox - pos.x; const dy = oy - pos.y;
+            if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
+                draggingOrbitCenterRef.current = true;
+                draggingNodeIndexRef.current = null;
+                draggingMidIndexRef.current = null;
+                draggingCenterRef.current = false;
+                draggingKindRef.current = 'orbitCenter';
+                return;
+            }
+        }
+
+        if (!Array.isArray(layer.nodes)) return;
         // Prefer deformed points for hit-testing so handles remain clickable under noise
         const rendered = renderedPointsRef.current.get(selectedLayerIndex);
         let idx = -1;
@@ -1239,6 +1276,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (idx !== -1) {
             draggingNodeIndexRef.current = idx;
             draggingMidIndexRef.current = null;
+            draggingCenterRef.current = false;
+            draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
             return;
         }
@@ -1262,6 +1301,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingMidIndexRef.current = midIdx;
             draggingNodeIndexRef.current = null;
             draggingCenterRef.current = false;
+            draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'mid';
             return;
         }
@@ -1279,6 +1319,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingCenterRef.current = true;
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
+                draggingOrbitCenterRef.current = false;
                 draggingKindRef.current = null;
             }
         }
@@ -1289,7 +1330,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const idx = draggingNodeIndexRef.current;
         const mid = draggingMidIndexRef.current;
         const draggingCenter = draggingCenterRef.current;
-        if (idx == null && mid == null && !draggingCenter) return;
+        const draggingOrbit = draggingOrbitCenterRef.current;
+        if (idx == null && mid == null && !draggingCenter && !draggingOrbit) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
@@ -1307,8 +1349,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const cosR = Math.cos(rotRad);
 
         const pos = getMousePos(e);
-        if (draggingCenter) {
-            const pos = getMousePos(e);
+        if (draggingOrbit) {
+            const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
+            const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
+            setLayers(prev => prev.map((l, i) => (
+                i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
+            )));
+        } else if (draggingCenter) {
             const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
             const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
             setLayers(prev => prev.map((l, i) => (
@@ -1398,8 +1445,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
             const bump = rb * (minWH * 0.02) * Math.max(0, scale);
             const maxRadius = minWH * 0.4 * Math.max(0, scale);
-            const radiusX = layer.viewBoxMapped ? (width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
-            const radiusY = layer.viewBoxMapped ? (height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
+            const radiusX = layer?.viewBoxMapped ? (width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
+            const radiusY = layer?.viewBoxMapped ? (height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
 
             let pts = [];
             if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
@@ -1451,6 +1498,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         draggingNodeIndexRef.current = null;
         draggingMidIndexRef.current = null;
         draggingCenterRef.current = false;
+        draggingOrbitCenterRef.current = false;
         draggingKindRef.current = null;
 
         // nothing else to do here

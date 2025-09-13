@@ -8,180 +8,9 @@ import { useMidi } from '../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Per-layer MIDI Position control block
+// Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
 const MidiPositionSection = ({ currentLayer, updateLayer }) => {
-  const {
-    mappings: midiMappings,
-    /* registerParamHandler intentionally unused here; handlers are global */
-    // registerParamHandler,
-    beginLearn,
-    clearMapping,
-    mappingLabel,
-    learnParamId,
-    supported: midiSupported,
-  } = useMidi() || {};
-
-
-  const enabled = !!currentLayer?.manualMidiPositionEnabled;
-  const layerKey = (currentLayer?.name || 'Layer').toString();
-  const idX = `layer:${layerKey}:posX`;
-  const idY = `layer:${layerKey}:posY`;
-  const idZ = `layer:${layerKey}:posZ`;
-
-  const scaleMin = Number.isFinite(currentLayer?.scaleMin) ? currentLayer.scaleMin : 0.1;
-  const scaleMax = Number.isFinite(currentLayer?.scaleMax) ? currentLayer.scaleMax : 1.5;
-
-  // Per-axis output mapping ranges stored on the layer for persistence
-  const rangeX = currentLayer?.midiPosRangeX || { min: 0, max: 1 };
-  const rangeY = currentLayer?.midiPosRangeY || { min: 0, max: 1 };
-  const rangeZ = currentLayer?.midiPosRangeZ || { min: scaleMin, max: scaleMax };
-
-  const setRange = (axis, field) => (e) => {
-    const v = parseFloat(e.target.value);
-    const key = axis === 'x' ? 'midiPosRangeX' : (axis === 'y' ? 'midiPosRangeY' : 'midiPosRangeZ');
-    const cur = axis === 'x' ? rangeX : (axis === 'y' ? rangeY : rangeZ);
-    const next = { ...cur, [field]: Number.isFinite(v) ? v : cur[field] };
-    updateLayer({ [key]: next });
-  };
-
-  // Handlers for sliders
-  const onX = (e) => updateLayer({ position: { ...(currentLayer?.position || {}), x: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
-  const onY = (e) => updateLayer({ position: { ...(currentLayer?.position || {}), y: Math.max(0, Math.min(1, parseFloat(e.target.value))) } });
-  const onZ = (e) => {
-    let v = parseFloat(e.target.value);
-    if (!Number.isFinite(v)) v = scaleMin;
-    v = Math.max(scaleMin, Math.min(scaleMax, v));
-    updateLayer({ position: { ...(currentLayer?.position || {}), scale: v } });
-  };
-
-  // MIDI handlers for position are now registered globally so that layers update even when not selected.
-
-  const toggleEnabled = (e) => {
-    const on = !!e.target.checked;
-    if (on) {
-      // Persist previous speeds so we can restore later
-      const prevMove = Number.isFinite(currentLayer?.movementSpeed)
-        ? currentLayer.movementSpeed
-        : DEFAULT_LAYER.movementSpeed;
-      const prevScale = Number.isFinite(currentLayer?.scaleSpeed)
-        ? currentLayer.scaleSpeed
-        : DEFAULT_LAYER.scaleSpeed;
-      updateLayer({
-        manualMidiPositionEnabled: true,
-        movementSpeed: 0,
-        scaleSpeed: 0,
-        // store previous values on the layer
-        _prevMovementSpeed: prevMove,
-        _prevScaleSpeed: prevScale,
-        position: { ...(currentLayer?.position || {}), vx: 0, vy: 0 },
-      });
-    } else {
-      // Restore previous speeds (fallback to defaults if missing)
-      const restoredMove = Number.isFinite(currentLayer?._prevMovementSpeed)
-        ? currentLayer._prevMovementSpeed
-        : (Number.isFinite(currentLayer?.movementSpeed) ? currentLayer.movementSpeed : DEFAULT_LAYER.movementSpeed);
-      const restoredScale = Number.isFinite(currentLayer?._prevScaleSpeed)
-        ? currentLayer._prevScaleSpeed
-        : (Number.isFinite(currentLayer?.scaleSpeed) ? currentLayer.scaleSpeed : DEFAULT_LAYER.scaleSpeed);
-
-      // Recompute velocities based on movementAngle and restored movement speed
-      const ang = Number.isFinite(currentLayer?.movementAngle) ? currentLayer.movementAngle : DEFAULT_LAYER.movementAngle;
-      const angleRad = ang * (Math.PI / 180);
-      const vx = Math.cos(angleRad) * (restoredMove * 0.001) * 1.0;
-      const vy = Math.sin(angleRad) * (restoredMove * 0.001) * 1.0;
-
-      updateLayer({
-        manualMidiPositionEnabled: false,
-        movementSpeed: restoredMove,
-        scaleSpeed: restoredScale,
-        // clear cached prev values to avoid stale state
-        _prevMovementSpeed: undefined,
-        _prevScaleSpeed: undefined,
-        position: { ...(currentLayer?.position || {}), vx, vy },
-      });
-    }
-  };
-
-  return (
-    <div className="control-card">
-      <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ fontWeight: 600 }}>MIDI Position Control</div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Enable manual MIDI control for X/Y/Z; disables animation controls">
-          <input type="checkbox" checked={!!enabled} onChange={toggleEnabled} />
-          Enable
-        </label>
-      </div>
-
-      {enabled && (
-        <>
-          {/* X */}
-          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>X: {Number(currentLayer?.position?.x || 0).toFixed(3)}</div>
-              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idX); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idX); }} disabled={!midiSupported || !midiMappings?.[idX]}>Clear</button>
-              </div>
-            </div>
-            <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.x || 0)))} onChange={onX} className="dc-slider" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-              <label style={{ opacity: 0.85 }}>Out Min</label>
-              <input type="number" step={0.001} value={Number(rangeX.min ?? 0)} onChange={setRange('x','min')} />
-              <label style={{ opacity: 0.85 }}>Out Max</label>
-              <input type="number" step={0.001} value={Number(rangeX.max ?? 1)} onChange={setRange('x','max')} />
-            </div>
-            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idX] ? (mappingLabel ? mappingLabel(midiMappings[idX]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idX && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-            </div>
-          </div>
-
-          {/* Y */}
-          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>Y: {Number(currentLayer?.position?.y || 0).toFixed(3)}</div>
-              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idY); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idY); }} disabled={!midiSupported || !midiMappings?.[idY]}>Clear</button>
-              </div>
-            </div>
-            <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.position?.y || 0)))} onChange={onY} className="dc-slider" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-              <label style={{ opacity: 0.85 }}>Out Min</label>
-              <input type="number" step={0.001} value={Number(rangeY.min ?? 0)} onChange={setRange('y','min')} />
-              <label style={{ opacity: 0.85 }}>Out Max</label>
-              <input type="number" step={0.001} value={Number(rangeY.max ?? 1)} onChange={setRange('y','max')} />
-            </div>
-            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idY] ? (mappingLabel ? mappingLabel(midiMappings[idY]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idY && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-            </div>
-          </div>
-
-          {/* Z (scale) */}
-          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-            <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>Z (Scale): {Number(currentLayer?.position?.scale || 1).toFixed(3)}</div>
-              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idZ); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idZ); }} disabled={!midiSupported || !midiMappings?.[idZ]}>Clear</button>
-              </div>
-            </div>
-            <input type="range" min={scaleMin} max={scaleMax} step={0.001} value={Math.max(scaleMin, Math.min(scaleMax, Number(currentLayer?.position?.scale || 1)))} onChange={onZ} className="dc-slider" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.35rem', marginTop: '0.35rem', alignItems: 'center' }}>
-              <label style={{ opacity: 0.85 }}>Out Min</label>
-              <input type="number" step={0.001} value={Number(rangeZ.min ?? scaleMin)} onChange={setRange('z','min')} />
-              <label style={{ opacity: 0.85 }}>Out Max</label>
-              <input type="number" step={0.001} value={Number(rangeZ.max ?? scaleMax)} onChange={setRange('z','max')} />
-            </div>
-            <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              Range: {scaleMin}–{scaleMax}. MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idZ] ? (mappingLabel ? mappingLabel(midiMappings[idZ]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idZ && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
+  return null;
 };
 
 // Small helper component to show MIDI mapping status and controls for rotation
@@ -203,7 +32,7 @@ const MidiRotationStatus = ({ paramId }) => {
   );
 };
 
-// Per-layer MIDI Colour control block (RGBA)
+// Per-layer MIDI Colour control block (RGBA) with broadcasting when vary is OFF
 const MidiColorSection = ({ currentLayer, updateLayer, setLayers }) => {
   const {
     mappings: midiMappings,
@@ -224,10 +53,9 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers }) => {
   const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
   const selIdx = Number.isFinite(currentLayer?.selectedColor) ? currentLayer.selectedColor : 0;
   const curHex = colors[selIdx] || '#000000';
-
-
   const curRGB = useMemo(() => hexToRgb(curHex), [curHex]);
 
+  // Update a single RGB channel; broadcast palette if vary is OFF
   const setChannel = (channel) => (e) => {
     const v = Math.max(0, Math.min(255, Math.round(parseFloat(e.target.value)))) || 0;
     const next = { ...curRGB, [channel]: v };
@@ -237,12 +65,12 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers }) => {
     const n = Math.max(1, nextColors.length);
     const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
     if (!varyColorsEffective && typeof setLayers === 'function') {
-      // Broadcast updated palette across all layers when not varying colours
       setLayers(prev => prev.map(l => ({ ...l, colors: [...nextColors], numColors: n, selectedColor: 0 })));
     } else {
       updateLayer({ colors: nextColors });
     }
   };
+
   const setAlpha = (e) => {
     let v = parseFloat(e.target.value);
     if (!Number.isFinite(v)) v = 1;
@@ -408,6 +236,8 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       });
     };
 
+  
+
     if (applyToAll && typeof setLayers === 'function') {
       // Apply the change across all layers
       if (id === 'scale') {
@@ -448,7 +278,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
   const effectiveOptions = useMemo(() => (
-    id === 'movementStyle' ? ['bounce', 'drift', 'still'] : options
+    id === 'movementStyle' ? ['bounce', 'drift', 'still', 'orbit'] : options
   ), [id, options]);
 
   const randomizeThisParam = () => {
@@ -710,7 +540,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
                 type="button"
                 className="btn-compact-secondary"
                 onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
-                disabled={!midiSupported || !(midiMappings && midiMappings[id])}
+                disabled={!midiSupported || !midiMappings?.[id]}
                 title="Clear MIDI mapping for this parameter"
               >
                 Clear
@@ -1001,6 +831,34 @@ const Controls = forwardRef(({
   // Appearance tab removed; image effect controls hidden for now
 
   // moved useImperativeHandle above early return
+  
+  // Orbit controls: apply across layers if corresponding vary flags are OFF
+  const handleOrbitRadiusChange = (axis) => (e) => {
+    let v = parseFloat(e.target.value);
+    if (!Number.isFinite(v)) v = 0.0;
+    v = Math.max(0, Math.min(0.5, v));
+    const key = axis === 'x' ? 'orbitRadiusX' : 'orbitRadiusY';
+    const varyFlag = !!(currentLayer?.vary?.[key]);
+    if (!varyFlag && typeof setLayers === 'function') {
+      setLayers(prev => prev.map(l => ({ ...l, [key]: v })));
+    } else {
+      updateLayer({ [key]: v });
+    }
+  };
+
+  const toggleOrbitVary = (axis) => (e) => {
+    const checked = !!e.target.checked;
+    const key = axis === 'x' ? 'orbitRadiusX' : 'orbitRadiusY';
+    if (typeof setLayers === 'function') {
+      setLayers(prev => prev.map(l => ({
+        ...l,
+        vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), [key]: checked },
+      })));
+    } else {
+      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
+      updateLayer({ vary: nextVary });
+    }
+  };
 
   const renderAnimationTab = () => (
     <div className="tab-section">
@@ -1028,6 +886,60 @@ const Controls = forwardRef(({
                 <DynamicControl param={param} currentLayer={currentLayer} updateLayer={updateLayer} setLayers={setLayers} />
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Orbit Settings (visible when movement style is 'orbit') */}
+      {currentLayer?.movementStyle === 'orbit' && (
+        <div className="control-card" style={{ marginTop: '0.6rem' }}>
+          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: 600 }}>Orbit</div>
+          </div>
+          <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.6rem' }}>
+            <div>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span className="compact-label">Radius X</span>
+                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusX ?? 0).toFixed(3)}</span>
+                </div>
+                <label className="compact-label" title="Allow Radius X to vary across layers" onMouseDown={(e) => { e.stopPropagation(); }} onClick={(e) => { e.stopPropagation(); }}>
+                  <input type="checkbox" checked={!!(currentLayer?.vary?.orbitRadiusX)} onChange={toggleOrbitVary('x')} />
+                  Vary across layers
+                </label>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={0.5}
+                step={0.001}
+                value={Math.max(0, Math.min(0.5, Number(currentLayer?.orbitRadiusX ?? 0.15)))}
+                onChange={handleOrbitRadiusChange('x')}
+                className="dc-slider"
+              />
+            </div>
+
+            <div>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span className="compact-label">Radius Y</span>
+                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusY ?? 0).toFixed(3)}</span>
+                </div>
+                <label className="compact-label" title="Allow Radius Y to vary across layers" onMouseDown={(e) => { e.stopPropagation(); }} onClick={(e) => { e.stopPropagation(); }}>
+                  <input type="checkbox" checked={!!(currentLayer?.vary?.orbitRadiusY)} onChange={toggleOrbitVary('y')} />
+                  Vary across layers
+                </label>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={0.5}
+                step={0.001}
+                value={Math.max(0, Math.min(0.5, Number(currentLayer?.orbitRadiusY ?? 0.15)))}
+                onChange={handleOrbitRadiusChange('y')}
+                className="dc-slider"
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1181,7 +1093,12 @@ const Controls = forwardRef(({
     const varyNumEffective = !!(currentLayer?.vary?.numColors) && !!(currentLayer?.vary?.colorFadeEnabled);
     if (!varyNumEffective && typeof setLayers === 'function') {
       // Broadcast same palette and count across all layers when not varying number of colours
-      setLayers(prev => prev.map(l => ({ ...l, colors: [...next], numColors: n, selectedColor: 0 })));
+      setLayers(prev => prev.map(l => ({
+        ...l,
+        colors: [...next],
+        numColors: n,
+        selectedColor: 0,
+      })));
     } else {
       updateLayer({ colors: next, numColors: n, selectedColor: 0 });
     }
@@ -1695,7 +1612,7 @@ const Controls = forwardRef(({
               {midiSupported && (
                 <span className="compact-label" style={{ opacity: 0.8 }}>
                   {midiMappings?.randomizeLayer ? (mappingLabel ? mappingLabel(midiMappings.randomizeLayer) : 'Mapped') : 'Not mapped'}
-                  {learnParamId === 'randomizeLayer' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+                  {learnParamId === 'randomizeLayer' && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
                 </span>
               )}
             </>

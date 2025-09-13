@@ -47,6 +47,13 @@ export const DEFAULT_LAYER = {
   // Rotation (degrees) applied to shape geometry
   rotation: 0,
 
+  // Orbit movement defaults (used when movementStyle === 'orbit')
+  orbitCenterX: 0.5, // normalized [0,1]
+  orbitCenterY: 0.5, // normalized [0,1]
+  orbitAngle: 0,     // radians phase accumulator
+  orbitRadiusX: 0.15, // normalized radii; can be influenced by movement
+  orbitRadiusY: 0.15,
+
   // Node editing
   nodes: null, // when set, array of { x: number, y: number } normalized to canvas size (0..1)
   // If true, while in node edit mode the app will keep nodes length synced to numSides (polygon editing mode).
@@ -97,6 +104,10 @@ export const DEFAULT_LAYER = {
     scaleSpeed: true,
     scaleMin: false,
     scaleMax: false,
+    orbitCenterX: false,
+    orbitCenterY: false,
+    orbitRadiusX: false,
+    orbitRadiusY: false,
 
     // Advanced
     freq1: false,
