@@ -9,6 +9,9 @@ export const DEFAULT_LAYER = {
   curviness: 1.0, // Default to full smoothing, within [0,1]
   width: 250, // Changed to match old version (Guide Width)
   height: 250, // Changed to match old version (Guide Height)
+  // New: relative size (fraction of min(canvas.width, canvas.height))
+  // Legacy match: 250px * 0.4 = 100px on minWH≈800 -> ~0.125
+  radiusFactor: 0.125,
   noiseAmount: 0.5, // Changed to match old version default
   noiseSpeed: 0.005,
   opacity: 0.8, // Changed to match old version default
@@ -77,6 +80,9 @@ export const DEFAULT_LAYER = {
     curviness: true,
     wobble: true,
     noiseAmount: true,
+    radiusFactor: true,
+    radiusFactorX: true,
+    radiusFactorY: true,
     width: true,
     height: true,
     opacity: false, // keep per-layer opacity constant; global control exists

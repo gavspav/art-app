@@ -53,13 +53,19 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     const centerX = x * canvas.width;
     const centerY = y * canvas.height;
 
-    // Radius mapping: if viewBoxMapped, map unit nodes to canvas half-size so SVG viewBox normalization aligns
-    const radiusX = layer?.viewBoxMapped
-        ? (canvas.width / 2) * scale
-        : Math.min((width + (layer?.radiusBump || 0) * 20 || 0) * baseRadiusFactor, canvas.width * 0.4) * scale;
-    const radiusY = layer?.viewBoxMapped
-        ? (canvas.height / 2) * scale
-        : Math.min((height + (layer?.radiusBump || 0) * 20 || 0) * baseRadiusFactor, canvas.height * 0.4) * scale;
+    // Radius mapping (fully relative): use radiusFactor against min(canvas width/height)
+    const minWH = Math.min(canvas.width, canvas.height);
+    const rfBase = Number(layer?.radiusFactor ?? baseRadiusFactor ?? 0.4);
+    const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+    const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+    const rb = Number(layer?.radiusBump ?? 0);
+    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+    // radiusBump contributes an additional small fraction of canvas size (2% per unit)
+    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+    const maxRadius = minWH * 0.4 * Math.max(0, scale);
+    const radiusX = layer?.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
+    const radiusY = layer?.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
 
     // Defensive check for non-finite values
     if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || !Number.isFinite(centerX) || !Number.isFinite(centerY)) {
@@ -92,7 +98,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
         const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
         const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
-        const offset = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
+        // Canvas-relative deformation
+        const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075; // 7.5% of current radius
+        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
         const dx = baseX - centerX;
         const dy = baseY - centerY;
         const dist = Math.hypot(dx, dy) || 1;
@@ -166,15 +174,22 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
             const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
             const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
 
-            // Apply noise to radius
-            const offsetX = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
-            const offsetY = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
-
-            const finalRadiusX = radiusX + offsetX;
-            const finalRadiusY = radiusY + offsetY;
-
-            const px = centerX + Math.cos(angle) * finalRadiusX;
-            const py = centerY + Math.sin(angle) * finalRadiusY;
+            // Apply noise to radius in radial direction
+            const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
+            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
+            
+            // Base position on circle/ellipse
+            const baseX = centerX + Math.cos(angle) * radiusX;
+            const baseY = centerY + Math.sin(angle) * radiusY;
+            
+            // Apply offset in radial direction from center
+            const dx = baseX - centerX;
+            const dy = baseY - centerY;
+            const dist = Math.hypot(dx, dy) || 1;
+            const normX = dx / dist;
+            const normY = dy / dist;
+            const px = baseX + normX * offset;
+            const py = baseY + normY * offset;
 
             points.push({ x: px, y: py });
         }
@@ -260,10 +275,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
 
 // --- Toroidal Wrapping Helpers ---
 // Estimate half-extents of the drawn content for a layer in pixels
-const estimateLayerHalfExtents = (layer, canvas) => {
+export const estimateLayerHalfExtents = (layer, canvas) => {
     try {
         const w = canvas.width || 0;
         const h = canvas.height || 0;
+        const minWH = Math.min(w, h);
         const scale = Number(layer?.position?.scale ?? 1);
         if (layer?.image?.src) {
             const cache = imageCache.get(layer.image.src);
@@ -272,14 +288,17 @@ const estimateLayerHalfExtents = (layer, canvas) => {
             const ih = (img?.naturalHeight || img?.height || 0) * scale;
             return { rx: iw / 2, ry: ih / 2 };
         }
-        // Shape: mirror radius computation from drawShape
-        const baseRadiusFactor = Number(layer?.baseRadiusFactor ?? 0.4);
-        const radiusX = layer?.viewBoxMapped
-            ? (w / 2) * scale
-            : Math.min(((layer?.width || 0) + (layer?.radiusBump || 0) * 20) * baseRadiusFactor, w * 0.4) * scale;
-        const radiusY = layer?.viewBoxMapped
-            ? (h / 2) * scale
-            : Math.min(((layer?.height || 0) + (layer?.radiusBump || 0) * 20) * baseRadiusFactor, h * 0.4) * scale;
+        // Shape: mirror radius computation from drawShape (fully relative)
+        const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
+        const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+        const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+        const rb = Number(layer?.radiusBump ?? 0);
+        const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+        const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+        const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+        const maxRadius = minWH * 0.4 * Math.max(0, scale);
+        const radiusX = layer?.viewBoxMapped ? (w / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
+        const radiusY = layer?.viewBoxMapped ? (h / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
         return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
     } catch {
         return { rx: 0, ry: 0 };
@@ -429,18 +448,22 @@ const computeInitialNodes = (layer, canvas) => {
 
 // Compute deformed node points exactly like drawShape's node path, so handles align.
 // Uses same seeded randomization for frequencies to avoid drift when noise is high.
-const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
+export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
     try {
         if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-        const centerX = x * (canvas?.width || 0);
-        const centerY = y * (canvas?.height || 0);
-        const radiusX = layer.viewBoxMapped
-            ? ((canvas?.width || 0) / 2) * scale
-            : Math.min(((layer.width || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), (canvas?.width || 0) * 0.4) * scale;
-        const radiusY = layer.viewBoxMapped
-            ? ((canvas?.height || 0) / 2) * scale
-            : Math.min(((layer.height || 0) + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), (canvas?.height || 0) * 0.4) * scale;
+        const cw = canvas?.width || 0;
+        const ch = canvas?.height || 0;
+        const minWH = Math.min(cw, ch);
+        const centerX = x * cw;
+        const centerY = y * ch;
+        const rf = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
+        const rb = Number(layer.radiusBump ?? 0);
+        const baseRadius = Math.max(0, rf) * minWH * Math.max(0, scale);
+        const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+        const maxRadius = minWH * 0.4 * Math.max(0, scale);
+        const radiusX = layer.viewBoxMapped ? (cw / 2) * scale : Math.min(Math.max(0, baseRadius + bump), maxRadius);
+        const radiusY = layer.viewBoxMapped ? (ch / 2) * scale : Math.min(Math.max(0, baseRadius + bump), maxRadius);
 
         const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
         const rotRad = (rotDeg * Math.PI) / 180;
@@ -473,7 +496,8 @@ const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
             const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
             const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
             const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
-            const offset = (n1 * 20 + n2 * 15 + n3 * 10) * noiseAmount * amplitudeFactor;
+            const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
+            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
             const dx = baseX - centerX;
             const dy = baseY - centerY;
             const dist = Math.hypot(dx, dy) || 1;
@@ -499,6 +523,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    // Accumulated animation time (seconds), advances only when not frozen
+    const animationTimeRef = useRef(0);
+    const lastTimeStampRef = useRef(null);
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
     const draggingKindRef = useRef(null); // 'node' | 'mid' | null
@@ -685,7 +712,17 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         if (!needsFullRender) {
             // Safety: after clearing the canvas, ensure content is drawn at least once
-            const timeNow = isFrozen ? frozenTimeRef.current : (Date.now() * 0.001);
+            // Advance accumulator only when not frozen
+            const nowWall = Date.now() * 0.001;
+            if (!isFrozen) {
+                if (lastTimeStampRef.current == null) lastTimeStampRef.current = nowWall;
+                const dt = Math.max(0, Math.min(1, nowWall - lastTimeStampRef.current));
+                lastTimeStampRef.current = nowWall;
+                animationTimeRef.current += dt;
+            } else {
+                // keep lastTimeStampRef so when unfreezing dt stays small
+            }
+            const timeNow = animationTimeRef.current;
             const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
             if (bg && bg.enabled && bg.src) {
                 try {
@@ -732,7 +769,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
                 } catch (e) { /* ignore image draw error */ }
             }
-            const colorTimeNow = (isFrozen && !colorFadeWhileFrozen) ? timeNow : (Date.now() * 0.001);
+            // If user wants color to fade while frozen, drive it with wall time; otherwise use snapshot time
+            const colorTimeNow = (isFrozen && colorFadeWhileFrozen) ? (Date.now() * 0.001) : timeNow;
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
@@ -811,7 +849,15 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         }
 
         // current time snapshot for this frame (or stable frozen time)
-        const nowSec = isFrozen ? frozenTimeRef.current : (Date.now() * 0.001);
+        // Advance accumulator only when not frozen
+        const nowWall = Date.now() * 0.001;
+        if (!isFrozen) {
+            if (lastTimeStampRef.current == null) lastTimeStampRef.current = nowWall;
+            const dt = Math.max(0, Math.min(1, nowWall - lastTimeStampRef.current));
+            lastTimeStampRef.current = nowWall;
+            animationTimeRef.current += dt;
+        }
+        const nowSec = animationTimeRef.current;
         const forceFullPass = backgroundChanged || modeChanged || countChanged || (layerHashesRef.current.size === 0);
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
@@ -828,7 +874,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    const colorTimeNow = (isFrozen && !colorFadeWhileFrozen) ? time : (Date.now() * 0.001);
+                    const colorTimeNow = (isFrozen && colorFadeWhileFrozen) ? (Date.now() * 0.001) : time;
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeNow));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {

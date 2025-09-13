@@ -374,6 +374,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
         case 'curviness': return 'curviness';
         case 'wobble': return 'wobble';
         case 'noiseAmount': return 'noiseAmount';
+        case 'radiusFactor': return 'radiusFactor';
         case 'width': return 'width';
         case 'height': return 'height';
         case 'movementStyle': return 'movementStyle';
@@ -396,6 +397,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       // Apply the change across all layers
       if (id === 'scale') {
         setLayers(prev => prev.map(l => ({ ...l, position: { ...(l.position || {}), scale: newValue } })));
+      } else if (id === 'radiusFactor') {
+        // Master Size updates X and Y as well
+        setLayers(prev => prev.map(l => ({ ...l, radiusFactor: newValue, radiusFactorX: newValue, radiusFactorY: newValue })));
       } else {
         setLayers(prev => prev.map(l => ({ ...l, [id]: newValue })));
       }
@@ -403,6 +407,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       // Apply only to current layer
       if (id === 'scale') {
         updateLayer({ position: { ...(currentLayer?.position || {}), scale: newValue } });
+      } else if (id === 'radiusFactor') {
+        // Master Size updates X and Y as well
+        updateLayer({ radiusFactor: newValue, radiusFactorX: newValue, radiusFactorY: newValue });
       } else {
         updateLayer({ [id]: newValue });
       }
@@ -457,6 +464,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
       case 'curviness': return 'curviness';
       case 'wobble': return 'wobble';
       case 'noiseAmount': return 'noiseAmount';
+      case 'radiusFactor': return 'radiusFactor';
       case 'width': return 'width';
       case 'height': return 'height';
       // Movement

@@ -17,6 +17,7 @@ export const calculateVisualHash = (layer) => {
     // Shape properties
     numSides: layer.numSides,
     curviness: layer.curviness,
+    radiusFactor: layer.radiusFactor,
     width: layer.width,
     height: layer.height,
     noiseAmount: layer.noiseAmount,
@@ -107,7 +108,7 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
   
   // Define visual properties to check
   const propsToCheck = [
-    'numSides', 'curviness', 'width', 'height', 'noiseAmount', 'rotation',
+    'numSides', 'curviness', 'radiusFactor', 'width', 'height', 'noiseAmount', 'rotation',
     'opacity', 'blendMode', 'colors', 'layerType', 'visible'
   ];
   

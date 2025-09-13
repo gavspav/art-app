@@ -124,7 +124,14 @@ export const AppStateProvider = ({ children }) => {
 
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
-    return { ...appState };
+    // Omit deprecated legacy fields from layers
+    const cleanedLayers = (appState.layers || []).map(l => {
+      const out = { ...l };
+      delete out.width;
+      delete out.height;
+      return out;
+    });
+    return { ...appState, layers: cleanedLayers };
   }, [appState]);
 
   // Function to load app state
@@ -149,14 +156,36 @@ export const AppStateProvider = ({ children }) => {
         const movementSpeed = Number.isFinite(base.movementSpeed) ? Math.max(0, Math.min(5, base.movementSpeed)) : DEFAULT_LAYER.movementSpeed;
         const movementAngle = Number.isFinite(base.movementAngle) ? ((Math.round(base.movementAngle) % 360) + 360) % 360 : DEFAULT_LAYER.movementAngle;
         const scaleSpeed = Number.isFinite(base.scaleSpeed) ? Math.max(0, Math.min(0.2, base.scaleSpeed)) : DEFAULT_LAYER.scaleSpeed;
+        // Migrate legacy width/height to radiusFactor if missing
+        let migratedRadiusFactor = base.radiusFactor;
+        if (!Number.isFinite(migratedRadiusFactor)) {
+          const w = Number(base.width) || 0;
+          const h = Number(base.height) || 0;
+          if (w > 0 || h > 0) {
+            const avg = (w + h) / 2;
+            const baseRF = Number.isFinite(base.baseRadiusFactor) ? base.baseRadiusFactor : 0.4;
+            // Legacy effective radius ≈ avg * baseRadiusFactor; ratio to legacy cap (0.4 * minWH)
+            const assumedMinWH = 640; // fallback when container size isn't available here
+            const legacyRadiusPx = avg * baseRF;
+            const rfEst = (legacyRadiusPx) / (assumedMinWH * 0.4);
+            migratedRadiusFactor = Math.max(0.02, Math.min(0.9, rfEst || DEFAULT_LAYER.radiusFactor));
+          } else {
+            migratedRadiusFactor = DEFAULT_LAYER.radiusFactor;
+          }
+        }
+
         const layerOut = {
           ...base,
+          radiusFactor: migratedRadiusFactor,
           movementStyle,
           movementSpeed,
           movementAngle,
           scaleSpeed,
           position,
         };
+        // Remove deprecated fields to avoid exporting them
+        delete layerOut.width;
+        delete layerOut.height;
         // Ensure arrays are arrays
         if (!Array.isArray(layerOut.colors)) layerOut.colors = [...(DEFAULT_LAYER.colors || ['#ffffff'])];
         // Ensure nodes valid or null

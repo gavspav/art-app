@@ -224,8 +224,10 @@ export function useRandomization({
       varied.curviness = Number(mixRand(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, w).toFixed(3));
       varied.noiseAmount = Number(mixRand(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, w).toFixed(2));
       varied.wobble = Number(mixRand(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, w).toFixed(3));
-      varied.width = Math.round(mixRand(prev.width ?? DEFAULT_LAYER.width, 10, 900, w, true));
-      varied.height = Math.round(mixRand(prev.height ?? DEFAULT_LAYER.height, 10, 900, w, true));
+      // Use relative size instead of pixel width/height
+      const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.4);
+      const rfMin = 0.05, rfMax = 0.45;
+      varied.radiusFactor = Number(mixRand(baseRF, rfMin, rfMax, w).toFixed(3));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
@@ -432,8 +434,8 @@ export function useRandomization({
       layer.curviness = Number((0.3 + rnd() * 1.2).toFixed(3));
       layer.wobble = rnd();
       layer.noiseAmount = Number((rnd() * 8).toFixed(2));
-      layer.width = Math.floor(10 + rnd() * 890);
-      layer.height = Math.floor(10 + rnd() * 890);
+      // Relative size in classic mode as well
+      layer.radiusFactor = Number((0.05 + rnd() * 0.4).toFixed(3));
       layer.colors = baseColors;
       layer.numColors = baseColors.length;
       layer.opacity = Number(layers?.[0]?.opacity ?? 0.8);
