@@ -515,6 +515,8 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
 const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, colorFadeWhileFrozen = true, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
+    // Align wall-time colour fade with accumulated animation time to avoid jumps when freezing/unfreezing
+    const colorWallOffsetRef = useRef(0);
     const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
     const draggingNodeIndexRef = useRef(null);
@@ -523,6 +525,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    // Drive re-render for color fade while frozen so colours visibly animate
+    const [colorTick, setColorTick] = useState(0);
     // Accumulated animation time (seconds), advances only when not frozen
     const animationTimeRef = useRef(0);
     const lastTimeStampRef = useRef(null);
@@ -678,14 +682,65 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const hasChanged = currentBgHash !== backgroundHashRef.current;
         backgroundHashRef.current = currentBgHash;
         return hasChanged;
-    }, [backgroundColor, globalSeed, globalBlendMode]);
+    }, [backgroundColor, globalSeed, globalBlendMode, colorTick]);
 
     // Keep a stable time snapshot when entering frozen state so re-renders are identical
     useEffect(() => {
         if (isFrozen) {
-            frozenTimeRef.current = Date.now() * 0.001;
+            const wallNow = Date.now() * 0.001;
+            frozenTimeRef.current = wallNow;
+            // Compute an offset so that when we switch to wall-time for colours,
+            // the colour clock remains continuous with animationTime
+            colorWallOffsetRef.current = (animationTimeRef.current || 0) - wallNow;
+            if (colorFadeWhileFrozen) {
+                setColorTick(t => (t + 1) % 1000000);
+            }
         }
-    }, [isFrozen]);
+    }, [isFrozen, colorFadeWhileFrozen]);
+
+    // When unfreezing with color-fade active, align animationTime to the wall clock
+    // so colour time remains continuous and does not jump
+    useEffect(() => {
+        if (!isFrozen && colorFadeWhileFrozen) {
+            const wallNow = Date.now() * 0.001;
+            animationTimeRef.current = wallNow + colorWallOffsetRef.current;
+            lastTimeStampRef.current = wallNow;
+        }
+    }, [isFrozen, colorFadeWhileFrozen]);
+
+    // Seamless toggling of Fade While Frozen while already frozen
+    const prevFadeRef = useRef(colorFadeWhileFrozen);
+    useEffect(() => {
+        if (!isFrozen) { prevFadeRef.current = colorFadeWhileFrozen; return; }
+        const wallNow = Date.now() * 0.001;
+        const prev = prevFadeRef.current;
+        const curr = colorFadeWhileFrozen;
+        if (prev !== curr) {
+            if (curr) {
+                // Turning ON while frozen: derive offset from current animation snapshot so wall time continues from it
+                colorWallOffsetRef.current = (animationTimeRef.current || 0) - wallNow;
+            } else {
+                // Turning OFF while frozen: sync animation snapshot to current wall-time-based colour clock
+                animationTimeRef.current = wallNow + colorWallOffsetRef.current;
+            }
+            // Trigger an immediate repaint
+            setColorTick(t => (t + 1) % 1000000);
+        }
+        prevFadeRef.current = curr;
+    }, [colorFadeWhileFrozen, isFrozen]);
+
+    // While frozen with color-fade enabled, drive a lightweight RAF to animate colours visibly
+    useEffect(() => {
+        if (!(isFrozen && colorFadeWhileFrozen)) return;
+        let rafId;
+        const loop = () => {
+            // Tick a tiny state value to trigger the drawing effect
+            setColorTick(t => (t + 1) % 1000000);
+            rafId = requestAnimationFrame(loop);
+        };
+        rafId = requestAnimationFrame(loop);
+        return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, [isFrozen, colorFadeWhileFrozen]);
 
     // Optimized render effect with selective updates
     useEffect(() => {
@@ -769,8 +824,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
                 } catch (e) { /* ignore image draw error */ }
             }
-            // If user wants color to fade while frozen, drive it with wall time; otherwise use snapshot time
-            const colorTimeNow = (isFrozen && colorFadeWhileFrozen) ? (Date.now() * 0.001) : timeNow;
+            // If user wants color to fade while frozen, drive it with wall time but keep continuity using the computed offset
+            const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
+                ? (Date.now() * 0.001 + colorWallOffsetRef.current)
+                : timeNow;
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
@@ -858,7 +915,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             animationTimeRef.current += dt;
         }
         const nowSec = animationTimeRef.current;
-        const forceFullPass = backgroundChanged || modeChanged || countChanged || (layerHashesRef.current.size === 0);
+        const forceFullPass = backgroundChanged || modeChanged || countChanged || (layerHashesRef.current.size === 0) || (isFrozen && colorFadeWhileFrozen);
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -874,7 +931,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    const colorTimeNow = (isFrozen && colorFadeWhileFrozen) ? (Date.now() * 0.001) : time;
+                    const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
+                        ? (Date.now() * 0.001 + colorWallOffsetRef.current)
+                        : time;
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeNow));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
@@ -991,7 +1050,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
 
-    }, [layerChanges, backgroundChanged, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, isFrozen, colorFadeWhileFrozen, canvasSize.width, canvasSize.height]);
+    }, [layerChanges, backgroundChanged, colorTick, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, isFrozen, colorFadeWhileFrozen, canvasSize.width, canvasSize.height]);
 
     useEffect(() => {
         if (ref) {
@@ -1140,8 +1199,18 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const centerX = x * canvas.width;
         const centerY = y * canvas.height;
-        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale;
-        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale;
+        const minWH = Math.min(canvas.width, canvas.height);
+        // Use per-axis factors when present, otherwise fall back to master
+        const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
+        const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+        const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+        const rb = Number(layer?.radiusBump ?? 0);
+        const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+        const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+        const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+        const maxRadius = minWH * 0.4 * Math.max(0, scale);
+        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
+        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
 
         const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
         const rotRad = (rotDeg * Math.PI) / 180;
@@ -1312,46 +1381,55 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const ctx = canvas.getContext('2d');
             if (!ctx) return;
 
-            const { width, height } = canvas;
+        const { width, height } = canvas;
 
-            const buildPath = (layer) => {
-                const p = new Path2D();
-                if (!layer || !layer.position || !layer.visible) return p;
-                const { x, y, scale } = layer.position;
-                const centerX = x * width;
-                const centerY = y * height;
-                const radiusX = layer.viewBoxMapped ? (width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
-                const radiusY = layer.viewBoxMapped ? (height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
+        const buildPath = (layer) => {
+            const p = new Path2D();
+            if (!layer || !layer.position || !layer.visible) return p;
+            const { x, y, scale } = layer.position;
+            const centerX = x * width;
+            const centerY = y * height;
+            const minWH = Math.min(width, height);
+            const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
+            const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+            const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+            const rb = Number(layer?.radiusBump ?? 0);
+            const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+            const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+            const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+            const maxRadius = minWH * 0.4 * Math.max(0, scale);
+            const radiusX = layer.viewBoxMapped ? (width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
+            const radiusY = layer.viewBoxMapped ? (height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
 
-                let pts = [];
-                if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
-                    // Build a combined path of subpaths
-                    for (const sp of layer.subpaths) {
-                        if (!Array.isArray(sp) || sp.length < 3) continue;
-                        for (let i = 0; i < sp.length; i++) {
-                            const n = sp[i];
-                            const px = centerX + n.x * radiusX;
-                            const py = centerY + n.y * radiusY;
-                            if (i === 0) p.moveTo(px, py); else p.lineTo(px, py);
-                        }
-                        p.closePath();
+            let pts = [];
+            if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
+                // Build a combined path of subpaths
+                for (const sp of layer.subpaths) {
+                    if (!Array.isArray(sp) || sp.length < 3) continue;
+                    for (let i = 0; i < sp.length; i++) {
+                        const n = sp[i];
+                        const px = centerX + n.x * radiusX;
+                        const py = centerY + n.y * radiusY;
+                        if (i === 0) p.moveTo(px, py); else p.lineTo(px, py);
                     }
-                    return p;
-                } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                    pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
-                } else {
-                    const sides = Math.max(3, layer.numSides || 3);
-                    for (let i = 0; i < sides; i++) {
-                        const ang = (i / sides) * Math.PI * 2;
-                        pts.push({ x: centerX + Math.cos(ang) * radiusX, y: centerY + Math.sin(ang) * radiusY });
-                    }
-                }
-                if (pts.length >= 3) {
-                    p.moveTo(pts[0].x, pts[0].y);
-                    for (let i = 1; i < pts.length; i++) p.lineTo(pts[i].x, pts[i].y);
                     p.closePath();
                 }
                 return p;
+            } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
+            } else {
+                const sides = Math.max(3, layer.numSides || 3);
+                for (let i = 0; i < sides; i++) {
+                    const ang = (i / sides) * Math.PI * 2;
+                    pts.push({ x: centerX + Math.cos(ang) * radiusX, y: centerY + Math.sin(ang) * radiusY });
+                }
+            }
+            if (pts.length >= 3) {
+                p.moveTo(pts[0].x, pts[0].y);
+                for (let i = 1; i < pts.length; i++) p.lineTo(pts[i].x, pts[i].y);
+                p.closePath();
+            }
+            return p;
             };
 
             // Iterate from topmost (last drawn) to bottom
@@ -1437,6 +1515,7 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.globalBlendMode === next.globalBlendMode &&
     prev.isNodeEditMode === next.isNodeEditMode &&
     prev.isFrozen === next.isFrozen &&
+    prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.selectedLayerIndex === next.selectedLayerIndex &&
     prev.classicMode === next.classicMode &&
     prev.layers === next.layers

@@ -591,7 +591,12 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
   const SettingsPanel = () => {
     if (!showSettings) return null;
     return (
-      <div className="dc-settings" style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', position: 'relative', zIndex: 3 }}>
+      <div
+        className="dc-settings"
+        style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', position: 'relative', zIndex: 3 }}
+        onMouseDown={(e) => { e.stopPropagation(); }}
+        onClick={(e) => { e.stopPropagation(); }}
+      >
         {type === 'slider' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
             <label>Min</label>
@@ -610,13 +615,35 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
         )}
         <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           {varyKey && (
-            <label title="Allow this parameter to vary across layers" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-              <input type="checkbox" checked={!!(currentLayer?.vary?.[varyKey])} onChange={toggleVaryFlag} />
+            <label
+              title="Allow this parameter to vary across layers"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); }}
+           >
+              <input
+                type="checkbox"
+                checked={!!(currentLayer?.vary?.[varyKey])}
+                onChange={toggleVaryFlag}
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+              />
               Vary across layers
             </label>
           )}
-          <label title="Include this parameter when using Randomize All" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-            <input type="checkbox" checked={!!param.isRandomizable} onChange={onToggleRandomizable} />
+          <label
+            title="Include this parameter when using Randomize All"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+            onMouseDown={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); }}
+          >
+            <input
+              type="checkbox"
+              checked={!!param.isRandomizable}
+              onChange={onToggleRandomizable}
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); }}
+            />
             Include in Randomize All
           </label>
         </div>

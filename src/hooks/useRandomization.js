@@ -135,6 +135,10 @@ export function useRandomization({
     newProps.movementSpeed = sampleSliderParam('movementSpeed', 0, 5);
     newProps.movementAngle = ((sampleSliderParam('movementAngle', 0, 360, true) % 360) + 360) % 360;
     newProps.scaleSpeed = sampleSliderParam('scaleSpeed', 0, 1);
+    // Also randomize noise and wobble as part of animation dice
+    // Use parameter metadata if available; otherwise fall back to sensible defaults
+    newProps.wobble = sampleSliderParam('wobble', 0, 1);
+    newProps.noiseAmount = sampleSliderParam('noiseAmount', 0, 10);
     const updated = { ...layer, ...newProps };
     const angleRad = updated.movementAngle * (Math.PI / 180);
     updated.vx = Math.cos(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
