@@ -56,6 +56,7 @@ export const AppStateProvider = ({ children }) => {
     morphDurationPerLeg: 5, // seconds
     morphEasing: 'linear', // 'linear' | future: 'easeInOut'
     morphLoopMode: 'loop', // 'loop' | 'pingpong'
+    morphMode: 'tween', // 'tween' | 'fade'
   });
 
   // Preset slots state (8 slots), persisted to localStorage
@@ -200,6 +201,10 @@ export const AppStateProvider = ({ children }) => {
   const setMorphLoopMode = useCallback((value) => {
     const allowed = ['loop','pingpong'];
     setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
+  }, []);
+  const setMorphMode = useCallback((value) => {
+    const allowed = ['tween','fade'];
+    setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
   }, []);
 
   // Function to get current app state for saving
@@ -348,6 +353,7 @@ export const AppStateProvider = ({ children }) => {
     setMorphDurationPerLeg,
     setMorphEasing,
     setMorphLoopMode,
+    setMorphMode,
 
     // State management functions
     getCurrentAppState,

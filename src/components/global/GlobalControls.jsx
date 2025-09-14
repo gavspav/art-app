@@ -73,6 +73,8 @@ const GlobalControls = ({
     setMorphDurationPerLeg,
     setMorphEasing,
     setMorphLoopMode,
+    morphMode,
+    setMorphMode,
   } = useAppState() || {};
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
@@ -319,6 +321,13 @@ const GlobalControls = ({
               <option value="pingpong">pingpong</option>
             </select>
           </label>
+          <label className="compact-label" title="Morph algorithm">
+            Morph
+            <select className="compact-select" value={morphMode || 'tween'} onChange={(e) => setMorphMode && setMorphMode(e.target.value)}>
+              <option value="tween">tween</option>
+              <option value="fade">fade</option>
+            </select>
+          </label>
         </div>
         {morphEnabled && morphStatus && (
           <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', opacity: 0.8 }}>
@@ -337,12 +346,15 @@ const GlobalControls = ({
   const loopModeRef = useRef('loop');
   const getPresetSlotRef = useRef(getPresetSlot);
   const loadAppStateRef = useRef(loadAppState);
+  const fadePrepRef = useRef({ key: null, lenA: 0, lenB: 0, baseA: [], baseB: [] });
 
   // Sync current settings into refs
   useEffect(() => { routeRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
   useEffect(() => { durRef.current = Number(morphDurationPerLeg || 5); }, [morphDurationPerLeg]);
   useEffect(() => { easingRef.current = morphEasing || 'linear'; }, [morphEasing]);
   useEffect(() => { loopModeRef.current = morphLoopMode || 'loop'; }, [morphLoopMode]);
+  const modeRef = useRef('tween');
+  useEffect(() => { modeRef.current = morphMode || 'tween'; }, [morphMode]);
   useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
   useEffect(() => { loadAppStateRef.current = loadAppState; }, [loadAppState]);
 
@@ -371,16 +383,9 @@ const GlobalControls = ({
       return rest;
     };
 
-    // Apply starting preset
-    try {
-      const initFrom = route[0];
-      const fromSlot = getPresetSlotRef.current ? getPresetSlotRef.current(initFrom) : null;
-      if (fromSlot?.payload?.appState && typeof loadAppStateRef.current === 'function') {
-        const initState = stripMorphFields(fromSlot.payload.appState);
-        loadAppStateRef.current(initState);
-        setMorphStatus && setMorphStatus({ from: initFrom, to: route[1], t: 0 });
-      }
-    } catch {}
+    // Do not hard-load the starting preset; keep live animation running.
+    // We'll blend visuals in-place each frame instead.
+    setMorphStatus && setMorphStatus({ from: route[0], to: route[1], t: 0 });
 
     const step = () => {
       const now = performance.now();
@@ -403,15 +408,51 @@ const GlobalControls = ({
         try {
           const a = stripMorphFields(fromState);
           const b = stripMorphFields(toState);
-          const out = {
-            ...a,
-            backgroundColor: lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t),
-            globalSpeedMultiplier: lerp(Number(a.globalSpeedMultiplier||1), Number(b.globalSpeedMultiplier||1), t),
-            layers: Array.isArray(a.layers) && Array.isArray(b.layers) ? a.layers.map((la, i) => {
-              const lb = b.layers[i] || la;
-              const pa = la.position || { x:0.5, y:0.5, scale:1 };
-              const pb = lb.position || { x:0.5, y:0.5, scale:1 };
-              return {
+          if (modeRef.current === 'fade') {
+            // Prepare once per leg: construct A+B layer stack with baseline opacities
+            const legKey = `${fromId}->${toId}`;
+            if (fadePrepRef.current.key !== legKey) {
+              const layersA = Array.isArray(a.layers) ? a.layers : [];
+              const layersB = Array.isArray(b.layers) ? b.layers : [];
+              fadePrepRef.current = {
+                key: legKey,
+                lenA: layersA.length,
+                lenB: layersB.length,
+                baseA: layersA.map(l => Number(l?.opacity ?? 1)),
+                baseB: layersB.map(l => Number(l?.opacity ?? 1)),
+              };
+              // Initialize combined stack: A visible, B hidden
+              setLayers(() => [
+                ...layersA.map(l => ({ ...l, opacity: Number(l.opacity ?? 1) })),
+                ...layersB.map(l => ({ ...l, opacity: 0 })),
+              ]);
+            }
+            // Blend background and opacities in place using baseline values (no compounding)
+            setBackgroundColor && setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t));
+            const { lenA, baseA, baseB } = fadePrepRef.current;
+            setLayers(prev => prev.map((l, i) => {
+              let nextOpacity = Number(l.opacity ?? 1);
+              if (i < lenA) {
+                const oa0 = Number(baseA[i] ?? 0);
+                nextOpacity = Math.max(0, Math.min(1, oa0 * (1 - t)));
+              } else {
+                const j = i - lenA;
+                const ob0 = Number(baseB[j] ?? 0);
+                nextOpacity = Math.max(0, Math.min(1, ob0 * t));
+              }
+              return nextOpacity !== l.opacity ? { ...l, opacity: nextOpacity } : l;
+            }));
+          } else {
+            // Tween mode (default): adjust selected numeric fields in-place to keep animation running
+            setBackgroundColor && setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t));
+            // Tween global speed (pass a number; setter doesn't accept functional updater)
+            setGlobalSpeedMultiplier && setGlobalSpeedMultiplier(lerp(Number(a.globalSpeedMultiplier||1), Number(b.globalSpeedMultiplier||1), t));
+            const bLayers = Array.isArray(b.layers) ? b.layers : [];
+            setLayers(prev => prev.map((la, i) => {
+              const lb = bLayers[i] || la;
+              const pa = la.position || { x: 0.5, y: 0.5, scale: 1 };
+              const pb = lb.position || { x: 0.5, y: 0.5, scale: 1 };
+              const next = {
                 ...la,
                 opacity: lerp(Number(la.opacity||1), Number(lb.opacity||1), t),
                 rotation: lerp(Number(la.rotation||0), Number(lb.rotation||0), t),
@@ -424,9 +465,9 @@ const GlobalControls = ({
                   scale: lerp(Number(pa.scale||1), Number(pb.scale||1), t),
                 }
               };
-            }) : a.layers,
-          };
-          loadAppStateRef.current && loadAppStateRef.current(out);
+              return next;
+            }));
+          }
         } catch {}
       }
 
@@ -449,6 +490,18 @@ const GlobalControls = ({
           legIndex = (legIndex + 1) % routeNow.length;
         }
         startTime = now;
+        // On leg boundary for fade mode: snap to target preset's layer list
+        if (modeRef.current === 'fade') {
+          const routeNow2 = routeRef.current;
+          const toId2 = routeNow2[(legIndex) % routeNow2.length];
+          const toSlot2 = getPresetSlotRef.current ? getPresetSlotRef.current(toId2) : null;
+          const toState2 = toSlot2?.payload?.appState;
+          const b2 = stripMorphFields(toState2 || {});
+          const bLayers2 = Array.isArray(b2.layers) ? b2.layers : [];
+          setLayers(() => bLayers2.map(l => ({ ...l })));
+        }
+        // Reset prep for next leg
+        fadePrepRef.current = { key: null, lenA: 0, lenB: 0, baseA: [], baseB: [] };
       }
       rafRef.current = requestAnimationFrame(step);
     };
@@ -507,7 +560,7 @@ const GlobalControls = ({
         {midiSupported && (
           <span className="compact-label" style={{ opacity: 0.8 }}>
             {midiMappings?.['global:presetRecall'] ? (mappingLabel ? mappingLabel(midiMappings['global:presetRecall']) : 'Mapped') : 'Not mapped'}
-            {learnParamId === 'global:presetRecall' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+            {learnParamId === 'global:presetRecall' && midiSupported && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
           </span>
         )}
       </div>
