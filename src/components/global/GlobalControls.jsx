@@ -4,6 +4,7 @@ import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
+import PresetControls from './PresetControls.jsx';
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
@@ -54,6 +55,18 @@ const GlobalControls = ({
   // Actions
   handleRandomizeAll,
 }) => {
+  // Keep Canvas background image renderer in sync
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const enabled = !!(backgroundImage && backgroundImage.enabled);
+        const src = backgroundImage?.src || null;
+        const opacity = Math.max(0, Math.min(1, Number(backgroundImage?.opacity ?? 1)));
+        const fit = backgroundImage?.fit || 'cover';
+        window.__artapp_bgimg = { enabled, src, opacity, fit };
+      }
+    } catch {}
+  }, [backgroundImage]);
   // Presets: contexts
   const {
     presetSlots,
@@ -542,32 +555,12 @@ const GlobalControls = ({
           </>
         )}
       </h3>
-      {/* Preset Recall MIDI Learn */}
-      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-        <span className="compact-label" title="Map a MIDI control to recall presets 1..8 via position">Preset Recall (MIDI)</span>
-        <button
-          className="btn-compact-secondary"
-          onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('global:presetRecall'); }}
-          disabled={!midiSupported}
-          title="Learn: move a MIDI control to map preset recall"
-        >Learn</button>
-        <button
-          className="btn-compact-secondary"
-          onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('global:presetRecall'); }}
-          disabled={!midiSupported || !midiMappings?.['global:presetRecall']}
-          title="Clear MIDI mapping for preset recall"
-        >Clear</button>
-        {midiSupported && (
-          <span className="compact-label" style={{ opacity: 0.8 }}>
-            {midiMappings?.['global:presetRecall'] ? (mappingLabel ? mappingLabel(midiMappings['global:presetRecall']) : 'Mapped') : 'Not mapped'}
-            {learnParamId === 'global:presetRecall' && midiSupported && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
-          </span>
-        )}
-      </div>
-      {/* Presets: 4x2 grid */}
-      {renderPresetGrid()}
-      {/* Preset Morph controls */}
-      {renderMorphControls()}
+      {/* Presets & Morph Controls (extracted) */}
+      <PresetControls
+        setLayers={setLayers}
+        setBackgroundColor={setBackgroundColor}
+        setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+      />
       <div className="control-group" style={{ margin: 0 }}>
         {/* Background Color with inline include toggle */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>

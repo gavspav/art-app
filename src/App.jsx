@@ -567,19 +567,32 @@ const MainApp = () => {
           const refH = Number(ref?.height) || 1;
           const pos = { x: (center.x - refMinX) / refW, y: (center.y - refMinY) / refH };
           const base = { ...DEFAULT_LAYER };
+          // Filter out background-like subpaths that span most of the normalized area (likely <rect> backgrounds)
+          const filteredSubpaths = Array.isArray(subpaths) && subpaths.length ? subpaths.filter(sp => {
+            try {
+              if (!Array.isArray(sp) || sp.length < 3) return false;
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              for (const p of sp) { const x = Number(p.x)||0, y = Number(p.y)||0; if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; }
+              const w = Math.abs(maxX - minX);
+              const h = Math.abs(maxY - minY);
+              // In our normalized mapping, typical shapes fit within [-1,1]. If a subpath spans ~full range, treat it as background
+              return !(w >= 1.8 && h >= 1.8);
+            } catch { return true; }
+          }) : undefined;
           newLayers.push({
             ...base,
             name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
             layerType: 'shape',
-            nodes,
-            subpaths: Array.isArray(subpaths) && subpaths.length ? subpaths : undefined,
+            // Prefer subpaths when available (use filtered to drop background rectangles)
+            nodes: (filteredSubpaths && filteredSubpaths.length) ? null : nodes,
+            subpaths: (filteredSubpaths && filteredSubpaths.length) ? filteredSubpaths : (Array.isArray(subpaths) && subpaths.length ? subpaths : undefined),
             syncNodesToNumSides: false,
             viewBoxMapped: true,
             curviness: 0,
             noiseAmount: 0,
             wobble: 0,
             numSides: nodes.length,
-            position: { ...base.position, x: pos.x, y: pos.y },
+            position: { ...base.position, x: pos.x, y: pos.y, scale: 0.15 },
             visible: true,
           });
           continue;
@@ -658,7 +671,7 @@ const MainApp = () => {
           noiseAmount: 0,
           wobble: 0,
           numSides: nodes.length,
-          position: { ...base.position, x: pos.x, y: pos.y },
+          position: { ...base.position, x: pos.x, y: pos.y, scale: 0.3 },
           visible: true,
         });
       }
