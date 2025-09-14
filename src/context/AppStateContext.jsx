@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
 
 // Create the context
@@ -6,6 +6,21 @@ const AppStateContext = createContext();
 
 // Create a custom hook for easy access to the context
 export const useAppState = () => useContext(AppStateContext);
+
+// Presets persistence key
+const PRESET_SLOTS_KEY = 'artapp-presets-v1';
+
+// Build default 8 preset slots
+const buildDefaultPresetSlots = () => (
+  Array.from({ length: 8 }, (_, i) => ({
+    id: i + 1,
+    name: `P${i + 1}`,
+    color: '#4fc3f7',
+    savedAt: null,
+    payload: null,
+    version: '1.0',
+  }))
+);
 
 // Create the provider component
 export const AppStateProvider = ({ children }) => {
@@ -34,7 +49,52 @@ export const AppStateProvider = ({ children }) => {
     rotationVaryAcrossLayers: true,
     // Global: allow colour fading to continue while frozen
     colorFadeWhileFrozen: true,
+
+    // Preset morphing (Phase 3)
+    morphEnabled: false,
+    morphRoute: [1, 2], // array of preset ids (1..8)
+    morphDurationPerLeg: 5, // seconds
+    morphEasing: 'linear', // 'linear' | future: 'easeInOut'
+    morphLoopMode: 'loop', // 'loop' | 'pingpong'
   });
+
+  // Preset slots state (8 slots), persisted to localStorage
+  const [presetSlots, setPresetSlots] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PRESET_SLOTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length === 8) return parsed;
+      }
+    } catch (e) {
+      console.warn('[AppState] Failed to load preset slots; using defaults', e);
+    }
+    return buildDefaultPresetSlots();
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRESET_SLOTS_KEY, JSON.stringify(presetSlots));
+    } catch (e) {
+      console.warn('[AppState] Failed to persist preset slots', e);
+    }
+  }, [presetSlots]);
+
+  const setPresetSlot = useCallback((slotId, updater) => {
+    setPresetSlots(prev => prev.map(s => (
+      s.id === slotId ? (typeof updater === 'function' ? updater(s) : { ...s, ...updater }) : s
+    )));
+  }, []);
+
+  const clearPresetSlot = useCallback((slotId) => {
+    setPresetSlots(prev => prev.map(s => (
+      s.id === slotId ? { ...s, payload: null, savedAt: null } : s
+    )));
+  }, []);
+
+  const getPresetSlot = useCallback((slotId) => (
+    (presetSlots || []).find(s => s.id === slotId) || null
+  ), [presetSlots]);
 
   // Individual state setters for backward compatibility
   const setIsFrozen = useCallback((value) => {
@@ -120,6 +180,26 @@ export const AppStateProvider = ({ children }) => {
 
   const setColorFadeWhileFrozen = useCallback((value) => {
     setAppState(prev => ({ ...prev, colorFadeWhileFrozen: !!value }));
+  }, []);
+
+  // Morph setters
+  const setMorphEnabled = useCallback((value) => {
+    setAppState(prev => ({ ...prev, morphEnabled: !!value }));
+  }, []);
+  const setMorphRoute = useCallback((value) => {
+    setAppState(prev => ({ ...prev, morphRoute: Array.isArray(value) ? value.slice(0, 16) : prev.morphRoute }));
+  }, []);
+  const setMorphDurationPerLeg = useCallback((value) => {
+    const v = parseFloat(value);
+    setAppState(prev => ({ ...prev, morphDurationPerLeg: Number.isFinite(v) ? Math.max(0.2, Math.min(120, v)) : prev.morphDurationPerLeg }));
+  }, []);
+  const setMorphEasing = useCallback((value) => {
+    const allowed = ['linear'];
+    setAppState(prev => ({ ...prev, morphEasing: allowed.includes(value) ? value : prev.morphEasing }));
+  }, []);
+  const setMorphLoopMode = useCallback((value) => {
+    const allowed = ['loop','pingpong'];
+    setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
   }, []);
 
   // Function to get current app state for saving
@@ -237,7 +317,13 @@ export const AppStateProvider = ({ children }) => {
   const value = {
     // Current state
     ...appState,
-    
+    // Presets API
+    presetSlots,
+    setPresetSlots,
+    setPresetSlot,
+    clearPresetSlot,
+    getPresetSlot,
+
     // Individual setters for backward compatibility
     setIsFrozen,
     setBackgroundColor,
@@ -255,6 +341,13 @@ export const AppStateProvider = ({ children }) => {
     setRandomizeNumColors,
     setRotationVaryAcrossLayers,
     setColorFadeWhileFrozen,
+
+    // Morph setters
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
 
     // State management functions
     getCurrentAppState,

@@ -1,4 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { useAppState } from '../../context/AppStateContext.jsx';
+import { useParameters } from '../../context/ParameterContext.jsx';
+import { useMidi } from '../../context/MidiContext.jsx';
+import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 
 // A full-featured Global Controls panel, mirroring the original inline UI
@@ -50,6 +54,29 @@ const GlobalControls = ({
   // Actions
   handleRandomizeAll,
 }) => {
+  // Presets: contexts
+  const {
+    presetSlots,
+    setPresetSlot,
+    getPresetSlot,
+    // clearPresetSlot, // not used yet in Phase 1 UI
+    getCurrentAppState,
+    loadAppState,
+    // Morph state
+    morphEnabled,
+    morphRoute,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+  } = useAppState() || {};
+  const { parameters, loadFullConfiguration } = useParameters() || {};
+  const { registerParamHandler } = useMidi() || {};
+
   const paletteValue = useMemo(() => {
     try {
       const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
@@ -63,7 +90,7 @@ const GlobalControls = ({
       return 'custom';
     }
   }, [palettes, layers, sampleColorsEven]);
-  
+
   // Settings panel visibility toggles
   const [showSpeedSettings, setShowSpeedSettings] = useState(false);
   const [showOpacitySettings, setShowOpacitySettings] = useState(false);
@@ -95,6 +122,341 @@ const GlobalControls = ({
   const [variationColorMin, setVariationColorMin] = useState(0);
   const [variationColorMax, setVariationColorMax] = useState(3);
   const [variationColorStep, setVariationColorStep] = useState(0.01);
+
+  // Presets: helpers
+  const TEMP_PRESET_PREFIX = 'preset-slot-';
+
+  const recallPreset = useCallback(async (slotId) => {
+    const slot = getPresetSlot ? getPresetSlot(slotId) : null;
+    if (!slot) return;
+    try {
+      if (!slot.payload) return;
+      const key = `${TEMP_PRESET_PREFIX}${slotId}`;
+      const saveObj = { parameters: slot.payload.parameters || [], appState: slot.payload.appState || null, savedAt: slot.payload.savedAt || new Date().toISOString(), version: '1.1' };
+      localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
+      if (typeof loadFullConfiguration === 'function') {
+        const res = await loadFullConfiguration(key);
+        if (res && res.appState && typeof loadAppState === 'function') {
+          loadAppState(res.appState);
+        }
+      }
+    } catch (e) {
+      console.warn('[Presets] Failed to recall preset', slotId, e);
+    }
+  }, [getPresetSlot, loadFullConfiguration, loadAppState]);
+
+  const handlePresetClick = useCallback(async (slotId, evt) => {
+    const slot = getPresetSlot ? getPresetSlot(slotId) : null;
+    if (!slot) return;
+    const isShift = !!(evt && (evt.shiftKey || evt.metaKey));
+    if (isShift) {
+      // Save current config into preset slot
+      try {
+        const now = new Date().toISOString();
+        const appStatePayload = typeof getCurrentAppState === 'function' ? getCurrentAppState() : null;
+        const paramPayload = Array.isArray(parameters) ? parameters : [];
+        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '1.0' };
+        setPresetSlot && setPresetSlot(slotId, (s) => ({ ...s, payload, savedAt: now }));
+      } catch (e) {
+        console.warn('[Presets] Failed to save to slot', slotId, e);
+      }
+      return;
+    }
+    recallPreset(slotId);
+  }, [getPresetSlot, setPresetSlot, getCurrentAppState, parameters, recallPreset]);
+
+  // MIDI: learnable preset recall (maps 0..1 to buckets 1..8)
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unsub = registerParamHandler('global:presetRecall', ({ value01 }) => {
+      const bucket = Math.max(1, Math.min(8, Math.floor(value01 * 8) + 1));
+      recallPreset(bucket);
+    });
+    return () => { if (typeof unsub === 'function') unsub(); };
+  }, [registerParamHandler, recallPreset]);
+
+  const renderPresetGrid = () => {
+    const slots = Array.isArray(presetSlots) ? presetSlots : [];
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        {Array.from({ length: 8 }, (_, i) => {
+          const slot = slots[i] || { id: i + 1, name: `P${i + 1}`, payload: null };
+          const hasData = !!slot.payload;
+          return (
+            <button
+              key={slot.id}
+              type="button"
+              onClick={(e) => handlePresetClick(slot.id, e)}
+              title={`${slot.name || `P${slot.id}`}${hasData ? ` • Saved ${slot.savedAt ? new Date(slot.savedAt).toLocaleString() : ''}` : ' • Empty'}\nClick: Recall • Shift+Click: Save`}
+              style={{
+                width: '100%',
+                aspectRatio: '1 / 1',
+                borderRadius: '999px',
+                border: hasData ? '2px solid #4fc3f7' : '2px dashed rgba(255,255,255,0.25)',
+                background: hasData ? 'rgba(79,195,247,0.25)' : 'transparent',
+                color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontWeight: 600,
+              }}
+            >
+              {slot.name || `P${slot.id}`}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Morph UI controls
+  const [morphStatus, setMorphStatus] = useState(null);
+  const [morphError, setMorphError] = useState('');
+  const [routeInput, setRouteInput] = useState(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
+  useEffect(() => {
+    setRouteInput(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
+  }, [morphRoute]);
+  const applyRouteFromInput = useCallback(() => {
+    const vals = (routeInput || '')
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => Number.isFinite(n) && n >= 1 && n <= 8);
+    setMorphRoute && setMorphRoute(vals);
+  }, [routeInput, setMorphRoute]);
+  const renderMorphControls = () => {
+    const route = Array.isArray(morphRoute) ? morphRoute : [];
+    const missing = (route || []).filter(id => {
+      const s = getPresetSlot ? getPresetSlot(id) : null;
+      return !(s && s.payload && s.payload.appState);
+    });
+    return (
+      <div className="control-card" style={{ marginTop: '0.5rem' }}>
+        <div className="control-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <span style={{ fontWeight: 600 }}>Preset Morph</span>
+            <label className="compact-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+              <input
+                type="checkbox"
+                checked={!!morphEnabled}
+                onChange={() => {
+                  const next = !morphEnabled;
+                  console.debug('[Morph] set enabled ->', next);
+                  if (!next) {
+                    setMorphEnabled && setMorphEnabled(false);
+                    setMorphError('');
+                    return;
+                  }
+                  let route = Array.isArray(morphRoute) ? morphRoute : [];
+                  if (route.length < 2) {
+                    const savedIds = (presetSlots || []).filter(s => s && s.payload).map(s => s.id);
+                    if (savedIds.length >= 2 && setMorphRoute) {
+                      route = [savedIds[0], savedIds[1]];
+                      setMorphRoute(route);
+                      setRouteInput(route.join(','));
+                    }
+                  }
+                  const missing = (route || []).filter(id => {
+                    const s = getPresetSlot ? getPresetSlot(id) : null;
+                    return !(s && s.payload && s.payload.appState);
+                  });
+                  if (missing.length > 0) {
+                    console.warn('[Morph] Cannot enable; missing saved presets:', missing);
+                    setMorphError(`Cannot enable: save presets ${missing.join(', ')} first (Shift+Click on circles).`);
+                    // Do NOT enable
+                    return;
+                  }
+                  setMorphEnabled && setMorphEnabled(true);
+                  setMorphError('');
+                }}
+              />
+              Enable
+              <span style={{
+                padding: '0.1rem 0.4rem',
+                borderRadius: 999,
+                background: morphEnabled ? 'rgba(76,175,80,0.25)' : 'rgba(255,255,255,0.08)',
+                border: morphEnabled ? '1px solid #4caf50' : '1px solid rgba(255,255,255,0.15)',
+                fontSize: '0.75rem',
+                color: morphEnabled ? '#a5d6a7' : 'rgba(255,255,255,0.7)'
+              }}>{morphEnabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+        </div>
+        {missing.length > 0 && (
+          <div style={{ marginTop: '0.4rem', color: '#ff9e80', fontSize: '0.85rem' }}>
+            Save these presets first (Shift+Click on their circles): {missing.join(', ')}
+          </div>
+        )}
+        {morphError && (
+          <div style={{ marginTop: '0.35rem', color: '#ef5350', fontSize: '0.85rem' }}>{morphError}</div>
+        )}
+        <div className="compact-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <label className="compact-label" title="Route of presets to morph through, comma-separated (e.g., 1,3,5)">
+            Route
+            <input
+              type="text"
+              className="compact-input"
+              value={routeInput}
+              onChange={(e) => setRouteInput(e.target.value)}
+              onBlur={applyRouteFromInput}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyRouteFromInput(); } }}
+            />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem' }}>
+            <button type="button" className="btn-compact-secondary" onClick={applyRouteFromInput} title="Apply route">Apply</button>
+          </div>
+          <label className="compact-label" title="Seconds per leg">
+            Duration
+            <input type="number" step={0.1} min={0.2} max={120} value={Number(morphDurationPerLeg || 5)} onChange={(e) => setMorphDurationPerLeg && setMorphDurationPerLeg(e.target.value)} className="compact-input" />
+          </label>
+          <label className="compact-label" title="Easing">
+            Easing
+            <select className="compact-select" value={morphEasing || 'linear'} onChange={(e) => setMorphEasing && setMorphEasing(e.target.value)}>
+              <option value="linear">linear</option>
+            </select>
+          </label>
+          <label className="compact-label" title="Loop mode">
+            Mode
+            <select className="compact-select" value={morphLoopMode || 'loop'} onChange={(e) => setMorphLoopMode && setMorphLoopMode(e.target.value)}>
+              <option value="loop">loop</option>
+              <option value="pingpong">pingpong</option>
+            </select>
+          </label>
+        </div>
+        {morphEnabled && morphStatus && (
+          <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', opacity: 0.8 }}>
+            Morph: {morphStatus.from} → {morphStatus.to} ({Math.round(morphStatus.t * 100)}%)
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Refs to stabilize morph engine
+  const rafRef = useRef(0);
+  const routeRef = useRef([]);
+  const durRef = useRef(5);
+  const easingRef = useRef('linear');
+  const loopModeRef = useRef('loop');
+  const getPresetSlotRef = useRef(getPresetSlot);
+  const loadAppStateRef = useRef(loadAppState);
+
+  // Sync current settings into refs
+  useEffect(() => { routeRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
+  useEffect(() => { durRef.current = Number(morphDurationPerLeg || 5); }, [morphDurationPerLeg]);
+  useEffect(() => { easingRef.current = morphEasing || 'linear'; }, [morphEasing]);
+  useEffect(() => { loopModeRef.current = morphLoopMode || 'loop'; }, [morphLoopMode]);
+  useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
+  useEffect(() => { loadAppStateRef.current = loadAppState; }, [loadAppState]);
+
+  // Morph engine: interpolate between consecutive presets' appState
+  useEffect(() => {
+    // Stop any existing loop
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (!morphEnabled) return;
+    const route = routeRef.current;
+    if (!Array.isArray(route) || route.length < 2) return;
+
+    let legIndex = 0;
+    let forward = true;
+    let startTime = performance.now();
+
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const sanitizeHex = (val) => (typeof val === 'string' && /^#([0-9a-fA-F]{6})$/.test(val) ? val : '#000000');
+    const lerpColor = (ca, cb, t) => {
+      const ra = hexToRgb(sanitizeHex(ca));
+      const rb = hexToRgb(sanitizeHex(cb));
+      return rgbToHex({ r: Math.round(lerp(ra.r, rb.r, t)), g: Math.round(lerp(ra.g, rb.g, t)), b: Math.round(lerp(ra.b, rb.b, t)) });
+    };
+    const stripMorphFields = (state) => {
+      if (!state || typeof state !== 'object') return state;
+      const { morphEnabled: _me, morphRoute: _mr, morphDurationPerLeg: _md, morphEasing: _meas, morphLoopMode: _ml, ...rest } = state;
+      return rest;
+    };
+
+    // Apply starting preset
+    try {
+      const initFrom = route[0];
+      const fromSlot = getPresetSlotRef.current ? getPresetSlotRef.current(initFrom) : null;
+      if (fromSlot?.payload?.appState && typeof loadAppStateRef.current === 'function') {
+        const initState = stripMorphFields(fromSlot.payload.appState);
+        loadAppStateRef.current(initState);
+        setMorphStatus && setMorphStatus({ from: initFrom, to: route[1], t: 0 });
+      }
+    } catch {}
+
+    const step = () => {
+      const now = performance.now();
+      const durMs = Math.max(200, Number(durRef.current || 5) * 1000);
+      const tRaw = Math.min(1, (now - startTime) / durMs);
+      let t = tRaw;
+      if (easingRef.current === 'linear') {
+        // no-op
+      }
+
+      const routeNow = routeRef.current;
+      const fromId = routeNow[legIndex];
+      const toId = routeNow[(legIndex + 1) % routeNow.length];
+      const fromSlot = getPresetSlotRef.current ? getPresetSlotRef.current(fromId) : null;
+      const toSlot = getPresetSlotRef.current ? getPresetSlotRef.current(toId) : null;
+      const fromState = fromSlot?.payload?.appState;
+      const toState = toSlot?.payload?.appState;
+      setMorphStatus && setMorphStatus({ from: fromId, to: toId, t });
+      if (fromState && toState) {
+        try {
+          const a = stripMorphFields(fromState);
+          const b = stripMorphFields(toState);
+          const out = {
+            ...a,
+            backgroundColor: lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t),
+            globalSpeedMultiplier: lerp(Number(a.globalSpeedMultiplier||1), Number(b.globalSpeedMultiplier||1), t),
+            layers: Array.isArray(a.layers) && Array.isArray(b.layers) ? a.layers.map((la, i) => {
+              const lb = b.layers[i] || la;
+              const pa = la.position || { x:0.5, y:0.5, scale:1 };
+              const pb = lb.position || { x:0.5, y:0.5, scale:1 };
+              return {
+                ...la,
+                opacity: lerp(Number(la.opacity||1), Number(lb.opacity||1), t),
+                rotation: lerp(Number(la.rotation||0), Number(lb.rotation||0), t),
+                radiusFactor: lerp(Number(la.radiusFactor||0.125), Number(lb.radiusFactor||0.125), t),
+                movementSpeed: lerp(Number(la.movementSpeed||1), Number(lb.movementSpeed||1), t),
+                position: {
+                  ...pa,
+                  x: lerp(Number(pa.x||0.5), Number(pb.x||0.5), t),
+                  y: lerp(Number(pa.y||0.5), Number(pb.y||0.5), t),
+                  scale: lerp(Number(pa.scale||1), Number(pb.scale||1), t),
+                }
+              };
+            }) : a.layers,
+          };
+          loadAppStateRef.current && loadAppStateRef.current(out);
+        } catch {}
+      }
+
+      if (tRaw >= 1) {
+        if (loopModeRef.current === 'pingpong') {
+          if (forward) {
+            if (legIndex + 1 >= routeNow.length - 1) {
+              forward = false;
+            } else {
+              legIndex += 1;
+            }
+          } else {
+            if (legIndex <= 0) {
+              forward = true;
+            } else {
+              legIndex -= 1;
+            }
+          }
+        } else {
+          legIndex = (legIndex + 1) % routeNow.length;
+        }
+        startTime = now;
+      }
+      rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [morphEnabled]);
+
   return (
     <div className="control-card">
       <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -127,6 +489,32 @@ const GlobalControls = ({
           </>
         )}
       </h3>
+      {/* Preset Recall MIDI Learn */}
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <span className="compact-label" title="Map a MIDI control to recall presets 1..8 via position">Preset Recall (MIDI)</span>
+        <button
+          className="btn-compact-secondary"
+          onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('global:presetRecall'); }}
+          disabled={!midiSupported}
+          title="Learn: move a MIDI control to map preset recall"
+        >Learn</button>
+        <button
+          className="btn-compact-secondary"
+          onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('global:presetRecall'); }}
+          disabled={!midiSupported || !midiMappings?.['global:presetRecall']}
+          title="Clear MIDI mapping for preset recall"
+        >Clear</button>
+        {midiSupported && (
+          <span className="compact-label" style={{ opacity: 0.8 }}>
+            {midiMappings?.['global:presetRecall'] ? (mappingLabel ? mappingLabel(midiMappings['global:presetRecall']) : 'Mapped') : 'Not mapped'}
+            {learnParamId === 'global:presetRecall' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+          </span>
+        )}
+      </div>
+      {/* Presets: 4x2 grid */}
+      {renderPresetGrid()}
+      {/* Preset Morph controls */}
+      {renderMorphControls()}
       <div className="control-group" style={{ margin: 0 }}>
         {/* Background Color with inline include toggle */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
