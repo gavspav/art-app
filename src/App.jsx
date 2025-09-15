@@ -25,6 +25,7 @@ import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
 import SidebarResizer from './components/global/SidebarResizer.jsx';
 import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
+import BottomPanel from './components/BottomPanel.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -81,6 +82,8 @@ const MainApp = () => {
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   // Simple recording state (placeholder)
   const [isRecording, setIsRecording] = useState(false);
+  // Keyboard Shortcuts overlay
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const startRecording = useCallback(() => setIsRecording(true), []);
   const stopRecording = useCallback(() => setIsRecording(false), []);
   // Keep latest values accessible to hotkeys without re-binding listeners
@@ -109,6 +112,26 @@ const MainApp = () => {
       } catch {}
     };
   }, []);
+
+  // Global key handler for toggling shortcuts overlay
+  useEffect(() => {
+    const onKey = (e) => {
+      // ignore inputs
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return; // allow Shift-k as well
+      const key = (e.key || '').toLowerCase();
+      if (key === 'k') {
+        e.preventDefault();
+        setShowShortcuts(s => !s);
+      }
+      if (key === 'escape' && showShortcuts) {
+        setShowShortcuts(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showShortcuts]);
 
   // Sidebar resize handlers
   const onSidebarMouseMove = useCallback((e) => {
@@ -278,6 +301,24 @@ const MainApp = () => {
       return z;
     };
     const wColor = clamp(boostAboveOne(v.color || 0) / 3, 0, 1);
+
+    // If shape variation is exactly zero, duplicate the previous layer's shape exactly
+    // This ensures adding a new layer with Shape Variation = 0 yields an identical shape.
+    if (wShape === 0) {
+      const clone = JSON.parse(JSON.stringify(prev || DEFAULT_LAYER));
+      // Update only the name; keep all other properties identical (including nodes and seeds)
+      clone.name = `Layer ${nameIndex}`;
+      // If animation or color variations are requested, we will apply them minimally below.
+      // Apply animation-only tweaks when wAnim > 0 (reuse existing logic but avoid shape edits)
+      if (wAnim > 0) {
+        // Recompute velocity from angle/speed based on existing values
+        const angleRad0 = (clone.movementAngle ?? 0) * (Math.PI / 180);
+        const spd0 = (clone.movementSpeed ?? 0) * 0.001;
+        clone.vx = Math.cos(angleRad0) * spd0;
+        clone.vy = Math.sin(angleRad0) * spd0;
+      }
+      return clone;
+    }
 
     const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
 
@@ -869,127 +910,48 @@ const MainApp = () => {
   return (
     <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
-        {/* Left Sidebar - Hidden in fullscreen */}
-        <aside
-          className={`sidebar ${isFullscreen ? 'hidden' : ''} ${isOverlayVisible ? '' : 'collapsed'}`}
-          style={(isFullscreen || !isOverlayVisible) ? undefined : { width: `${sidebarWidth}px` }}
-        >
-          <div className="sidebar-header">
-            <button
-              className="collapse-btn"
-              onClick={() => setIsOverlayVisible(prev => !prev)}
-              title={isOverlayVisible ? 'Hide controls' : 'Show controls'}
-            >
-              {isOverlayVisible ? '←' : '→'}
-            </button>
-            <div style={{ display: 'flex', gap: '0.4rem', marginLeft: '0.5rem' }}>
-              <button className="icon-btn" title="Save configuration" onClick={handleQuickSave}>💾</button>
-              <button className="icon-btn" title="Load configuration" onClick={handleQuickLoad}>📂</button>
-              {/* Hidden input used by import handler */}
-              <input
-                ref={configFileInputRef}
-                type="file"
-                accept="application/json,.json"
-                style={{ display: 'none' }}
-                onChange={handleImportFile}
-              />
+        {/* Keyboard Shortcuts Overlay */}
+        {showShortcuts && (
+          <div className="shortcuts-overlay" aria-live="polite" aria-modal="true" role="dialog">
+            <div className="shortcuts-card">
+              <div className="shortcuts-title">Keyboard Shortcuts</div>
+              <div className="shortcuts-grid">
+                <div><kbd>1</kbd><span>Global tab</span></div>
+                <div><kbd>2</kbd><span>Layer Shape tab</span></div>
+                <div><kbd>3</kbd><span>Layer Animation tab</span></div>
+                <div><kbd>4</kbd><span>Layer Colour tab</span></div>
+                <div><kbd>5</kbd><span>Presets tab</span></div>
+                <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
+                <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
+                <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
+                <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
+                <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
+                <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
+                <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
+                <div><kbd>Esc</kbd><span>Close dialogs/overlays</span></div>
+              </div>
+              <div className="shortcuts-hint">Press Esc or K to close</div>
             </div>
           </div>
-          <div className="sidebar-content">
-            {/* Global controls extracted */}
-            {/* Global controls now rendered by component */}
-            <GlobalControls
-              backgroundColor={backgroundColor}
-              setBackgroundColor={setBackgroundColor}
-              backgroundImage={backgroundImage}
-              setBackgroundImage={setBackgroundImage}
-              isFrozen={isFrozen}
-              setIsFrozen={setIsFrozen}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
-              zIgnore={zIgnore}
-              setZIgnore={setZIgnore}
-              showGlobalMidi={showGlobalMidi}
-              setShowGlobalMidi={setShowGlobalMidi}
-              globalSpeedMultiplier={globalSpeedMultiplier}
-              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              getIsRnd={getIsRnd}
-              setIsRnd={setIsRnd}
-              midiSupported={midiSupported}
-              beginLearn={beginLearn}
-              clearMapping={clearMapping}
-              midiMappings={midiMappings}
-              mappingLabel={mappingLabel}
-              learnParamId={learnParamId}
-              palettes={palettes}
-              blendModes={blendModes}
-              globalBlendMode={globalBlendMode}
-              setGlobalBlendMode={setGlobalBlendMode}
-              midiInputs={midiInputs}
-              midiInputId={midiInputId}
-              setMidiInputId={setMidiInputId}
-              layers={layers}
-              sampleColorsEven={sampleColorsEven}
-              assignOneColorPerLayer={assignOneColorPerLayer}
-              setLayers={setLayers}
-              DEFAULT_LAYER={DEFAULT_LAYER}
-              buildVariedLayerFrom={buildVariedLayerFrom}
-              setSelectedLayerIndex={setSelectedLayerIndex}
-              handleRandomizeAll={handleRandomizeAll}
-            />
-            
-
-            <Controls
-              ref={controlsRef}
-              currentLayer={currentLayer}
-              updateLayer={updateCurrentLayer}
-              randomizeCurrentLayer={randomizeCurrentLayer}
-              randomizeAnimationOnly={randomizeAnimationForCurrentLayer}
-              randomizeAll={handleRandomizeAll}
-              isFrozen={isFrozen}
-              setIsFrozen={setIsFrozen}
-              globalSpeedMultiplier={globalSpeedMultiplier}
-              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              setLayers={setLayers}
-              baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
-              baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
-              isNodeEditMode={isNodeEditMode}
-              showMidi={showGlobalMidi}
-              setIsNodeEditMode={setIsNodeEditMode}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
-              randomizePalette={randomizePalette}
-              setRandomizePalette={setRandomizePalette}
-              randomizeNumColors={randomizeNumColors}
-              setRandomizeNumColors={setRandomizeNumColors}
-              colorCountMin={colorCountMin}
-              colorCountMax={colorCountMax}
-              setColorCountMin={setColorCountMin}
-              setColorCountMax={setColorCountMax}
-              onRandomizeLayerColors={randomizeCurrentLayerColors}
-              rotationVaryAcrossLayers={rotationVaryAcrossLayers}
-              setRotationVaryAcrossLayers={setRotationVaryAcrossLayers}
-              getIsRnd={getIsRnd}
-              setIsRnd={setIsRnd}
-              layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
-              selectedLayerIndex={clampedSelectedIndex}
-              onSelectLayer={selectLayer}
-              onAddLayer={addNewLayer}
-              onDeleteLayer={deleteLayer}
-              onMoveLayerUp={moveSelectedLayerUp}
-              onMoveLayerDown={moveSelectedLayerDown}
-              onImportSVG={handleImportSVGClick}
-            />
-            {/* Layer list removed; use header controls in <Controls /> */}
-          </div>
-        </aside>
-
-        {/* Draggable divider between sidebar and canvas */}
-        {(!isFullscreen && isOverlayVisible) && (
-          <SidebarResizer onStartResize={startResize} />
         )}
+        {/* Quick save/load buttons in top bar */}
+        <div className="top-bar" style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          height: '40px',
+          background: 'linear-gradient(180deg, rgba(20, 20, 30, 0.9) 0%, transparent 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 16px',
+          gap: '8px',
+          zIndex: 100,
+          pointerEvents: isFullscreen ? 'none' : 'auto',
+          opacity: isFullscreen ? 0 : 1,
+          transition: 'opacity 300ms ease'
+        }}>
+        </div>
         
         {/* Hidden file inputs */}
         <input
@@ -1000,11 +962,28 @@ const MainApp = () => {
           style={{ display: 'none' }}
           onChange={handleImportSVGFile}
         />
+        {/* Hidden input used by JSON import handler */}
+        <input
+          ref={configFileInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={handleImportFile}
+        />
 
-        {/* Main Canvas Area */}
+        {/* Main Canvas Area - Full screen */}
         <div 
           className="canvas-container" 
           ref={containerRef}
+          style={{ 
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100%',
+            height: '100%'
+          }}
         >
           <Canvas
             ref={canvasRef}
@@ -1048,6 +1027,73 @@ const MainApp = () => {
             isRecording={isRecording}
           />
         </div>
+        
+        {/* Bottom Panel with tabs - Hidden in fullscreen */}
+        {!isFullscreen && (
+          <BottomPanel
+            // GlobalControls props
+            backgroundColor={backgroundColor}
+            setBackgroundColor={setBackgroundColor}
+            backgroundImage={backgroundImage}
+            setBackgroundImage={setBackgroundImage}
+            isFrozen={isFrozen}
+            setIsFrozen={setIsFrozen}
+            colorFadeWhileFrozen={colorFadeWhileFrozen}
+            setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+            classicMode={classicMode}
+            setClassicMode={setClassicMode}
+            zIgnore={zIgnore}
+            setZIgnore={setZIgnore}
+            showGlobalMidi={showGlobalMidi}
+            setShowGlobalMidi={setShowGlobalMidi}
+            globalSpeedMultiplier={globalSpeedMultiplier}
+            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+            getIsRnd={getIsRnd}
+            setIsRnd={setIsRnd}
+            palettes={palettes}
+            blendModes={blendModes}
+            globalBlendMode={globalBlendMode}
+            setGlobalBlendMode={setGlobalBlendMode}
+            onQuickSave={handleQuickSave}
+            onQuickLoad={handleQuickLoad}
+            layers={layers}
+            sampleColorsEven={sampleColorsEven}
+            assignOneColorPerLayer={assignOneColorPerLayer}
+            setLayers={setLayers}
+            DEFAULT_LAYER={DEFAULT_LAYER}
+            buildVariedLayerFrom={buildVariedLayerFrom}
+            setSelectedLayerIndex={setSelectedLayerIndex}
+            handleRandomizeAll={handleRandomizeAll}
+            // Controls props
+            currentLayer={currentLayer}
+            updateCurrentLayer={updateCurrentLayer}
+            randomizeCurrentLayer={randomizeCurrentLayer}
+            randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
+            randomizeCurrentLayerColors={randomizeCurrentLayerColors}
+            baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
+            baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+            isNodeEditMode={isNodeEditMode}
+            setIsNodeEditMode={setIsNodeEditMode}
+            randomizePalette={randomizePalette}
+            setRandomizePalette={setRandomizePalette}
+            randomizeNumColors={randomizeNumColors}
+            setRandomizeNumColors={setRandomizeNumColors}
+            colorCountMin={colorCountMin}
+            colorCountMax={colorCountMax}
+            setColorCountMin={setColorCountMin}
+            setColorCountMax={setColorCountMax}
+            rotationVaryAcrossLayers={rotationVaryAcrossLayers}
+            setRotationVaryAcrossLayers={setRotationVaryAcrossLayers}
+            layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
+            selectedLayerIndex={clampedSelectedIndex}
+            selectLayer={selectLayer}
+            addNewLayer={addNewLayer}
+            deleteLayer={deleteLayer}
+            moveSelectedLayerUp={moveSelectedLayerUp}
+            moveSelectedLayerDown={moveSelectedLayerDown}
+            handleImportSVGClick={handleImportSVGClick}
+          />
+        )}
       </main>
     </div>
   );

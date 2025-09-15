@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef } from 'react';
 import ColorPicker from './ColorPicker';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
@@ -425,9 +425,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
   if (hidden) return null;
 
   const Header = ({ children }) => (
-    <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto', position: 'relative', zIndex: 1000 }}>
+    <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto' }}>
       <div>{children}</div>
-      <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', position: 'relative', zIndex: 1001, userSelect: 'none' }}>
+      <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none' }}>
         <button
           type="button"
           onClick={onClickRandomize}
@@ -435,7 +435,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
           title="Randomize this parameter"
           aria-label={`Randomize ${label}`}
           className="icon-btn"
-          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 1002 }}
+          style={{ padding: '0 0.4rem', pointerEvents: 'auto' }}
           tabIndex={0}
         >
           🎲
@@ -448,7 +448,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
           aria-label={`Settings for ${label}`}
           aria-pressed={showSettings ? 'true' : 'false'}
           className="icon-btn"
-          style={{ padding: '0 0.4rem', pointerEvents: 'auto', position: 'relative', zIndex: 1003 }}
+          style={{ padding: '0 0.4rem', pointerEvents: 'auto' }}
           tabIndex={0}
         >
           ⚙{showSettings ? '•' : ''}
@@ -463,7 +463,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
     return (
       <div
         className="dc-settings"
-        style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', position: 'relative', zIndex: 3 }}
+        style={{ marginTop: '0.4rem', padding: '0.5rem', borderRadius: '6px', background: 'rgba(255,255,255,0.05)' }}
         onMouseDown={(e) => { e.stopPropagation(); }}
         onClick={(e) => { e.stopPropagation(); }}
       >
@@ -575,7 +575,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers }) => 
               value={displayValue}
               onChange={handleChange}
               className="dc-slider"
-              style={{ position: 'relative', zIndex: 0 }}
+              style={{}}
             />
           </div>
           <SettingsPanel />
@@ -742,6 +742,7 @@ const Controls = forwardRef(({
   // Local UI state for delete picker
   const [showDeletePicker, setShowDeletePicker] = useState(false);
   const [deleteIndex, setDeleteIndex] = useState(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
+  const deletePickerRef = useRef(null);
   // Tab state must be initialized before any early returns to keep hook order stable
   const [activeTab, setActiveTab] = useState('Shape');
   // Local UI state for Colours settings panel
@@ -754,6 +755,32 @@ const Controls = forwardRef(({
   useEffect(() => {
     setDeleteIndex(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0);
   }, [selectedLayerIndex]);
+
+  // Ensure delete index stays within range if layer count changes after deletion
+  useEffect(() => {
+    const max = Math.max(0, ((layerNames || []).length || 1) - 1);
+    setDeleteIndex((idx) => Math.max(0, Math.min(max, Number.isFinite(idx) ? idx : 0)));
+  }, [layerNames?.length]);
+
+  // Keyboard shortcuts while delete popover is open: Enter=Delete, Esc=Cancel
+  useEffect(() => {
+    if (!showDeletePicker) return;
+    const onKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (((layerNames || []).length) > 1 && onDeleteLayer) {
+          onDeleteLayer(deleteIndex);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowDeletePicker(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    // Focus the popover for accessibility
+    try { deletePickerRef.current && deletePickerRef.current.focus?.(); } catch {}
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showDeletePicker, deleteIndex, onDeleteLayer, layerNames]);
 
   // Expose imperative API before any early returns to maintain hook order
   useImperativeHandle(ref, () => ({
@@ -1622,7 +1649,7 @@ const Controls = forwardRef(({
 
       {/* Inline delete picker popover */}
       {showDeletePicker && (
-        <div className="control-card" style={{ marginTop: '0.5rem' }}>
+        <div className="control-card" style={{ marginTop: '0.5rem' }} ref={deletePickerRef} tabIndex={-1}>
           <div className="control-row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ fontWeight: 600 }}>Delete layer</span>
@@ -1653,7 +1680,7 @@ const Controls = forwardRef(({
                 onClick={() => {
                   if (((layerNames || []).length) <= 1) return;
                   if (onDeleteLayer) onDeleteLayer(deleteIndex);
-                  setShowDeletePicker(false);
+                  // Keep the popover open until user clicks Cancel
                 }}
                 disabled={((layerNames || []).length) <= 1}
                 title={((layerNames || []).length) <= 1 ? 'At least one layer required' : 'Delete selected layer'}

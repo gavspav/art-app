@@ -10,9 +10,9 @@ export const useAppState = () => useContext(AppStateContext);
 // Presets persistence key
 const PRESET_SLOTS_KEY = 'artapp-presets-v1';
 
-// Build default 8 preset slots
+// Build default 16 preset slots
 const buildDefaultPresetSlots = () => (
-  Array.from({ length: 8 }, (_, i) => ({
+  Array.from({ length: 16 }, (_, i) => ({
     id: i + 1,
     name: `P${i + 1}`,
     color: '#4fc3f7',
@@ -59,13 +59,23 @@ export const AppStateProvider = ({ children }) => {
     morphMode: 'tween', // 'tween' | 'fade'
   });
 
-  // Preset slots state (8 slots), persisted to localStorage
+  // Preset slots state (16 slots), persisted to localStorage
   const [presetSlots, setPresetSlots] = useState(() => {
     try {
       const raw = localStorage.getItem(PRESET_SLOTS_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length === 8) return parsed;
+        if (Array.isArray(parsed)) {
+          // Migrate: if there are 8 slots, append 9..16 empty slots
+          if (parsed.length < 16) {
+            const next = [...parsed];
+            for (let i = parsed.length; i < 16; i++) {
+              next.push({ id: i + 1, name: `P${i + 1}`, color: '#4fc3f7', savedAt: null, payload: null, version: '1.0' });
+            }
+            return next.slice(0, 16);
+          }
+          return parsed.slice(0, 16);
+        }
       }
     } catch (e) {
       console.warn('[AppState] Failed to load preset slots; using defaults', e);

@@ -101,11 +101,11 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     recallPreset(slotId);
   }, [getPresetSlot, setPresetSlot, getCurrentAppState, parameters, recallPreset]);
 
-  // MIDI: per-preset triggers. Each preset i (1..8) gets its own mapping id 'preset:i'
+  // MIDI: per-preset triggers. Each preset i (1..16) gets its own mapping id 'preset:i'
   useEffect(() => {
     if (!registerParamHandler) return;
     const unsubs = [];
-    for (let i = 1; i <= 8; i++) {
+    for (let i = 1; i <= 16; i++) {
       const id = `preset:${i}`;
       const unsub = registerParamHandler(id, (payload = {}) => {
         const v = typeof payload.value01 === 'number' ? payload.value01 : (payload.on ? 1 : 0);
@@ -125,7 +125,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     const slots = Array.isArray(presetSlots) ? presetSlots : [];
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        {Array.from({ length: 8 }, (_, i) => {
+        {Array.from({ length: 16 }, (_, i) => {
           const slot = slots[i] || { id: i + 1, name: `P${i + 1}`, payload: null };
           const hasData = !!slot.payload;
           const mapped = !!midiMappings?.[`preset:${slot.id}`];
@@ -136,7 +136,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
                 onClick={(e) => handlePresetClick(slot.id, e)}
                 title={`${slot.name || `P${slot.id}`}${hasData ? ` • Saved ${slot.savedAt ? new Date(slot.savedAt).toLocaleString() : ''}` : ' • Empty'}\nClick: Recall • Shift+Click: Save`}
                 style={{
-                  width: '70%', // smaller than before
+                  width: '48%', // make buttons much smaller for compact layout
                   aspectRatio: '1 / 1',
                   borderRadius: '999px',
                   border: mapped ? '2px solid #4caf50' : (hasData ? '2px solid #4fc3f7' : '2px dashed rgba(255,255,255,0.25)'),
@@ -144,6 +144,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
                   color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontWeight: 600,
+                  fontSize: '0.85rem',
                 }}
               >
                 {slot.name || `P${slot.id}`}
@@ -155,13 +156,13 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
                     onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(`preset:${slot.id}`); }}
                     disabled={!midiSupported}
                     title={`Learn MIDI for ${slot.name || `P${slot.id}`}`}
-                  >Learn</button>
+                  >L</button>
                   <button
                     className="btn-compact-secondary"
                     onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(`preset:${slot.id}`); lastValuesRef.current[`preset:${slot.id}`] = 0; forceUiTick(t => t + 1); }}
                     disabled={!midiSupported || !midiMappings?.[`preset:${slot.id}`]}
                     title={`Clear MIDI for ${slot.name || `P${slot.id}`}`}
-                  >Clear</button>
+                  >C</button>
                   <span className="compact-label" style={{ opacity: 0.85, minWidth: '4.5rem', textAlign: 'left' }}>
                     {mapped ? (mappingLabel ? mappingLabel(midiMappings[`preset:${slot.id}`]) : 'Mapped') : 'Not mapped'}
                     {learnParamId === `preset:${slot.id}` && <span style={{ marginLeft: '0.25rem', color: '#4fc3f7' }}>Listening…</span>}

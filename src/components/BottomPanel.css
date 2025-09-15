@@ -1,0 +1,579 @@
+/* Bottom Panel Styles */
+.bottom-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+  pointer-events: none; /* allow canvas interaction outside the visible panel UI */
+}
+
+/* Dock: vertical */
+.bottom-panel.dock-top { top: 0; bottom: auto; }
+.bottom-panel.dock-bottom { bottom: 0; top: auto; }
+
+/* Panel states */
+.bottom-panel.hidden {
+  transform: translateY(100%);
+}
+
+.bottom-panel.peek {
+  transform: translateY(calc(100% - 20px));
+}
+
+.bottom-panel.expanded {
+  transform: translateY(0);
+}
+
+.bottom-panel.locked {
+  transform: translateY(0) !important;
+}
+
+/* Adjust transforms when docked at the top */
+.bottom-panel.dock-top.hidden {
+  transform: translateY(-100%);
+}
+.bottom-panel.dock-top.peek {
+  transform: translateY(calc(-100% + 20px));
+}
+.bottom-panel.dock-top.expanded,
+.bottom-panel.dock-top.locked {
+  transform: translateY(0);
+}
+
+/* Peek bar */
+.panel-peek-bar {
+  height: 20px;
+  background: linear-gradient(180deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 200ms ease;
+  /* Centered and constrained width */
+  width: 50vw;
+  margin: 0 auto;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  position: relative;
+  z-index: 2; /* sit above content */
+  pointer-events: auto; /* clickable */
+}
+
+.panel-peek-bar:hover {
+  background: linear-gradient(180deg, rgba(40, 40, 50, 0.95) 0%, rgba(30, 30, 40, 0.98) 100%);
+  border-top-color: rgba(79, 195, 247, 0.3);
+}
+
+/* Top-docked: flip peek bar styling so the title is visible */
+.bottom-panel.dock-top .panel-peek-bar {
+  background: linear-gradient(0deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
+  border-top: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0; /* reveal this bar in peek state */
+  z-index: 1100; /* ensure above content */
+}
+.bottom-panel.dock-top .panel-peek-bar:hover {
+  background: linear-gradient(0deg, rgba(40, 40, 50, 0.95) 0%, rgba(30, 30, 40, 0.98) 100%);
+  border-bottom-color: rgba(79, 195, 247, 0.3);
+}
+
+.peek-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.7;
+  transition: opacity 200ms ease;
+}
+
+.panel-peek-bar:hover .peek-indicator {
+  opacity: 1;
+}
+
+.peek-line {
+  width: 40px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.5), transparent);
+}
+
+.peek-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+/* Main panel content */
+.panel-content {
+  height: 260px;
+  background: linear-gradient(180deg, 
+    rgba(20, 20, 30, 0.95) 0%, 
+    rgba(15, 15, 25, 0.98) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  /* Centered and constrained width */
+  width: 50vw;
+  margin: 0 auto;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.3);
+  position: relative; /* positioning context for side handles */
+  z-index: 1;
+  pointer-events: auto; /* the actual panel content stays interactive */
+}
+
+/* Dock: horizontal alignment overrides (content and peek bar) */
+.bottom-panel.dock-left .panel-content,
+.bottom-panel.dock-left .panel-peek-bar {
+  margin-left: 12px;
+  margin-right: auto;
+}
+.bottom-panel.dock-right .panel-content,
+.bottom-panel.dock-right .panel-peek-bar {
+  margin-right: 12px;
+  margin-left: auto;
+}
+.bottom-panel.dock-center .panel-content,
+.bottom-panel.dock-center .panel-peek-bar {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Flip content border/shadow when docked at top so peek bar is not obscured */
+.bottom-panel.dock-top .panel-content {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+  border-top: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  padding-bottom: 20px; /* ensure content sits above the peek bar at bottom */
+}
+
+/* Drag handle for resizing */
+.panel-resize-handle {
+  height: 16px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+.panel-resize-handle::before {
+  content: '';
+  width: 60px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+}
+
+/* Side resize handles */
+.panel-resize-handle-side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 14px; /* generous target */
+  cursor: ew-resize;
+  z-index: 5;
+  pointer-events: auto;
+}
+.panel-resize-handle-side.left { left: 0; }
+.panel-resize-handle-side.right { right: 0; }
+
+/* Tab navigation */
+.tab-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tabs-container {
+  display: flex;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0; /* allow overflow container to actually shrink */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+.tab-button {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 200ms ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: fit-content;
+  flex: 0 0 auto; /* prevent shrinking so horizontal scroll works */
+}
+
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.tab-button.active {
+  background: linear-gradient(135deg, rgba(79, 195, 247, 0.15) 0%, rgba(41, 182, 246, 0.1) 100%);
+  color: #4fc3f7;
+  border-color: rgba(79, 195, 247, 0.3);
+}
+
+.tab-icon {
+  font-size: 14px;
+  display: inline-block;
+}
+
+.tab-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Compact mode: when panel is narrow, hide labels and tighten buttons */
+.bottom-panel.compact .tab-label {
+  display: none;
+}
+.bottom-panel.compact .tab-button {
+  padding: 6px 8px;
+}
+
+/* Panel controls */
+.panel-controls {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto; /* do not shrink controls */
+}
+
+.panel-control-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 200ms ease;
+  font-size: 14px;
+}
+
+.panel-control-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Tab content area */
+.tab-content-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 16px;
+}
+
+/* Scrollbar styling */
+.tab-content-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+/* Hide horizontal scrollbar for tabs in WebKit while preserving scrollability */
+.tabs-container::-webkit-scrollbar {
+  height: 6px;
+}
+.tabs-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.tabs-container::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.15);
+}
+
+.tab-content-area::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tab-content-area::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.tab-content-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Tab content styles */
+.tab-content {
+  animation: fadeIn 200ms ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Global tab specific styles */
+.global-controls-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.global-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.compact-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  transition: color 200ms ease;
+}
+
+.compact-control:hover {
+  color: rgba(255, 255, 255, 1);
+}
+
+.compact-control input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.slider-control label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 40px;
+}
+
+.slider-control input[type="range"] {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.slider-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #4fc3f7;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.slider-control input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 8px rgba(79, 195, 247, 0.5);
+}
+
+.slider-control .value {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 35px;
+  text-align: right;
+}
+
+.select-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-control label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.select-control select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 200ms ease;
+}
+
+.select-control select:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.select-control select:focus {
+  outline: none;
+  border-color: rgba(79, 195, 247, 0.5);
+}
+
+/* Presets tab specific */
+.presets-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.presets-tab .control-card {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Layer controls tab */
+.layer-controls-tab {
+  /* Controls component will handle its own layout */
+  padding: 0;
+}
+
+/* When using LayerSectionView with hideTabbar, hide the internal Controls tabbar */
+.no-tabbar .tabbar {
+  display: none !important;
+}
+
+/* Ensure Controls header spacing is tight in bottom panel context */
+.layer-controls-tab .controls-header {
+  margin-bottom: 0.5rem;
+}
+
+/* Compact spacing for layer-focused tabs (does not affect Global) */
+.layer-controls-tab .control-card {
+  padding: 6px 10px !important;
+  margin-bottom: 8px !important;
+}
+.layer-controls-tab .dc-header {
+  margin-bottom: 4px !important;
+}
+.layer-controls-tab .dc-settings {
+  margin-top: 0.25rem !important;
+  padding: 0.4rem !important;
+}
+.layer-controls-tab .dc-inner {
+  gap: 6px !important;
+}
+.layer-controls-tab .dc-slider {
+  margin-top: 2px !important;
+  margin-bottom: 2px !important;
+}
+
+/* Prevent Controls header rows from overlaying subsequent content in bottom panel */
+.layer-controls-tab .dc-header,
+.layer-controls-tab .dc-actions {
+  position: static !important;
+  z-index: auto !important;
+}
+
+/* Also reset the top-level layer controls header in bottom panel */
+.layer-controls-tab .controls-header,
+.layer-controls-tab .controls-actions {
+  position: static !important;
+  z-index: auto !important;
+}
+
+/* Avoid creating a new stacking context on cards within bottom panel */
+.layer-controls-tab .control-card {
+  position: static !important;
+}
+
+/* Final safeguard: neutralize any elevated z-index inside layer controls tab */
+.layer-controls-tab * {
+  z-index: auto !important;
+}
+
+/* Make sure content isn't clipped; show subsequent controls fully */
+.layer-controls-tab,
+.layer-controls-tab .control-card,
+.layer-controls-tab .section-body,
+.layer-controls-tab .controls-panel {
+  overflow: visible !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .panel-content {
+    height: 240px;
+    width: 95vw;
+  }
+  .panel-peek-bar {
+    width: 95vw;
+  }
+  
+  .tab-label {
+    display: none;
+  }
+  
+  .tab-button {
+    padding: 6px 8px;
+  }
+  
+  .global-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Accessibility */
+.tab-button:focus-visible,
+.panel-control-btn:focus-visible {
+  outline: 2px solid rgba(79, 195, 247, 0.5);
+  outline-offset: 2px;
+}
+
+/* Hide panel in fullscreen */
+.fullscreen .bottom-panel {
+  display: none;
+}

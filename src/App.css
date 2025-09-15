@@ -162,10 +162,55 @@ canvas {
   transform: translateY(-1px) scale(1.05);
 }
 
-/* Ensure FABs are visible in all modes */
+/* Hide floating action buttons in fullscreen mode */
 .App.fullscreen .floating-actions {
-  z-index: 10000;
+  display: none !important;
 }
+
+/* Keyboard Shortcuts Overlay */
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 12000;
+}
+.shortcuts-card {
+  background: rgba(20, 20, 28, 0.88);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
+  padding: 18px 22px;
+  width: min(720px, 92vw);
+  color: #eaeaea;
+}
+.shortcuts-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+}
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 18px;
+}
+.shortcuts-grid kbd {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-bottom-width: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-right: 10px;
+  min-width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shortcuts-grid div { display: flex; align-items: center; gap: 10px; }
+.shortcuts-hint { opacity: 0.75; margin-top: 12px; font-size: 0.9rem; text-align: right; }
 
 /* No footer, no extra height rules needed */
 

@@ -54,6 +54,11 @@ const GlobalControls = ({
   setSelectedLayerIndex,
   // Actions
   handleRandomizeAll,
+  // UI options
+  hidePresets = false,
+  // Quick save/load handlers (injected from App)
+  onQuickSave,
+  onQuickLoad,
 }) => {
   // Keep Canvas background image renderer in sync
   useEffect(() => {
@@ -126,6 +131,30 @@ const GlobalControls = ({
   const [layersMin, setLayersMin] = useState(1);
   const [layersMax, setLayersMax] = useState(1000);
   const [layersStep, setLayersStep] = useState(1);
+
+  // Helper to set layer count uniformly from slider or number box
+  const setLayerCount = (targetRaw) => {
+    let target = parseInt(targetRaw, 10);
+    if (!Number.isFinite(target)) return;
+    target = Math.max(layersMin, Math.min(layersMax, target));
+    setLayers(prev => {
+      let next = prev;
+      if (target > prev.length) {
+        const addCount = target - prev.length;
+        const baseVar = {
+          shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
+          anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
+          color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
+        };
+        const last = prev[prev.length - 1] || DEFAULT_LAYER;
+        const toAdd = Array.from({ length: addCount }, (_, i) => buildVariedLayerFrom((i === 0 ? last : next[next.length - 1]), prev.length + i + 1, baseVar));
+        next = [...prev, ...toAdd];
+      } else if (target < prev.length) {
+        next = prev.slice(0, target).map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+      }
+      return next;
+    });
+  };
 
   // Independent ranges for each Variation slider
   const [variationShapeMin, setVariationShapeMin] = useState(0);
@@ -528,6 +557,23 @@ const GlobalControls = ({
       <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <span>Global</span>
         <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
+        {/* Quick Save/Load configuration */}
+        <button
+          className="icon-btn sm"
+          onClick={(e) => { e.stopPropagation(); typeof onQuickSave === 'function' && onQuickSave(); }}
+          title="Save configuration"
+          aria-label="Save configuration"
+        >
+          💾
+        </button>
+        <button
+          className="icon-btn sm"
+          onClick={(e) => { e.stopPropagation(); typeof onQuickLoad === 'function' && onQuickLoad(); }}
+          title="Load configuration"
+          aria-label="Load configuration"
+        >
+          📂
+        </button>
         {showGlobalMidi && (
           <>
             <button
@@ -555,13 +601,15 @@ const GlobalControls = ({
           </>
         )}
       </h3>
-      {/* Presets & Morph Controls (extracted) */}
-      <PresetControls
-        setLayers={setLayers}
-        setBackgroundColor={setBackgroundColor}
-        setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-        showGlobalMidi={showGlobalMidi}
-      />
+      {/* Presets & Morph Controls (optional) */}
+      {!hidePresets && (
+        <PresetControls
+          setLayers={setLayers}
+          setBackgroundColor={setBackgroundColor}
+          setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+          showGlobalMidi={showGlobalMidi}
+        />
+      )}
       <div className="control-group" style={{ margin: 0 }}>
         {/* Background Color with inline include toggle */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -828,41 +876,27 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /> Include
               </label>
             </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={layersMin}
-              max={layersMax}
-              step={layersStep}
-              value={layers.length}
-              onChange={(e) => {
-                const target = parseInt(e.target.value, 10);
-                setLayers(prev => {
-                  let next = prev;
-                  if (target > prev.length) {
-                    const addCount = target - prev.length;
-                    const baseVar = {
-                      shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
-                      anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
-                      color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
-                    };
-                    let last = prev[prev.length - 1] || DEFAULT_LAYER;
-                    const additions = Array.from({ length: addCount }, (_, i) => {
-                      const nextIdx = prev.length + i + 1;
-                      const nextLayer = buildVariedLayerFrom(last, nextIdx, baseVar);
-                      last = nextLayer;
-                      return nextLayer;
-                    });
-                    next = [...prev, ...additions];
-                  } else if (target < prev.length) {
-                    next = prev.slice(0, target);
-                  }
-                  return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
-                });
-                setSelectedLayerIndex(Math.max(0, target - 1));
-              }}
-            />
-            <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{layers.length}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: '8px', alignItems: 'center' }}>
+              <input
+                className="compact-range"
+                type="range"
+                min={layersMin}
+                max={layersMax}
+                step={layersStep}
+                value={layers.length}
+                onChange={(e) => setLayerCount(e.target.value)}
+              />
+              <input
+                type="number"
+                min={layersMin}
+                max={layersMax}
+                step={layersStep}
+                value={layers.length}
+                onChange={(e) => setLayerCount(e.target.value)}
+                onBlur={(e) => setLayerCount(e.target.value)}
+                style={{ width: '100%', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+              />
+            </div>
             {showGlobalMidi && (
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>

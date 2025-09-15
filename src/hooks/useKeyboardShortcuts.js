@@ -28,13 +28,7 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      // H -> toggle controls overlay
-      if (key === 'h') {
-        e.preventDefault();
-        const cur = !!hotkeyRef?.current?.overlayVisible;
-        setIsOverlayVisible?.(!cur);
-        return;
-      }
+      // H previously toggled overlay; handled by BottomPanel now (minimize). No action here.
 
       // F -> toggle fullscreen
       if (key === 'f') {
@@ -84,14 +78,17 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      // 1..9 -> Select corresponding layer (1-based)
-      if (key >= '1' && key <= '9') {
-        e.preventDefault();
-        const digit = parseInt(key, 10);
-        const len = Number(hotkeyRef?.current?.layersLen) || 0;
-        const target = Math.max(0, Math.min(len - 1, digit - 1));
-        setSelectedLayerIndex?.(target);
-        return;
+      // Shift+1..9 -> Select corresponding layer (1-based)
+      // Use e.code (Digit1..Digit9) so Shift doesn't turn '1' into '!'
+      if (e.shiftKey && typeof e.code === 'string' && e.code.startsWith('Digit')) {
+        const digit = parseInt(e.code.replace('Digit', ''), 10);
+        if (Number.isFinite(digit) && digit >= 1 && digit <= 9) {
+          e.preventDefault();
+          const len = Number(hotkeyRef?.current?.layersLen) || 0;
+          const target = Math.max(0, Math.min(len - 1, digit - 1));
+          setSelectedLayerIndex?.(target);
+          return;
+        }
       }
     };
 
