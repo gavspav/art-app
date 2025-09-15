@@ -6,6 +6,7 @@ import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
 import { svgStringToNodes, samplePath, extractMergedNodesWithTransforms } from './utils/svgToNodes';
+import { importSVGFiles, parseSVGForImport, createLayerFromSVG } from './utils/svgImportEnhanced';
 import { createSeededRandom } from './utils/random';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
@@ -549,229 +550,113 @@ const MainApp = () => {
   const handleImportSVGFile = async (e) => {
     const fileList = Array.from(e.target.files || []);
     if (!fileList.length) return;
+    
     try {
-      // Build new layers from all selected SVG files
-      const newLayers = [];
-      const refs = [];
-      for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
-        const text = await file.text();
-        // Prefer merged multi-path extraction with transforms for each file
-        const merged = extractMergedNodesWithTransforms(text);
-        if (merged && Array.isArray(merged.nodes) && merged.nodes.length > 2) {
-          const { nodes, subpaths, center, ref } = merged;
-          refs.push(ref || null);
-          const refMinX = Number(ref?.minX) || 0;
-          const refMinY = Number(ref?.minY) || 0;
-          const refW = Number(ref?.width) || 1;
-          const refH = Number(ref?.height) || 1;
-          const pos = { x: (center.x - refMinX) / refW, y: (center.y - refMinY) / refH };
-          const base = { ...DEFAULT_LAYER };
-          // Filter out background-like subpaths that span most of the normalized area (likely <rect> backgrounds)
-          const filteredSubpaths = Array.isArray(subpaths) && subpaths.length ? subpaths.filter(sp => {
-            try {
-              if (!Array.isArray(sp) || sp.length < 3) return false;
-              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-              for (const p of sp) { const x = Number(p.x)||0, y = Number(p.y)||0; if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; }
-              const w = Math.abs(maxX - minX);
-              const h = Math.abs(maxY - minY);
-              // In our normalized mapping, typical shapes fit within [-1,1]. If a subpath spans ~full range, treat it as background
-              return !(w >= 1.8 && h >= 1.8);
-            } catch { return true; }
-          }) : undefined;
-          newLayers.push({
-            ...base,
-            name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
-            layerType: 'shape',
-            // Prefer subpaths when available (use filtered to drop background rectangles)
-            nodes: (filteredSubpaths && filteredSubpaths.length) ? null : nodes,
-            subpaths: (filteredSubpaths && filteredSubpaths.length) ? filteredSubpaths : (Array.isArray(subpaths) && subpaths.length ? subpaths : undefined),
-            syncNodesToNumSides: false,
-            viewBoxMapped: true,
-            curviness: 0,
-            noiseAmount: 0,
-            wobble: 0,
-            numSides: nodes.length,
-            position: { ...base.position, x: pos.x, y: pos.y, scale: 0.15 },
-            visible: true,
-          });
-          continue;
+      // Use enhanced SVG import
+      const { layers: newLayers, errors } = await importSVGFiles(fileList, {
+        targetScale: 0.4,  // Sensible default scale (40% of canvas)
+        distributePositions: fileList.length > 1,  // Auto-distribute multiple files
+        applyAnimation: false,  // Let user apply animation after import
+        extractColors: true  // Extract and apply colors from SVG
+      });
+      
+      // Report any errors
+      if (errors.length > 0) {
+        console.warn('SVG import errors:', errors);
+        if (errors.length === fileList.length) {
+          alert('Failed to import any SVG files. Check console for details.');
+          return;
+        } else if (errors.length > 0) {
+          alert(`Imported ${newLayers.length} of ${fileList.length} files. Some files had errors.`);
         }
-      // Parse SVG to get viewBox and single path data as fallback
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, 'image/svg+xml');
-      const svgEl = doc.querySelector('svg');
-      const pathEl = doc.querySelector('path');
-      const d = pathEl?.getAttribute('d') || '';
-      // Fallback to utility if parsing fails
-      if (!d) {
-        const nodes = svgStringToNodes(text);
-        if (!Array.isArray(nodes) || nodes.length < 3) {
-          // Skip files that do not contain a parsable path
-          continue;
-        }
-        // Default position center
-        const pos = { x: 0.5, y: 0.5 };
-        const base = { ...DEFAULT_LAYER };
-        newLayers.push({
-          ...base,
-          name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
-          layerType: 'shape',
-          nodes,
-          syncNodesToNumSides: false,
-          curviness: 0,
-          noiseAmount: 0,
-          wobble: 0,
-          numSides: nodes.length,
-          position: { ...base.position, x: pos.x, y: pos.y },
-          visible: true,
-        });
-        continue;
       }
-
-      // Sample raw points from path
-      const pts = samplePath(d);
-      if (!Array.isArray(pts) || pts.length < 3) {
-        // Skip if sampling fails
-        continue;
+      
+      if (newLayers.length === 0) {
+        alert('No valid SVG shapes found in the selected files.');
+        return;
       }
-
-      // Compute path bbox center in SVG coords
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of pts) { if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y; if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y; }
-      const pcx = (minX + maxX) / 2;
-      const pcy = (minY + maxY) / 2;
-
-      // Determine reference box from viewBox if present
-      let refW = maxX - minX; let refH = maxY - minY; let refMinX = minX; let refMinY = minY;
-      const vb = svgEl?.getAttribute('viewBox')?.split(/\s+|,/) || null;
-      if (vb && vb.length >= 4) {
-        refMinX = parseFloat(vb[0]);
-        refMinY = parseFloat(vb[1]);
-        refW = parseFloat(vb[2]);
-        refH = parseFloat(vb[3]);
-      }
-      const s = Math.max(refW, refH) / 2 || 1;
-      const nodes = pts.map(p => ({ x: (p.x - pcx) / s, y: (p.y - pcy) / s }));
-      const pos = {
-        x: (pcx - refMinX) / (refW || 1),
-        y: (pcy - refMinY) / (refH || 1),
-      };
-      if (Array.isArray(nodes) && nodes.length >= 3) {
-        const base = { ...DEFAULT_LAYER };
-        newLayers.push({
-          ...base,
-          name: (file.name ? file.name.replace(/\.[^/.]+$/, '') : `Layer ${i + 1}`),
-          layerType: 'shape',
-          nodes,
-          // Preserve imported polygon samples; avoid autosync to numSides
-          syncNodesToNumSides: false,
-          viewBoxMapped: true,
-          curviness: 0,
-          noiseAmount: 0,
-          wobble: 0,
-          numSides: nodes.length,
-          position: { ...base.position, x: pos.x, y: pos.y, scale: 0.3 },
-          visible: true,
+      
+      // Apply current layer parameters to imported layers if desired
+      const applyCurrentParams = fileList.length === 1 && layers.length > 0;
+      if (applyCurrentParams) {
+        const currentLayer = layers[selectedLayerIndex] || layers[0];
+        newLayers.forEach(layer => {
+          // Apply animation parameters from current layer
+          layer.movementStyle = currentLayer.movementStyle || 'drift';
+          layer.movementSpeed = currentLayer.movementSpeed || 1;
+          layer.movementAngle = currentLayer.movementAngle || 45;
+          layer.scaleSpeed = currentLayer.scaleSpeed || 0.05;
+          layer.scaleMin = currentLayer.scaleMin || 0.2;
+          layer.scaleMax = currentLayer.scaleMax || 1.5;
+          
+          // Apply blend mode and opacity
+          layer.blendMode = currentLayer.blendMode || 'normal';
+          layer.opacity = currentLayer.opacity || 100;
+          
+          // Apply image effects if desired
+          layer.imageBlur = currentLayer.imageBlur || 0;
+          layer.imageBrightness = currentLayer.imageBrightness || 100;
+          layer.imageContrast = currentLayer.imageContrast || 100;
+          layer.imageHue = currentLayer.imageHue || 0;
+          layer.imageSaturation = currentLayer.imageSaturation || 100;
+          
+          // If no colors were extracted, use current layer colors
+          if (!layer.colors || layer.colors.length === 0) {
+            layer.colors = currentLayer.colors || DEFAULT_LAYER.colors;
+            layer.numColors = currentLayer.numColors || DEFAULT_LAYER.numColors;
+          }
         });
       }
-      // loop continues building newLayers
-      }
-      // Preserve original positions from SVG coordinates; ensure visible
-      newLayers.forEach(l => { l.visible = true; if (!l.position?.scale) l.position.scale = 1; });
-
-      // Detect viewBox mismatches across files (positions may be wrong)
-      try {
-        const key = (r) => r && Number.isFinite(r.width) && Number.isFinite(r.height) ? `${r.minX},${r.minY},${r.width},${r.height}` : 'none';
-        const uniq = Array.from(new Set(refs.map(key)));
-        if (newLayers.length > 1 && uniq.length > 1) {
-          console.warn('SVG import: files have different viewBox/size. Relative positions may be incorrect. Unique refs:', uniq);
-        }
-      } catch (e) { /* ignore */ }
-
-      // Debug summary in console
-      try {
-        const summary = newLayers.map((l, i) => ({
-          idx: i,
-          name: l.name,
-          x: +(l.position?.x ?? 0.5).toFixed(3),
-          y: +(l.position?.y ?? 0.5).toFixed(3),
-          scale: +(l.position?.scale ?? 1).toFixed(3),
-          viewBoxMapped: !!l.viewBoxMapped,
-          nodes: Array.isArray(l.nodes) ? l.nodes.length : 0,
-        }));
-        console.table(summary);
-      } catch (e) { /* ignore */ }
-
-      // Store RAW baseline before any fit
+      
+      // Store RAW baseline for adjustment panel
       importRawRef.current = newLayers.map(l => ({
         x: Number(l?.position?.x) || 0.5,
         y: Number(l?.position?.y) || 0.5,
         s: Number(l?.position?.scale) || 1,
       }));
-
-      // Optional: shrink-to-fit to keep everything on screen while preserving relative layout
-      if (newLayers.length > 1 && importFitEnabled && !window.__artapp_disable_import_fit) {
+      
+      // For multiple files, show import adjust panel
+      if (newLayers.length > 1) {
         const margin = 0.02; // 2% margins
         const layersMeta = newLayers.map(l => {
           const nodes = Array.isArray(l.nodes) ? l.nodes : [];
+          const subpaths = Array.isArray(l.subpaths) ? l.subpaths : [];
+          const allNodes = subpaths.length > 0 ? subpaths.flat() : nodes;
           const s = Number(l.position?.scale) || 1;
           let maxAbsX = 0, maxAbsY = 0;
-          nodes.forEach(n => { const ax = Math.abs(n.x) || 0; const ay = Math.abs(n.y) || 0; if (ax > maxAbsX) maxAbsX = ax; if (ay > maxAbsY) maxAbsY = ay; });
+          allNodes.forEach(n => { const ax = Math.abs(n.x) || 0; const ay = Math.abs(n.y) || 0; if (ax > maxAbsX) maxAbsX = ax; if (ay > maxAbsY) maxAbsY = ay; });
           const px = Number(l.position?.x) || 0.5;
           const py = Number(l.position?.y) || 0.5;
           return { px, py, s, maxAbsX, maxAbsY };
         });
-        // Current overall bounds in [0..1] fractions
-        const bounds = layersMeta.reduce((acc, m) => {
-          const halfW = (m.maxAbsX || 1) * 0.5 * m.s;
-          const halfH = (m.maxAbsY || 1) * 0.5 * m.s;
-          const minX = m.px - halfW; const maxX = m.px + halfW;
-          const minY = m.py - halfH; const maxY = m.py + halfH;
-          if (minX < acc.minX) acc.minX = minX;
-          if (maxX > acc.maxX) acc.maxX = maxX;
-          if (minY < acc.minY) acc.minY = minY;
-          if (maxY > acc.maxY) acc.maxY = maxY;
-          return acc;
-        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-        const widthFrac = Math.max(0.0001, bounds.maxX - bounds.minX);
-        const heightFrac = Math.max(0.0001, bounds.maxY - bounds.minY);
-        const fitX = (1 - 2 * margin) / widthFrac;
-        const fitY = (1 - 2 * margin) / heightFrac;
-        const sFit = Math.min(1, fitX, fitY); // only shrink to fit; don't upscale
-
-        if (sFit < 1) {
-          newLayers.forEach(l => { l.position.scale = (Number(l.position.scale) || 1) * sFit; });
+        
+        // Check if auto-fit is needed
+        if (importFitEnabled && !window.__artapp_disable_import_fit) {
+          // Current overall bounds in [0..1] fractions
+          const bounds = layersMeta.reduce((acc, m) => {
+            const halfW = (m.maxAbsX || 1) * 0.5 * m.s;
+            const halfH = (m.maxAbsY || 1) * 0.5 * m.s;
+            const minX = m.px - halfW; const maxX = m.px + halfW;
+            const minY = m.py - halfH; const maxY = m.py + halfH;
+            if (minX < acc.minX) acc.minX = minX;
+            if (maxX > acc.maxX) acc.maxX = maxX;
+            if (minY < acc.minY) acc.minY = minY;
+            if (maxY > acc.maxY) acc.maxY = maxY;
+            return acc;
+          }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+          
+          const widthFrac = Math.max(0.0001, bounds.maxX - bounds.minX);
+          const heightFrac = Math.max(0.0001, bounds.maxY - bounds.minY);
+          const fitX = (1 - 2 * margin) / widthFrac;
+          const fitY = (1 - 2 * margin) / heightFrac;
+          const sFit = Math.min(1, fitX, fitY); // only shrink to fit; don't upscale
+          
+          if (sFit < 1) {
+            newLayers.forEach(l => { l.position.scale = (Number(l.position.scale) || 1) * sFit; });
+          }
         }
-        // Recompute center and recenter to 0.5,0.5
-        const bounds2 = layersMeta.reduce((acc, m) => {
-          const s2 = m.s * sFit;
-          const halfW = (m.maxAbsX || 1) * 0.5 * s2;
-          const halfH = (m.maxAbsY || 1) * 0.5 * s2;
-          const minX = m.px - halfW; const maxX = m.px + halfW;
-          const minY = m.py - halfH; const maxY = m.py + halfH;
-          if (minX < acc.minX) acc.minX = minX;
-          if (maxX > acc.maxX) acc.maxX = maxX;
-          if (minY < acc.minY) acc.minY = minY;
-          if (maxY > acc.maxY) acc.maxY = maxY;
-          return acc;
-        }, { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
-        const cx = (bounds2.minX + bounds2.maxX) / 2;
-        const cy = (bounds2.minY + bounds2.maxY) / 2;
-        const dx = 0.5 - cx;
-        const dy = 0.5 - cy;
-        newLayers.forEach(l => {
-          const px = Number(l.position.x) || 0.5;
-          const py = Number(l.position.y) || 0.5;
-          l.position.x = Math.min(1, Math.max(0, px + dx));
-          l.position.y = Math.min(1, Math.max(0, py + dy));
-        });
-      }
-
-      setLayers(newLayers);
-      // Store base positions/scales for interactive adjustment if multiple files
-      if (newLayers.length > 1) {
-        // Start adjust baseline from RAW (so Fit toggle can reflow deterministically)
+        
+        // Store base positions/scales for interactive adjustment
         importBaseRef.current = importRawRef.current.map(b => ({ ...b }));
         setImportAdjust({ dx: 0, dy: 0, s: 1 });
         setImportFitEnabled(true);
@@ -781,8 +666,16 @@ const MainApp = () => {
         importBaseRef.current = [];
         setShowImportAdjust(false);
       }
-      setSelectedLayerIndex(Math.max(0, newLayers.length - 1));
+      
+      // Always append imported layers to existing ones
+      setLayers(prev => [...prev, ...newLayers]);
+      
+      // Select the first of the newly added layers
+      setSelectedLayerIndex(layers.length);
       setIsNodeEditMode(true);
+      
+      // Success log
+      console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layers.length} existing layer(s)`);
     } catch (err) {
       console.warn('Failed to import SVG', err);
       alert('Failed to import SVG');
