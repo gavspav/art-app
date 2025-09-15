@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
@@ -11,7 +11,7 @@ import { usePresetMorph } from '../../hooks/usePresetMorph.js';
  * - Morph controls (enables, route, duration, easing, loop mode, algorithm)
  * - Internally runs the morph engine via usePresetMorph
  */
-export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier }) {
+export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier, showGlobalMidi }) {
   // Contexts
   const {
     presetSlots,
@@ -34,7 +34,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphMode,
   } = useAppState() || {};
   const { parameters, loadFullConfiguration } = useParameters() || {};
-  const { registerParamHandler, beginLearn, clearMapping, midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
+  const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
 
   // Run morph engine
   const { morphStatus } = usePresetMorph({
@@ -52,6 +52,10 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
 
   // Preset helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
+
+  // Track last MIDI values for rising-edge detection per preset mapping id
+  const lastValuesRef = useRef({});
+  const forceUiTick = useState(0)[1];
 
   const recallPreset = useCallback(async (slotId) => {
     const slot = getPresetSlot ? getPresetSlot(slotId) : null;
@@ -97,14 +101,24 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     recallPreset(slotId);
   }, [getPresetSlot, setPresetSlot, getCurrentAppState, parameters, recallPreset]);
 
-  // MIDI: learnable preset recall (maps 0..1 to 1..8 buckets)
+  // MIDI: per-preset triggers. Each preset i (1..8) gets its own mapping id 'preset:i'
   useEffect(() => {
     if (!registerParamHandler) return;
-    const unsub = registerParamHandler('global:presetRecall', ({ value01 }) => {
-      const bucket = Math.max(1, Math.min(8, Math.floor(value01 * 8) + 1));
-      recallPreset(bucket);
-    });
-    return () => { if (typeof unsub === 'function') unsub(); };
+    const unsubs = [];
+    for (let i = 1; i <= 8; i++) {
+      const id = `preset:${i}`;
+      const unsub = registerParamHandler(id, (payload = {}) => {
+        const v = typeof payload.value01 === 'number' ? payload.value01 : (payload.on ? 1 : 0);
+        const prev = Number(lastValuesRef.current[id] ?? 0);
+        // Rising edge -> trigger
+        if (prev <= 0.5 && v > 0.5) {
+          recallPreset(i);
+        }
+        lastValuesRef.current[id] = v;
+      });
+      if (typeof unsub === 'function') unsubs.push(unsub);
+    }
+    return () => { unsubs.forEach(u => { try { u(); } catch {} }); };
   }, [registerParamHandler, recallPreset]);
 
   const renderPresetGrid = () => {
@@ -114,25 +128,47 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         {Array.from({ length: 8 }, (_, i) => {
           const slot = slots[i] || { id: i + 1, name: `P${i + 1}`, payload: null };
           const hasData = !!slot.payload;
+          const mapped = !!midiMappings?.[`preset:${slot.id}`];
           return (
-            <button
-              key={slot.id}
-              type="button"
-              onClick={(e) => handlePresetClick(slot.id, e)}
-              title={`${slot.name || `P${slot.id}`}${hasData ? ` • Saved ${slot.savedAt ? new Date(slot.savedAt).toLocaleString() : ''}` : ' • Empty'}\nClick: Recall • Shift+Click: Save`}
-              style={{
-                width: '100%',
-                aspectRatio: '1 / 1',
-                borderRadius: '999px',
-                border: hasData ? '2px solid #4fc3f7' : '2px dashed rgba(255,255,255,0.25)',
-                background: hasData ? 'rgba(79,195,247,0.25)' : 'transparent',
-                color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 600,
-              }}
-            >
-              {slot.name || `P${slot.id}`}
-            </button>
+            <div key={slot.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.25rem' }}>
+              <button
+                type="button"
+                onClick={(e) => handlePresetClick(slot.id, e)}
+                title={`${slot.name || `P${slot.id}`}${hasData ? ` • Saved ${slot.savedAt ? new Date(slot.savedAt).toLocaleString() : ''}` : ' • Empty'}\nClick: Recall • Shift+Click: Save`}
+                style={{
+                  width: '70%', // smaller than before
+                  aspectRatio: '1 / 1',
+                  borderRadius: '999px',
+                  border: mapped ? '2px solid #4caf50' : (hasData ? '2px solid #4fc3f7' : '2px dashed rgba(255,255,255,0.25)'),
+                  background: mapped ? 'rgba(76,175,80,0.22)' : (hasData ? 'rgba(79,195,247,0.18)' : 'transparent'),
+                  color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontWeight: 600,
+                }}
+              >
+                {slot.name || `P${slot.id}`}
+              </button>
+              {showGlobalMidi && midiSupported && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <button
+                    className="btn-compact-secondary"
+                    onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(`preset:${slot.id}`); }}
+                    disabled={!midiSupported}
+                    title={`Learn MIDI for ${slot.name || `P${slot.id}`}`}
+                  >Learn</button>
+                  <button
+                    className="btn-compact-secondary"
+                    onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(`preset:${slot.id}`); lastValuesRef.current[`preset:${slot.id}`] = 0; forceUiTick(t => t + 1); }}
+                    disabled={!midiSupported || !midiMappings?.[`preset:${slot.id}`]}
+                    title={`Clear MIDI for ${slot.name || `P${slot.id}`}`}
+                  >Clear</button>
+                  <span className="compact-label" style={{ opacity: 0.85, minWidth: '4.5rem', textAlign: 'left' }}>
+                    {mapped ? (mappingLabel ? mappingLabel(midiMappings[`preset:${slot.id}`]) : 'Mapped') : 'Not mapped'}
+                    {learnParamId === `preset:${slot.id}` && <span style={{ marginLeft: '0.25rem', color: '#4fc3f7' }}>Listening…</span>}
+                  </span>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -151,29 +187,6 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
 
   return (
     <>
-      {/* Preset Recall MIDI Learn */}
-      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-        <span className="compact-label" title="Map a MIDI control to recall presets 1..8 via position">Preset Recall (MIDI)</span>
-        <button
-          className="btn-compact-secondary"
-          onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('global:presetRecall'); }}
-          disabled={!midiSupported}
-          title="Learn: move a MIDI control to map preset recall"
-        >Learn</button>
-        <button
-          className="btn-compact-secondary"
-          onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('global:presetRecall'); }}
-          disabled={!midiSupported || !midiMappings?.['global:presetRecall']}
-          title="Clear MIDI mapping for preset recall"
-        >Clear</button>
-        {midiSupported && (
-          <span className="compact-label" style={{ opacity: 0.8 }}>
-            {midiMappings?.['global:presetRecall'] ? (mappingLabel ? mappingLabel(midiMappings['global:presetRecall']) : 'Mapped') : 'Not mapped'}
-            {learnParamId === 'global:presetRecall' && midiSupported && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
-          </span>
-        )}
-      </div>
-
       {/* Presets: 4x2 grid */}
       {renderPresetGrid()}
 

@@ -560,6 +560,7 @@ const GlobalControls = ({
         setLayers={setLayers}
         setBackgroundColor={setBackgroundColor}
         setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+        showGlobalMidi={showGlobalMidi}
       />
       <div className="control-group" style={{ margin: 0 }}>
         {/* Background Color with inline include toggle */}
