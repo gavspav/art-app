@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, forwardRef, useMemo, useState } from 'react';
+import { useAppState } from '../context/AppStateContext.jsx';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
@@ -63,9 +64,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
     // radiusBump contributes an additional small fraction of canvas size (2% per unit)
     const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-    const maxRadius = minWH * 0.4 * Math.max(0, scale);
-    const radiusX = layer?.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
-    const radiusY = layer?.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
+    // Remove artificial 0.4*minWH clamp so Size X/Y sliders can use full configured range
+    const radiusX = layer?.viewBoxMapped ? (canvas.width / 2) * scale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (canvas.height / 2) * scale : Math.max(0, baseRadiusY + bump);
 
     // Defensive check for non-finite values
     if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || !Number.isFinite(centerX) || !Number.isFinite(centerY)) {
@@ -88,11 +89,13 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     const cosR = Math.cos(rotRad);
 
     const buildDeformedPoints = (nodes) => nodes.map((n, i) => {
-        // apply layer rotation to node before deformation projection
-        const rx = n.x * cosR - n.y * sinR;
-        const ry = n.x * sinR + n.y * cosR;
-        const baseX = centerX + rx * radiusX;
-        const baseY = centerY + ry * radiusY;
+        // Apply anisotropic scaling first, then rotate (correct order): R * S * p
+        const sx = n.x * radiusX;
+        const sy = n.y * radiusY;
+        const tx = sx * cosR - sy * sinR;
+        const ty = sx * sinR + sy * cosR;
+        const baseX = centerX + tx;
+        const baseY = centerY + ty;
         const angle = (i / nodes.length) * Math.PI * 2;
         const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
         const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
@@ -140,7 +143,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
                 ctx.quadraticCurveTo(current.x, current.y, endX, endY);
             }
             ctx.closePath();
-        }
+        };
     };
 
     // Use explicit nodes whenever present so edits persist after exiting node mode
@@ -163,8 +166,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
         // Organic procedural shape (legacy) - uses precomputed actualFreq1/2/3 and symmetryFactor
 
         for (let i = 0; i < sides; i++) {
-            // angle accounts for layer rotation
-            const angle = (i / sides) * Math.PI * 2 + rotRad;
+            // Build base ellipse point, then rotate by layer rotation (R * S * v)
+            const angle = (i / sides) * Math.PI * 2;
 
             // Phase offset for symmetry control (from old version)
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
@@ -178,9 +181,13 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
             const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
             
-            // Base position on circle/ellipse
-            const baseX = centerX + Math.cos(angle) * radiusX;
-            const baseY = centerY + Math.sin(angle) * radiusY;
+            // Base position on circle/ellipse (scale then rotate)
+            const sx = Math.cos(angle) * radiusX;
+            const sy = Math.sin(angle) * radiusY;
+            const rx2 = sx * cosR - sy * sinR;
+            const ry2 = sx * sinR + sy * cosR;
+            const baseX = centerX + rx2;
+            const baseY = centerY + ry2;
             
             // Apply offset in radial direction from center
             const dx = baseX - centerX;
@@ -296,9 +303,8 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
         const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
         const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const maxRadius = minWH * 0.4 * Math.max(0, scale);
-        const radiusX = layer?.viewBoxMapped ? (w / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
-        const radiusY = layer?.viewBoxMapped ? (h / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
+        const radiusX = layer?.viewBoxMapped ? (w / 2) * scale : Math.max(0, baseRadiusX + bump);
+        const radiusY = layer?.viewBoxMapped ? (h / 2) * scale : Math.max(0, baseRadiusY + bump);
         return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
     } catch {
         return { rx: 0, ry: 0 };
@@ -457,13 +463,15 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const minWH = Math.min(cw, ch);
         const centerX = x * cw;
         const centerY = y * ch;
-        const rf = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
+        const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
+        const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+        const rfY = Number.isFinite(layer.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
         const rb = Number(layer.radiusBump ?? 0);
-        const baseRadius = Math.max(0, rf) * minWH * Math.max(0, scale);
+        const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+        const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const maxRadius = minWH * 0.4 * Math.max(0, scale);
-        const radiusX = layer.viewBoxMapped ? (cw / 2) * scale : Math.min(Math.max(0, baseRadius + bump), maxRadius);
-        const radiusY = layer.viewBoxMapped ? (ch / 2) * scale : Math.min(Math.max(0, baseRadius + bump), maxRadius);
+        const radiusX = layer.viewBoxMapped ? (cw / 2) * scale : Math.max(0, baseRadiusX + bump);
+        const radiusY = layer.viewBoxMapped ? (ch / 2) * scale : Math.max(0, baseRadiusY + bump);
 
         const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
         const rotRad = (rotDeg * Math.PI) / 180;
@@ -486,11 +494,13 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const count = layer.nodes.length;
         for (let i = 0; i < count; i++) {
             const n = layer.nodes[i];
-            // rotate base node
-            const rx = n.x * cosR - n.y * sinR;
-            const ry = n.x * sinR + n.y * cosR;
-            const baseX = centerX + rx * radiusX;
-            const baseY = centerY + ry * radiusY;
+            // scale then rotate: base = center + R * (S * n)
+            const sx = n.x * radiusX;
+            const sy = n.y * radiusY;
+            const tx = sx * cosR - sy * sinR;
+            const ty = sx * sinR + sy * cosR;
+            const baseX = centerX + tx;
+            const baseY = centerY + ty;
             const angle = (i / count) * Math.PI * 2;
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
             const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
@@ -511,8 +521,101 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
     }
 };
 
+// Build a Path2D that approximates the rendered footprint of a layer for hit-testing
+const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 0, time = 0 } = {}) => {
+    const path = new Path2D();
+    if (!layer || !canvas || !layer.position || !layer.visible) return path;
+
+    const { width: cw, height: ch } = canvas;
+    const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
+    const centerX = x * cw;
+    const centerY = y * ch;
+    const minWH = Math.min(cw, ch);
+    const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
+    const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+    const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+    const rb = Number(layer?.radiusBump ?? 0);
+    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+    const radiusX = layer?.viewBoxMapped ? (cw / 2) * scale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (ch / 2) * scale : Math.max(0, baseRadiusY + bump);
+
+    const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+    const rotRad = (rotDeg * Math.PI) / 180;
+    const sinR = Math.sin(rotRad);
+    const cosR = Math.cos(rotRad);
+
+    const writePolygon = (pts) => {
+        if (!Array.isArray(pts) || pts.length < 3) return;
+        path.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+            path.lineTo(pts[i].x, pts[i].y);
+        }
+        path.closePath();
+    };
+
+    if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
+        for (const sub of layer.subpaths) {
+            if (!Array.isArray(sub) || sub.length < 3) continue;
+            const pts = sub.map((n) => {
+                // scale then rotate for node-based shapes
+                const sx = n.x * radiusX;
+                const sy = n.y * radiusY;
+                const tx = sx * cosR - sy * sinR;
+                const ty = sx * sinR + sy * cosR;
+                return {
+                    x: centerX + tx,
+                    y: centerY + ty,
+                };
+            });
+            writePolygon(pts);
+        }
+        return path;
+    }
+
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        const pts = Array.isArray(renderedPoints) && renderedPoints.length >= 3
+            ? renderedPoints
+            : computeDeformedNodePoints(layer, canvas, globalSeed, time);
+        writePolygon(pts);
+        return path;
+    }
+
+    const sides = Number(layer?.numSides);
+    const count = Number.isFinite(sides) ? Math.max(3, Math.floor(sides)) : 0;
+    if (!count) {
+        path.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
+        path.closePath();
+        return path;
+    }
+    const pts = [];
+    for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        // scale then rotate
+        const sx = Math.cos(angle) * radiusX;
+        const sy = Math.sin(angle) * radiusY;
+        const tx = sx * cosR - sy * sinR;
+        const ty = sx * sinR + sy * cosR;
+        pts.push({
+            x: centerX + tx,
+            y: centerY + ty,
+        });
+    }
+    writePolygon(pts);
+    return path;
+};
+
 // --- Canvas Component ---
 const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, colorFadeWhileFrozen = true, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
+    const {
+        toggleLayerSelection,
+        selectedLayerIds: selectedLayerIdsCtx,
+        clearSelection,
+        setEditTarget,
+        editTarget,
+        getActiveTargetLayerIds,
+    } = useAppState() || {};
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
     // Align wall-time colour fade with accumulated animation time to avoid jumps when freezing/unfreezing
@@ -932,13 +1035,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
-                        ? (Date.now() * 0.001 + colorWallOffsetRef.current)
-                        : time;
-                    // Use stable seed independent of render index so reordering layers doesn't change their appearance
+                    const colorTimeNow = nowSec;
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeNow));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
                         renderedPointsRef.current.set(index, pts);
                     }
                 }
@@ -948,6 +1048,32 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (classicMode) {
             ctx.filter = 'none';
         }
+
+        // Selection highlight outlines (multi-select)
+        try {
+            const highlightIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
+            if ((editTarget?.type === 'group' || editTarget?.type === 'selection') && typeof getActiveTargetLayerIds === 'function') {
+                const targetIdsList = getActiveTargetLayerIds() || [];
+                for (const id of targetIdsList) highlightIds.add(id);
+            }
+            if (highlightIds.size > 0) {
+                ctx.save();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(79,195,247,0.9)';
+                layers.forEach((layer) => {
+                    if (!layer || !layer.id || !highlightIds.has(layer.id)) return;
+                    const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
+                    if (Array.isArray(pts) && pts.length >= 3) {
+                        ctx.beginPath();
+                        ctx.moveTo(pts[0].x, pts[0].y);
+                        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+                        ctx.closePath();
+                        ctx.stroke();
+                    }
+                });
+                ctx.restore();
+            }
+        } catch {}
 
         // Debug overlay for imported positions (draw after content)
         if (typeof window !== 'undefined' && window.__artapp_debug_import) {
@@ -1208,8 +1334,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
-        // If holding a selection modifier (Cmd/Ctrl), skip drag initiation so we can select on mouseup
-        if (e.metaKey || e.ctrlKey) return;
+        // If holding a selection modifier (Shift/Cmd/Ctrl), skip drag initiation so we can select on mouseup
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
@@ -1418,75 +1544,52 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     };
 
     const onMouseUp = (e) => {
-        // Treat as a click to select when NOT in node edit mode,
-        // OR when in node edit mode but the user is holding a selection modifier (Cmd/Ctrl)
-        const wantSelect = (!isNodeEditMode) || (isNodeEditMode && (e.metaKey || e.ctrlKey));
-        if (wantSelect) {
-            const canvas = localCanvasRef.current;
-            if (!canvas || !setSelectedLayerIndex) return;
-            const pos = getMousePos(e);
+        const canvas = localCanvasRef.current;
+        const wasDragging = draggingKindRef.current != null;
+        const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
+        const wantSelect = (!isNodeEditMode) || (isNodeEditMode && hasModifier);
+
+        if (wantSelect && !wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
             const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-
-        const { width, height } = canvas;
-
-        const buildPath = (layer) => {
-            const p = new Path2D();
-            if (!layer || !layer.position || !layer.visible) return p;
-            const { x, y, scale } = layer.position;
-            const centerX = x * width;
-            const centerY = y * height;
-            const minWH = Math.min(width, height);
-            const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
-            const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
-            const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
-            const rb = Number(layer?.radiusBump ?? 0);
-            const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-            const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-            const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-            const maxRadius = minWH * 0.4 * Math.max(0, scale);
-            const radiusX = layer?.viewBoxMapped ? (width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
-            const radiusY = layer?.viewBoxMapped ? (height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
-
-            let pts = [];
-            if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
-                // Build a combined path of subpaths
-                for (const sp of layer.subpaths) {
-                    if (!Array.isArray(sp) || sp.length < 3) continue;
-                    for (let i = 0; i < sp.length; i++) {
-                        const n = sp[i];
-                        const px = centerX + n.x * radiusX;
-                        const py = centerY + n.y * radiusY;
-                        if (i === 0) p.moveTo(px, py); else p.lineTo(px, py);
+            if (ctx) {
+                const pos = getMousePos(e);
+                let hitIndex = -1;
+                let hitLayer = null;
+                for (let i = layers.length - 1; i >= 0; i--) {
+                    const layer = layers[i];
+                    if (!layer || !layer.visible) continue;
+                    const path = buildLayerHitPath(layer, canvas, {
+                        renderedPoints: renderedPointsRef.current.get(i),
+                        globalSeed,
+                        time: animationTimeRef.current || 0,
+                    });
+                    if (ctx.isPointInPath(path, pos.x, pos.y)) {
+                        hitIndex = i;
+                        hitLayer = layer;
+                        break;
                     }
-                    p.closePath();
                 }
-                return p;
-            } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                pts = layer.nodes.map(n => ({ x: centerX + n.x * radiusX, y: centerY + n.y * radiusY }));
-            } else {
-                const sides = Math.max(3, layer.numSides || 3);
-                for (let i = 0; i < sides; i++) {
-                    const ang = (i / sides) * Math.PI * 2;
-                    pts.push({ x: centerX + Math.cos(ang) * radiusX, y: centerY + Math.sin(ang) * radiusY });
-                }
-            }
-            if (pts.length >= 3) {
-                p.moveTo(pts[0].x, pts[0].y);
-                for (let i = 1; i < pts.length; i++) p.lineTo(pts[i].x, pts[i].y);
-                p.closePath();
-            }
-            return p;
-            };
 
-            // Iterate from topmost (last drawn) to bottom
-            for (let i = layers.length - 1; i >= 0; i--) {
-                const layer = layers[i];
-                if (!layer || !layer.visible) continue;
-                const path = buildPath(layer);
-                if (ctx.isPointInPath(path, pos.x, pos.y)) {
-                    setSelectedLayerIndex(i);
-                    break;
+                if (hitIndex !== -1 && hitLayer?.id) {
+                    setSelectedLayerIndex(hitIndex);
+                    if (hasModifier) {
+                        const nextSet = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
+                        if (nextSet.has(hitLayer.id)) {
+                            nextSet.delete(hitLayer.id);
+                        } else {
+                            nextSet.add(hitLayer.id);
+                        }
+                        toggleLayerSelection(hitLayer.id);
+                        if (nextSet.size > 1) {
+                            setEditTarget && setEditTarget({ type: 'selection' });
+                        } else {
+                            setEditTarget && setEditTarget({ type: 'single' });
+                        }
+                    } else {
+                        if (clearSelection) clearSelection();
+                        toggleLayerSelection(hitLayer.id);
+                        setEditTarget && setEditTarget({ type: 'single' });
+                    }
                 }
             }
         }
@@ -1552,8 +1655,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             </div>
           )}
         </>
-    );
-});
+      );
+    });
 
 // Prevent unnecessary re-renders when props are unchanged
 const areCanvasPropsEqual = (prev, next) => {

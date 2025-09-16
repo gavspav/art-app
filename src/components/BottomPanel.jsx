@@ -6,6 +6,7 @@ import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
 import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
+import GroupsControls from './global/GroupsControls.jsx';
 import './BottomPanel.css';
 
 const BottomPanel = ({
@@ -24,6 +25,8 @@ const BottomPanel = ({
   setZIgnore,
   showGlobalMidi,
   setShowGlobalMidi,
+  globalSeed,
+  setGlobalSeed,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
   getIsRnd,
@@ -271,7 +274,8 @@ const BottomPanel = ({
     { id: 'layer-shape', label: 'Layer Shape', icon: '⬟' },
     { id: 'layer-animation', label: 'Layer Animation', icon: '▶️' },
     { id: 'layer-colour', label: 'Layer Colour', icon: '🎨' },
-    { id: 'presets', label: 'Presets', icon: '🎨' },
+    { id: 'presets', label: 'Presets', icon: '🎛️' },
+    { id: 'groups', label: 'Groups', icon: '🧰' },
   ];
 
   // Keyboard shortcuts: 1..5 to switch tabs (no modifiers)
@@ -283,7 +287,7 @@ const BottomPanel = ({
       // Require no modifiers (Shift/Ctrl/Meta/Alt) so it's simple 1..6
       if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const key = e.key;
-      if (key >= '1' && key <= '5') {
+      if (key >= '1' && key <= '6') {
         const idx = parseInt(key, 10) - 1;
         const t = tabs[idx];
         if (t) {
@@ -372,6 +376,8 @@ const BottomPanel = ({
               setZIgnore={setZIgnore}
               showGlobalMidi={showGlobalMidi}
               setShowGlobalMidi={setShowGlobalMidi}
+              globalSeed={globalSeed}
+              setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
               getIsRnd={getIsRnd}
@@ -444,6 +450,7 @@ const BottomPanel = ({
               getIsRnd={getIsRnd}
               setIsRnd={setIsRnd}
               layerNames={layerNames}
+              layerIds={(layers || []).map((l) => l?.id)}
               selectedLayerIndex={selectedLayerIndex}
               onSelectLayer={selectLayer}
               onAddLayer={addNewLayer}
@@ -455,6 +462,12 @@ const BottomPanel = ({
           </div>
         );
       }
+      case 'groups':
+        return (
+          <div className="tab-content groups-tab">
+            <GroupsControls />
+          </div>
+        );
       
       default:
         return null;

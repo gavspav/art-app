@@ -11,6 +11,8 @@ export function useKeyboardShortcuts({
   setIsNodeEditMode,
   setSelectedLayerIndex,
   setZIgnore,
+  setEditTarget,
+  clearSelection,
   hotkeyRef,
 }) {
   useEffect(() => {
@@ -74,6 +76,8 @@ export function useKeyboardShortcuts({
         const len = Number(hotkeyRef?.current?.layersLen) || 0;
         if (len <= 0) return;
         const next = key === '[' ? Math.max(0, idx - 1) : Math.min(len - 1, idx + 1);
+        clearSelection?.();
+        setEditTarget?.({ type: 'single' });
         setSelectedLayerIndex?.(next);
         return;
       }
@@ -86,6 +90,8 @@ export function useKeyboardShortcuts({
           e.preventDefault();
           const len = Number(hotkeyRef?.current?.layersLen) || 0;
           const target = Math.max(0, Math.min(len - 1, digit - 1));
+          clearSelection?.();
+          setEditTarget?.({ type: 'single' });
           setSelectedLayerIndex?.(target);
           return;
         }
@@ -105,6 +111,8 @@ export function useKeyboardShortcuts({
     setIsNodeEditMode,
     setSelectedLayerIndex,
     setZIgnore,
+    setEditTarget,
+    clearSelection,
     hotkeyRef,
   ]);
 }

@@ -37,7 +37,7 @@ const MainApp = () => {
     isFrozen, setIsFrozen,
     backgroundColor, setBackgroundColor,
     backgroundImage, setBackgroundImage,
-    globalSeed,
+    globalSeed, setGlobalSeed,
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
     globalBlendMode, setGlobalBlendMode,
     layers, setLayers,
@@ -52,6 +52,8 @@ const MainApp = () => {
     rotationVaryAcrossLayers, setRotationVaryAcrossLayers,
     // Global: fade while frozen
     colorFadeWhileFrozen, setColorFadeWhileFrozen,
+    clearSelection,
+    setEditTarget,
   } = useAppState();
 
   // MIDI context
@@ -868,6 +870,8 @@ const MainApp = () => {
     setSelectedLayerIndex,
     hotkeyRef,
     setZIgnore,
+    setEditTarget,
+    clearSelection,
   });
 
   // MIDI helper refs and handlers integration
@@ -1046,6 +1050,8 @@ const MainApp = () => {
             setZIgnore={setZIgnore}
             showGlobalMidi={showGlobalMidi}
             setShowGlobalMidi={setShowGlobalMidi}
+            globalSeed={globalSeed}
+            setGlobalSeed={setGlobalSeed}
             globalSpeedMultiplier={globalSpeedMultiplier}
             setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
             getIsRnd={getIsRnd}

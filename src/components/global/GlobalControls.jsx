@@ -6,6 +6,9 @@ import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
 
+const GLOBAL_SEED_MIN = 1;
+const GLOBAL_SEED_MAX = 2147483646;
+
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
   // State and actions
@@ -21,6 +24,8 @@ const GlobalControls = ({
   setClassicMode,
   showGlobalMidi,
   setShowGlobalMidi,
+  globalSeed,
+  setGlobalSeed,
   globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
   getIsRnd,
@@ -118,6 +123,28 @@ const GlobalControls = ({
   const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
   const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
   const [showVariationColorSettings, setShowVariationColorSettings] = useState(false);
+
+  const numericSeed = Number(globalSeed);
+  const seedValue = Number.isFinite(numericSeed)
+    ? Math.max(GLOBAL_SEED_MIN, Math.min(GLOBAL_SEED_MAX, Math.floor(numericSeed)))
+    : GLOBAL_SEED_MIN;
+
+  const updateSeed = useCallback((value) => {
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.max(GLOBAL_SEED_MIN, Math.min(GLOBAL_SEED_MAX, Math.floor(value)));
+    if (clamped === seedValue) return;
+    setGlobalSeed(clamped);
+  }, [seedValue, setGlobalSeed]);
+
+  const handleSeedSliderChange = useCallback((e) => {
+    updateSeed(Number(e.target.value));
+  }, [updateSeed]);
+
+  const handleSeedInputChange = useCallback((e) => {
+    const val = e.target.value;
+    if (val === '') return;
+    updateSeed(Number(val));
+  }, [updateSeed]);
 
   // Numeric bounds (min/max/step) for sliders
   const [speedMin, setSpeedMin] = useState(0);
@@ -554,9 +581,35 @@ const GlobalControls = ({
 
   return (
     <div className="control-card">
-      <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <span>Global</span>
         <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 220px', minWidth: 0 }}>
+          <span className="compact-label" style={{ whiteSpace: 'nowrap' }}>Seed</span>
+          <input
+            className="compact-range"
+            type="range"
+            min={GLOBAL_SEED_MIN}
+            max={GLOBAL_SEED_MAX}
+            step={1}
+            value={seedValue}
+            onChange={handleSeedSliderChange}
+            title="Adjust global seed"
+            aria-label="Adjust global seed"
+            style={{ flex: '1 1 auto' }}
+          />
+          <input
+            className="compact-number"
+            type="number"
+            min={GLOBAL_SEED_MIN}
+            max={GLOBAL_SEED_MAX}
+            value={seedValue}
+            onChange={handleSeedInputChange}
+            title="Global seed value"
+            aria-label="Global seed value"
+            style={{ width: 80 }}
+          />
+        </div>
         {/* Quick Save/Load configuration */}
         <button
           className="icon-btn sm"
@@ -1028,6 +1081,7 @@ const areGlobalPropsEqual = (prev, next) => {
     prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.classicMode === next.classicMode &&
     prev.showGlobalMidi === next.showGlobalMidi &&
+    prev.globalSeed === next.globalSeed &&
     prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
     prev.globalBlendMode === next.globalBlendMode &&
     prev.midiInputId === next.midiInputId &&

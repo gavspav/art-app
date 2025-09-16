@@ -250,7 +250,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
               type="text"
               className="compact-input"
               value={routeInput}
-              onChange={(e) => setMorphRoute && setMorphRoute((e.target.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n) && n >= 1 && n <= 8))}
+              onChange={(e) => setMorphRoute && setMorphRoute((e.target.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n) && n >= 1 && n <= 16))}
             />
           </label>
           <label className="compact-label" title="Seconds per leg">

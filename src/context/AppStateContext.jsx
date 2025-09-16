@@ -1,5 +1,9 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
+
+const SEED_MIN = 1;
+const SEED_MAX = 2147483646;
+const generateSeed = () => Math.floor(Math.random() * (SEED_MAX - SEED_MIN + 1)) + SEED_MIN;
 
 // Create the context
 const AppStateContext = createContext();
@@ -24,15 +28,29 @@ const buildDefaultPresetSlots = () => (
 
 // Create the provider component
 export const AppStateProvider = ({ children }) => {
+  // Simple unique id generator for layers
+  const uidSeedRef = useRef(Math.floor(Math.random() * 1e6));
+  const uidCounterRef = useRef(0);
+  const makeLayerId = useCallback(() => {
+    uidCounterRef.current += 1;
+    return `layer-${uidSeedRef.current}-${Date.now().toString(36)}-${uidCounterRef.current}`;
+  }, []);
+
+  const ensureLayerId = useCallback((l) => {
+    if (l && typeof l === 'object' && typeof l.id === 'string' && l.id.length > 0) return l;
+    return { ...l, id: makeLayerId() };
+  }, [makeLayerId]);
+  const assignIds = useCallback((layers = []) => Array.isArray(layers) ? layers.map(ensureLayerId) : [], [ensureLayerId]);
   // Main app state that should be saveable
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
-    globalSeed: DEFAULTS.globalSeed,
+    globalSeed: generateSeed(),
     globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
     layers: [{
+      id: `layer-init-${Date.now()}`,
       ...DEFAULT_LAYER,
       position: { ...DEFAULT_LAYER.position }
     }],
@@ -49,6 +67,11 @@ export const AppStateProvider = ({ children }) => {
     rotationVaryAcrossLayers: true,
     // Global: allow colour fading to continue while frozen
     colorFadeWhileFrozen: true,
+
+    // Multi-select and Layer Groups
+    selectedLayerIds: [], // array of layer.id
+    layerGroups: [], // { id, name, color?, memberIds: string[] }
+    editTarget: { type: 'single' }, // 'single' | 'selection' | 'group'
 
     // Preset morphing (Phase 3)
     morphEnabled: false,
@@ -145,11 +168,11 @@ export const AppStateProvider = ({ children }) => {
   // If an updater function is provided, call it with prev.layers inside setAppState.
   const setLayers = useCallback((value) => {
     if (typeof value === 'function') {
-      setAppState(prev => ({ ...prev, layers: value(prev.layers) }));
+      setAppState(prev => ({ ...prev, layers: assignIds(value(prev.layers)) }));
     } else {
-      setAppState(prev => ({ ...prev, layers: value }));
+      setAppState(prev => ({ ...prev, layers: assignIds(value) }));
     }
-  }, []);
+  }, [assignIds]);
 
   const setSelectedLayerIndex = useCallback((value) => {
     setAppState(prev => ({ ...prev, selectedLayerIndex: value }));
@@ -278,6 +301,10 @@ export const AppStateProvider = ({ children }) => {
           scaleSpeed,
           position,
         };
+        // Ensure a stable id exists
+        if (typeof layerOut.id !== 'string' || layerOut.id.length === 0) {
+          layerOut.id = makeLayerId();
+        }
         // Remove deprecated fields to avoid exporting them
         delete layerOut.width;
         delete layerOut.height;
@@ -308,13 +335,72 @@ export const AppStateProvider = ({ children }) => {
     return false;
   }, []);
 
+  // Selection helpers
+  const toggleLayerSelection = useCallback((layerId) => {
+    setAppState(prev => {
+      const set = new Set(prev.selectedLayerIds || []);
+      if (set.has(layerId)) set.delete(layerId); else set.add(layerId);
+      return { ...prev, selectedLayerIds: Array.from(set) };
+    });
+  }, []);
+  const clearSelection = useCallback(() => {
+    setAppState(prev => ({ ...prev, selectedLayerIds: [] }));
+  }, []);
+
+  // Groups CRUD
+  const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
+    const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`;
+    setAppState(prev => ({ ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }] }));
+    return id;
+  }, []);
+  const renameGroup = useCallback((groupId, name) => {
+    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, name } : g) }));
+  }, []);
+  const setGroupColor = useCallback((groupId, color) => {
+    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, color } : g) }));
+  }, []);
+  const addMembersToGroup = useCallback((groupId, ids = []) => {
+    setAppState(prev => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: Array.from(new Set([...(g.memberIds || []), ...ids])) } : g)
+    }));
+  }, []);
+  const removeMembersFromGroup = useCallback((groupId, ids = []) => {
+    const remove = new Set(ids);
+    setAppState(prev => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: (g.memberIds || []).filter(id => !remove.has(id)) } : g)
+    }));
+  }, []);
+  const deleteGroup = useCallback((groupId) => {
+    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId) }));
+  }, []);
+
+  // Edit target
+  const setEditTarget = useCallback((target) => {
+    // target: { type: 'single'|'selection'|'group', groupId? }
+    setAppState(prev => ({ ...prev, editTarget: target && target.type ? target : { type: 'single' } }));
+  }, []);
+  const getActiveTargetLayerIds = useCallback(() => {
+    const state = appState;
+    if (state.editTarget?.type === 'selection') return state.selectedLayerIds || [];
+    if (state.editTarget?.type === 'group') {
+      const g = (state.layerGroups || []).find(x => x.id === state.editTarget.groupId);
+      return g ? (g.memberIds || []) : [];
+    }
+    // single -> current selectedLayerIndex
+    const idx = Math.max(0, Math.min(Number(state.selectedLayerIndex) || 0, Math.max(0, (state.layers || []).length - 1)));
+    const l = (state.layers || [])[idx];
+    return l && l.id ? [l.id] : [];
+  }, [appState]);
+
   // Function to reset app state to defaults
   const resetAppState = useCallback(() => {
     setAppState({
       isFrozen: DEFAULTS.isFrozen,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
-      globalSeed: DEFAULTS.globalSeed,
+      globalSeed: generateSeed(),
       globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
       layers: [{
         ...DEFAULT_LAYER,
@@ -364,6 +450,18 @@ export const AppStateProvider = ({ children }) => {
     setMorphEasing,
     setMorphLoopMode,
     setMorphMode,
+
+    // Selection & Groups API
+    toggleLayerSelection,
+    clearSelection,
+    createGroup,
+    renameGroup,
+    setGroupColor,
+    addMembersToGroup,
+    removeMembersFromGroup,
+    deleteGroup,
+    setEditTarget,
+    getActiveTargetLayerIds,
 
     // State management functions
     getCurrentAppState,

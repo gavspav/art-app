@@ -171,14 +171,20 @@ export function usePresetMorph({
           legIndex = (legIndex + 1) % routeNow.length;
         }
         startTime = now;
-        // Snap to target list in fade mode
-        if (modeRef.current === 'fade') {
+        // Snap to the exact target preset at leg boundaries
+        if (modeRef.current === 'fade' || modeRef.current === 'tween') {
           const toId2 = routeNow[legIndex % routeNow.length];
           const toSlot2 = getPresetSlotRef.current ? getPresetSlotRef.current(toId2) : null;
           const toState2 = toSlot2?.payload?.appState;
           const b2 = stripMorphFields(toState2 || {});
           const bLayers2 = Array.isArray(b2.layers) ? b2.layers : [];
           setLayers(() => bLayers2.map(l => ({ ...l })));
+          if (setBackgroundColor && b2.backgroundColor) {
+            setBackgroundColor(b2.backgroundColor);
+          }
+          if (setGlobalSpeedMultiplier && typeof b2.globalSpeedMultiplier !== 'undefined') {
+            setGlobalSpeedMultiplier(Number(b2.globalSpeedMultiplier || 1));
+          }
         }
         // reset prep
         fadePrepRef.current = { key: null, lenA: 0, lenB: 0, baseA: [], baseB: [] };
