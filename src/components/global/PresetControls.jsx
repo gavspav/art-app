@@ -62,6 +62,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     if (!slot) return;
     try {
       if (!slot.payload) return;
+      // Preserve current morph settings so recalling a preset doesn't alter them
+      const preservedMorph = {
+        enabled: !!morphEnabled,
+        route: Array.isArray(morphRoute) ? [...morphRoute] : morphRoute,
+        duration: morphDurationPerLeg,
+        easing: morphEasing,
+        loopMode: morphLoopMode,
+        mode: morphMode,
+      };
       const key = `${TEMP_PRESET_PREFIX}${slotId}`;
       const saveObj = {
         parameters: slot.payload.parameters || [],
@@ -73,13 +82,48 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       if (typeof loadFullConfiguration === 'function') {
         const res = await loadFullConfiguration(key);
         if (res && res.appState && typeof loadAppState === 'function') {
-          loadAppState(res.appState);
+          // Strip morph fields, then restore preserved values after applying
+          const {
+            morphEnabled: _me,
+            morphRoute: _mr,
+            morphDurationPerLeg: _md,
+            morphEasing: _meas,
+            morphLoopMode: _ml,
+            morphMode: _mm,
+            ...rest
+          } = res.appState || {};
+          loadAppState(rest);
+          setMorphEnabled?.(preservedMorph.enabled);
+          const routeToRestore = Array.isArray(preservedMorph.route)
+            ? preservedMorph.route
+            : (Array.isArray(morphRoute) ? morphRoute : []);
+          setMorphRoute?.(routeToRestore);
+          if (typeof preservedMorph.duration !== 'undefined') setMorphDurationPerLeg?.(preservedMorph.duration);
+          if (typeof preservedMorph.easing !== 'undefined') setMorphEasing?.(preservedMorph.easing);
+          if (typeof preservedMorph.loopMode !== 'undefined') setMorphLoopMode?.(preservedMorph.loopMode);
+          if (typeof preservedMorph.mode !== 'undefined') setMorphMode?.(preservedMorph.mode);
         }
       }
     } catch (e) {
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
-  }, [getPresetSlot, loadFullConfiguration, loadAppState]);
+  }, [
+    getPresetSlot,
+    loadFullConfiguration,
+    loadAppState,
+    morphEnabled,
+    morphRoute,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    morphMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    setMorphMode,
+  ]);
 
   const handlePresetClick = useCallback(async (slotId, evt) => {
     const slot = getPresetSlot ? getPresetSlot(slotId) : null;
@@ -177,6 +221,18 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
   };
 
   const routeInput = useMemo(() => (Array.isArray(morphRoute) ? morphRoute.join(',') : ''), [morphRoute]);
+  const [routeDraft, setRouteDraft] = useState(routeInput);
+  useEffect(() => {
+    setRouteDraft(routeInput);
+  }, [routeInput]);
+  const applyRouteDraft = useCallback(() => {
+    if (!setMorphRoute) return;
+    const nextRoute = (routeDraft || '')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n >= 1 && n <= 16);
+    setMorphRoute(nextRoute);
+  }, [routeDraft, setMorphRoute]);
 
   const missingIds = useMemo(() => {
     const route = Array.isArray(morphRoute) ? morphRoute : [];
@@ -212,6 +268,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
                     if (savedIds.length >= 2 && setMorphRoute) {
                       route = [savedIds[0], savedIds[1]];
                       setMorphRoute(route);
+                      setRouteDraft(route.join(','));
                     }
                   }
                   const missing = (route || []).filter(id => {
@@ -249,8 +306,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
             <input
               type="text"
               className="compact-input"
-              value={routeInput}
-              onChange={(e) => setMorphRoute && setMorphRoute((e.target.value || '').split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n) && n >= 1 && n <= 16))}
+              value={routeDraft}
+              onChange={(e) => setRouteDraft(e.target.value)}
+              onBlur={applyRouteDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyRouteDraft();
+                }
+              }}
             />
           </label>
           <label className="compact-label" title="Seconds per leg">

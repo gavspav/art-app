@@ -86,6 +86,30 @@ export const PARAMETERS = [
     showInOverlay: true,
     group: 'Shape',
   },
+  {
+    id: 'xOffset',
+    label: 'X Offset',
+    type: 'slider',
+    min: -0.5,
+    max: 0.5,
+    step: 0.001,
+    defaultValue: 0,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'Shape',
+  },
+  {
+    id: 'yOffset',
+    label: 'Y Offset',
+    type: 'slider',
+    min: -0.5,
+    max: 0.5,
+    step: 0.001,
+    defaultValue: 0,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'Shape',
+  },
 
   // Layer Variation — split into three controls
   {

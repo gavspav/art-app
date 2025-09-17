@@ -340,6 +340,8 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         case 'wobble': return 'wobble';
         case 'noiseAmount': return 'noiseAmount';
         case 'radiusFactor': return 'radiusFactor';
+        case 'xOffset': return 'xOffset';
+        case 'yOffset': return 'yOffset';
         case 'width': return 'width';
         case 'height': return 'height';
         case 'movementStyle': return 'movementStyle';
@@ -465,6 +467,8 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       case 'wobble': return 'wobble';
       case 'noiseAmount': return 'noiseAmount';
       case 'radiusFactor': return 'radiusFactor';
+      case 'xOffset': return 'xOffset';
+      case 'yOffset': return 'yOffset';
       case 'width': return 'width';
       case 'height': return 'height';
       // Movement

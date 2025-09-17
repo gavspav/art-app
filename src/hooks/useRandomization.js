@@ -266,6 +266,19 @@ export function useRandomization({
       const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.4);
       const rfMin = 0.05, rfMax = 0.45;
       varied.radiusFactor = Number(mixRand(baseRF, rfMin, rfMax, wShape).toFixed(3));
+      // X/Y offsets (screen-relative), vary with shape weight
+      const pXO = getParam('xOffset');
+      const pYO = getParam('yOffset');
+      const allowXO = pXO ? !!pXO.isRandomizable : true;
+      const allowYO = pYO ? !!pYO.isRandomizable : true;
+      const baseXO = Number(prev.xOffset ?? 0);
+      const baseYO = Number(prev.yOffset ?? 0);
+      const xoMin = Number.isFinite(pXO?.randomMin) ? pXO.randomMin : (Number.isFinite(pXO?.min) ? pXO.min : -0.5);
+      const xoMax = Number.isFinite(pXO?.randomMax) ? pXO.randomMax : (Number.isFinite(pXO?.max) ? pXO.max : 0.5);
+      const yoMin = Number.isFinite(pYO?.randomMin) ? pYO.randomMin : (Number.isFinite(pYO?.min) ? pYO.min : -0.5);
+      const yoMax = Number.isFinite(pYO?.randomMax) ? pYO.randomMax : (Number.isFinite(pYO?.max) ? pYO.max : 0.5);
+      if (allowXO) varied.xOffset = Number(mixRand(baseXO, xoMin, xoMax, wShape).toFixed(3));
+      if (allowYO) varied.yOffset = Number(mixRand(baseYO, yoMin, yoMax, wShape).toFixed(3));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
@@ -534,6 +547,9 @@ export function useRandomization({
       layer.scaleMin = Number(sMin.toFixed(2));
       layer.scaleMax = Number(sMax.toFixed(2));
       layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
+      // Classic offsets: random within full allowed range
+      layer.xOffset = Number((rnd() - 0.5).toFixed(3));
+      layer.yOffset = Number((rnd() - 0.5).toFixed(3));
       // Apply base variations to base layer only; others will vary from this baseline when added later
       if (idx === 0) {
         layer.variationShape = sampledVS;

@@ -337,12 +337,16 @@ const BottomPanel = ({
       const key = (e.key || '').toLowerCase();
       if (key === 'h') {
         e.preventDefault();
-        setPanelState('peek');
+        const nextState = panelState === 'expanded' ? 'peek' : 'expanded';
+        setPanelState(nextState);
+        if (nextState === 'expanded') {
+          resetHideTimer();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [panelState, resetHideTimer]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -477,7 +481,7 @@ const BottomPanel = ({
   return (
     <div 
       ref={panelRef}
-      className={`bottom-panel ${panelState} ${isLocked ? 'locked' : ''} ${panelWidthVW <= 28 ? 'compact' : ''} dock-${dockV} dock-${dockH}`}
+      className={`bottom-panel ${panelState} ${(isLocked && panelState === 'expanded') ? 'locked' : ''} ${panelWidthVW <= 28 ? 'compact' : ''} dock-${dockV} dock-${dockH}`}
       onMouseEnter={handlePanelInteraction}
       onMouseMove={handlePanelInteraction}
       onClick={handlePanelInteraction}

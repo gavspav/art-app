@@ -202,19 +202,69 @@ const GlobalControls = ({
     if (!slot) return;
     try {
       if (!slot.payload) return;
+      const preservedMorph = {
+        enabled: !!morphEnabled,
+        route: Array.isArray(morphRoute) ? [...morphRoute] : morphRoute,
+        duration: morphDurationPerLeg,
+        easing: morphEasing,
+        loopMode: morphLoopMode,
+        mode: morphMode,
+      };
       const key = `${TEMP_PRESET_PREFIX}${slotId}`;
       const saveObj = { parameters: slot.payload.parameters || [], appState: slot.payload.appState || null, savedAt: slot.payload.savedAt || new Date().toISOString(), version: '1.1' };
       localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
       if (typeof loadFullConfiguration === 'function') {
         const res = await loadFullConfiguration(key);
         if (res && res.appState && typeof loadAppState === 'function') {
-          loadAppState(res.appState);
+          const {
+            morphEnabled: _me,
+            morphRoute: _mr,
+            morphDurationPerLeg: _md,
+            morphEasing: _meas,
+            morphLoopMode: _ml,
+            morphMode: _mm,
+            ...rest
+          } = res.appState || {};
+          loadAppState(rest);
+          setMorphEnabled?.(preservedMorph.enabled);
+          const routeToRestore = Array.isArray(preservedMorph.route)
+            ? preservedMorph.route
+            : (Array.isArray(morphRoute) ? morphRoute : []);
+          setMorphRoute?.(routeToRestore);
+          if (typeof preservedMorph.duration !== 'undefined') {
+            setMorphDurationPerLeg?.(preservedMorph.duration);
+          }
+          if (typeof preservedMorph.easing !== 'undefined') {
+            setMorphEasing?.(preservedMorph.easing);
+          }
+          if (typeof preservedMorph.loopMode !== 'undefined') {
+            setMorphLoopMode?.(preservedMorph.loopMode);
+          }
+          if (typeof preservedMorph.mode !== 'undefined') {
+            setMorphMode?.(preservedMorph.mode);
+          }
         }
       }
     } catch (e) {
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
-  }, [getPresetSlot, loadFullConfiguration, loadAppState]);
+  }, [
+    getPresetSlot,
+    loadFullConfiguration,
+    loadAppState,
+    morphRoute,
+    morphEnabled,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    morphMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    setMorphMode,
+  ]);
 
   const handlePresetClick = useCallback(async (slotId, evt) => {
     const slot = getPresetSlot ? getPresetSlot(slotId) : null;
@@ -281,17 +331,17 @@ const GlobalControls = ({
   // Morph UI controls
   const [morphStatus, setMorphStatus] = useState(null);
   const [morphError, setMorphError] = useState('');
-  const [routeInput, setRouteInput] = useState(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
+  const [routeDraft, setRouteDraft] = useState(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
   useEffect(() => {
-    setRouteInput(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
+    setRouteDraft(Array.isArray(morphRoute) ? morphRoute.join(',') : '');
   }, [morphRoute]);
   const applyRouteFromInput = useCallback(() => {
-    const vals = (routeInput || '')
+    const vals = (routeDraft || '')
       .split(',')
       .map(s => parseInt(s.trim(), 10))
       .filter(n => Number.isFinite(n) && n >= 1 && n <= 8);
     setMorphRoute && setMorphRoute(vals);
-  }, [routeInput, setMorphRoute]);
+  }, [routeDraft, setMorphRoute]);
   const renderMorphControls = () => {
     const route = Array.isArray(morphRoute) ? morphRoute : [];
     const missing = (route || []).filter(id => {
@@ -321,7 +371,7 @@ const GlobalControls = ({
                     if (savedIds.length >= 2 && setMorphRoute) {
                       route = [savedIds[0], savedIds[1]];
                       setMorphRoute(route);
-                      setRouteInput(route.join(','));
+                      setRouteDraft(route.join(','));
                     }
                   }
                   const missing = (route || []).filter(id => {
@@ -364,8 +414,8 @@ const GlobalControls = ({
             <input
               type="text"
               className="compact-input"
-              value={routeInput}
-              onChange={(e) => setRouteInput(e.target.value)}
+              value={routeDraft}
+              onChange={(e) => setRouteDraft(e.target.value)}
               onBlur={applyRouteFromInput}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyRouteFromInput(); } }}
             />
@@ -416,6 +466,7 @@ const GlobalControls = ({
   const getPresetSlotRef = useRef(getPresetSlot);
   const loadAppStateRef = useRef(loadAppState);
   const fadePrepRef = useRef({ key: null, lenA: 0, lenB: 0, baseA: [], baseB: [] });
+  const tweenPrepRef = useRef({ key: null, baseA: [], baseB: [] });
 
   // Sync current settings into refs
   useEffect(() => { routeRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
@@ -468,6 +519,7 @@ const GlobalControls = ({
       const routeNow = routeRef.current;
       const fromId = routeNow[legIndex];
       const toId = routeNow[(legIndex + 1) % routeNow.length];
+      const legKey = `${fromId}->${toId}`;
       const fromSlot = getPresetSlotRef.current ? getPresetSlotRef.current(fromId) : null;
       const toSlot = getPresetSlotRef.current ? getPresetSlotRef.current(toId) : null;
       const fromState = fromSlot?.payload?.appState;
@@ -479,7 +531,6 @@ const GlobalControls = ({
           const b = stripMorphFields(toState);
           if (modeRef.current === 'fade') {
             // Prepare once per leg: construct A+B layer stack with baseline opacities
-            const legKey = `${fromId}->${toId}`;
             if (fadePrepRef.current.key !== legKey) {
               const layersA = Array.isArray(a.layers) ? a.layers : [];
               const layersB = Array.isArray(b.layers) ? b.layers : [];
@@ -512,35 +563,69 @@ const GlobalControls = ({
               return nextOpacity !== l.opacity ? { ...l, opacity: nextOpacity } : l;
             }));
           } else {
-            // Tween mode (default): adjust selected numeric fields in-place to keep animation running
-            setBackgroundColor && setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t));
-            // Tween global speed (pass a number; setter doesn't accept functional updater)
-            setGlobalSpeedMultiplier && setGlobalSpeedMultiplier(lerp(Number(a.globalSpeedMultiplier||1), Number(b.globalSpeedMultiplier||1), t));
-            const bLayers = Array.isArray(b.layers) ? b.layers : [];
-            setLayers(prev => prev.map((la, i) => {
-              const lb = bLayers[i] || la;
-              const pa = la.position || { x: 0.5, y: 0.5, scale: 1 };
-              const pb = lb.position || { x: 0.5, y: 0.5, scale: 1 };
-              const next = {
-                ...la,
-                opacity: lerp(Number(la.opacity||1), Number(lb.opacity||1), t),
-                rotation: lerp(Number(la.rotation||0), Number(lb.rotation||0), t),
-                radiusFactor: lerp(Number(la.radiusFactor||0.125), Number(lb.radiusFactor||0.125), t),
-                movementSpeed: lerp(Number(la.movementSpeed||1), Number(lb.movementSpeed||1), t),
-                position: {
-                  ...pa,
-                  x: lerp(Number(pa.x||0.5), Number(pb.x||0.5), t),
-                  y: lerp(Number(pa.y||0.5), Number(pb.y||0.5), t),
-                  scale: lerp(Number(pa.scale||1), Number(pb.scale||1), t),
-                }
+            // Tween mode (default): interpolate from cached leg endpoints to avoid accumulated drift
+            if (tweenPrepRef.current.key !== legKey) {
+              tweenPrepRef.current = {
+                key: legKey,
+                baseA: Array.isArray(a.layers) ? a.layers.map(l => ({ ...l })) : [],
+                baseB: Array.isArray(b.layers) ? b.layers.map(l => ({ ...l })) : [],
               };
-              return next;
-            }));
+            }
+            const baseA = tweenPrepRef.current.baseA || [];
+            const baseB = tweenPrepRef.current.baseB || [];
+            setBackgroundColor && setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t));
+            const maxLen = Math.max(baseA.length, baseB.length, 1);
+            setLayers(() => {
+              const out = [];
+              for (let i = 0; i < maxLen; i++) {
+                const la = baseA[i] || baseA[Math.max(0, baseA.length - 1)] || {};
+                const lb = baseB[i] || baseB[Math.max(0, baseB.length - 1)] || {};
+                const pa = la.position || { x: 0.5, y: 0.5, scale: 1 };
+                const pb = lb.position || { x: 0.5, y: 0.5, scale: 1 };
+                const colorsA = Array.isArray(la.colors) ? la.colors : [];
+                const colorsB = Array.isArray(lb.colors) ? lb.colors : [];
+                const colorCount = Math.max(colorsA.length, colorsB.length);
+                const blendedColors = colorCount > 0
+                  ? Array.from({ length: colorCount }, (_, idx) => {
+                      const ca = colorsA[idx] || colorsA[Math.max(0, colorsA.length - 1)] || '#000000';
+                      const cb = colorsB[idx] || colorsB[Math.max(0, colorsB.length - 1)] || '#000000';
+                      return lerpColor(ca, cb, t);
+                    })
+                  : undefined;
+                out.push({
+                  ...lb,
+                  opacity: lerp(Number(la.opacity || 1), Number(lb.opacity || 1), t),
+                  rotation: lerp(Number(la.rotation || 0), Number(lb.rotation || 0), t),
+                  radiusFactor: lerp(Number(la.radiusFactor || 0.125), Number(lb.radiusFactor || 0.125), t),
+                  movementSpeed: lerp(Number(la.movementSpeed || 1), Number(lb.movementSpeed || 1), t),
+                  colors: blendedColors || lb.colors,
+                  numColors: blendedColors ? blendedColors.length : lb.numColors,
+                  position: {
+                    x: lerp(Number(pa.x || 0.5), Number(pb.x || 0.5), t),
+                    y: lerp(Number(pa.y || 0.5), Number(pb.y || 0.5), t),
+                    scale: lerp(Number(pa.scale || 1), Number(pb.scale || 1), t),
+                    vx: 0,
+                    vy: 0,
+                    scaleDirection: 1,
+                  },
+                });
+              }
+              return out;
+            });
           }
         } catch {}
       }
 
       if (tRaw >= 1) {
+        // Snap to the exact target of the just-finished leg (avoids 1-frame lag and visible pauses)
+        try {
+          const snapSlot = getPresetSlotRef.current ? getPresetSlotRef.current(toId) : null;
+          const snapState = snapSlot?.payload?.appState;
+          const b2 = stripMorphFields(snapState || {});
+          const bLayers2 = Array.isArray(b2.layers) ? b2.layers : [];
+          setLayers(() => bLayers2.map(l => ({ ...l })));
+          setBackgroundColor && setBackgroundColor(b2.backgroundColor || '#000000');
+        } catch {}
         if (loopModeRef.current === 'pingpong') {
           if (forward) {
             if (legIndex + 1 >= routeNow.length - 1) {
@@ -571,6 +656,7 @@ const GlobalControls = ({
         }
         // Reset prep for next leg
         fadePrepRef.current = { key: null, lenA: 0, lenB: 0, baseA: [], baseB: [] };
+        tweenPrepRef.current = { key: null, baseA: [], baseB: [] };
       }
       rafRef.current = requestAnimationFrame(step);
     };

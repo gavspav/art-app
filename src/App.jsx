@@ -19,7 +19,7 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure, pickPaletteColors } from './utils/paletteUtils.js';
 import { clamp as clampUtil, mixRandom as mixRandomUtil } from './utils/mathUtils.js';
 
-import Canvas from './components/Canvas';
+import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
 import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
@@ -357,6 +357,15 @@ const MainApp = () => {
     if (varyFlags.radiusFactorY) {
       const baseRFY = Number(prev.radiusFactorY ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
       varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
+    }
+    // New: X/Y Offset variation (range -0.5..0.5)
+    if (varyFlags.xOffset) {
+      const baseXO = Number(prev.xOffset ?? 0);
+      varied.xOffset = Number(mixShape(baseXO, -0.5, 0.5).toFixed(3));
+    }
+    if (varyFlags.yOffset) {
+      const baseYO = Number(prev.yOffset ?? 0);
+      varied.yOffset = Number(mixShape(baseYO, -0.5, 0.5).toFixed(3));
     }
 
     // Movement (use wAnim)
@@ -902,13 +911,73 @@ const MainApp = () => {
 
   // randomizeScene provided by hook
 
-  // Download helper for exporting image
-  const downloadImage = () => {
-    const canvas = canvasRef.current;
-    const link = document.createElement('a');
-    link.download = 'layered-shape.png';
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+  // Download helper – choose resolution, freeze time during export
+  const downloadImage = async () => {
+    try {
+      // 1. Freeze animation to capture exact frame
+      const wasFrozen = isFrozen;
+      if (!wasFrozen) setIsFrozen(true);
+      // Wait one animation frame to ensure freeze applied and Canvas has repainted
+      await new Promise(res => requestAnimationFrame(() => res()));
+
+      const canvasHandle = canvasRef.current;
+      if (!canvasHandle) return;
+      const src = canvasHandle.canvas || canvasHandle;
+      if (!src) return;
+
+      const viewW = src.width || 1;
+      const viewH = src.height || 1;
+      // 2. Ask user for resolution choice
+      const choiceRaw = (window.prompt('Export size (A4, A3, A2, VIEW):', 'A3') || '').trim().toUpperCase();
+      const choice = ['A4','A3','A2','VIEW'].includes(choiceRaw) ? choiceRaw : 'A3';
+      const MAX_DIM = (choice === 'VIEW') ? Math.max(viewW, viewH) : (choice === 'A4' ? 3508 : (choice === 'A2' ? 7016 : 4961));
+
+      let targetW, targetH;
+      if (viewW >= viewH) {
+        targetW = MAX_DIM;
+        targetH = Math.round(MAX_DIM * viewH / viewW);
+      } else {
+        targetH = MAX_DIM;
+        targetW = Math.round(MAX_DIM * viewW / viewH);
+      }
+
+      const off = document.createElement('canvas');
+      off.width = targetW;
+      off.height = targetH;
+      const ctx = off.getContext('2d');
+      if (!ctx) return;
+
+      // Fill background
+      ctx.fillStyle = backgroundColor || '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+
+      const animTime = (canvasHandle.getAnimationTime ? canvasHandle.getAnimationTime() : 0) || 0;
+      // Render each layer exactly once at high resolution
+      layers.forEach(layer => {
+        if (!layer?.visible) return;
+        drawLayerWithWrap(ctx, layer, off, (c, l, cv) => {
+          if (l.image && l.image.src) {
+            drawImage(c, l, cv, globalBlendMode);
+          } else {
+            drawShape(c, l, cv, globalSeed, animTime, false, globalBlendMode);
+          }
+        });
+      });
+
+      off.toBlob(blob => {
+        if (!blob) return;
+        const link = document.createElement('a');
+        link.download = `layered-shape-${choice.toLowerCase()}-${targetW}x${targetH}.png`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+        // 4. Restore previous frozen state
+        if (!wasFrozen) setIsFrozen(false);
+      }, 'image/png');
+    } catch (err) {
+      console.warn('High-res export failed', err);
+      try { if (!isFrozen) setIsFrozen(false); } catch {}
+    }
   };
 
   return (

@@ -47,6 +47,11 @@ export const DEFAULT_LAYER = {
   // Rotation (degrees) applied to shape geometry
   rotation: 0,
 
+  // Per-layer positional offsets relative to viewport size
+  // Range [-0.5, 0.5] maps to [-50%, +50%] of screen width/height
+  xOffset: 0,
+  yOffset: 0,
+
   // Orbit movement defaults (used when movementStyle === 'orbit')
   orbitCenterX: 0.5, // normalized [0,1]
   orbitCenterY: 0.5, // normalized [0,1]
@@ -93,6 +98,8 @@ export const DEFAULT_LAYER = {
     radiusFactor: true,
     radiusFactorX: true,
     radiusFactorY: true,
+    xOffset: true,
+    yOffset: true,
     width: true,
     height: true,
     opacity: false, // keep per-layer opacity constant; global control exists

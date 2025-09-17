@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useMemo, useState } from 'react';
+import React, { useRef, useEffect, forwardRef, useMemo, useState, useImperativeHandle } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
@@ -6,6 +6,16 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
+
+// Map fractional positions to a centered square artboard of size min(width,height)
+const getArtboardMapping = (canvas) => {
+    const w = canvas?.width || 0;
+    const h = canvas?.height || 0;
+    const size = Math.max(0, Math.min(w, h));
+    const offsetX = (w - size) / 2;
+    const offsetY = (h - size) / 2;
+    return { size, offsetX, offsetY };
+};
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
@@ -51,11 +61,14 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
-    const centerX = x * canvas.width;
-    const centerY = y * canvas.height;
+    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const centerX = ax + x * artSize + offsetXPx2;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const centerY = ay + y * artSize + offsetYPx2;
 
     // Radius mapping (fully relative): use radiusFactor against min(canvas width/height)
-    const minWH = Math.min(canvas.width, canvas.height);
+    const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? baseRadiusFactor ?? 0.4);
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
     const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -65,8 +78,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     // radiusBump contributes an additional small fraction of canvas size (2% per unit)
     const bump = rb * (minWH * 0.02) * Math.max(0, scale);
     // Remove artificial 0.4*minWH clamp so Size X/Y sliders can use full configured range
-    const radiusX = layer?.viewBoxMapped ? (canvas.width / 2) * scale : Math.max(0, baseRadiusX + bump);
-    const radiusY = layer?.viewBoxMapped ? (canvas.height / 2) * scale : Math.max(0, baseRadiusY + bump);
+    // Use artboard size for viewBoxMapped as well to keep size tied to the same reference as position
+    const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
 
     // Defensive check for non-finite values
     if (!Number.isFinite(radiusX) || !Number.isFinite(radiusY) || !Number.isFinite(centerX) || !Number.isFinite(centerY)) {
@@ -286,7 +300,7 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
     try {
         const w = canvas.width || 0;
         const h = canvas.height || 0;
-        const minWH = Math.min(w, h);
+        const minWH = Math.min(w, h); // artboard size
         const scale = Number(layer?.position?.scale ?? 1);
         if (layer?.image?.src) {
             const cache = imageCache.get(layer.image.src);
@@ -323,8 +337,9 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
     }
 
     const { x = 0.5, y = 0.5 } = layer?.position || {};
-    const cx = x * w;
-    const cy = y * h;
+    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const cx = ax + x * artSize + (Number(layer.xOffset)||0)*canvas.width;
+    const cy = ay + y * artSize + (Number(layer.yOffset)||0)*canvas.height;
     const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
 
     // Determine which neighbor offsets are needed
@@ -386,8 +401,11 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     }
     const img = cache.img;
 
-    const centerX = x * canvas.width;
-    const centerY = y * canvas.height;
+    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const centerX = ax + x * artSize + offsetXPx2;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const centerY = ay + y * artSize + offsetYPx2;
     const iw0 = img.naturalWidth || img.width || 0;
     const ih0 = img.naturalHeight || img.height || 0;
     if (iw0 <= 0 || ih0 <= 0) { ctx.restore(); return; }
@@ -460,9 +478,12 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const cw = canvas?.width || 0;
         const ch = canvas?.height || 0;
-        const minWH = Math.min(cw, ch);
-        const centerX = x * cw;
-        const centerY = y * ch;
+        const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+        const minWH = artSize;
+        const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const centerX = ax + x * artSize + offsetXPx2;
+        const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const centerY = ay + y * artSize + offsetYPx2;
         const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
         const rfY = Number.isFinite(layer.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -470,8 +491,8 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
         const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const radiusX = layer.viewBoxMapped ? (cw / 2) * scale : Math.max(0, baseRadiusX + bump);
-        const radiusY = layer.viewBoxMapped ? (ch / 2) * scale : Math.max(0, baseRadiusY + bump);
+        const radiusX = layer.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
+        const radiusY = layer.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
 
         const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
         const rotRad = (rotDeg * Math.PI) / 180;
@@ -528,9 +549,12 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 
     const { width: cw, height: ch } = canvas;
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
-    const centerX = x * cw;
-    const centerY = y * ch;
-    const minWH = Math.min(cw, ch);
+    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const centerX = ax + x * artSize + offsetXPx2;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const centerY = ay + y * artSize + offsetYPx2;
+    const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
     const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -538,8 +562,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
     const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
     const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-    const radiusX = layer?.viewBoxMapped ? (cw / 2) * scale : Math.max(0, baseRadiusX + bump);
-    const radiusY = layer?.viewBoxMapped ? (ch / 2) * scale : Math.max(0, baseRadiusY + bump);
+    const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
 
     const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
     const rotRad = (rotDeg * Math.PI) / 180;
@@ -719,6 +743,14 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         applySnapshot(idx, cur.stack[cur.index]);
         setHistoryTick(t => t + 1);
     };
+
+    // Expose internal canvas and current animation time to parent components
+    useImperativeHandle(ref, () => ({
+        /** @returns {HTMLCanvasElement|null} */
+        get canvas() { return localCanvasRef.current; },
+        /** Get current accumulated animation time in seconds */
+        getAnimationTime: () => animationTimeRef.current ?? 0,
+    }), []);
 
     // Keep canvas sized to its container (the .canvas-container)
     useEffect(() => {
@@ -1019,7 +1051,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             animationTimeRef.current += dt;
         }
         const nowSec = animationTimeRef.current;
-        const forceFullPass = backgroundChanged || modeChanged || countChanged || (layerHashesRef.current.size === 0) || (isFrozen && colorFadeWhileFrozen);
+        const forceFullPass = backgroundChanged || modeChanged || countChanged ||
+            (layerHashesRef.current.size === 0) || (isFrozen && colorFadeWhileFrozen) ||
+            needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -1673,4 +1707,5 @@ const areCanvasPropsEqual = (prev, next) => {
   );
 };
 
+export { drawShape, drawImage, drawLayerWithWrap };
 export default React.memo(Canvas, areCanvasPropsEqual);
