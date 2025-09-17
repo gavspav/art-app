@@ -1120,9 +1120,14 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
             }
+            const artboard = getArtboardMapping(canvas);
             layers.forEach(l => {
-                const x = (l?.position?.x || 0.5) * width;
-                const y = (l?.position?.y || 0.5) * height;
+                const lx = Number(l?.position?.x);
+                const ly = Number(l?.position?.y);
+                const offsetX = (Number(l?.xOffset) || 0) * width;
+                const offsetY = (Number(l?.yOffset) || 0) * height;
+                const x = artboard.offsetX + (Number.isFinite(lx) ? lx : 0.5) * artboard.size + offsetX;
+                const y = artboard.offsetY + (Number.isFinite(ly) ? ly : 0.5) * artboard.size + offsetY;
                 ctx.beginPath();
                 ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
                 ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
@@ -1135,16 +1140,28 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (isNodeEditMode && selectedLayerIndex != null && Array.isArray(layers) && layers.length > 0) {
             const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
             const sel = layers[clampedIndex];
+            const artboard = getArtboardMapping(canvas);
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
-                const layerCX = x * width;
-                const layerCY = y * height;
+                const { size: artSize, offsetX: ax, offsetY: ay } = artboard;
+                const offsetXPx = (Number(sel.xOffset) || 0) * width;
+                const offsetYPx = (Number(sel.yOffset) || 0) * height;
+                const layerCX = ax + x * artSize + offsetXPx;
+                const layerCY = ay + y * artSize + offsetYPx;
                 // Prefer cached, last-rendered deformed points for exact alignment
                 let points = renderedPointsRef.current.get(clampedIndex);
                 if (!Array.isArray(points) || points.length !== sel.nodes.length) {
                     // Fallback: rotated base-node positions
-                    const radiusX = sel.viewBoxMapped ? (width / 2) * scale : Math.min((sel.width + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), width * 0.4) * scale;
-                    const radiusY = sel.viewBoxMapped ? (height / 2) * scale : Math.min((sel.height + (sel.radiusBump || 0) * 20) * (sel.baseRadiusFactor ?? 0.4), height * 0.4) * scale;
+                    const minWH = artSize;
+                    const rfBase = Number(sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4);
+                    const rfX = Number.isFinite(sel.radiusFactorX) ? Number(sel.radiusFactorX) : rfBase;
+                    const rfY = Number.isFinite(sel.radiusFactorY) ? Number(sel.radiusFactorY) : rfBase;
+                    const rb = Number(sel.radiusBump ?? 0);
+                    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
+                    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
+                    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
+                    const radiusX = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
+                    const radiusY = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
                     const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
                     const rotRad = (rotDeg * Math.PI) / 180;
                     const sinR = Math.sin(rotRad);
@@ -1201,10 +1218,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
             // Always draw Orbit center handle (white dot with red border)
             {
+                const { size: artSize, offsetX: ax, offsetY: ay } = artboard;
+                const offsetXPx = (Number(sel.xOffset) || 0) * width;
+                const offsetYPx = (Number(sel.yOffset) || 0) * height;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
-                const ox = ocx * width;
-                const oy = ocy * height;
+                const ox = ax + ocx * artSize + offsetXPx;
+                const oy = ay + ocy * artSize + offsetYPx;
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(ox, oy, 6, 0, Math.PI * 2);

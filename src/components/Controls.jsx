@@ -64,11 +64,9 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
     const nextColors = [...colors];
     nextColors[selIdx] = nextHex;
     const n = Math.max(1, nextColors.length);
-    const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
-    if (!varyColorsEffective && typeof setLayers === 'function') {
-      const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
+    const varyPalette = !!(currentLayer?.vary?.colors);
+    if (!varyPalette && typeof setLayers === 'function') {
+      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
       setLayers(prev => prev.map(l => (
         effectiveSet.has(l.id)
           ? { ...l, colors: [...nextColors], numColors: n, selectedColor: 0 }
@@ -1352,11 +1350,9 @@ const Controls = forwardRef(({
   const handleLayerColorChange = (newColors) => {
     const arr = Array.isArray(newColors) ? newColors : [];
     const n = Math.max(1, arr.length);
-    const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
-    if (!varyColorsEffective && typeof setLayers === 'function') {
-      const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
+    const varyPalette = !!(currentLayer?.vary?.colors);
+    if (!varyPalette && typeof setLayers === 'function') {
+      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
       setLayers(prev => prev.map(l => (
         effectiveSet.has(l.id)
           ? { ...l, colors: [...arr], numColors: n, selectedColor: 0 }
@@ -1429,11 +1425,9 @@ const Controls = forwardRef(({
                   ? currentLayer.numColors
                   : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
-                if (!varyColorsEffective && typeof setLayers === 'function') {
-                  const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-                  const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                  const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
+                const varyPalette = !!(currentLayer?.vary?.colors);
+                if (!varyPalette && typeof setLayers === 'function') {
+                  const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
                   setLayers(prev => prev.map(l => (
                     effectiveSet.has(l.id)
                       ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
@@ -1527,17 +1521,12 @@ const Controls = forwardRef(({
                   checked={!!(currentLayer?.vary?.colors)}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
-                    const baseColors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-                    const n = Number.isFinite(currentLayer?.numColors) ? Math.max(1, currentLayer.numColors) : (baseColors.length || 1);
                     if (typeof setLayers === 'function') {
                       if (!checked) {
-                        // Turning vary OFF: unify palettes across all layers to the selected layer's palette
+                        // Turning vary OFF: keep existing palettes but drop the flag so future edits broadcast explicitly
                         setLayers(prev => prev.map(l => ({
                           ...l,
                           vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: false },
-                          colors: [...baseColors],
-                          numColors: n,
-                          selectedColor: 0,
                         })));
                       } else {
                         // Turning vary ON: just set the flag
@@ -1546,11 +1535,6 @@ const Controls = forwardRef(({
                     } else {
                       const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colors: checked };
                       const nextUpdate = { vary: nextVary };
-                      if (!checked) {
-                        nextUpdate.colors = [...baseColors];
-                        nextUpdate.numColors = n;
-                        nextUpdate.selectedColor = 0;
-                      }
                       updateLayer(nextUpdate);
                     }
                   }}
@@ -1646,9 +1630,11 @@ const Controls = forwardRef(({
                     };
                     if (!varyFade && typeof setLayers === 'function') {
                       // Broadcast enable + speed + ensure >=2 stops across all layers
+                      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
                       const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
                       const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
                       setLayers(prev => prev.map(l => {
+                        if (!effectiveSet.has(l.id)) return l;
                         const arr = Array.isArray(l.colors) ? l.colors : [];
                         const out = v ? ensureTwoStops(arr) : arr;
                         return { ...l, colorFadeEnabled: v, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
@@ -1687,7 +1673,9 @@ const Controls = forwardRef(({
                         const selEnabled = !!(currentLayer?.colorFadeEnabled);
                         const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
                         const selSpeed = selEnabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
+                        const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
                         setLayers(prev => prev.map(l => {
+                          if (!effectiveSet.has(l.id)) return l;
                           const arr = Array.isArray(l.colors) ? l.colors : [];
                           const out = selEnabled ? ensureTwoStops(arr) : arr;
                           return { ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: false }, colorFadeEnabled: selEnabled, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
@@ -1772,16 +1760,14 @@ const Controls = forwardRef(({
         : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
-      const varyColorsEffective = !!(currentLayer?.vary?.colors) && !!(currentLayer?.vary?.colorFadeEnabled);
-      if (!varyColorsEffective && typeof setLayers === 'function') {
-                  const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-                  const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                  const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
-                  setLayers(prev => prev.map(l => (
-                    effectiveSet.has(l.id)
-                      ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
-                      : l
-                  )));
+      const varyPalette = !!(currentLayer?.vary?.colors);
+      if (!varyPalette && typeof setLayers === 'function') {
+        const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+        setLayers(prev => prev.map(l => (
+          effectiveSet.has(l.id)
+            ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
+            : l
+        )));
       } else {
         updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
       }
