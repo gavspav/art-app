@@ -34,7 +34,7 @@ const MidiRotationStatus = ({ paramId }) => {
 };
 
 // Per-layer MIDI Colour control block (RGBA) with broadcasting when vary is OFF
-const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, isBroadcastTarget }) => {
+const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, isBroadcastTarget, paletteVary }) => {
   const {
     mappings: midiMappings,
     beginLearn,
@@ -64,14 +64,25 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
     const nextColors = [...colors];
     nextColors[selIdx] = nextHex;
     const n = Math.max(1, nextColors.length);
-    const varyPalette = !!(currentLayer?.vary?.colors);
+    const varyPalette = !!paletteVary;
     if (!varyPalette && typeof setLayers === 'function') {
-      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
       setLayers(prev => prev.map(l => (
-        effectiveSet.has(l.id)
+        allSet.has(l.id)
           ? { ...l, colors: [...nextColors], numColors: n, selectedColor: 0 }
           : l
       )));
+    } else if (isBroadcastTarget && typeof setLayers === 'function') {
+      const targeted = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+      if (targeted.size > 0) {
+        setLayers(prev => prev.map(l => (
+          targeted.has(l.id)
+            ? { ...l, colors: [...nextColors], numColors: n, selectedColor: 0 }
+            : l
+        )));
+      } else {
+        updateLayer({ colors: nextColors });
+      }
     } else {
       updateLayer({ colors: nextColors });
     }
@@ -893,6 +904,7 @@ const Controls = forwardRef(({
     toggleLayerSelection,
     clearSelection,
     getActiveTargetLayerIds,
+    layers = [],
   } = useAppState() || {};
 
   // Local UI state for delete picker
@@ -953,6 +965,41 @@ const Controls = forwardRef(({
   }, [getActiveTargetLayerIds, layerIds]);
   const isGroupTarget = editTarget?.type === 'group' || editTarget?.type === 'selection';
   const isBroadcastTarget = isGroupTarget;
+
+  const layersById = useMemo(() => {
+    const map = new Map();
+    (layers || []).forEach(layer => {
+      if (layer?.id) map.set(layer.id, layer);
+    });
+    return map;
+  }, [layers]);
+
+  const getTargetedLayerIds = useCallback(() => {
+    if (!isBroadcastTarget) {
+      return currentLayer?.id ? [currentLayer.id] : [];
+    }
+    const targetedSet = buildTargetSet({ mode: 'targeted' });
+    if (targetedSet.size > 0) return Array.from(targetedSet);
+    return (layers || []).map(l => l.id).filter(Boolean);
+  }, [isBroadcastTarget, buildTargetSet, currentLayer?.id, layers]);
+
+  const paletteVaryChecked = useMemo(() => {
+    const ids = getTargetedLayerIds();
+    if (!ids.length) return !!(currentLayer?.vary?.colors);
+    return ids.every(id => layersById.get(id)?.vary?.colors);
+  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.colors]);
+
+  const numColorsVaryChecked = useMemo(() => {
+    const ids = getTargetedLayerIds();
+    if (!ids.length) return !!(currentLayer?.vary?.numColors);
+    return ids.every(id => layersById.get(id)?.vary?.numColors);
+  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.numColors]);
+
+  const colorFadeVaryChecked = useMemo(() => {
+    const ids = getTargetedLayerIds();
+    if (!ids.length) return !!(currentLayer?.vary?.colorFadeEnabled);
+    return ids.every(id => layersById.get(id)?.vary?.colorFadeEnabled);
+  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.colorFadeEnabled]);
 
   const applyRotation = useCallback((wrapped) => {
     if (typeof setLayers === 'function') {
@@ -1350,14 +1397,25 @@ const Controls = forwardRef(({
   const handleLayerColorChange = (newColors) => {
     const arr = Array.isArray(newColors) ? newColors : [];
     const n = Math.max(1, arr.length);
-    const varyPalette = !!(currentLayer?.vary?.colors);
+    const varyPalette = !!paletteVaryChecked;
     if (!varyPalette && typeof setLayers === 'function') {
-      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
       setLayers(prev => prev.map(l => (
-        effectiveSet.has(l.id)
+        allSet.has(l.id)
           ? { ...l, colors: [...arr], numColors: n, selectedColor: 0 }
           : l
       )));
+    } else if (isBroadcastTarget && typeof setLayers === 'function') {
+      const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+      if (groupSet.size > 0) {
+        setLayers(prev => prev.map(l => (
+          groupSet.has(l.id)
+            ? { ...l, colors: [...arr], numColors: n, selectedColor: 0 }
+            : l
+        )));
+      } else {
+        updateLayer({ colors: [...arr], numColors: n, selectedColor: 0 });
+      }
     } else {
       updateLayer({ colors: [...arr], numColors: n, selectedColor: 0 });
     }
@@ -1370,16 +1428,25 @@ const Controls = forwardRef(({
     let next = base.slice(0, n);
     while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
     // If either numColors vary is OFF or animate-colours vary is OFF, broadcast
-    const varyNumEffective = !!(currentLayer?.vary?.numColors) && !!(currentLayer?.vary?.colorFadeEnabled);
+    const varyNumEffective = numColorsVaryChecked && colorFadeVaryChecked;
     if (!varyNumEffective && typeof setLayers === 'function') {
-      const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
+      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
       setLayers(prev => prev.map(l => (
-        effectiveSet.has(l.id)
+        allSet.has(l.id)
           ? { ...l, colors: [...next], numColors: n, selectedColor: 0 }
           : l
       )));
+    } else if (isBroadcastTarget && typeof setLayers === 'function') {
+      const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+      if (groupSet.size > 0) {
+        setLayers(prev => prev.map(l => (
+          groupSet.has(l.id)
+            ? { ...l, colors: [...next], numColors: n, selectedColor: 0 }
+            : l
+        )));
+      } else {
+        updateLayer({ colors: next, numColors: n, selectedColor: 0 });
+      }
     } else {
       updateLayer({ colors: next, numColors: n, selectedColor: 0 });
     }
@@ -1395,6 +1462,7 @@ const Controls = forwardRef(({
           setLayers={setLayers}
           buildTargetSet={buildTargetSet}
           isBroadcastTarget={isBroadcastTarget}
+          paletteVary={paletteVaryChecked}
         />
 
         {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
@@ -1425,14 +1493,25 @@ const Controls = forwardRef(({
                   ? currentLayer.numColors
                   : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                const varyPalette = !!(currentLayer?.vary?.colors);
+                const varyPalette = paletteVaryChecked;
                 if (!varyPalette && typeof setLayers === 'function') {
-                  const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+                  const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
                   setLayers(prev => prev.map(l => (
-                    effectiveSet.has(l.id)
+                    allSet.has(l.id)
                       ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
                       : l
                   )));
+                } else if (isBroadcastTarget && typeof setLayers === 'function') {
+                  const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+                  if (groupSet.size > 0) {
+                    setLayers(prev => prev.map(l => (
+                      groupSet.has(l.id)
+                        ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
+                        : l
+                    )));
+                  } else {
+                    updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+                  }
                 } else {
                   updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
                 }
@@ -1518,7 +1597,7 @@ const Controls = forwardRef(({
               >
                 <input
                   type="checkbox"
-                  checked={!!(currentLayer?.vary?.colors)}
+                  checked={paletteVaryChecked}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
                     if (typeof setLayers === 'function') {
@@ -1551,7 +1630,7 @@ const Controls = forwardRef(({
               >
                 <input
                   type="checkbox"
-                  checked={!!(currentLayer?.vary?.numColors)}
+                  checked={numColorsVaryChecked}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
                     const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
@@ -1622,7 +1701,7 @@ const Controls = forwardRef(({
                   checked={!!currentLayer?.colorFadeEnabled}
                   onChange={(e) => {
                     const v = !!e.target.checked;
-                    const varyFade = !!(currentLayer?.vary?.colorFadeEnabled);
+                    const varyFade = colorFadeVaryChecked;
                     const ensureTwoStops = (arr) => {
                       if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
                       if (arr.length === 1) return [arr[0], arr[0]];
@@ -1641,11 +1720,36 @@ const Controls = forwardRef(({
                       }));
                     } else {
                       const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
-                      const next = { colorFadeEnabled: v };
-                      if (v && baseSpeed <= 0) next.colorFadeSpeed = 0.5;
+                      const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
+                      if (isBroadcastTarget && typeof setLayers === 'function') {
+                        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+                        if (groupSet.size > 0) {
+                          setLayers(prev => prev.map(l => {
+                            if (!groupSet.has(l.id)) return l;
+                            const arr = Array.isArray(l.colors) ? l.colors : [];
+                            const nextCols = v ? ensureTwoStops(arr) : arr;
+                            const nextNum = Array.isArray(nextCols) ? nextCols.length : (l.numColors || 1);
+                            return {
+                              ...l,
+                              colorFadeEnabled: v,
+                              colorFadeSpeed: selSpeed,
+                              ...(v ? { colors: nextCols, numColors: nextNum } : {}),
+                            };
+                          }));
+                          return;
+                        }
+                      }
                       const curCols = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-                      if (v && curCols.length < 2) next.colors = ensureTwoStops(curCols);
-                      updateLayer(next);
+                      const nextCols = v ? ensureTwoStops(curCols) : curCols;
+                      const payload = {
+                        colorFadeEnabled: v,
+                        colorFadeSpeed: selSpeed,
+                      };
+                      if (v) {
+                        payload.colors = nextCols;
+                        payload.numColors = nextCols.length;
+                      }
+                      updateLayer(payload);
                     }
                   }}
                   onMouseDown={(e) => { e.stopPropagation(); }}
@@ -1659,7 +1763,7 @@ const Controls = forwardRef(({
               >
                 <input
                   type="checkbox"
-                  checked={!!(currentLayer?.vary?.colorFadeEnabled)}
+                  checked={colorFadeVaryChecked}
                   onChange={(e) => {
                     const checked = !!e.target.checked;
                     const ensureTwoStops = (arr) => {
@@ -1707,9 +1811,17 @@ const Controls = forwardRef(({
                     value={Math.max(0, Math.min(4, Number(currentLayer?.colorFadeSpeed ?? 0.5)))}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
-                      const varyFade = !!(currentLayer?.vary?.colorFadeEnabled);
+                      const varyFade = colorFadeVaryChecked;
                       if (!varyFade && typeof setLayers === 'function') {
-                        setLayers(prev => prev.map(l => ({ ...l, colorFadeSpeed: v })));
+                        const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+                        setLayers(prev => prev.map(l => (allSet.has(l.id) ? { ...l, colorFadeSpeed: v } : l)));
+                      } else if (isBroadcastTarget && typeof setLayers === 'function') {
+                        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+                        if (groupSet.size > 0) {
+                          setLayers(prev => prev.map(l => (groupSet.has(l.id) ? { ...l, colorFadeSpeed: v } : l)));
+                        } else {
+                          updateLayer({ colorFadeSpeed: v });
+                        }
                       } else {
                         updateLayer({ colorFadeSpeed: v });
                       }
@@ -1760,14 +1872,25 @@ const Controls = forwardRef(({
         : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
-      const varyPalette = !!(currentLayer?.vary?.colors);
+      const varyPalette = paletteVaryChecked;
       if (!varyPalette && typeof setLayers === 'function') {
-        const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
+        const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
         setLayers(prev => prev.map(l => (
-          effectiveSet.has(l.id)
+          allSet.has(l.id)
             ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
             : l
         )));
+      } else if (isBroadcastTarget && typeof setLayers === 'function') {
+        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
+        if (groupSet.size > 0) {
+          setLayers(prev => prev.map(l => (
+            groupSet.has(l.id)
+              ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
+              : l
+          )));
+        } else {
+          updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
+        }
       } else {
         updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
       }
