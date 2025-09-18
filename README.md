@@ -56,12 +56,14 @@ npm run dev
 - Space – Toggle Freeze
 - H – Toggle controls overlay
 - F – Toggle fullscreen
+- G – Toggle parameter target (Individual / Global)
 - R – Randomize All
 - M – Toggle MIDI Learn visibility (global)
 - N – Toggle Node Edit mode
 - [ / ] – Previous/Next layer
 - 1..9 – Jump to layer
 - Z – Toggle Z-Ignore (disable Z scaling movement)
+- L – Show/Hide layer outlines
 
 ## MIDI
 

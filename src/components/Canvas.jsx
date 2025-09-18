@@ -639,6 +639,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         setEditTarget,
         editTarget,
         getActiveTargetLayerIds,
+        showLayerOutlines,
     } = useAppState() || {};
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
@@ -1083,31 +1084,58 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             ctx.filter = 'none';
         }
 
-        // Selection highlight outlines (multi-select)
-        try {
-            const highlightIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
-            if ((editTarget?.type === 'group' || editTarget?.type === 'selection') && typeof getActiveTargetLayerIds === 'function') {
-                const targetIdsList = getActiveTargetLayerIds() || [];
-                for (const id of targetIdsList) highlightIds.add(id);
-            }
-            if (highlightIds.size > 0) {
-                ctx.save();
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = 'rgba(79,195,247,0.9)';
-                layers.forEach((layer) => {
-                    if (!layer || !layer.id || !highlightIds.has(layer.id)) return;
-                    const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
-                    if (Array.isArray(pts) && pts.length >= 3) {
-                        ctx.beginPath();
-                        ctx.moveTo(pts[0].x, pts[0].y);
-                        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-                        ctx.closePath();
-                        ctx.stroke();
-                    }
-                });
-                ctx.restore();
-            }
-        } catch {}
+        // Selection highlight outlines (active layer, selections, groups)
+        if (showLayerOutlines) {
+            try {
+                const highlightIds = new Set();
+                if (Array.isArray(selectedLayerIdsCtx)) {
+                    selectedLayerIdsCtx.forEach(id => { if (id) highlightIds.add(id); });
+                }
+                if (typeof getActiveTargetLayerIds === 'function') {
+                    const targetIdsList = getActiveTargetLayerIds() || [];
+                    targetIdsList.forEach(id => { if (id) highlightIds.add(id); });
+                }
+                if (Array.isArray(layers) && layers.length > 0) {
+                    const activeIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, layers.length - 1));
+                    const activeLayer = layers[activeIndex];
+                    if (activeLayer?.id) highlightIds.add(activeLayer.id);
+                }
+
+                if (highlightIds.size > 0 && Array.isArray(layers) && layers.length) {
+                    const idToLayer = new Map();
+                    layers.forEach((layer, index) => {
+                        if (layer?.id) idToLayer.set(layer.id, { layer, index });
+                    });
+                    const activeLayerId = (() => {
+                        if (!Array.isArray(layers) || !layers.length) return null;
+                        const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, layers.length - 1));
+                        const layer = layers[idx];
+                        return layer?.id || null;
+                    })();
+
+                    ctx.save();
+                    const primaryColour = 'rgba(79,195,247,0.9)';
+                    const secondaryColour = 'rgba(79,195,247,0.6)';
+                    highlightIds.forEach((id) => {
+                        const info = idToLayer.get(id);
+                        if (!info) return;
+                        const { layer, index } = info;
+                        if (!layer || !layer.visible) return;
+                        const path = buildLayerHitPath(layer, canvas, {
+                            renderedPoints: renderedPointsRef.current.get(index),
+                            globalSeed,
+                            time: animationTimeRef.current || 0,
+                        });
+                        if (!path) return;
+                        const isActive = id === activeLayerId;
+                        ctx.lineWidth = isActive ? 3 : 2;
+                        ctx.strokeStyle = isActive ? primaryColour : secondaryColour;
+                        ctx.stroke(path);
+                    });
+                    ctx.restore();
+                }
+            } catch {}
+        }
 
         // Debug overlay for imported positions (draw after content)
         if (typeof window !== 'undefined' && window.__artapp_debug_import) {

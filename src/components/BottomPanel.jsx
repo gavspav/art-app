@@ -312,22 +312,6 @@ const BottomPanel = ({
     }
   }, [activeTab]);
 
-  // Keyboard shortcut: 'l' to toggle lock/unlock (no modifiers)
-  useEffect(() => {
-    const onKey = (e) => {
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
-      if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
-      const key = (e.key || '').toLowerCase();
-      if (key === 'l') {
-        e.preventDefault();
-        toggleLock();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggleLock]);
-
   // Keyboard shortcut: 'h' to minimize (peek) the panel (no modifiers)
   useEffect(() => {
     const onKey = (e) => {

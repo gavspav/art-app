@@ -15,6 +15,7 @@ export function useKeyboardShortcuts({
   clearSelection,
   hotkeyRef,
   setParameterTargetMode,
+  setShowLayerOutlines,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -28,6 +29,12 @@ export function useKeyboardShortcuts({
       if (e.code === 'Space') {
         e.preventDefault();
         setIsFrozen?.(prev => !prev);
+        return;
+      }
+
+      if (key === 'l') {
+        e.preventDefault();
+        setShowLayerOutlines?.(prev => !prev);
         return;
       }
 
@@ -124,5 +131,6 @@ export function useKeyboardShortcuts({
     clearSelection,
     hotkeyRef,
     setParameterTargetMode,
+    setShowLayerOutlines,
   ]);
 }

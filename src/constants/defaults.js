@@ -151,4 +151,5 @@ export const DEFAULTS = {
   layers: [DEFAULT_LAYER],
   selectedLayerIndex: 0,
   parameterTargetMode: 'individual',
+  showLayerOutlines: true,
 };

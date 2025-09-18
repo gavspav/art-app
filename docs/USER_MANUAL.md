@@ -59,6 +59,7 @@ Use **1-5** to switch tabs quickly.
 | Key | Description |
 |-----|-------------|
 | **F** | Toggle fullscreen |
+| **G** | Toggle parameter target (Individual / Global) |
 | **Space** | Freeze / Unfreeze |
 | **Shift+1..9** | Activate layers 1–9 |
 | **M** | Toggle MIDI panel |
@@ -66,7 +67,7 @@ Use **1-5** to switch tabs quickly.
 | **Z** | Toggle Z-Ignore |
 | **[ / ]** | Select previous / next layer |
 | **K** | Show / hide shortcuts overlay |
-| **L** | Lock / Unlock control panel |
+| **L** | Show / Hide layer outlines |
 | **H** | Hide / Show control panel |
 | **Esc** | Close dialogs / overlays |
 

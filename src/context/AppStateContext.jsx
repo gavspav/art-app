@@ -83,6 +83,8 @@ export const AppStateProvider = ({ children }) => {
     colorFadeWhileFrozen: true,
     // Parameter targeting mode
     parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
+    // Selection outline visibility
+    showLayerOutlines: DEFAULTS.showLayerOutlines ?? true,
 
     // Multi-select and Layer Groups
     selectedLayerIds: [], // array of layer.id
@@ -231,6 +233,15 @@ export const AppStateProvider = ({ children }) => {
   const setParameterTargetMode = useCallback((mode) => {
     const normalized = (typeof mode === 'string' && mode.toLowerCase() === 'global') ? 'global' : 'individual';
     setAppState(prev => ({ ...prev, parameterTargetMode: normalized }));
+  }, []);
+
+  const setShowLayerOutlines = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      showLayerOutlines: (typeof value === 'function')
+        ? !!value(prev.showLayerOutlines)
+        : !!value,
+    }));
   }, []);
 
   // Morph setters
@@ -430,6 +441,8 @@ export const AppStateProvider = ({ children }) => {
       randomizePalette: true,
       randomizeNumColors: true,
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
+      colorFadeWhileFrozen: true,
+      showLayerOutlines: DEFAULTS.showLayerOutlines ?? true,
     });
   }, []);
 
@@ -460,6 +473,7 @@ export const AppStateProvider = ({ children }) => {
     setRandomizeNumColors,
     setColorFadeWhileFrozen,
     setParameterTargetMode,
+    setShowLayerOutlines,
 
     // Morph setters
     setMorphEnabled,
