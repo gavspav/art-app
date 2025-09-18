@@ -32,7 +32,7 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      if (key === 'l') {
+      if (key === 'o') {
         e.preventDefault();
         setShowLayerOutlines?.(prev => !prev);
         return;

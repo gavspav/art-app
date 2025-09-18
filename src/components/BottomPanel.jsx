@@ -332,6 +332,23 @@ const BottomPanel = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [panelState, resetHideTimer]);
 
+  // Keyboard shortcut: 'l' to toggle lock/unlock (allow with or without Shift)
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      // Block only Ctrl/Meta/Alt; allow Shift so uppercase 'L' also works
+      if (e.altKey || e.metaKey || e.ctrlKey) return;
+      const key = (e.key || '').toLowerCase();
+      if (key === 'l') {
+        e.preventDefault();
+        toggleLock();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleLock]);
+
   const renderTabContent = () => {
     switch (activeTab) {
       case 'presets':

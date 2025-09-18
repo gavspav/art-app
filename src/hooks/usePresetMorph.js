@@ -131,23 +131,38 @@ export function usePresetMorph({
               return nextOpacity !== l.opacity ? { ...l, opacity: nextOpacity } : l;
             }));
           } else {
-            // Tween selected numerics in-place; keep animation continuity
+            // Tween selected numerics + palette colors per layer; keep animation continuity
             setBackgroundColor && setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', t));
             if (setGlobalSpeedMultiplier) {
               const nextGS = lerp(Number(a.globalSpeedMultiplier || 1), Number(b.globalSpeedMultiplier || 1), t);
               setGlobalSpeedMultiplier(Number(nextGS));
             }
+            const aLayers = Array.isArray(a.layers) ? a.layers : [];
             const bLayers = Array.isArray(b.layers) ? b.layers : [];
             setLayers(prev => prev.map((la, i) => {
-              const lb = bLayers[i] || la;
-              const pa = la.position || { x: 0.5, y: 0.5, scale: 1 };
-              const pb = lb.position || { x: 0.5, y: 0.5, scale: 1 };
+              const laSrc = aLayers[i] || la;
+              const lbSrc = bLayers[i] || la;
+              const pa = (laSrc.position) ? laSrc.position : { x: 0.5, y: 0.5, scale: 1 };
+              const pb = (lbSrc.position) ? lbSrc.position : { x: 0.5, y: 0.5, scale: 1 };
+
+              // Palette color interpolation: map color k of A -> color k of B
+              const ca = Array.isArray(la.colors) ? la.colors : [];
+              const cb = Array.isArray(lbSrc.colors) ? lbSrc.colors : ca;
+              const n = Math.min(ca.length || 0, cb.length || 0);
+              let nextColors = la.colors;
+              if (n > 0) {
+                nextColors = Array.from({ length: n }, (_, k) => lerpColor(ca[k], cb[k], t));
+              }
+
               return {
                 ...la,
-                opacity: lerp(Number(la.opacity || 1), Number(lb.opacity || 1), t),
-                rotation: lerp(Number(la.rotation || 0), Number(lb.rotation || 0), t),
-                radiusFactor: lerp(Number(la.radiusFactor || 0.125), Number(lb.radiusFactor || 0.125), t),
-                movementSpeed: lerp(Number(la.movementSpeed || 1), Number(lb.movementSpeed || 1), t),
+                opacity: lerp(Number(la.opacity || 1), Number(lbSrc.opacity || 1), t),
+                rotation: lerp(Number(la.rotation || 0), Number(lbSrc.rotation || 0), t),
+                radiusFactor: lerp(Number(la.radiusFactor || 0.125), Number(lbSrc.radiusFactor || 0.125), t),
+                movementSpeed: lerp(Number(la.movementSpeed || 1), Number(lbSrc.movementSpeed || 1), t),
+                colors: nextColors,
+                numColors: Array.isArray(nextColors) ? nextColors.length : (la.numColors || 1),
+                selectedColor: 0,
                 position: {
                   ...pa,
                   x: lerp(Number(pa.x || 0.5), Number(pb.x || 0.5), t),

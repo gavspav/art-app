@@ -83,8 +83,8 @@ export const AppStateProvider = ({ children }) => {
     colorFadeWhileFrozen: true,
     // Parameter targeting mode
     parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
-    // Selection outline visibility
-    showLayerOutlines: DEFAULTS.showLayerOutlines ?? true,
+    // Selection outline visibility (disabled by default)
+    showLayerOutlines: false,
 
     // Multi-select and Layer Groups
     selectedLayerIds: [], // array of layer.id
@@ -442,7 +442,7 @@ export const AppStateProvider = ({ children }) => {
       randomizeNumColors: true,
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
       colorFadeWhileFrozen: true,
-      showLayerOutlines: DEFAULTS.showLayerOutlines ?? true,
+      showLayerOutlines: false,
     });
   }, []);
 
