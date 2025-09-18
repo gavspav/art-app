@@ -7,7 +7,6 @@ import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
 import { svgStringToNodes, samplePath, extractMergedNodesWithTransforms } from './utils/svgToNodes';
 import { importSVGFiles, parseSVGForImport, createLayerFromSVG } from './utils/svgImportEnhanced';
-import { createSeededRandom } from './utils/random';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
@@ -17,7 +16,7 @@ import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure, pickPaletteColors } from './utils/paletteUtils.js';
-import { clamp as clampUtil, mixRandom as mixRandomUtil } from './utils/mathUtils.js';
+import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 
 import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
@@ -49,7 +48,7 @@ const MainApp = () => {
     // Color randomization toggles
     randomizePalette, setRandomizePalette,
     randomizeNumColors, setRandomizeNumColors,
-    rotationVaryAcrossLayers, setRotationVaryAcrossLayers,
+    parameterTargetMode, setParameterTargetMode,
     // Global: fade while frozen
     colorFadeWhileFrozen, setColorFadeWhileFrozen,
     clearSelection,
@@ -82,12 +81,175 @@ const MainApp = () => {
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
-  // Simple recording state (placeholder)
   const [isRecording, setIsRecording] = useState(false);
+  const recorderRef = useRef({ mediaRecorder: null, chunks: [], stream: null });
+  const latestRecordingNameRef = useRef('art-recording');
+
+  const cleanupRecorder = useCallback(() => {
+    try {
+      const { stream } = recorderRef.current || {};
+      if (stream) {
+        stream.getTracks()?.forEach(track => {
+          try { track.stop(); } catch {}
+        });
+      }
+    } catch {}
+    recorderRef.current = { mediaRecorder: null, chunks: [], stream: null };
+  }, []);
+
+  const startRecording = useCallback(() => {
+    if (isRecording) return;
+    const canvasHandle = canvasRef.current;
+    const canvasEl = canvasHandle?.canvas || canvasHandle;
+    if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
+      window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
+      return;
+    }
+
+    let stream;
+    try {
+      stream = canvasEl.captureStream(60);
+    } catch (err) {
+      console.warn('Failed to capture canvas stream', err);
+      window.alert('Unable to start recording: canvas capture stream failed.');
+      return;
+    }
+
+    if (!stream) {
+      window.alert('Unable to start recording: no stream produced.');
+      return;
+    }
+
+    const chunks = [];
+    // Prefer MP4 (H.264) when supported by the browser; fall back to WebM variants
+    const typeCandidates = [
+      'video/mp4;codecs=h264',
+      'video/mp4',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ];
+
+    const pickRecorderOptions = () => {
+      if (typeof MediaRecorder === 'undefined') return null;
+      for (const mimeType of typeCandidates) {
+        try {
+          if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mimeType)) {
+            return { mimeType };
+          }
+        } catch {}
+      }
+      return {};
+    };
+
+    const options = pickRecorderOptions();
+    if (!options) {
+      window.alert('MediaRecorder is not available in this browser.');
+      stream.getTracks()?.forEach(track => { try { track.stop(); } catch {}; });
+      return;
+    }
+
+    let mediaRecorder;
+    try {
+      mediaRecorder = new MediaRecorder(stream, options);
+    } catch (err) {
+      console.warn('Failed to create MediaRecorder with options', options, err);
+      try {
+        mediaRecorder = new MediaRecorder(stream);
+      } catch (fallbackErr) {
+        console.warn('Failed to create MediaRecorder without options', fallbackErr);
+        window.alert('Unable to start recording: MediaRecorder could not be initialized.');
+        stream.getTracks()?.forEach(track => { try { track.stop(); } catch {}; });
+        return;
+      }
+    }
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event?.data && event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onerror = (event) => {
+      console.warn('MediaRecorder error', event?.error || event);
+      window.alert('Recording encountered an error. Stopping recording.');
+      try { mediaRecorder.stop(); } catch {}
+    };
+
+    mediaRecorder.onstop = () => {
+      try {
+        const mime = mediaRecorder.mimeType || 'video/webm';
+        const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
+        if (blob) {
+          const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
+          const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
+          const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
+          latestRecordingNameRef.current = baseName;
+          const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
+          // Pick extension based on actual recorder MIME
+          const lower = (mime || '').toLowerCase();
+          const ext = lower.includes('mp4') ? 'mp4' : 'webm';
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = `${safeName}.${ext}`;
+          anchor.click();
+          URL.revokeObjectURL(url);
+        } else {
+          window.alert('Recording stopped but produced no data.');
+        }
+      } catch (err) {
+        console.warn('Failed to export recording', err);
+        window.alert('Recording stopped but exporting failed. Check console for details.');
+      } finally {
+        cleanupRecorder();
+        setIsRecording(false);
+      }
+    };
+
+    recorderRef.current = { mediaRecorder, chunks, stream };
+
+    try {
+      mediaRecorder.start();
+    } catch (err) {
+      console.warn('MediaRecorder.start failed', err);
+      window.alert('Unable to start recording: MediaRecorder start failed.');
+      cleanupRecorder();
+      setIsRecording(false);
+      return;
+    }
+
+    setIsRecording(true);
+  }, [canvasRef, cleanupRecorder, isRecording]);
+
+  const stopRecording = useCallback(() => {
+    const { mediaRecorder } = recorderRef.current || {};
+    if (!mediaRecorder) {
+      cleanupRecorder();
+      setIsRecording(false);
+      return;
+    }
+    setIsRecording(false);
+    if (mediaRecorder.state !== 'inactive') {
+      try {
+        mediaRecorder.stop();
+      } catch (err) {
+        console.warn('MediaRecorder.stop failed', err);
+        window.alert('Unable to stop recording cleanly; discarding capture.');
+        cleanupRecorder();
+      }
+    } else {
+      cleanupRecorder();
+    }
+  }, [cleanupRecorder]);
+
+  const toggleParameterTargetMode = useCallback(() => {
+    const next = parameterTargetMode === 'global' ? 'individual' : 'global';
+    setParameterTargetMode(next);
+  }, [parameterTargetMode, setParameterTargetMode]);
+
   // Keyboard Shortcuts overlay
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const startRecording = useCallback(() => setIsRecording(true), []);
-  const stopRecording = useCallback(() => setIsRecording(false), []);
   // Keep latest values accessible to hotkeys without re-binding listeners
   const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false });
   useEffect(() => {
@@ -97,8 +259,28 @@ const MainApp = () => {
       overlayVisible: !!isOverlayVisible,
       nodeEditMode: !!isNodeEditMode,
       zIgnore: !!zIgnore,
+      parameterTargetMode,
     };
-  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore]);
+  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore, parameterTargetMode]);
+
+  const layersRef = useRef(layers);
+  useEffect(() => {
+    layersRef.current = layers;
+  }, [layers]);
+
+  // Diagnostics: log a concise snapshot when layers change to verify only targeted layers update
+  useEffect(() => {
+    try {
+      const snapshot = (Array.isArray(layers) ? layers : []).map(l => ({
+        id: l?.id,
+        name: l?.name,
+        numSides: l?.numSides,
+        movementSpeed: l?.movementSpeed,
+        rotation: l?.rotation,
+      }));
+      // console.debug('[App] layers changed:', snapshot);
+    } catch {}
+  }, [layers]);
   // Suppress animation briefly during direct user edits to avoid state races
   const [suppressAnimation, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
@@ -114,6 +296,18 @@ const MainApp = () => {
       } catch {}
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        const { mediaRecorder } = recorderRef.current || {};
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop();
+        }
+      } catch {}
+      cleanupRecorder();
+    };
+  }, [cleanupRecorder]);
 
   // Global key handler for toggling shortcuts overlay
   useEffect(() => {
@@ -204,6 +398,7 @@ const MainApp = () => {
     globalOpacity: true,
     layersCount: true,
     // Split variation include flags
+    variationPosition: true,
     variationShape: true,
     variationAnim: true,
     variationColor: true,
@@ -216,7 +411,7 @@ const MainApp = () => {
   // No local popovers; inline checkboxes next to controls
 
   // Download helper for exporting JSON
-  const downloadJson = (filename, obj) => {
+  const downloadJson = useCallback((filename, obj) => {
     try {
       const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -230,7 +425,7 @@ const MainApp = () => {
     } catch (e) {
       console.warn('Failed to export JSON', e);
     }
-  };
+  }, []);
 
   // Clamp selection and expose currentLayer for Controls
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
@@ -238,7 +433,7 @@ const MainApp = () => {
     ? (layers[clampedSelectedIndex] || layers[0])
     : DEFAULT_LAYER;
 
-  const handleQuickSave = () => {
+  const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
     if (!baseName) return;
     const includeState = window.confirm('Include app state (layers, background, animation)?');
@@ -250,7 +445,7 @@ const MainApp = () => {
       version: includeState ? '1.1' : '1.0',
     };
     downloadJson(`${baseName}.json`, payload);
-  };
+  }, [parameters, getCurrentAppState, midiMappings, downloadJson]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -284,277 +479,12 @@ const MainApp = () => {
   }, [setLayers]);
 
   // Build a new layer by varying from a previous layer using split variation weights
-  const buildVariedLayerFrom = (prev, nameIndex, baseVar) => {
-    const clamp = clampUtil;
-    const mix = (prevVal, min, max, w, integer = false) => mixRandomUtil(prevVal, min, max, w, integer);
-    // Resolve separate variation intensities (0..3)
-    const vShapeBase = Number(prev?.variationShape ?? prev?.variation ?? DEFAULT_LAYER.variationShape ?? 0.2);
-    const vAnimBase = Number(prev?.variationAnim ?? prev?.variation ?? DEFAULT_LAYER.variationAnim ?? 0.2);
-    const vColorBase = Number(prev?.variationColor ?? prev?.variation ?? DEFAULT_LAYER.variationColor ?? 0.2);
-    const v = (baseVar && typeof baseVar === 'object')
-      ? { shape: Number(baseVar.shape ?? vShapeBase), anim: Number(baseVar.anim ?? vAnimBase), color: Number(baseVar.color ?? vColorBase) }
-      : { shape: Number(baseVar ?? vShapeBase), anim: Number(baseVar ?? vAnimBase), color: Number(baseVar ?? vColorBase) };
-    const wShape = clamp((v.shape || 0) / 3, 0, 1);
-    const wAnim = clamp((v.anim || 0) / 3, 0, 1);
-    const boostAboveOne = (x) => {
-      let z = Number(x) || 0;
-      if (z > 1) z = 1 + (z - 1) * 1.4;
-      if (z < 0) z = 0; if (z > 3) z = 3;
-      return z;
-    };
-    const wColor = clamp(boostAboveOne(v.color || 0) / 3, 0, 1);
+  const buildVariedLayerFrom = useCallback(
+    (prev, nameIndex, baseVar) => buildVariedLayerFromUtil(prev, nameIndex, baseVar, { DEFAULT_LAYER, palettes }),
+    [],
+  );
 
-    // If shape variation is exactly zero, duplicate the previous layer's shape exactly
-    // This ensures adding a new layer with Shape Variation = 0 yields an identical shape.
-    if (wShape === 0) {
-      const clone = JSON.parse(JSON.stringify(prev || DEFAULT_LAYER));
-      // Update only the name; keep all other properties identical (including nodes and seeds)
-      clone.name = `Layer ${nameIndex}`;
-      // If animation or color variations are requested, we will apply them minimally below.
-      // Apply animation-only tweaks when wAnim > 0 (reuse existing logic but avoid shape edits)
-      if (wAnim > 0) {
-        // Recompute velocity from angle/speed based on existing values
-        const angleRad0 = (clone.movementAngle ?? 0) * (Math.PI / 180);
-        const spd0 = (clone.movementSpeed ?? 0) * 0.001;
-        clone.vx = Math.cos(angleRad0) * spd0;
-        clone.vy = Math.sin(angleRad0) * spd0;
-      }
-      return clone;
-    }
-
-    const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
-
-    const rand = createSeededRandom(Math.random());
-    const newSeed = rand();
-
-    const varied = { ...(prev || DEFAULT_LAYER) };
-    varied.name = `Layer ${nameIndex}`;
-    varied.seed = newSeed;
-    varied.noiseSeed = newSeed;
-    varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
-    // Preserve legacy and split variations
-    varied.variation = Number(prev?.variation ?? DEFAULT_LAYER.variation);
-    varied.variationShape = Number(v.shape);
-    varied.variationAnim = Number(v.anim);
-    varied.variationColor = Number(v.color);
-
-    // Shape and appearance (use wShape)
-    const mixShape = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wShape, integer);
-    if (varyFlags.numSides) varied.numSides = Math.max(3, Math.round(mixShape(prev.numSides ?? 6, 3, 20, true)));
-    if (varyFlags.curviness) varied.curviness = Number(mixShape(prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
-    if (varyFlags.wobble) varied.wobble = Number(mixShape(prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
-    if (varyFlags.noiseAmount) varied.noiseAmount = Number(mixShape(prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
-    if (varyFlags.width) varied.width = Math.max(10, Math.round(mixShape(prev.width ?? 250, 10, 900, true)));
-    if (varyFlags.height) varied.height = Math.max(10, Math.round(mixShape(prev.height ?? 250, 10, 900, true)));
-    if (varyFlags.radiusFactor) {
-      const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactor = Number(mixShape(baseRF, 0.02, 0.9).toFixed(3));
-    }
-    if (varyFlags.radiusFactorX) {
-      const baseRFX = Number(prev.radiusFactorX ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactorX = Number(mixShape(baseRFX, 0.02, 0.9).toFixed(3));
-    }
-    if (varyFlags.radiusFactorY) {
-      const baseRFY = Number(prev.radiusFactorY ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
-    }
-    // New: X/Y Offset variation (range -0.5..0.5)
-    if (varyFlags.xOffset) {
-      const baseXO = Number(prev.xOffset ?? 0);
-      varied.xOffset = Number(mixShape(baseXO, -0.5, 0.5).toFixed(3));
-    }
-    if (varyFlags.yOffset) {
-      const baseYO = Number(prev.yOffset ?? 0);
-      varied.yOffset = Number(mixShape(baseYO, -0.5, 0.5).toFixed(3));
-    }
-
-    // Movement (use wAnim)
-    const mixAnim = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wAnim, integer);
-    if (varyFlags.movementStyle && wAnim > 0.7 && Math.random() < wAnim) {
-      const styles = ['bounce', 'drift', 'still'];
-      const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
-      const others = styles.filter(s => s !== cur);
-      varied.movementStyle = (others[Math.floor(Math.random() * others.length)] || cur);
-    }
-    if (varyFlags.movementSpeed) varied.movementSpeed = Number(mixAnim(prev.movementSpeed ?? 1, 0, 5).toFixed(3));
-    if (varyFlags.movementAngle) {
-      const nextA = mixAnim(prev.movementAngle ?? 45, 0, 360, true);
-      varied.movementAngle = ((nextA % 360) + 360) % 360;
-    }
-    if (varyFlags.scaleSpeed) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
-    let nextScaleMin = prev.scaleMin ?? 0.2;
-    let nextScaleMax = prev.scaleMax ?? 1.5;
-    if (varyFlags.scaleMin) nextScaleMin = mixAnim(prev.scaleMin ?? 0.2, 0.1, 2);
-    if (varyFlags.scaleMax) nextScaleMax = mixAnim(prev.scaleMax ?? 1.5, 0.5, 3);
-    varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
-    varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
-
-    // Image effects (treat as animation/appearance; use wAnim)
-    if (varyFlags.imageBlur) varied.imageBlur = Number(mixAnim(prev.imageBlur ?? 0, 0, 20).toFixed(2));
-    if (varyFlags.imageBrightness) varied.imageBrightness = Math.round(mixAnim(prev.imageBrightness ?? 100, 0, 200, true));
-    if (varyFlags.imageContrast) varied.imageContrast = Math.round(mixAnim(prev.imageContrast ?? 100, 0, 200, true));
-    if (varyFlags.imageHue) {
-      const nextHue = mixAnim(prev.imageHue ?? 0, 0, 360, true);
-      varied.imageHue = ((nextHue % 360) + 360) % 360;
-    }
-    if (varyFlags.imageSaturation) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
-    if (varyFlags.imageDistortion) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
-
-    // Position jitter (use wAnim)
-    const baseX = prev.position?.x ?? 0.5;
-    const baseY = prev.position?.y ?? 0.5;
-    const jitter = 0.15 * wAnim;
-    const jx = (Math.random() * 2 - 1) * jitter;
-    const jy = (Math.random() * 2 - 1) * jitter;
-    const nx = clamp(baseX + jx, 0.0, 1.0);
-    const ny = clamp(baseY + jy, 0.0, 1.0);
-    varied.position = {
-      ...(prev.position || DEFAULT_LAYER.position),
-      x: nx,
-      y: ny,
-      scale: prev.position?.scale ?? 1.0,
-      scaleDirection: prev.position?.scaleDirection ?? 1,
-    };
-
-    // Recompute velocity from angle/speed
-    {
-      const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
-      const spd = (varied.movementSpeed ?? prev.movementSpeed ?? 0) * 0.001;
-      varied.vx = Math.cos(angleRad) * spd;
-      varied.vy = Math.sin(angleRad) * spd;
-    }
-
-    // Colors (use wColor) — unified thresholds like Randomize All
-    if (Array.isArray(prev.colors) && prev.colors.length) {
-      if (varyFlags.colors) {
-        if (wColor <= 0) {
-          varied.colors = [...prev.colors];
-          varied.numColors = prev.numColors ?? prev.colors.length;
-        } else if (wColor >= 0.6) {
-          const nextPalette = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
-          varied.colors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
-          varied.numColors = varied.colors.length;
-        } else if (wColor >= 0.15) {
-          const uniqueCount = (() => { try { return new Set(prev.colors.map(c => (c || '').toLowerCase())).size; } catch { return prev.colors.length; } })();
-          if (uniqueCount <= 1) {
-            const amt = Math.max(0.02, wColor);
-            const hueMax = 1 + 24 * (amt * amt);
-            const satMax = 1 + 18 * (amt * amt);
-            const lightMax = 1 + 18 * (amt * amt);
-            const perturbed = (prev.colors || []).map(hex => {
-              const toHsl = (h) => {
-                const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-                let R=0,G=0,B=0; if (m) { R=parseInt(m[1],16); G=parseInt(m[2],16); B=parseInt(m[3],16); }
-                const r1=R/255,g1=G/255,b1=B/255;
-                const max=Math.max(r1,g1,b1),min=Math.min(r1,g1,b1);
-                let hh=0, ss=0; const ll=(max+min)/2;
-                if (max!==min){const d=max-min; ss= ll>0.5? d/(2-max-min): d/(max-min); switch(max){case r1: hh=(g1-b1)/d+(g1<b1?6:0); break; case g1: hh=(b1-r1)/d+2; break; case b1: hh=(r1-g1)/d+4; break;} hh/=6;}
-                return { h: hh*360, s: ss*100, l: ll*100 };
-              };
-              const fromHsl = (h,s,l) => {
-                const s1=s/100,l1=l/100; const c=(1-Math.abs(2*l1-1))*(s1);
-                const x=c*(1-Math.abs(((h/60)%2)-1)); const m=l1-c/2; let r=0,g=0,b=0;
-                if (h<60){r=c;g=x;b=0;} else if (h<120){r=x;g=c;b=0;} else if (h<180){r=0;g=c;b=x;} else if (h<240){r=0;g=x;b=c;} else if (h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
-                const toHex=(v)=>Math.round((v+m)*255).toString(16).padStart(2,'0');
-                return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-              };
-              const { h, s, l } = toHsl(hex);
-              const h2 = ((h + (Math.random()*2-1)*hueMax)%360 + 360)%360;
-              const s2 = Math.max(0, Math.min(100, s + (Math.random()*2-1)*satMax));
-              const l2 = Math.max(0, Math.min(100, l + (Math.random()*2-1)*lightMax));
-              return fromHsl(h2, s2, l2);
-            });
-            varied.colors = perturbed;
-            varied.numColors = perturbed.length;
-          } else {
-            const arr = [...prev.colors];
-            for (let i = arr.length - 1; i > 0; i--) {
-              if (Math.random() < 0.5 * wColor) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [arr[i], arr[j]] = [arr[j], arr[i]];
-              }
-            }
-            const same = arr.length === prev.colors.length && arr.every((c, i) => c === prev.colors[i]);
-            varied.colors = same ? [...arr.slice(1), arr[0]] : [...arr];
-            varied.numColors = arr.length;
-          }
-        } else if (wColor > 0) {
-          // Subtle HSL perturbation for perceptual similarity
-          const amt = Math.max(0.05, wColor);
-          const hueMax = 2 + 8 * amt;
-          const satMax = 2 + 6 * amt;
-          const lightMax = 2 + 6 * amt;
-          const perturbed = (prev.colors || []).map(hex => {
-            const toHsl = (h) => {
-              const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-              let R=0,G=0,B=0; if (m) { R=parseInt(m[1],16); G=parseInt(m[2],16); B=parseInt(m[3],16); }
-              const r=R/255,g=B/255,b=G/255; // order fixed below; compute properly via rgb->hsl
-              // Use simple conversion inline to avoid circular imports
-              const r1=R/255,g1=G/255,b1=B/255;
-              const max=Math.max(r1,g1,b1),min=Math.min(r1,g1,b1);
-              let hh=0, ss=0; const ll=(max+min)/2;
-              if (max!==min){const d=max-min; ss= ll>0.5? d/(2-max-min): d/(max-min); switch(max){case r1: hh=(g1-b1)/d+(g1<b1?6:0); break; case g1: hh=(b1-r1)/d+2; break; case b1: hh=(r1-g1)/d+4; break;} hh/=6;}
-              return { h: hh*360, s: ss*100, l: ll*100 };
-            };
-            const fromHsl = (h,s,l) => {
-              // reuse existing hslToHex indirectly via manual conversion to avoid extra import context
-              const s1=s/100,l1=l/100; const c=(1-Math.abs(2*l1-1))* (s1);
-              const x=c*(1-Math.abs(((h/60)%2)-1)); const m=l1-c/2; let r=0,g=0,b=0;
-              if (h<60){r=c;g=x;b=0;} else if (h<120){r=x;g=c;b=0;} else if (h<180){r=0;g=c;b=x;} else if (h<240){r=0;g=x;b=c;} else if (h<300){r=x;g=0;b=c;} else {r=c;g=0;b=x;}
-              const toHex=(v)=>Math.round((v+m)*255).toString(16).padStart(2,'0');
-              return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-            };
-            const { h, s, l } = toHsl(hex);
-            const h2 = ((h + (Math.random()*2-1)*hueMax)%360 + 360)%360;
-            const s2 = Math.max(0, Math.min(100, s + (Math.random()*2-1)*satMax));
-            const l2 = Math.max(0, Math.min(100, l + (Math.random()*2-1)*lightMax));
-            return fromHsl(h2, s2, l2);
-          });
-          varied.colors = perturbed;
-          varied.numColors = perturbed.length;
-        } else {
-          varied.colors = [...prev.colors];
-          varied.numColors = prev.numColors ?? prev.colors.length;
-        }
-      } else {
-        varied.colors = [...prev.colors];
-        varied.numColors = prev.numColors ?? prev.colors.length;
-      }
-    }
-
-    // If previous layer has edited nodes, vary shape from those nodes
-    try {
-      const prevNodes = Array.isArray(prev.nodes) ? prev.nodes : null;
-      const desired = Math.max(3, Number(varied.numSides ?? prev.numSides ?? 6));
-      if (prevNodes && prevNodes.length >= 3) {
-        let nodes = prevNodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 }));
-        // Resize
-        if (nodes.length !== desired) {
-          if (nodes.length > desired) {
-            nodes = nodes.slice(0, desired);
-          } else {
-            while (nodes.length < desired) {
-              const N = nodes.length;
-              const k = Math.floor(Math.random() * N);
-              const next = (k + 1) % N;
-              nodes.splice(next, 0, { x: (nodes[k].x + nodes[next].x) / 2, y: (nodes[k].y + nodes[next].y) / 2 });
-            }
-          }
-        }
-        const jitterAmt = 0.12 * wShape;
-        varied.nodes = nodes.map(n => ({ x: Math.max(-1, Math.min(1, n.x + (Math.random() * 2 - 1) * jitterAmt)), y: Math.max(-1, Math.min(1, n.y + (Math.random() * 2 - 1) * jitterAmt)) }));
-        varied.syncNodesToNumSides = prev.syncNodesToNumSides;
-      } else {
-        varied.nodes = null;
-      }
-    } catch {
-      varied.nodes = null;
-    }
-
-    return varied;
-  };
-
-  const handleImportFile = async (e) => {
+  const handleImportFile = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
@@ -588,22 +518,23 @@ const MainApp = () => {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  };
+  }, [getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal]);
 
-  const handleQuickLoad = () => {
+  const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
-  };
+  }, []);
 
   // --- SVG Import: create a new layer from an SVG file ---
-  const handleImportSVGClick = () => {
+  const handleImportSVGClick = useCallback(() => {
     svgFileInputRef.current?.click();
-  };
+  }, []);
 
-  const handleImportSVGFile = async (e) => {
+  const handleImportSVGFile = useCallback(async (e) => {
     const fileList = Array.from(e.target.files || []);
     if (!fileList.length) return;
-    
+
     try {
+      const layersSnapshot = layersRef.current || [];
       // Use enhanced SVG import
       const { layers: newLayers, errors } = await importSVGFiles(fileList, {
         targetScale: 0.4,  // Sensible default scale (40% of canvas)
@@ -629,9 +560,9 @@ const MainApp = () => {
       }
       
       // Apply current layer parameters to imported layers if desired
-      const applyCurrentParams = fileList.length === 1 && layers.length > 0;
+      const applyCurrentParams = fileList.length === 1 && layersSnapshot.length > 0;
       if (applyCurrentParams) {
-        const currentLayer = layers[selectedLayerIndex] || layers[0];
+        const currentLayer = layersSnapshot[selectedLayerIndex] || layersSnapshot[0];
         newLayers.forEach(layer => {
           // Apply animation parameters from current layer
           layer.movementStyle = currentLayer.movementStyle || 'drift';
@@ -721,9 +652,9 @@ const MainApp = () => {
       
       // Always append imported layers to existing ones
       setLayers(prev => [...prev, ...newLayers]);
-      
+
       // Select the first of the newly added layers
-      setSelectedLayerIndex(layers.length);
+      setSelectedLayerIndex(layersSnapshot.length);
       setIsNodeEditMode(true);
       
       // Success log
@@ -734,7 +665,7 @@ const MainApp = () => {
     } finally {
       e.target.value = '';
     }
-  };
+  }, [applyImportAdjust, importBaseRef, importDebug, importFitEnabled, importRawRef, importSVGFiles, layers.length, layersRef, recomputeImportLayout, selectedLayerIndex, setImportAdjust, setImportDebug, setImportFitEnabled, setIsNodeEditMode, setLayers, setSelectedLayerIndex, setShowImportAdjust]);
 
 
   // (Removed invalid useEffect block accidentally inserted earlier)
@@ -762,6 +693,8 @@ const MainApp = () => {
   // Colour randomization settings (min/max count)
   const [colorCountMin, setColorCountMin] = useState(1);
   const [colorCountMax, setColorCountMax] = useState(8);
+
+  const rotationVaryAcrossLayers = parameterTargetMode === 'global';
 
   // Randomization suite via hook
   const {
@@ -794,25 +727,29 @@ const MainApp = () => {
     setGlobalSpeedMultiplier,
   });
 
-  const randomizeCurrentLayer = (randomizePalette = false) => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    const updated = randomizeLayer(idx, randomizePalette);
+  const randomizeCurrentLayer = useCallback((randomizePaletteFlag = false) => {
+    const snapshot = layersRef.current || [];
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, snapshot.length - 1)));
+    const updated = randomizeLayer(idx, randomizePaletteFlag);
+    if (!updated) return;
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  };
+  }, [randomizeLayer, selectedLayerIndex, setLayers]);
 
   // randomizeAnimationOnly provided by hook
 
-  const randomizeAnimationForCurrentLayer = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+  const randomizeAnimationForCurrentLayer = useCallback(() => {
+    const snapshot = layersRef.current || [];
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, snapshot.length - 1)));
     const updated = randomizeAnimationOnly(idx);
     if (!updated) return;
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  };
+  }, [randomizeAnimationOnly, selectedLayerIndex, setLayers]);
 
   // Randomize only colors for the current layer according to toggles and min/max
-  const randomizeCurrentLayerColors = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    const layer = layers[idx];
+  const randomizeCurrentLayerColors = useCallback(() => {
+    const snapshot = layersRef.current || [];
+    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, snapshot.length - 1)));
+    const layer = snapshot[idx];
     if (!layer) return;
     const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
     // NOTE: This path intentionally uses true entropy for quick exploration
@@ -859,7 +796,7 @@ const MainApp = () => {
     }
     const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  };
+  }, [colorCountMax, colorCountMin, palettes, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
 
   // randomizeBackgroundColor handled within useRandomization
 
@@ -881,6 +818,7 @@ const MainApp = () => {
     setZIgnore,
     setEditTarget,
     clearSelection,
+    setParameterTargetMode,
   });
 
   // MIDI helper refs and handlers integration
@@ -912,7 +850,7 @@ const MainApp = () => {
   // randomizeScene provided by hook
 
   // Download helper – choose resolution, freeze time during export
-  const downloadImage = async () => {
+  const downloadImage = useCallback(async () => {
     try {
       // 1. Freeze animation to capture exact frame
       const wasFrozen = isFrozen;
@@ -953,7 +891,8 @@ const MainApp = () => {
 
       const animTime = (canvasHandle.getAnimationTime ? canvasHandle.getAnimationTime() : 0) || 0;
       // Render each layer exactly once at high resolution
-      layers.forEach(layer => {
+      const snapshot = layersRef.current || [];
+      snapshot.forEach(layer => {
         if (!layer?.visible) return;
         drawLayerWithWrap(ctx, layer, off, (c, l, cv) => {
           if (l.image && l.image.src) {
@@ -978,7 +917,7 @@ const MainApp = () => {
       console.warn('High-res export failed', err);
       try { if (!isFrozen) setIsFrozen(false); } catch {}
     }
-  };
+  }, [backgroundColor, globalBlendMode, globalSeed, isFrozen, setIsFrozen]);
 
   return (
     <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
@@ -991,12 +930,13 @@ const MainApp = () => {
               <div className="shortcuts-grid">
                 <div><kbd>1</kbd><span>Global tab</span></div>
                 <div><kbd>2</kbd><span>Layer Shape tab</span></div>
-                <div><kbd>3</kbd><span>Layer Animation tab</span></div>
-                <div><kbd>4</kbd><span>Layer Colour tab</span></div>
-                <div><kbd>5</kbd><span>Presets tab</span></div>
-                <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
-                <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
-                <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
+              <div><kbd>3</kbd><span>Layer Animation tab</span></div>
+              <div><kbd>4</kbd><span>Layer Colour tab</span></div>
+              <div><kbd>5</kbd><span>Presets tab</span></div>
+              <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
+              <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
+              <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
+              <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
                 <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
                 <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
                 <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
@@ -1098,6 +1038,8 @@ const MainApp = () => {
             onStartRecording={startRecording}
             onStopRecording={stopRecording}
             isRecording={isRecording}
+            onToggleTargetMode={toggleParameterTargetMode}
+            parameterTargetMode={parameterTargetMode}
           />
         </div>
         
@@ -1129,6 +1071,8 @@ const MainApp = () => {
             blendModes={blendModes}
             globalBlendMode={globalBlendMode}
             setGlobalBlendMode={setGlobalBlendMode}
+            parameterTargetMode={parameterTargetMode}
+            setParameterTargetMode={setParameterTargetMode}
             onQuickSave={handleQuickSave}
             onQuickLoad={handleQuickLoad}
             layers={layers}
@@ -1157,8 +1101,6 @@ const MainApp = () => {
             colorCountMax={colorCountMax}
             setColorCountMin={setColorCountMin}
             setColorCountMax={setColorCountMax}
-            rotationVaryAcrossLayers={rotationVaryAcrossLayers}
-            setRotationVaryAcrossLayers={setRotationVaryAcrossLayers}
             layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
             selectedLayerIndex={clampedSelectedIndex}
             selectLayer={selectLayer}

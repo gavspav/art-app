@@ -45,6 +45,8 @@ const GlobalControls = ({
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
+  parameterTargetMode,
+  setParameterTargetMode,
   // MIDI input
   midiInputs,
   midiInputId,
@@ -116,10 +118,21 @@ const GlobalControls = ({
     }
   }, [palettes, layers, sampleColorsEven]);
 
+  const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
+
+  const handleTargetModeChange = useCallback((event) => {
+    if (!setParameterTargetMode) return;
+    const raw = typeof event === 'string' ? event : event?.target?.value;
+    const normalized = (typeof raw === 'string' && raw.toLowerCase() === 'global') ? 'global' : 'individual';
+    try { console.debug('[GlobalControls] Target mode ->', normalized); } catch {}
+    setParameterTargetMode(normalized);
+  }, [setParameterTargetMode]);
+
   // Settings panel visibility toggles
   const [showSpeedSettings, setShowSpeedSettings] = useState(false);
   const [showOpacitySettings, setShowOpacitySettings] = useState(false);
   const [showLayersSettings, setShowLayersSettings] = useState(false);
+  const [showVariationPositionSettings, setShowVariationPositionSettings] = useState(false);
   const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
   const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
   const [showVariationColorSettings, setShowVariationColorSettings] = useState(false);
@@ -172,6 +185,7 @@ const GlobalControls = ({
           shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
           anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
           color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
+          position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
         };
         const last = prev[prev.length - 1] || DEFAULT_LAYER;
         const toAdd = Array.from({ length: addCount }, (_, i) => buildVariedLayerFrom((i === 0 ? last : next[next.length - 1]), prev.length + i + 1, baseVar));
@@ -184,6 +198,9 @@ const GlobalControls = ({
   };
 
   // Independent ranges for each Variation slider
+  const [variationPositionMin, setVariationPositionMin] = useState(0);
+  const [variationPositionMax, setVariationPositionMax] = useState(3);
+  const [variationPositionStep, setVariationPositionStep] = useState(0.01);
   const [variationShapeMin, setVariationShapeMin] = useState(0);
   const [variationShapeMax, setVariationShapeMax] = useState(3);
   const [variationShapeStep, setVariationShapeStep] = useState(0.01);
@@ -750,6 +767,23 @@ const GlobalControls = ({
         />
       )}
       <div className="control-group" style={{ margin: 0 }}>
+        <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <label className="compact-label" htmlFor="global-target-mode">Target</label>
+            <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+              {targetMode === 'global' ? 'Apply changes to every layer' : 'Edit only the active layer/selection'}
+            </span>
+          </div>
+          <select
+            id="global-target-mode"
+            className="compact-select"
+            value={targetMode}
+            onChange={handleTargetModeChange}
+          >
+            <option value="individual">Individual</option>
+            <option value="global">Global</option>
+          </select>
+        </div>
         {/* Background Color with inline include toggle */}
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
@@ -1053,6 +1087,46 @@ const GlobalControls = ({
                   <input type="number" step={1} value={layersMax} onChange={(e) => setLayersMax(parseInt(e.target.value, 10) || 1)} />
                   <label className="compact-label">Step</label>
                   <input type="number" step={1} value={layersStep} onChange={(e) => setLayersStep(parseInt(e.target.value, 10) || 1)} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Variation settings"
+                aria-label="Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationPositionSettings(s => !s); }}
+              >⚙</button>
+              <label className="compact-label" title="Include Position Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationPosition')} onChange={(e) => setIsRnd('variationPosition', e.target.checked)} /> Include
+              </label>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={variationPositionMin}
+              max={variationPositionMax}
+              step={variationPositionStep}
+              value={Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: v } : l)));
+              }}
+            />
+            {showVariationPositionSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={variationPositionMin} onChange={(e) => setVariationPositionMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={variationPositionMax} onChange={(e) => setVariationPositionMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={variationPositionStep} onChange={(e) => setVariationPositionStep(parseFloat(e.target.value) || 0.01)} />
                 </div>
               </div>
             )}

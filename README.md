@@ -41,7 +41,7 @@ npm run dev
 
 - The app uses a seeded RNG (`createSeededRandom(seed)`) for deterministic flows (e.g., Randomize All), driven by `globalSeed` from app state.
 - User-triggered “quick random” actions may use true entropy (`Math.random`) for exploration (e.g., rotate dice, single-layer quick changes).
-- Palettes are spread and color counts sampled according to Include flags and min/max settings. Rotation in Randomize All writes to `layer.rotation` and respects “Vary across layers.”
+- Palettes are spread and color counts sampled according to Include flags and min/max settings. Rotation in Randomize All writes to `layer.rotation` following the current global Target mode.
 
 ## Persistence
 

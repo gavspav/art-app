@@ -35,6 +35,8 @@ const BottomPanel = ({
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
+  parameterTargetMode,
+  setParameterTargetMode,
   onQuickSave,
   onQuickLoad,
   layers,
@@ -64,8 +66,6 @@ const BottomPanel = ({
   colorCountMax,
   setColorCountMin,
   setColorCountMax,
-  rotationVaryAcrossLayers,
-  setRotationVaryAcrossLayers,
   layerNames,
   selectedLayerIndex,
   selectLayer,
@@ -366,6 +366,7 @@ const BottomPanel = ({
         return (
           <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
             <GlobalControls
+              key={`glob-${parameterTargetMode}`}
               backgroundColor={backgroundColor}
               setBackgroundColor={setBackgroundColor}
               backgroundImage={backgroundImage}
@@ -390,6 +391,8 @@ const BottomPanel = ({
               blendModes={blendModes}
               globalBlendMode={globalBlendMode}
               setGlobalBlendMode={setGlobalBlendMode}
+              parameterTargetMode={parameterTargetMode}
+              setParameterTargetMode={setParameterTargetMode}
               onQuickSave={onQuickSave}
               onQuickLoad={onQuickLoad}
               midiSupported={midiSupported}
@@ -449,8 +452,6 @@ const BottomPanel = ({
               setColorCountMin={setColorCountMin}
               setColorCountMax={setColorCountMax}
               onRandomizeLayerColors={randomizeCurrentLayerColors}
-              rotationVaryAcrossLayers={rotationVaryAcrossLayers}
-              setRotationVaryAcrossLayers={setRotationVaryAcrossLayers}
               getIsRnd={getIsRnd}
               setIsRnd={setIsRnd}
               layerNames={layerNames}
@@ -462,6 +463,7 @@ const BottomPanel = ({
               onMoveLayerUp={moveSelectedLayerUp}
               onMoveLayerDown={moveSelectedLayerDown}
               onImportSVG={handleImportSVGClick}
+              parameterTargetMode={parameterTargetMode}
             />
           </div>
         );

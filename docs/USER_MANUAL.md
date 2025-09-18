@@ -150,12 +150,12 @@ Located near the bottom of the **Global** tab.
 • The value is a *weight* – 0 adds new layers that are exact copies; 3 adds highly varied layers.  
 • Variation is applied when you press **+ Add Layer** or when the **Layers** slider / number box increases the count.
 
-### 10.2 “Vary Across Layers” Checkbox  
-Many per-parameter ⚙ panels show *Vary across layers*.  When **checked** the slider value is treated as a *base* and each layer gets a random offset.  When **unchecked** changing the parameter updates **all layers** uniformly.
+### 10.2 Target Mode  
+Global Settings now include a **Target** dropdown.  Set it to **Individual** to have parameter edits affect only the active layer (or the current selection/group).  Switch to **Global** to broadcast parameter changes to every layer.
 
 Examples:  
-*Un-check* Vary for **numSides**, set it to *5* — every layer snaps to a pentagon.  
-*Check* Vary for **movementSpeed** — each layer drifts at a different speed.
+• Target **Global**, set `numSides` to *5* — every layer snaps to a pentagon.  
+• Target **Individual**, change `movementSpeed` — only the selected layer(s) update.
 
 ### 10.3 Z-Ignore  
 Global toggle (Global > Animation).  When enabled the Z-axis is ignored when computing motion blur & depth scaling, resulting in a flat, poster-like style.

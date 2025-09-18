@@ -58,7 +58,7 @@ export function useMIDIHandlers({
     const unregister = registerParamHandler('variation', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped } : l)));
+      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped, variationPosition: mapped } : l)));
     });
     return unregister;
   }, [registerParamHandler, setLayers]);
@@ -66,6 +66,11 @@ export function useMIDIHandlers({
   // Split variations: variationShape, variationAnim, variationColor (0..3) on base layer [0]
   useEffect(() => {
     if (!registerParamHandler) return;
+    const u0 = registerParamHandler('variationPosition', ({ value01 }) => {
+      const v = Math.max(0, Math.min(1, value01));
+      const mapped = +(v * 3).toFixed(2);
+      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: mapped } : l)));
+    });
     const u1 = registerParamHandler('variationShape', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
@@ -81,7 +86,12 @@ export function useMIDIHandlers({
       const mapped = +(v * 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: mapped } : l)));
     });
-    return () => { if (typeof u1 === 'function') u1(); if (typeof u2 === 'function') u2(); if (typeof u3 === 'function') u3(); };
+    return () => {
+      if (typeof u0 === 'function') u0();
+      if (typeof u1 === 'function') u1();
+      if (typeof u2 === 'function') u2();
+      if (typeof u3 === 'function') u3();
+    };
   }, [registerParamHandler, setLayers]);
 
   // Global Blend Mode (dropdown over blendModes)
@@ -121,6 +131,7 @@ export function useMIDIHandlers({
             shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
             anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
             color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
+            position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
           };
           let last = prev[prev.length - 1] || DEFAULT_LAYER;
           const additions = Array.from({ length: addCount }, (_, i) => {

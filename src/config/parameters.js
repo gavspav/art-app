@@ -113,6 +113,18 @@ export const PARAMETERS = [
 
   // Layer Variation — split into three controls
   {
+    id: 'variationPosition',
+    label: 'Position Variation',
+    type: 'slider',
+    min: 0,
+    max: 3,
+    step: 0.1,
+    defaultValue: 0.2,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'General',
+  },
+  {
     id: 'variationShape',
     label: 'Shape Variation',
     type: 'slider',

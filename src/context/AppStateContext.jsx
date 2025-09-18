@@ -40,7 +40,23 @@ export const AppStateProvider = ({ children }) => {
     if (l && typeof l === 'object' && typeof l.id === 'string' && l.id.length > 0) return l;
     return { ...l, id: makeLayerId() };
   }, [makeLayerId]);
-  const assignIds = useCallback((layers = []) => Array.isArray(layers) ? layers.map(ensureLayerId) : [], [ensureLayerId]);
+  const assignIds = useCallback((layers = []) => {
+    const list = Array.isArray(layers) ? layers : [];
+    const seen = new Set();
+    return list.map((layer) => {
+      let out = ensureLayerId(layer);
+      let id = out.id;
+      if (seen.has(id)) {
+        // Generate a fresh unique id when a duplicate is detected
+        const newId = makeLayerId();
+        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: id, new: newId }); } catch {}
+        out = { ...out, id: newId };
+        id = newId;
+      }
+      seen.add(id);
+      return out;
+    });
+  }, [ensureLayerId, makeLayerId]);
   // Main app state that should be saveable
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
@@ -63,10 +79,10 @@ export const AppStateProvider = ({ children }) => {
     // Global randomization toggles for palette and color count
     randomizePalette: true,
     randomizeNumColors: true,
-    // Rotation randomization behavior
-    rotationVaryAcrossLayers: true,
     // Global: allow colour fading to continue while frozen
     colorFadeWhileFrozen: true,
+    // Parameter targeting mode
+    parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
 
     // Multi-select and Layer Groups
     selectedLayerIds: [], // array of layer.id
@@ -208,12 +224,13 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
   }, []);
 
-  const setRotationVaryAcrossLayers = useCallback((value) => {
-    setAppState(prev => ({ ...prev, rotationVaryAcrossLayers: !!value }));
-  }, []);
-
   const setColorFadeWhileFrozen = useCallback((value) => {
     setAppState(prev => ({ ...prev, colorFadeWhileFrozen: !!value }));
+  }, []);
+
+  const setParameterTargetMode = useCallback((mode) => {
+    const normalized = (typeof mode === 'string' && mode.toLowerCase() === 'global') ? 'global' : 'individual';
+    setAppState(prev => ({ ...prev, parameterTargetMode: normalized }));
   }, []);
 
   // Morph setters
@@ -412,6 +429,7 @@ export const AppStateProvider = ({ children }) => {
       classicMode: false,
       randomizePalette: true,
       randomizeNumColors: true,
+      parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
     });
   }, []);
 
@@ -440,8 +458,8 @@ export const AppStateProvider = ({ children }) => {
     setZIgnore,
     setRandomizePalette,
     setRandomizeNumColors,
-    setRotationVaryAcrossLayers,
     setColorFadeWhileFrozen,
+    setParameterTargetMode,
 
     // Morph setters
     setMorphEnabled,

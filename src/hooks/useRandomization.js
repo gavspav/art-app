@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect, useCallback } from 'react';
 import { hslToHex, hexToHsl } from '../utils/colorUtils.js';
 import { clamp } from '../utils/mathUtils.js';
 import { createSeededRandom } from '../utils/random.js';
@@ -30,10 +30,18 @@ export function useRandomization({
   setGlobalBlendMode,
   setGlobalSpeedMultiplier,
 }) {
+  // Keep latest layers & selection in refs so callbacks stay stable between renders
+  const layersRef = useRef(layers);
+  useEffect(() => {
+    layersRef.current = layers;
+  }, [layers]);
+
   // Seeded RNG persistent across renders for deterministic but varying sequences
   const rand = useMemo(() => (
     Number.isFinite(seed) ? createSeededRandom(Number(seed)) : Math.random
   ), [seed]);
+
+  const getLayersSnapshot = () => Array.isArray(layersRef.current) ? layersRef.current : [];
 
   // Local mix using seeded RNG
   const mixRand = (baseVal, min, max, w, integer = false) => {
@@ -71,7 +79,8 @@ export function useRandomization({
     return out;
   };
 
-  const randomizeLayer = (index, _forcePalette = false) => {
+  const randomizeLayer = useCallback((index, _forcePalette = false) => {
+    const layers = getLayersSnapshot();
     const randomizableParams = parameters.filter(p => p.isRandomizable);
     const idx = Math.max(0, Math.min(Number.isFinite(index) ? index : 0, Math.max(0, layers.length - 1)));
     const layer = layers[idx];
@@ -131,9 +140,10 @@ export function useRandomization({
       updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
     }
     return updatedLayer;
-  };
+  }, [DEFAULT_LAYER, colorCountMax, colorCountMin, palettes, parameters, rand, randomizeNumColors, randomizePalette, sampleColorsEven]);
 
-  const randomizeAnimationOnly = (index) => {
+  const randomizeAnimationOnly = useCallback((index) => {
+    const layers = getLayersSnapshot();
     const idx = Math.max(0, Math.min(Number.isFinite(index) ? index : 0, Math.max(0, layers.length - 1)));
     const layer = layers[idx];
     if (!layer) return null;
@@ -164,9 +174,10 @@ export function useRandomization({
     updated.vx = Math.cos(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
     updated.vy = Math.sin(angleRad) * (updated.movementSpeed * 0.001) * 1.0;
     return updated;
-  };
+  }, [parameters, rand]);
 
-  const modernRandomizeAll = () => {
+  const modernRandomizeAll = useCallback(() => {
+    const layers = getLayersSnapshot();
     const incBG = getIsRnd('backgroundColor');
     const incSpeed = getIsRnd('globalSpeedMultiplier');
     const incBlend = getIsRnd('globalBlendMode');
@@ -213,15 +224,18 @@ export function useRandomization({
 
     const layersOut = [];
     // Variation intensities: separate shape/anim/color paths
+    const includeVarPosition = !!getIsRnd('variationPosition');
     const includeVarShape = !!getIsRnd('variationShape');
     const includeVarAnim = !!getIsRnd('variationAnim');
     const includeVarColor = !!getIsRnd('variationColor');
+    const pVarPosition = parameters.find(p => p.id === 'variationPosition');
     const pVarShape = parameters.find(p => p.id === 'variationShape');
     const pVarAnim = parameters.find(p => p.id === 'variationAnim');
     const pVarColor = parameters.find(p => p.id === 'variationColor');
     const currentShape = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
     const currentAnim = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
     const currentColor = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
+    const currentPosition = Number(layers?.[0]?.variationPosition ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationPosition);
     const sampleVarFromParam = (param, fallback) => {
       if (!param || param.type !== 'slider') return fallback;
       const rmin = Number.isFinite(param.randomMin) ? param.randomMin : param.min;
@@ -231,6 +245,7 @@ export function useRandomization({
       let v = low + rand() * (high - low);
       return clamp(v, param.min, param.max);
     };
+    const sampledPosition = includeVarPosition ? sampleVarFromParam(pVarPosition, currentPosition) : currentPosition;
     const sampledShape = includeVarShape ? sampleVarFromParam(pVarShape, currentShape) : currentShape;
     const sampledAnim = includeVarAnim ? sampleVarFromParam(pVarAnim, currentAnim) : currentAnim;
     const sampledColor = includeVarColor ? sampleVarFromParam(pVarColor, currentColor) : currentColor;
@@ -250,8 +265,13 @@ export function useRandomization({
     for (let idx = 0; idx < Math.max(1, layerCount); idx++) {
       const prev = layers[idx] || DEFAULT_LAYER;
       const varied = { ...prev };
+      varied.variationPosition = Number(sampledPosition);
+      varied.variationShape = Number(sampledShape);
+      varied.variationAnim = Number(sampledAnim);
+      varied.variationColor = Number(sampledColor);
 
       // Variation weights come from the sampled per-category values
+      const wPosition = clamp((Number(sampledPosition) || 0) / 3, 0, 1);
       const wShape = clamp((Number(sampledShape) || 0) / 3, 0, 1);
       const wAnim = clamp((Number(sampledAnim) || 0) / 3, 0, 1);
       const wColor = clamp(boostAboveOne(sampledColor) / 3, 0, 1);
@@ -277,8 +297,8 @@ export function useRandomization({
       const xoMax = Number.isFinite(pXO?.randomMax) ? pXO.randomMax : (Number.isFinite(pXO?.max) ? pXO.max : 0.5);
       const yoMin = Number.isFinite(pYO?.randomMin) ? pYO.randomMin : (Number.isFinite(pYO?.min) ? pYO.min : -0.5);
       const yoMax = Number.isFinite(pYO?.randomMax) ? pYO.randomMax : (Number.isFinite(pYO?.max) ? pYO.max : 0.5);
-      if (allowXO) varied.xOffset = Number(mixRand(baseXO, xoMin, xoMax, wShape).toFixed(3));
-      if (allowYO) varied.yOffset = Number(mixRand(baseYO, yoMin, yoMax, wShape).toFixed(3));
+      if (allowXO) varied.xOffset = Number(mixRand(baseXO, xoMin, xoMax, wPosition).toFixed(3));
+      if (allowYO) varied.yOffset = Number(mixRand(baseYO, yoMin, yoMax, wPosition).toFixed(3));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
@@ -426,6 +446,7 @@ export function useRandomization({
 
     // Apply sampled base variations when included
     if (layersOut.length > 0) {
+      if (includeVarPosition) layersOut[0].variationPosition = Number(sampledPosition.toFixed ? sampledPosition.toFixed(2) : sampledPosition);
       if (includeVarShape) layersOut[0].variationShape = Number(sampledShape.toFixed ? sampledShape.toFixed(2) : sampledShape);
       if (includeVarAnim) layersOut[0].variationAnim = Number(sampledAnim.toFixed ? sampledAnim.toFixed(2) : sampledAnim);
       if (includeVarColor) layersOut[0].variationColor = Number(sampledColor.toFixed ? sampledColor.toFixed(2) : sampledColor);
@@ -446,10 +467,11 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  };
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, palettes, parameters, rand, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
 
-  const classicRandomizeAll = () => {
+  const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
+    const layers = getLayersSnapshot();
     const incBG = getIsRnd('backgroundColor');
     const incSpeed = getIsRnd('globalSpeedMultiplier');
     const incBlend = getIsRnd('globalBlendMode');
@@ -457,14 +479,17 @@ export function useRandomization({
     const incLayers = getIsRnd('layersCount');
     const incPalette = getIsRnd('globalPaletteIndex');
     const incRotation = getIsRnd('rotation');
+    const incVarPosition = getIsRnd('variationPosition');
     const incVarShape = getIsRnd('variationShape');
     const incVarAnim = getIsRnd('variationAnim');
     const incVarColor = getIsRnd('variationColor');
 
     // Variation handling (base layer): preserve unless included, then sample
+    const pVP = parameters.find(p => p.id === 'variationPosition');
     const pVS = parameters.find(p => p.id === 'variationShape');
     const pVA = parameters.find(p => p.id === 'variationAnim');
     const pVC = parameters.find(p => p.id === 'variationColor');
+    const prevVP = Number(layers?.[0]?.variationPosition ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationPosition);
     const prevVS = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
     const prevVA = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
     const prevVC = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
@@ -477,6 +502,7 @@ export function useRandomization({
       let v = low + rnd() * (high - low);
       return clamp(v, p.min, p.max);
     };
+    const sampledVP = incVarPosition ? sampleClassic(pVP, prevVP) : prevVP;
     const sampledVS = incVarShape ? sampleClassic(pVS, prevVS) : prevVS;
     const sampledVA = incVarAnim ? sampleClassic(pVA, prevVA) : prevVA;
     const sampledVC = incVarColor ? sampleClassic(pVC, prevVC) : prevVC;
@@ -513,6 +539,7 @@ export function useRandomization({
       layer.layerType = 'shape';
       layer.seed = rnd();
       layer.noiseSeed = rnd();
+      layer.variationPosition = sampledVP;
       layer.numSides = Math.floor(3 + rnd() * 17);
       layer.curviness = Number((0.3 + rnd() * 1.2).toFixed(3));
       layer.wobble = rnd();
@@ -552,6 +579,7 @@ export function useRandomization({
       layer.yOffset = Number((rnd() - 0.5).toFixed(3));
       // Apply base variations to base layer only; others will vary from this baseline when added later
       if (idx === 0) {
+        layer.variationPosition = sampledVP;
         layer.variationShape = sampledVS;
         layer.variationAnim = sampledVA;
         layer.variationColor = sampledVC;
@@ -609,14 +637,21 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  };
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomizeNumColors, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
 
-  const randomizeScene = () => {
+  const randomizeScene = useCallback(() => {
+    const layers = getLayersSnapshot();
     if (classicMode) return classicRandomizeAll();
     const newLayers = layers.map((_, index) => randomizeLayer(index));
     setLayers(newLayers);
     setBackgroundColor(randomBackgroundColor());
-  };
+  }, [classicMode, classicRandomizeAll, randomizeLayer, setBackgroundColor, setLayers]);
 
-  return { modernRandomizeAll, classicRandomizeAll, randomizeLayer, randomizeAnimationOnly, randomizeScene };
+  return useMemo(() => ({
+    modernRandomizeAll,
+    classicRandomizeAll,
+    randomizeLayer,
+    randomizeAnimationOnly,
+    randomizeScene,
+  }), [modernRandomizeAll, classicRandomizeAll, randomizeLayer, randomizeAnimationOnly, randomizeScene]);
 }

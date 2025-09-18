@@ -14,6 +14,7 @@ export function useKeyboardShortcuts({
   setEditTarget,
   clearSelection,
   hotkeyRef,
+  setParameterTargetMode,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -27,6 +28,14 @@ export function useKeyboardShortcuts({
       if (e.code === 'Space') {
         e.preventDefault();
         setIsFrozen?.(prev => !prev);
+        return;
+      }
+
+      if (key === 'g') {
+        e.preventDefault();
+        const cur = (hotkeyRef?.current?.parameterTargetMode === 'global') ? 'global' : 'individual';
+        const next = cur === 'global' ? 'individual' : 'global';
+        setParameterTargetMode?.(next);
         return;
       }
 
@@ -114,5 +123,6 @@ export function useKeyboardShortcuts({
     setEditTarget,
     clearSelection,
     hotkeyRef,
+    setParameterTargetMode,
   ]);
 }

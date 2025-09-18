@@ -32,6 +32,7 @@ export const DEFAULT_LAYER = {
   variationShape: 0.2,
   variationAnim: 0.2,
   variationColor: 0.2,
+  variationPosition: 0.2,
 
   // Seeding
   seed: 1,
@@ -149,4 +150,5 @@ export const DEFAULTS = {
   globalSeed: 1,
   layers: [DEFAULT_LAYER],
   selectedLayerIndex: 0,
+  parameterTargetMode: 'individual',
 };

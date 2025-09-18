@@ -7,6 +7,7 @@ import { DEFAULT_LAYER } from '../constants/defaults';
 import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
+import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 
 // Per-layer MIDI Position control block
 // Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
@@ -33,8 +34,8 @@ const MidiRotationStatus = ({ paramId }) => {
   );
 };
 
-// Per-layer MIDI Colour control block (RGBA) with broadcasting when vary is OFF
-const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, isBroadcastTarget, paletteVary }) => {
+// MIDI colour block that applies to the active target scope (individual or global)
+const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
   const {
     mappings: midiMappings,
     beginLearn,
@@ -56,7 +57,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   const curHex = colors[selIdx] || '#000000';
   const curRGB = useMemo(() => hexToRgb(curHex), [curHex]);
 
-  // Update a single RGB channel; broadcast palette if vary is OFF
+  // Update a single RGB channel across the selected target scope
   const setChannel = (channel) => (e) => {
     const v = Math.max(0, Math.min(255, Math.round(parseFloat(e.target.value)))) || 0;
     const next = { ...curRGB, [channel]: v };
@@ -64,25 +65,17 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
     const nextColors = [...colors];
     nextColors[selIdx] = nextHex;
     const n = Math.max(1, nextColors.length);
-    const varyPalette = !!paletteVary;
-    if (!varyPalette && typeof setLayers === 'function') {
-      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      setLayers(prev => prev.map(l => (
-        allSet.has(l.id)
-          ? { ...l, colors: [...nextColors], numColors: n, selectedColor: 0 }
-          : l
-      )));
-    } else if (isBroadcastTarget && typeof setLayers === 'function') {
-      const targeted = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      if (targeted.size > 0) {
-        setLayers(prev => prev.map(l => (
-          targeted.has(l.id)
-            ? { ...l, colors: [...nextColors], numColors: n, selectedColor: 0 }
-            : l
-        )));
-      } else {
-        updateLayer({ colors: nextColors });
-      }
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => ({ ...layer, colors: [...nextColors], numColors: n, selectedColor: 0 }),
+      }));
     } else {
       updateLayer({ colors: nextColors });
     }
@@ -92,11 +85,17 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
     let v = parseFloat(e.target.value);
     if (!Number.isFinite(v)) v = 1;
     v = Math.max(0, Math.min(1, v));
-    if (typeof setLayers === 'function') {
-      const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
-      setLayers(prev => prev.map(l => (effectiveSet.has(l.id)) ? { ...l, opacity: v } : l));
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => ({ ...layer, opacity: v }),
+      }));
     } else {
       updateLayer({ opacity: v });
     }
@@ -188,7 +187,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, isBroadcastTarget }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -210,6 +209,38 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     value = currentLayer.position?.scale || 1;
   }
 
+  const applyUpdateToTargets = useCallback((patchFactory) => {
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+    try {
+      // Diagnostics: confirm which targets we are about to update for this control
+      console.debug('[applyUpdateToTargets]', {
+        paramId: id,
+        targetMode,
+        targets: Array.from(targets || []),
+      });
+    } catch {}
+    const factory = typeof patchFactory === 'function'
+      ? patchFactory
+      : (() => patchFactory || {});
+
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => ({
+          ...layer,
+          ...factory(layer),
+        }),
+      }));
+    } else {
+      updateLayer(factory(currentLayer));
+    }
+  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
+
   const handleChange = (e) => {
     let newValue;
     switch (type) {
@@ -226,46 +257,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       default:
         newValue = e.target.value;
     }
-    // Determine if we should apply to all layers (when 'Vary across layers' is OFF for this param)
-    const varyKey = (() => {
-      switch (id) {
-        case 'numSides': return 'numSides';
-        case 'curviness': return 'curviness';
-        case 'wobble': return 'wobble';
-        case 'noiseAmount': return 'noiseAmount';
-        case 'radiusFactor': return 'radiusFactor';
-        case 'width': return 'width';
-        case 'height': return 'height';
-        case 'movementStyle': return 'movementStyle';
-        case 'movementSpeed': return 'movementSpeed';
-        case 'movementAngle': return 'movementAngle';
-        case 'scaleSpeed': return 'scaleSpeed';
-        case 'imageBlur': return 'imageBlur';
-        case 'imageBrightness': return 'imageBrightness';
-        case 'imageContrast': return 'imageContrast';
-        case 'imageHue': return 'imageHue';
-        case 'imageSaturation': return 'imageSaturation';
-        case 'imageDistortion': return 'imageDistortion';
-        default: return null;
-      }
-    })();
-
-    const targetedSet = buildTargetSet({ mode: 'targeted' });
-    const allSet = buildTargetSet({ mode: 'all' });
-    const isVaryActive = !!(varyKey && currentLayer?.vary?.[varyKey]);
-    let effectiveSet;
-    if (isVaryActive) {
-      if (targetedSet.size > 0) {
-        effectiveSet = targetedSet;
-      } else if (currentLayer?.id) {
-        effectiveSet = new Set([currentLayer.id]);
-      } else {
-        effectiveSet = allSet;
-      }
-    } else {
-      effectiveSet = allSet;
-    }
-
+    // Helper to rebuild evenly spaced nodes when syncing polygons
     const makeRegularNodes = (sides) => {
       const n = Math.max(3, Math.round(Number(sides) || 3));
       return Array.from({ length: n }, (_, i) => {
@@ -273,46 +265,18 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         return { x: Math.cos(a), y: Math.sin(a) };
       });
     };
+    if (id === 'scale') {
+      applyUpdateToTargets((layer) => ({
+        position: { ...(layer?.position || {}), scale: newValue },
+      }));
+      return;
+    }
 
-    if (typeof setLayers === 'function' && effectiveSet.size > 0) {
-      // Apply across all layers in effectiveSet
-      if (id === 'scale') {
-        setLayers(prev => prev.map(l => (effectiveSet.has(l.id)) ? { ...l, position: { ...(l.position || {}), scale: newValue } } : l));
-      } else if (id === 'radiusFactor') {
-        setLayers(prev => prev.map(l => {
-          if (!effectiveSet.has(l.id)) return l;
-          const prevRF = Number(l?.radiusFactor);
-          const rx = Number(l?.radiusFactorX);
-          const ry = Number(l?.radiusFactorY);
-          const targetRF = Number(newValue);
-          const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
-          const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-          const baseX = Number.isFinite(rx) ? rx : 1;
-          const baseY = Number.isFinite(ry) ? ry : 1;
-          const nextX = baseX * ratio;
-          const nextY = baseY * ratio;
-          return { ...l, radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
-        }));
-      } else if (id === 'numSides') {
-        setLayers(prev => prev.map(l => {
-          if (!effectiveSet.has(l.id)) return l;
-          if (l.layerType === 'shape' && l.syncNodesToNumSides) {
-            const nodes = makeRegularNodes(newValue);
-            return { ...l, numSides: Math.max(3, Math.round(newValue)), nodes };
-          }
-          return { ...l, numSides: Math.max(3, Math.round(newValue)) };
-        }));
-      } else {
-        setLayers(prev => prev.map(l => (effectiveSet.has(l.id)) ? { ...l, [id]: newValue } : l));
-      }
-    } else {
-      // Fallback: update the current layer only
-      if (id === 'scale') {
-        updateLayer({ position: { ...(currentLayer?.position || {}), scale: newValue } });
-      } else if (id === 'radiusFactor') {
-        const prevRF = Number(currentLayer?.radiusFactor);
-        const rx = Number(currentLayer?.radiusFactorX);
-        const ry = Number(currentLayer?.radiusFactorY);
+    if (id === 'radiusFactor') {
+      applyUpdateToTargets((layer) => {
+        const prevRF = Number(layer?.radiusFactor);
+        const rx = Number(layer?.radiusFactorX);
+        const ry = Number(layer?.radiusFactorY);
         const targetRF = Number(newValue);
         const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
         const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
@@ -320,17 +284,23 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         const baseY = Number.isFinite(ry) ? ry : 1;
         const nextX = baseX * ratio;
         const nextY = baseY * ratio;
-        updateLayer({ radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY });
-      } else if (id === 'numSides') {
-        if (currentLayer?.layerType === 'shape' && currentLayer?.syncNodesToNumSides) {
-          updateLayer({ numSides: Math.max(3, Math.round(newValue)), nodes: makeRegularNodes(newValue) });
-        } else {
-          updateLayer({ numSides: Math.max(3, Math.round(newValue)) });
-        }
-      } else {
-        updateLayer({ [id]: newValue });
-      }
+        return { radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
+      });
+      return;
     }
+
+    if (id === 'numSides') {
+      applyUpdateToTargets((layer) => {
+        const n = Math.max(3, Math.round(newValue));
+        if (layer?.layerType === 'shape' && layer?.syncNodesToNumSides) {
+          return { numSides: n, nodes: makeRegularNodes(n) };
+        }
+        return { numSides: n };
+      });
+      return;
+    }
+
+    applyUpdateToTargets({ [id]: newValue });
   };
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
@@ -340,47 +310,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 
   const randomizeThisParam = () => {
     console.log('[Controls] Randomize clicked for param', id);
-    const targetSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-    const fallbackSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-    const varyKeyLocal = (() => {
-      switch (id) {
-        case 'numSides': return 'numSides';
-        case 'curviness': return 'curviness';
-        case 'wobble': return 'wobble';
-        case 'noiseAmount': return 'noiseAmount';
-        case 'radiusFactor': return 'radiusFactor';
-        case 'xOffset': return 'xOffset';
-        case 'yOffset': return 'yOffset';
-        case 'width': return 'width';
-        case 'height': return 'height';
-        case 'movementStyle': return 'movementStyle';
-        case 'movementSpeed': return 'movementSpeed';
-        case 'movementAngle': return 'movementAngle';
-        case 'scaleSpeed': return 'scaleSpeed';
-        case 'imageBlur': return 'imageBlur';
-        case 'imageBrightness': return 'imageBrightness';
-        case 'imageContrast': return 'imageContrast';
-        case 'imageHue': return 'imageHue';
-        case 'imageSaturation': return 'imageSaturation';
-        case 'imageDistortion': return 'imageDistortion';
-        default: return null;
-      }
-    })();
-
-    const isLocalVary = !!(varyKeyLocal && currentLayer?.vary?.[varyKeyLocal]);
-    let effectiveSet;
-    if (isLocalVary) {
-      if (targetSet.size > 0) {
-        effectiveSet = targetSet;
-      } else if (currentLayer?.id) {
-        effectiveSet = new Set([currentLayer.id]);
-      } else {
-        effectiveSet = fallbackSet;
-      }
-    } else {
-      effectiveSet = fallbackSet;
-    }
-
     if (type === 'slider') {
       const rmin = Number.isFinite(param.randomMin) ? param.randomMin : min;
       const rmax = Number.isFinite(param.randomMax) ? param.randomMax : max;
@@ -389,40 +318,18 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       let rnd = low + Math.random() * (high - low);
       if (step === 1) rnd = Math.round(rnd);
       const clamped = Math.min(max, Math.max(min, rnd));
-      if (typeof setLayers === 'function' && effectiveSet.size > 0) {
-        setLayers(prev => prev.map(l => {
-          if (!effectiveSet.has(l.id)) return l;
-          if (id === 'scale') return { ...l, position: { ...(l.position || {}), scale: clamped } };
-          if (id === 'radiusFactor') {
-            const prevRF = Number(l?.radiusFactor);
-            const rx = Number(l?.radiusFactorX);
-            const ry = Number(l?.radiusFactorY);
-            const targetRF = Number(clamped);
-            const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
-            const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-            const baseX = Number.isFinite(rx) ? rx : 1;
-            const baseY = Number.isFinite(ry) ? ry : 1;
-            const nextX = baseX * ratio;
-            const nextY = baseY * ratio;
-            return { ...l, radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
-          }
-          if (id === 'numSides') {
-            if (l.layerType === 'shape' && l.syncNodesToNumSides) {
-              const n = Math.max(3, Math.round(clamped));
-              const nodes = Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return { x: Math.cos(a), y: Math.sin(a) }; });
-              return { ...l, numSides: n, nodes };
-            }
-            return { ...l, numSides: Math.max(3, Math.round(clamped)) };
-          }
-          return { ...l, [id]: clamped };
+      if (id === 'scale') {
+        applyUpdateToTargets((layer) => ({
+          position: { ...(layer?.position || {}), scale: clamped },
         }));
-      } else {
-        if (id === 'scale') {
-          updateLayer({ position: { ...(currentLayer?.position || {}), scale: clamped } });
-        } else if (id === 'radiusFactor') {
-          const prevRF = Number(currentLayer?.radiusFactor);
-          const rx = Number(currentLayer?.radiusFactorX);
-          const ry = Number(currentLayer?.radiusFactorY);
+        return;
+      }
+
+      if (id === 'radiusFactor') {
+        applyUpdateToTargets((layer) => {
+          const prevRF = Number(layer?.radiusFactor);
+          const rx = Number(layer?.radiusFactorX);
+          const ry = Number(layer?.radiusFactorY);
           const targetRF = Number(clamped);
           const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
           const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
@@ -430,26 +337,28 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           const baseY = Number.isFinite(ry) ? ry : 1;
           const nextX = baseX * ratio;
           const nextY = baseY * ratio;
-          updateLayer({ radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY });
-        } else if (id === 'numSides') {
-          const n = Math.max(3, Math.round(clamped));
-          if (currentLayer?.layerType === 'shape' && currentLayer?.syncNodesToNumSides) {
-            const nodes = Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return { x: Math.cos(a), y: Math.sin(a) }; });
-            updateLayer({ numSides: n, nodes });
-          } else {
-            updateLayer({ numSides: n });
-          }
-        } else {
-          updateLayer({ [id]: clamped });
-        }
+          return { radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
+        });
+        return;
       }
+
+      if (id === 'numSides') {
+        applyUpdateToTargets((layer) => {
+          const n = Math.max(3, Math.round(clamped));
+          if (layer?.layerType === 'shape' && layer?.syncNodesToNumSides) {
+            const nodes = Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return { x: Math.cos(a), y: Math.sin(a) }; });
+            return { numSides: n, nodes };
+          }
+          return { numSides: n };
+        });
+        return;
+      }
+
+      applyUpdateToTargets({ [id]: clamped });
+      return;
     } else if (type === 'dropdown' && Array.isArray(options) && options.length) {
       const choice = options[Math.floor(Math.random() * options.length)];
-      if (typeof setLayers === 'function' && effectiveSet.size > 0) {
-        setLayers(prev => prev.map(l => (effectiveSet.has(l.id)) ? { ...l, [id]: choice } : l));
-      } else {
-        updateLayer({ [id]: choice });
-      }
+      applyUpdateToTargets({ [id]: choice });
     }
   };
 
@@ -465,57 +374,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       v = parseFloat(v);
     }
     updateParameter(id, field, v);
-  };
-
-  // Inline per-layer Vary toggle support for parameters with vary flags
-  const varyKey = (() => {
-    switch (id) {
-      // Shape
-      case 'numSides': return 'numSides';
-      case 'curviness': return 'curviness';
-      case 'wobble': return 'wobble';
-      case 'noiseAmount': return 'noiseAmount';
-      case 'radiusFactor': return 'radiusFactor';
-      case 'xOffset': return 'xOffset';
-      case 'yOffset': return 'yOffset';
-      case 'width': return 'width';
-      case 'height': return 'height';
-      // Movement
-      case 'movementStyle': return 'movementStyle';
-      case 'movementSpeed': return 'movementSpeed';
-      case 'movementAngle': return 'movementAngle';
-      case 'scaleSpeed': return 'scaleSpeed';
-      // Image Effects
-      case 'imageBlur': return 'imageBlur';
-      case 'imageBrightness': return 'imageBrightness';
-      case 'imageContrast': return 'imageContrast';
-      case 'imageHue': return 'imageHue';
-      case 'imageSaturation': return 'imageSaturation';
-      case 'imageDistortion': return 'imageDistortion';
-      default: return null;
-    }
-  })();
-  const toggleVaryFlag = (e) => {
-    const key = varyKey;
-    if (!key) return;
-    e.stopPropagation();
-    const checked = !!e.target.checked;
-    console.log('[Vary] header flag', key, checked, 'for param', id);
-    // Apply the vary flag to the active target set (group/selection/single)
-    if (typeof setLayers === 'function') {
-      const targetSet = buildTargetSet({ mode: 'targeted' });
-      const fallbackSet = buildTargetSet({ mode: 'all' });
-      const effectiveSet = targetSet.size > 0 ? targetSet : fallbackSet;
-      setLayers(prev => prev.map(l => (
-        effectiveSet.has(l.id)
-          ? { ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), [key]: checked } }
-          : l
-      )));
-    } else {
-      // Fallback: update only current layer if setLayers is unavailable
-      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
-      updateLayer({ vary: nextVary });
-    }
   };
 
   // Determine visibility but do not return yet to preserve hook order
@@ -561,21 +419,25 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         let mapped = lo + value01 * (hi - lo);
         mapped = Math.round((mapped - lo) / st) * st + lo;
         mapped = Math.max(lo, Math.min(hi, mapped));
+
+        // Respect target mode when updating via MIDI
         if (id === 'scale') {
-          updateLayer({ position: { ...(currentLayer?.position || {}), scale: mapped } });
+          applyUpdateToTargets((layer) => ({
+            position: { ...(layer?.position || {}), scale: mapped },
+          }));
         } else {
-          updateLayer({ [id]: mapped });
+          applyUpdateToTargets({ [id]: mapped });
         }
       } else if (type === 'dropdown' && Array.isArray(options) && options.length) {
         const idx = Math.round(value01 * (options.length - 1));
         const choice = options[Math.max(0, Math.min(options.length - 1, idx))];
-        updateLayer({ [id]: choice });
+        applyUpdateToTargets({ [id]: choice });
       }
     });
     return () => { if (typeof unsub === 'function') unsub(); };
-    // It's intentional to exclude updateLayer/currentLayer from deps to avoid churn; handler reads latest via closure sufficiently for UI updates
+    // It's intentional to exclude updateLayer/currentLayer from deps to avoid churn
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, type, min, max, step, options, registerParamHandler]);
+  }, [id, type, min, max, step, options, registerParamHandler, applyUpdateToTargets]);
 
   // Now short-circuit render if hidden, after hooks are declared
   if (hidden) return null;
@@ -640,23 +502,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
         )}
         <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {varyKey && (
-            <label
-              title="Allow this parameter to vary across layers"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); }}
-           >
-              <input
-                type="checkbox"
-                checked={!!(currentLayer?.vary?.[varyKey])}
-                onChange={toggleVaryFlag}
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-              />
-              Vary across layers
-            </label>
-          )}
           <label
             title="Include this parameter when using Randomize All"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
@@ -757,69 +602,27 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
   }
 };
 
-// Memoized version: only re-render when the specific param's displayed value or vary flag changes,
-// or when the param metadata object reference changes (e.g., min/max/options updates).
+// Memoized version: re-render when metadata, target scope, or displayed value changes.
 const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
-  if (prev.param !== next.param) return false; // param metadata changed
-  if (prev.isBroadcastTarget !== next.isBroadcastTarget) return false;
-
-  // Force re-render *only* when the selected layer actually changes (by index / name),
-  // not on every animation tick that mutates layer position/velocity. This keeps
-  // the component mounted during animation so mouseup events still hit the same
-  // element, fixing lost-click issues.
-  const prevName = prev.currentLayer?.name;
-  const nextName = next.currentLayer?.name;
-  if (prevName !== nextName) return false;
-
-  const id = prev.param?.id;
-  if (!id) return false;
-
-  // If the Include-in-Randomize flag changes, re-render so the checkbox reflects it immediately
+  if (prev.param !== next.param) return false;
+  if (prev.targetMode !== next.targetMode) return false;
   if (!!prev.param?.isRandomizable !== !!next.param?.isRandomizable) return false;
 
-  // Compare displayed value; ignore other animating props
-  const getValue = (cl, pid) => {
-    if (!cl) return undefined;
-    if (pid === 'scale') return cl.position?.scale;
-    return cl[pid];
+  const prevId = prev.currentLayer?.id;
+  const nextId = next.currentLayer?.id;
+  if (prevId !== nextId) return false;
+
+  const paramId = prev.param?.id;
+  if (!paramId) return false;
+
+  const readValue = (layer) => {
+    if (!layer) return undefined;
+    if (paramId === 'scale') return layer.position?.scale;
+    return layer[paramId];
   };
-  const prevVal = getValue(prev.currentLayer, id);
-  const nextVal = getValue(next.currentLayer, id);
-  if (prevVal !== nextVal) return false;
 
-  // Vary flag header checkbox state
-  const varyKey = (() => {
-    switch (id) {
-      case 'numSides': return 'numSides';
-      case 'curviness': return 'curviness';
-      case 'wobble': return 'wobble';
-      case 'noiseAmount': return 'noiseAmount';
-      case 'radiusFactor': return 'radiusFactor';
-      case 'radiusFactorX': return 'radiusFactorX';
-      case 'radiusFactorY': return 'radiusFactorY';
-      case 'width': return 'width';
-      case 'height': return 'height';
-      case 'movementStyle': return 'movementStyle';
-      case 'movementSpeed': return 'movementSpeed';
-      case 'movementAngle': return 'movementAngle';
-      case 'scaleSpeed': return 'scaleSpeed';
-      case 'imageBlur': return 'imageBlur';
-      case 'imageBrightness': return 'imageBrightness';
-      case 'imageContrast': return 'imageContrast';
-      case 'imageHue': return 'imageHue';
-      case 'imageSaturation': return 'imageSaturation';
-      case 'imageDistortion': return 'imageDistortion';
-      default: return null;
-    }
-  })();
+  if (readValue(prev.currentLayer) !== readValue(next.currentLayer)) return false;
 
-  if (varyKey) {
-    const pv = !!(prev.currentLayer?.vary?.[varyKey]);
-    const nv = !!(next.currentLayer?.vary?.[varyKey]);
-    if (pv !== nv) return false;
-  }
-
-  // Otherwise skip re-render
   return true;
 });
 
@@ -881,8 +684,6 @@ const Controls = forwardRef(({
   setColorCountMax,
   onRandomizeLayerColors,
   // rotate options
-  rotationVaryAcrossLayers,
-  setRotationVaryAcrossLayers,
   getIsRnd,
   setIsRnd,
   layerNames,
@@ -893,7 +694,7 @@ const Controls = forwardRef(({
   onDeleteLayer,
   onImportSVG,
   onMoveLayerUp,
-  onMoveLayerDown
+  onMoveLayerDown,
 }, ref) => {
   const { parameters } = useParameters();
   const {
@@ -905,6 +706,7 @@ const Controls = forwardRef(({
     clearSelection,
     getActiveTargetLayerIds,
     layers = [],
+    parameterTargetMode: contextParameterTargetMode,
   } = useAppState() || {};
 
   // Local UI state for delete picker
@@ -931,6 +733,7 @@ const Controls = forwardRef(({
   }, [layerNames?.length]);
 
   const selectionCount = Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx.length : 0;
+  const targetMode = contextParameterTargetMode === 'global' ? 'global' : 'individual';
   const layerOptions = useMemo(() => {
     const list = Array.isArray(layerNames) ? layerNames : [];
     const ids = Array.isArray(layerIds) ? layerIds : [];
@@ -964,52 +767,77 @@ const Controls = forwardRef(({
     return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
   }, [getActiveTargetLayerIds, layerIds]);
   const isGroupTarget = editTarget?.type === 'group' || editTarget?.type === 'selection';
-  const isBroadcastTarget = isGroupTarget;
 
-  const layersById = useMemo(() => {
-    const map = new Map();
-    (layers || []).forEach(layer => {
-      if (layer?.id) map.set(layer.id, layer);
+  const applyTargetedUpdate = useCallback((updater) => {
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
     });
-    return map;
-  }, [layers]);
+    const factory = typeof updater === 'function'
+      ? updater
+      : (() => updater || {});
 
-  const getTargetedLayerIds = useCallback(() => {
-    if (!isBroadcastTarget) {
-      return currentLayer?.id ? [currentLayer.id] : [];
+    const ids = Array.from(targets || []);
+    try {
+      console.debug('[Controls] applyTargetedUpdate', targetMode, ids);
+    } catch {}
+
+    if (targetMode === 'individual' && ids.length === 1) {
+      const nextPatch = factory(currentLayer);
+      if (nextPatch && typeof updateLayer === 'function') {
+        updateLayer(nextPatch);
+        return;
+      }
     }
-    const targetedSet = buildTargetSet({ mode: 'targeted' });
-    if (targetedSet.size > 0) return Array.from(targetedSet);
-    return (layers || []).map(l => l.id).filter(Boolean);
-  }, [isBroadcastTarget, buildTargetSet, currentLayer?.id, layers]);
 
-  const paletteVaryChecked = useMemo(() => {
-    const ids = getTargetedLayerIds();
-    if (!ids.length) return !!(currentLayer?.vary?.colors);
-    return ids.every(id => layersById.get(id)?.vary?.colors);
-  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.colors]);
-
-  const numColorsVaryChecked = useMemo(() => {
-    const ids = getTargetedLayerIds();
-    if (!ids.length) return !!(currentLayer?.vary?.numColors);
-    return ids.every(id => layersById.get(id)?.vary?.numColors);
-  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.numColors]);
-
-  const colorFadeVaryChecked = useMemo(() => {
-    const ids = getTargetedLayerIds();
-    if (!ids.length) return !!(currentLayer?.vary?.colorFadeEnabled);
-    return ids.every(id => layersById.get(id)?.vary?.colorFadeEnabled);
-  }, [getTargetedLayerIds, layersById, currentLayer?.vary?.colorFadeEnabled]);
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => ({
+          ...layer,
+          ...factory(layer),
+        }),
+      }));
+    } else if (typeof factory === 'function') {
+      updateLayer(factory(currentLayer));
+    }
+  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
 
   const applyRotation = useCallback((wrapped) => {
-    if (typeof setLayers === 'function') {
-      const targetSet = buildTargetSet({ mode: 'targeted' });
-      const effectiveSet = targetSet.size > 0 ? targetSet : buildTargetSet({ mode: 'all' });
-      setLayers(prev => prev.map(l => (effectiveSet.has(l.id) ? { ...l, rotation: wrapped } : l)));
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+    try {
+      // Diagnostics: confirm targets for rotation updates
+      console.debug('[applyRotation]', {
+        targetMode,
+        targets: Array.from(targets || []),
+        value: wrapped,
+      });
+    } catch {}
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: () => ({ rotation: wrapped }),
+      }));
     } else {
       updateLayer({ rotation: wrapped });
     }
-  }, [buildTargetSet, setLayers, updateLayer]);
+  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
+
+  // Diagnostics: observe targetMode changes live
+  useEffect(() => {
+    try {
+      console.debug('[Controls] targetMode changed:', targetMode);
+      // Expose for quick manual inspection from DevTools if needed
+      window.__artapp_targetMode = targetMode;
+    } catch {}
+  }, [targetMode]);
 
   const handleTargetSelect = useCallback((e) => {
     const value = e.target.value;
@@ -1141,32 +969,13 @@ const Controls = forwardRef(({
 
   // moved useImperativeHandle above early return
   
-  // Orbit controls: apply across layers if corresponding vary flags are OFF
+  // Orbit controls: update according to target mode
   const handleOrbitRadiusChange = (axis) => (e) => {
     let v = parseFloat(e.target.value);
     if (!Number.isFinite(v)) v = 0.0;
     v = Math.max(0, Math.min(0.5, v));
     const key = axis === 'x' ? 'orbitRadiusX' : 'orbitRadiusY';
-    const varyFlag = !!(currentLayer?.vary?.[key]);
-    if (!varyFlag && typeof setLayers === 'function') {
-      setLayers(prev => prev.map(l => ({ ...l, [key]: v })));
-    } else {
-      updateLayer({ [key]: v });
-    }
-  };
-
-  const toggleOrbitVary = (axis) => (e) => {
-    const checked = !!e.target.checked;
-    const key = axis === 'x' ? 'orbitRadiusX' : 'orbitRadiusY';
-    if (typeof setLayers === 'function') {
-      setLayers(prev => prev.map(l => ({
-        ...l,
-        vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), [key]: checked },
-      })));
-    } else {
-      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), [key]: checked };
-      updateLayer({ vary: nextVary });
-    }
+    applyTargetedUpdate(() => ({ [key]: v }));
   };
 
   const renderAnimationTab = () => (
@@ -1198,7 +1007,7 @@ const Controls = forwardRef(({
                   updateLayer={updateLayer}
                   setLayers={setLayers}
                   buildTargetSet={buildTargetSet}
-                  isBroadcastTarget={isBroadcastTarget}
+                  targetMode={targetMode}
                 />
               </div>
             ))}
@@ -1219,10 +1028,6 @@ const Controls = forwardRef(({
                   <span className="compact-label">Radius X</span>
                   <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusX ?? 0).toFixed(3)}</span>
                 </div>
-                <label className="compact-label" title="Allow Radius X to vary across layers" onMouseDown={(e) => { e.stopPropagation(); }} onClick={(e) => { e.stopPropagation(); }}>
-                  <input type="checkbox" checked={!!(currentLayer?.vary?.orbitRadiusX)} onChange={toggleOrbitVary('x')} />
-                  Vary across layers
-                </label>
               </div>
               <input
                 type="range"
@@ -1241,10 +1046,6 @@ const Controls = forwardRef(({
                   <span className="compact-label">Radius Y</span>
                   <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusY ?? 0).toFixed(3)}</span>
                 </div>
-                <label className="compact-label" title="Allow Radius Y to vary across layers" onMouseDown={(e) => { e.stopPropagation(); }} onClick={(e) => { e.stopPropagation(); }}>
-                  <input type="checkbox" checked={!!(currentLayer?.vary?.orbitRadiusY)} onChange={toggleOrbitVary('y')} />
-                  Vary across layers
-                </label>
               </div>
               <input
                 type="range"
@@ -1273,7 +1074,7 @@ const Controls = forwardRef(({
               updateLayer={updateLayer}
               setLayers={setLayers}
               buildTargetSet={buildTargetSet}
-              isBroadcastTarget={isBroadcastTarget}
+              targetMode={targetMode}
             />
           </div>
         ))}
@@ -1358,14 +1159,6 @@ const Controls = forwardRef(({
                   />
                 </div>
                 <div className="compact-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
-                  <label className="compact-label" title="Sample one rotation for all layers or vary per layer when randomizing all">
-                    <input
-                      type="checkbox"
-                      checked={!!rotationVaryAcrossLayers}
-                      onChange={(e) => setRotationVaryAcrossLayers && setRotationVaryAcrossLayers(!!e.target.checked)}
-                    />
-                    Vary across layers
-                  </label>
                   <label className="compact-label" title="Include rotation in Randomize All">
                     <input
                       type="checkbox"
@@ -1393,63 +1186,22 @@ const Controls = forwardRef(({
 
   // Appearance tab removed
 
-  // Colour handlers: apply to all layers if vary across layers is OFF
+  // Colour handlers: apply according to the selected target mode
   const handleLayerColorChange = (newColors) => {
     const arr = Array.isArray(newColors) ? newColors : [];
     const n = Math.max(1, arr.length);
-    const varyPalette = !!paletteVaryChecked;
-    if (!varyPalette && typeof setLayers === 'function') {
-      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      setLayers(prev => prev.map(l => (
-        allSet.has(l.id)
-          ? { ...l, colors: [...arr], numColors: n, selectedColor: 0 }
-          : l
-      )));
-    } else if (isBroadcastTarget && typeof setLayers === 'function') {
-      const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      if (groupSet.size > 0) {
-        setLayers(prev => prev.map(l => (
-          groupSet.has(l.id)
-            ? { ...l, colors: [...arr], numColors: n, selectedColor: 0 }
-            : l
-        )));
-      } else {
-        updateLayer({ colors: [...arr], numColors: n, selectedColor: 0 });
-      }
-    } else {
-      updateLayer({ colors: [...arr], numColors: n, selectedColor: 0 });
-    }
+    applyTargetedUpdate(() => ({ colors: [...arr], numColors: n, selectedColor: 0 }));
   };
 
   const handleLayerNumColorsChange = (e) => {
     let n = parseInt(e.target.value, 10);
     if (!Number.isFinite(n) || n < 1) n = 1;
-    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-    let next = base.slice(0, n);
-    while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
-    // If either numColors vary is OFF or animate-colours vary is OFF, broadcast
-    const varyNumEffective = numColorsVaryChecked && colorFadeVaryChecked;
-    if (!varyNumEffective && typeof setLayers === 'function') {
-      const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-      setLayers(prev => prev.map(l => (
-        allSet.has(l.id)
-          ? { ...l, colors: [...next], numColors: n, selectedColor: 0 }
-          : l
-      )));
-    } else if (isBroadcastTarget && typeof setLayers === 'function') {
-      const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-      if (groupSet.size > 0) {
-        setLayers(prev => prev.map(l => (
-          groupSet.has(l.id)
-            ? { ...l, colors: [...next], numColors: n, selectedColor: 0 }
-            : l
-        )));
-      } else {
-        updateLayer({ colors: next, numColors: n, selectedColor: 0 });
-      }
-    } else {
-      updateLayer({ colors: next, numColors: n, selectedColor: 0 });
-    }
+    applyTargetedUpdate((layer) => {
+      const base = Array.isArray(layer?.colors) ? layer.colors : [];
+      let next = base.slice(0, n);
+      while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
+      return { colors: [...next], numColors: n, selectedColor: 0 };
+    });
   };
 
   const renderColorsTab = () => (
@@ -1461,8 +1213,7 @@ const Controls = forwardRef(({
           updateLayer={updateLayer}
           setLayers={setLayers}
           buildTargetSet={buildTargetSet}
-          isBroadcastTarget={isBroadcastTarget}
-          paletteVary={paletteVaryChecked}
+          targetMode={targetMode}
         />
 
         {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
@@ -1493,28 +1244,7 @@ const Controls = forwardRef(({
                   ? currentLayer.numColors
                   : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
                 const nextColors = sampleColors(palettes[idx].colors, count);
-                const varyPalette = paletteVaryChecked;
-                if (!varyPalette && typeof setLayers === 'function') {
-                  const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                  setLayers(prev => prev.map(l => (
-                    allSet.has(l.id)
-                      ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
-                      : l
-                  )));
-                } else if (isBroadcastTarget && typeof setLayers === 'function') {
-                  const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-                  if (groupSet.size > 0) {
-                    setLayers(prev => prev.map(l => (
-                      groupSet.has(l.id)
-                        ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
-                        : l
-                    )));
-                  } else {
-                    updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
-                  }
-                } else {
-                  updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
-                }
+                applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
               }
             }
           }}
@@ -1588,85 +1318,6 @@ const Controls = forwardRef(({
                 />
                 Randomise number of colours
               </label>
-              {/* Vary across layers toggles for Colours */}
-              <label
-                className="compact-label"
-                title="Allow colour palette to vary across layers"
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-              >
-                <input
-                  type="checkbox"
-                  checked={paletteVaryChecked}
-                  onChange={(e) => {
-                    const checked = !!e.target.checked;
-                    if (typeof setLayers === 'function') {
-                      if (!checked) {
-                        // Turning vary OFF: keep existing palettes but drop the flag so future edits broadcast explicitly
-                        setLayers(prev => prev.map(l => ({
-                          ...l,
-                          vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: false },
-                        })));
-                      } else {
-                        // Turning vary ON: just set the flag
-                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colors: true } })));
-                      }
-                    } else {
-                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colors: checked };
-                      const nextUpdate = { vary: nextVary };
-                      updateLayer(nextUpdate);
-                    }
-                  }}
-                  onMouseDown={(e) => { e.stopPropagation(); }}
-                  onClick={(e) => { e.stopPropagation(); }}
-                />
-                Vary palette across layers
-              </label>
-              <label
-                className="compact-label"
-                title="Allow the number of colours to vary across layers"
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-              >
-                <input
-                  type="checkbox"
-                  checked={numColorsVaryChecked}
-                  onChange={(e) => {
-                    const checked = !!e.target.checked;
-                    const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-                    const n = Number.isFinite(currentLayer?.numColors) ? Math.max(1, currentLayer.numColors) : (base.length || 1);
-                    let next = base.slice(0, n);
-                    while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
-                    if (typeof setLayers === 'function') {
-                      if (!checked) {
-                        // Turning vary OFF: unify colour count (and palette) across layers to selected layer's
-                        setLayers(prev => prev.map(l => ({
-                          ...l,
-                          vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: false },
-                          colors: [...next],
-                          numColors: n,
-                          selectedColor: 0,
-                        })));
-                      } else {
-                        // Turning vary ON: just set the flag
-                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), numColors: true } })));
-                      }
-                    } else {
-                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), numColors: checked };
-                      const nextUpdate = { vary: nextVary };
-                      if (!checked) {
-                        nextUpdate.colors = [...next];
-                        nextUpdate.numColors = n;
-                        nextUpdate.selectedColor = 0;
-                      }
-                      updateLayer(nextUpdate);
-                    }
-                  }}
-                  onMouseDown={(e) => { e.stopPropagation(); }}
-                  onClick={(e) => { e.stopPropagation(); }}
-                />
-                Vary number of colours across layers
-              </label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
               <label className="compact-label">Min</label>
@@ -1700,103 +1351,32 @@ const Controls = forwardRef(({
                   type="checkbox"
                   checked={!!currentLayer?.colorFadeEnabled}
                   onChange={(e) => {
-                    const v = !!e.target.checked;
-                    const varyFade = colorFadeVaryChecked;
+                    const enabled = !!e.target.checked;
                     const ensureTwoStops = (arr) => {
                       if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
                       if (arr.length === 1) return [arr[0], arr[0]];
                       return arr;
                     };
-                    if (!varyFade && typeof setLayers === 'function') {
-                      // Broadcast enable + speed + ensure >=2 stops across all layers
-                      const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                      const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
-                      const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                      setLayers(prev => prev.map(l => {
-                        if (!effectiveSet.has(l.id)) return l;
-                        const arr = Array.isArray(l.colors) ? l.colors : [];
-                        const out = v ? ensureTwoStops(arr) : arr;
-                        return { ...l, colorFadeEnabled: v, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
-                      }));
-                    } else {
-                      const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
-                      const selSpeed = v ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                      if (isBroadcastTarget && typeof setLayers === 'function') {
-                        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-                        if (groupSet.size > 0) {
-                          setLayers(prev => prev.map(l => {
-                            if (!groupSet.has(l.id)) return l;
-                            const arr = Array.isArray(l.colors) ? l.colors : [];
-                            const nextCols = v ? ensureTwoStops(arr) : arr;
-                            const nextNum = Array.isArray(nextCols) ? nextCols.length : (l.numColors || 1);
-                            return {
-                              ...l,
-                              colorFadeEnabled: v,
-                              colorFadeSpeed: selSpeed,
-                              ...(v ? { colors: nextCols, numColors: nextNum } : {}),
-                            };
-                          }));
-                          return;
-                        }
-                      }
-                      const curCols = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-                      const nextCols = v ? ensureTwoStops(curCols) : curCols;
-                      const payload = {
-                        colorFadeEnabled: v,
-                        colorFadeSpeed: selSpeed,
+                    const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
+                    const nextSpeed = enabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
+                    applyTargetedUpdate((layer) => {
+                      const arr = Array.isArray(layer?.colors) ? layer.colors : [];
+                      const nextColors = enabled ? ensureTwoStops(arr) : arr;
+                      const patch = {
+                        colorFadeEnabled: enabled,
+                        colorFadeSpeed: nextSpeed,
                       };
-                      if (v) {
-                        payload.colors = nextCols;
-                        payload.numColors = nextCols.length;
+                      if (enabled) {
+                        patch.colors = nextColors;
+                        patch.numColors = Array.isArray(nextColors) ? nextColors.length : (layer?.numColors || 1);
                       }
-                      updateLayer(payload);
-                    }
+                      return patch;
+                    });
                   }}
                   onMouseDown={(e) => { e.stopPropagation(); }}
                   onClick={(e) => { e.stopPropagation(); }}
                 />
                 Animate colours
-              </label>
-              <label className="compact-label" title="Vary Animate colours across layers"
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-              >
-                <input
-                  type="checkbox"
-                  checked={colorFadeVaryChecked}
-                  onChange={(e) => {
-                    const checked = !!e.target.checked;
-                    const ensureTwoStops = (arr) => {
-                      if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
-                      if (arr.length === 1) return [arr[0], arr[0]];
-                      return arr;
-                    };
-                    if (typeof setLayers === 'function') {
-                      if (!checked) {
-                        // Turning vary OFF: broadcast selected layer's current animate state and ensure >=2 stops per layer
-                        const selEnabled = !!(currentLayer?.colorFadeEnabled);
-                        const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
-                        const selSpeed = selEnabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                        const effectiveSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                        setLayers(prev => prev.map(l => {
-                          if (!effectiveSet.has(l.id)) return l;
-                          const arr = Array.isArray(l.colors) ? l.colors : [];
-                          const out = selEnabled ? ensureTwoStops(arr) : arr;
-                          return { ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: false }, colorFadeEnabled: selEnabled, colorFadeSpeed: selSpeed, colors: out, numColors: Array.isArray(out) ? out.length : (l.numColors || 1) };
-                        }));
-                      } else {
-                        // Turning vary ON: just set the flag
-                        setLayers(prev => prev.map(l => ({ ...l, vary: { ...(l?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: true } })));
-                      }
-                    } else {
-                      const nextVary = { ...(currentLayer?.vary || DEFAULT_LAYER.vary || {}), colorFadeEnabled: checked };
-                      updateLayer({ vary: nextVary });
-                    }
-                  }}
-                  onMouseDown={(e) => { e.stopPropagation(); }}
-                  onClick={(e) => { e.stopPropagation(); }}
-                />
-                Vary across layers
               </label>
             </div>
             {!!currentLayer?.colorFadeEnabled && (
@@ -1811,20 +1391,7 @@ const Controls = forwardRef(({
                     value={Math.max(0, Math.min(4, Number(currentLayer?.colorFadeSpeed ?? 0.5)))}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
-                      const varyFade = colorFadeVaryChecked;
-                      if (!varyFade && typeof setLayers === 'function') {
-                        const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-                        setLayers(prev => prev.map(l => (allSet.has(l.id) ? { ...l, colorFadeSpeed: v } : l)));
-                      } else if (isBroadcastTarget && typeof setLayers === 'function') {
-                        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-                        if (groupSet.size > 0) {
-                          setLayers(prev => prev.map(l => (groupSet.has(l.id) ? { ...l, colorFadeSpeed: v } : l)));
-                        } else {
-                          updateLayer({ colorFadeSpeed: v });
-                        }
-                      } else {
-                        updateLayer({ colorFadeSpeed: v });
-                      }
+                      applyTargetedUpdate(() => ({ colorFadeSpeed: v }));
                     }}
                     className="dc-slider"
                   />
@@ -1872,31 +1439,10 @@ const Controls = forwardRef(({
         : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
-      const varyPalette = paletteVaryChecked;
-      if (!varyPalette && typeof setLayers === 'function') {
-        const allSet = buildTargetSet ? buildTargetSet({ mode: 'all' }) : new Set();
-        setLayers(prev => prev.map(l => (
-          allSet.has(l.id)
-            ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
-            : l
-        )));
-      } else if (isBroadcastTarget && typeof setLayers === 'function') {
-        const groupSet = buildTargetSet ? buildTargetSet({ mode: 'targeted' }) : new Set();
-        if (groupSet.size > 0) {
-          setLayers(prev => prev.map(l => (
-            groupSet.has(l.id)
-              ? { ...l, colors: [...nextColors], numColors: count, selectedColor: 0 }
-              : l
-          )));
-        } else {
-          updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
-        }
-      } else {
-        updateLayer({ colors: nextColors, numColors: count, selectedColor: 0 });
-      }
+      applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
     });
     return unregister;
-  }, [registerParamHandler, currentLayer?.name, currentLayer?.numColors, updateLayer]);
+  }, [applyTargetedUpdate, registerParamHandler, currentLayer?.name, currentLayer?.numColors]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {

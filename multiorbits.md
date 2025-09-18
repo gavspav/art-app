@@ -112,7 +112,7 @@ This document outlines a scalable design to support up to 8 shared orbit rotatio
   - Verify a layer with `Custom` uses `orbitCenterX/Y` regardless of orbit points.
   - Bind a layer to `Point 1`; moving Point 1 should move the orbit center for that layer.
 - Multiple layers bound to one point move together.
-- Vary toggles for `orbitRadiusX/Y` still work and broadcast when OFF.
+- Switching the global Target to **Global** updates all orbit radii; **Individual** limits edits to the active layer/selection.
 - Orbit Edit mode handles are visible, draggable, and labeled.
 - Save/Load preserves `orbitPoints` and each layer's `orbitPointIndex`.
 
