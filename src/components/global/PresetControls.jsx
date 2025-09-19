@@ -36,6 +36,26 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
 
+  const getExportMeta = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return {
+        version: '2.0',
+        canvasWidth: 0,
+        canvasHeight: 0,
+        exportedAt: new Date().toISOString(),
+      };
+    }
+    const meta = window.__artapp_canvasMeta || {};
+    const width = Math.round(Number(meta.width ?? window.innerWidth ?? 0));
+    const height = Math.round(Number(meta.height ?? window.innerHeight ?? 0));
+    return {
+      version: '2.0',
+      canvasWidth: width,
+      canvasHeight: height,
+      exportedAt: new Date().toISOString(),
+    };
+  }, []);
+
   // Run morph engine
   const { morphStatus } = usePresetMorph({
     getPresetSlot,
@@ -72,11 +92,13 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         mode: morphMode,
       };
       const key = `${TEMP_PRESET_PREFIX}${slotId}`;
+      const exportMeta = slot.payload?.exportMeta || getExportMeta();
       const saveObj = {
         parameters: slot.payload.parameters || [],
         appState: slot.payload.appState || null,
         savedAt: slot.payload.savedAt || new Date().toISOString(),
-        version: '1.1',
+        version: '2.0',
+        exportMeta,
       };
       localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
       if (typeof loadFullConfiguration === 'function') {
@@ -93,6 +115,9 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
             ...rest
           } = res.appState || {};
           loadAppState(rest);
+          if (res.exportMeta && typeof window !== 'undefined') {
+            window.__artapp_lastImportMeta = res.exportMeta;
+          }
           setMorphEnabled?.(preservedMorph.enabled);
           const routeToRestore = Array.isArray(preservedMorph.route)
             ? preservedMorph.route
@@ -108,21 +133,22 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
   }, [
+    getExportMeta,
     getPresetSlot,
     loadFullConfiguration,
     loadAppState,
-    morphEnabled,
-    morphRoute,
     morphDurationPerLeg,
     morphEasing,
+    morphEnabled,
     morphLoopMode,
     morphMode,
-    setMorphEnabled,
-    setMorphRoute,
+    morphRoute,
     setMorphDurationPerLeg,
     setMorphEasing,
+    setMorphEnabled,
     setMorphLoopMode,
     setMorphMode,
+    setMorphRoute,
   ]);
 
   const handlePresetClick = useCallback(async (slotId, evt) => {
@@ -135,7 +161,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         const now = new Date().toISOString();
         const appStatePayload = typeof getCurrentAppState === 'function' ? getCurrentAppState() : null;
         const paramPayload = Array.isArray(parameters) ? parameters : [];
-        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '1.0' };
+        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '2.0', exportMeta: getExportMeta() };
         setPresetSlot && setPresetSlot(slotId, (s) => ({ ...s, payload, savedAt: now }));
       } catch (e) {
         console.warn('[Presets] Failed to save to slot', slotId, e);
@@ -143,7 +169,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       return;
     }
     recallPreset(slotId);
-  }, [getPresetSlot, setPresetSlot, getCurrentAppState, parameters, recallPreset]);
+  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot]);
 
   // MIDI: per-preset triggers. Each preset i (1..16) gets its own mapping id 'preset:i'
   useEffect(() => {

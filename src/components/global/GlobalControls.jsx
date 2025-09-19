@@ -100,6 +100,26 @@ const GlobalControls = ({
   const { loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
 
+  const getExportMeta = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return {
+        version: '2.0',
+        canvasWidth: 0,
+        canvasHeight: 0,
+        exportedAt: new Date().toISOString(),
+      };
+    }
+    const meta = window.__artapp_canvasMeta || {};
+    const width = Math.round(Number(meta.width ?? window.innerWidth ?? 0));
+    const height = Math.round(Number(meta.height ?? window.innerHeight ?? 0));
+    return {
+      version: '2.0',
+      canvasWidth: width,
+      canvasHeight: height,
+      exportedAt: new Date().toISOString(),
+    };
+  }, []);
+
   const paletteValue = useMemo(() => {
     try {
       const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
@@ -224,7 +244,8 @@ const GlobalControls = ({
         mode: morphMode,
       };
       const key = `${TEMP_PRESET_PREFIX}${slotId}`;
-      const saveObj = { parameters: slot.payload.parameters || [], appState: slot.payload.appState || null, savedAt: slot.payload.savedAt || new Date().toISOString(), version: '1.1' };
+      const exportMeta = slot.payload?.exportMeta || getExportMeta();
+      const saveObj = { parameters: slot.payload.parameters || [], appState: slot.payload.appState || null, savedAt: slot.payload.savedAt || new Date().toISOString(), version: '2.0', exportMeta };
       localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
       if (typeof loadFullConfiguration === 'function') {
         const res = await loadFullConfiguration(key);
@@ -239,6 +260,9 @@ const GlobalControls = ({
             ...rest
           } = res.appState || {};
           loadAppState(rest);
+          if (res.exportMeta && typeof window !== 'undefined') {
+            window.__artapp_lastImportMeta = res.exportMeta;
+          }
           setMorphEnabled?.(preservedMorph.enabled);
           const routeToRestore = Array.isArray(preservedMorph.route)
             ? preservedMorph.route
@@ -262,6 +286,7 @@ const GlobalControls = ({
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
   }, [
+    getExportMeta,
     getPresetSlot,
     loadFullConfiguration,
     loadAppState,

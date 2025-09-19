@@ -16,6 +16,26 @@ const Settings = () => {
   const [loadAppStateOption, setLoadAppStateOption] = useState(true);
   const fileInputRef = React.useRef(null);
 
+  const getExportMeta = () => {
+    if (typeof window === 'undefined') {
+      return {
+        version: '2.0',
+        canvasWidth: 0,
+        canvasHeight: 0,
+        exportedAt: new Date().toISOString(),
+      };
+    }
+    const meta = window.__artapp_canvasMeta || {};
+    const width = Math.round(Number(meta.width ?? window.innerWidth ?? 0));
+    const height = Math.round(Number(meta.height ?? window.innerHeight ?? 0));
+    return {
+      version: '2.0',
+      canvasWidth: width,
+      canvasHeight: height,
+      exportedAt: new Date().toISOString(),
+    };
+  };
+
   const handleParamChange = (id, field, value) => {
     updateParameter(id, field, value);
   };
@@ -39,7 +59,8 @@ const Settings = () => {
       parameters,
       appState: includeAppState ? getCurrentAppState() : null,
       savedAt: new Date().toISOString(),
-      version: '1.1'
+      version: '2.0',
+      exportMeta: getExportMeta(),
     };
     downloadJson(filename, payload);
     showMessage(`Exported ${filename}`);
@@ -89,6 +110,9 @@ const Settings = () => {
 
       // Optionally load immediately
       const result = loadAppStateOption ? loadFullConfiguration(name) : loadParameters(name);
+      if (result.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = result.exportMeta;
+      }
       if (result.success && loadAppStateOption && result.appState) {
         loadAppState(result.appState);
       }
@@ -130,7 +154,10 @@ const Settings = () => {
   const handleSave = () => {
     const filename = saveFilename.trim() || 'default';
     const appState = includeAppState ? getCurrentAppState() : null;
-    const result = includeAppState ? saveFullConfiguration(filename, appState) : saveParameters(filename);
+    const meta = getExportMeta();
+    const result = includeAppState
+      ? saveFullConfiguration(filename, appState, meta)
+      : saveParameters(filename);
     showMessage(result.message, !result.success);
     if (result.success) {
       setSavedConfigs(getSavedConfigList());
@@ -141,7 +168,11 @@ const Settings = () => {
   const handleLoad = () => {
     const filename = loadFilename || 'default';
     const result = loadAppStateOption ? loadFullConfiguration(filename) : loadParameters(filename);
-    
+
+    if (result.exportMeta && typeof window !== 'undefined') {
+      window.__artapp_lastImportMeta = result.exportMeta;
+    }
+
     if (result.success && loadAppStateOption && result.appState) {
       loadAppState(result.appState);
     }

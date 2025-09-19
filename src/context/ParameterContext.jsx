@@ -115,8 +115,9 @@ export const ParameterProvider = ({ children }) => {
       const configData = {
         parameters,
         savedAt: new Date().toISOString(),
-        version: '1.0'
+        version: '2.0'
       };
+      configData.exportMeta = buildExportMeta();
       localStorage.setItem(key, JSON.stringify(configData));
       
       // Also update the list of saved configurations
@@ -133,15 +134,17 @@ export const ParameterProvider = ({ children }) => {
     }
   };
 
-  const saveFullConfiguration = (filename = 'default', appState = null) => {
+  const saveFullConfiguration = (filename = 'default', appState = null, exportMetaArg = null) => {
     try {
       const key = `artapp-config-${filename}`;
       const configData = {
         parameters,
         appState: appState || null,
         savedAt: new Date().toISOString(),
-        version: '1.1'
+        version: '2.0'
       };
+      const meta = exportMetaArg || buildExportMeta();
+      configData.exportMeta = meta;
       localStorage.setItem(key, JSON.stringify(configData));
       
       // Also update the list of saved configurations
@@ -168,7 +171,11 @@ export const ParameterProvider = ({ children }) => {
         const savedParams = configData.parameters || configData; // Handle both old and new format
         const mergedParams = mergeWithDefaults(savedParams);
         setParameters(mergedParams);
-        return { success: true, message: `Configuration '${filename}' loaded successfully!` };
+        return {
+          success: true,
+          message: `Configuration '${filename}' loaded successfully!`,
+          exportMeta: configData.exportMeta || null,
+        };
       } else {
         return { success: false, message: `Configuration '${filename}' not found` };
       }
@@ -187,12 +194,13 @@ export const ParameterProvider = ({ children }) => {
         const savedParams = configData.parameters || configData; // Handle both old and new format
         const mergedParams = mergeWithDefaults(savedParams);
         setParameters(mergedParams);
-        
+
         // Return both parameters and app state
         return { 
           success: true, 
           message: `Configuration '${filename}' loaded successfully!`,
-          appState: configData.appState || null
+          appState: configData.appState || null,
+          exportMeta: configData.exportMeta || null,
         };
       } else {
         return { success: false, message: `Configuration '${filename}' not found` };
@@ -252,4 +260,23 @@ export const ParameterProvider = ({ children }) => {
       {children}
     </ParameterContext.Provider>
   );
+};
+const buildExportMeta = () => {
+  if (typeof window === 'undefined') {
+    return {
+      version: '2.0',
+      canvasWidth: 0,
+      canvasHeight: 0,
+      exportedAt: new Date().toISOString(),
+    };
+  }
+  const meta = window.__artapp_canvasMeta || {};
+  const width = Math.round(Number(meta.width ?? window.innerWidth ?? 0));
+  const height = Math.round(Number(meta.height ?? window.innerHeight ?? 0));
+  return {
+    version: '2.0',
+    canvasWidth: width,
+    canvasHeight: height,
+    exportedAt: new Date().toISOString(),
+  };
 };

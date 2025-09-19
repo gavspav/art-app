@@ -372,19 +372,37 @@ const MainApp = () => {
     ? (layers[clampedSelectedIndex] || layers[0])
     : DEFAULT_LAYER;
 
+  const getExportMeta = useCallback(() => {
+    const handle = canvasRef.current;
+    const canvasEl = handle?.canvas || handle || null;
+    const globalMeta = (typeof window !== 'undefined' && window.__artapp_canvasMeta) || {};
+    let width = canvasEl?.width ?? globalMeta.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
+    let height = canvasEl?.height ?? globalMeta.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
+    width = Math.round(Number(width) || 0);
+    height = Math.round(Number(height) || 0);
+    return {
+      version: '2.0',
+      canvasWidth: width,
+      canvasHeight: height,
+      exportedAt: new Date().toISOString(),
+    };
+  }, []);
+
   const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
     if (!baseName) return;
     const includeState = window.confirm('Include app state (layers, background, animation)?');
+    const exportMeta = getExportMeta();
     const payload = {
       parameters,
       appState: includeState ? getCurrentAppState() : null,
       midiMappings: midiMappings || {},
       savedAt: new Date().toISOString(),
-      version: includeState ? '1.1' : '1.0',
+      version: '2.0',
+      exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [parameters, getCurrentAppState, midiMappings, downloadJson]);
+  }, [downloadJson, getCurrentAppState, getExportMeta, midiMappings, parameters]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -446,6 +464,9 @@ const MainApp = () => {
       }
       const loadState = window.confirm('Load app state if available?');
       const res = loadState ? loadFullConfiguration(name) : loadParameters(name);
+      if (res?.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = res.exportMeta;
+      }
       if (res?.success && loadState && res.appState) {
         loadAppState(res.appState);
       }

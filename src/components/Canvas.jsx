@@ -766,6 +766,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 canvas.height = h;
                 setCanvasSize({ width: w, height: h });
             }
+            if (typeof window !== 'undefined') {
+                window.__artapp_canvasMeta = {
+                    width: canvas.width,
+                    height: canvas.height,
+                };
+            }
         };
 
         applySize();
@@ -1052,6 +1058,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const forceFullPass = backgroundChanged || modeChanged || countChanged ||
             (layerHashesRef.current.size === 0) || (isFrozen && colorFadeWhileFrozen) ||
             needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
+        const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
+            ? (Date.now() * 0.001 + colorWallOffsetRef.current)
+            : nowSec;
         layers.forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
@@ -1067,8 +1076,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    const colorTimeNow = nowSec;
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeNow));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
                         const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
                         renderedPointsRef.current.set(index, pts);
