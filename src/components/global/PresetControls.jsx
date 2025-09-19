@@ -162,7 +162,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       });
       if (typeof unsub === 'function') unsubs.push(unsub);
     }
-    return () => { unsubs.forEach(u => { try { u(); } catch {} }); };
+    return () => { unsubs.forEach(u => { try { u(); } catch { /* noop */ } }); };
   }, [registerParamHandler, recallPreset]);
 
   const renderPresetGrid = () => {

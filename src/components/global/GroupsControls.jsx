@@ -32,8 +32,6 @@ export default function GroupsControls() {
     editTarget,
     // actions
     createGroup,
-    renameGroup,
-    setGroupColor,
     addMembersToGroup,
     removeMembersFromGroup,
     deleteGroup,

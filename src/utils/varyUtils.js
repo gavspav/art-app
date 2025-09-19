@@ -58,10 +58,10 @@ export const applyWithVary = ({ layers, targets, updater }) => {
   }
   try {
     console.debug('[applyWithVary] start', { targetCount: targets.size, targetIds: Array.from(targets || []) });
-  } catch {}
+  } catch { /* noop */ }
   const result = layers.map(layer => {
     if (!targets.has(layer.id)) return layer;
-    try { console.debug('[applyWithVary] updating layer', layer.id); } catch {}
+    try { console.debug('[applyWithVary] updating layer', layer.id); } catch { /* noop */ }
     const patch = updater(layer);
     if (!patch || typeof patch !== 'object') return layer;
     if (patch === layer) return layer;
@@ -70,6 +70,6 @@ export const applyWithVary = ({ layers, targets, updater }) => {
   try {
     const updatedCount = result.reduce((acc, l, i) => acc + (l !== layers[i] ? 1 : 0), 0);
     console.debug('[applyWithVary] done', { updatedCount });
-  } catch {}
+  } catch { /* noop */ }
   return result;
 };

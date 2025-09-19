@@ -88,8 +88,8 @@ export function svgStringToNodes(svgString, sampleCount = 0) {
     }
     // Fallback: per-path bbox normalization
     return normalizePoints(pts);
-  } catch (e) {
-    console.warn('svgStringToNodes: failed to parse SVG string', e);
+  } catch (error) {
+    console.warn('svgStringToNodes: failed to parse SVG string', error);
     return [];
   }
 }
@@ -162,7 +162,7 @@ export function extractAllPathsWithTransforms(svgString, sampleCount = 0) {
 
       // Apply CTM (includes ancestor transforms)
       let m = null;
-      try { m = el.getCTM && el.getCTM(); } catch (e) { /* ignore CTM failure */ }
+      try { m = el.getCTM && el.getCTM(); } catch { /* ignore CTM failure */ }
       const pts = rawPts.map(pt => {
         if (m && typeof m.a === 'number') {
           const x = pt.x * m.a + pt.y * m.c + m.e;
@@ -185,9 +185,9 @@ export function extractAllPathsWithTransforms(svgString, sampleCount = 0) {
 
     document.body.removeChild(liveSvg);
     return results;
-  } catch (e) {
+  } catch (error) {
     // Swallow parse errors; callers can handle empty array
-    console.warn('extractAllPathsWithTransforms: failed', e);
+    console.warn('extractAllPathsWithTransforms: failed', error);
     return [];
   }
 }
@@ -241,7 +241,7 @@ export function extractMergedNodesWithTransforms(svgString, sampleCount = 0, opt
     const pushTransformed = (el, pts) => {
       if (!pts || pts.length === 0) return;
       let m = null;
-      try { m = el.getCTM && el.getCTM(); } catch (e) { /* ignore CTM failure */ }
+      try { m = el.getCTM && el.getCTM(); } catch { /* ignore CTM failure */ }
       const transformed = [];
       if (m && typeof m.a === 'number') {
         for (let i = 0; i < pts.length; i++) {
@@ -358,8 +358,8 @@ export function extractMergedNodesWithTransforms(svgString, sampleCount = 0, opt
     const nodes = ref ? normalizePointsWithBox(allPts, ref) : normalizePoints(allPts);
     const subpathNodes = subpaths.map(pts => ref ? normalizePointsWithBox(pts, ref) : normalizePoints(pts));
     return { nodes, subpaths: subpathNodes, center, ref };
-  } catch (e) {
-    console.warn('extractMergedNodesWithTransforms: failed', e);
+  } catch (error) {
+    console.warn('extractMergedNodesWithTransforms: failed', error);
     return [];
   }
 }

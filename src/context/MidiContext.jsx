@@ -55,7 +55,7 @@ export const MidiProvider = ({ children }) => {
 
   const persist = useCallback((next) => {
     setMappings(next);
-    try { localStorage.setItem(LS_MIDI_MAPPINGS, JSON.stringify(next)); } catch {}
+    try { localStorage.setItem(LS_MIDI_MAPPINGS, JSON.stringify(next)); } catch { /* noop */ }
   }, []);
 
   const setMapping = useCallback((paramId, mapping) => {
@@ -104,7 +104,7 @@ export const MidiProvider = ({ children }) => {
 
   // Selected input persistence
   useEffect(() => {
-    try { localStorage.setItem(LS_MIDI_SELECTED, selectedInputId || ''); } catch {}
+    try { localStorage.setItem(LS_MIDI_SELECTED, selectedInputId || ''); } catch { /* noop */ }
   }, [selectedInputId]);
 
   // MIDI message handler
@@ -147,7 +147,7 @@ export const MidiProvider = ({ children }) => {
       const handlers = handlersRef.current.get(paramId);
       if (!handlers || handlers.size === 0) continue;
       handlers.forEach(fn => {
-        try { fn({ value01, raw: msg }); } catch {}
+        try { fn({ value01, raw: msg }); } catch { /* noop */ }
       });
     }
   }, [learnParamId, mappings, persist]);
@@ -180,7 +180,7 @@ export const MidiProvider = ({ children }) => {
     learnParamId,
     registerParamHandler,
     mappingLabel,
-  }), [supported, inputs, selectedInputId, mappings, setMapping, clearMapping, beginLearn, registerParamHandler]);
+  }), [beginLearn, clearMapping, inputs, learnParamId, mappings, registerParamHandler, selectedInputId, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>
@@ -188,4 +188,3 @@ export const MidiProvider = ({ children }) => {
     </MidiContext.Provider>
   );
 };
-/* eslint-disable react-refresh/only-export-components */

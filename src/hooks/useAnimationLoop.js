@@ -8,7 +8,6 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier) => {
     if (timeRef.current === 0) {
       timeRef.current = timestamp;
     }
-    const deltaTime = (timestamp - timeRef.current) / 1000; // time in seconds
     timeRef.current = timestamp;
 
     if (isFrozen) {

@@ -11,7 +11,7 @@ import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 
 // Per-layer MIDI Position control block
 // Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
-const MidiPositionSection = ({ currentLayer, updateLayer }) => {
+const MidiPositionSection = ({ currentLayer: _currentLayer, updateLayer: _updateLayer }) => {
   return null;
 };
 
@@ -222,7 +222,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         targetMode,
         targets: Array.from(targets || []),
       });
-    } catch {}
+    } catch { /* noop */ }
     const factory = typeof patchFactory === 'function'
       ? patchFactory
       : (() => patchFactory || {});
@@ -239,7 +239,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     } else {
       updateLayer(factory(currentLayer));
     }
-  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
+  }, [buildTargetSet, currentLayer, id, setLayers, targetMode, updateLayer]);
 
   const handleChange = (e) => {
     let newValue;
@@ -435,9 +435,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       }
     });
     return () => { if (typeof unsub === 'function') unsub(); };
-    // It's intentional to exclude updateLayer/currentLayer from deps to avoid churn
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, type, min, max, step, options, registerParamHandler, applyUpdateToTargets]);
+  }, [applyUpdateToTargets, id, max, min, options, registerParamHandler, step, type]);
 
   // Now short-circuit render if hidden, after hooks are declared
   if (hidden) return null;
@@ -653,27 +651,10 @@ const Controls = forwardRef(({
   updateLayer, 
   randomizeCurrentLayer,
   randomizeAnimationOnly,
-  /* eslint-disable no-unused-vars */
-  randomizeAll, 
-  isFrozen, 
-  setIsFrozen,
-  globalSpeedMultiplier,
-  setGlobalSpeedMultiplier,
-  /* eslint-enable no-unused-vars */
-  // decoupled: do not pass full layers array to avoid frequent re-renders
-  setLayers, // eslint-disable-line no-unused-vars
-  // new lightweight props derived from the first/base layer
-  /* eslint-disable no-unused-vars */
-  baseColors,
-  baseNumColors,
-  /* eslint-enable no-unused-vars */
+  setLayers,
   isNodeEditMode,
   showMidi,
   setIsNodeEditMode,
-  /* eslint-disable no-unused-vars */
-  classicMode,
-  setClassicMode,
-  /* eslint-enable no-unused-vars */
   randomizePalette,
   setRandomizePalette,
   randomizeNumColors,
@@ -683,7 +664,6 @@ const Controls = forwardRef(({
   setColorCountMin,
   setColorCountMax,
   onRandomizeLayerColors,
-  // rotate options
   getIsRnd,
   setIsRnd,
   layerNames,
@@ -705,7 +685,7 @@ const Controls = forwardRef(({
     toggleLayerSelection,
     clearSelection,
     getActiveTargetLayerIds,
-    layers = [],
+    layers: _layers = [],
     parameterTargetMode: contextParameterTargetMode,
   } = useAppState() || {};
 
@@ -728,9 +708,10 @@ const Controls = forwardRef(({
 
   // Ensure delete index stays within range if layer count changes after deletion
   useEffect(() => {
-    const max = Math.max(0, ((layerNames || []).length || 1) - 1);
+    const names = Array.isArray(layerNames) ? layerNames : [];
+    const max = Math.max(0, names.length - 1);
     setDeleteIndex((idx) => Math.max(0, Math.min(max, Number.isFinite(idx) ? idx : 0)));
-  }, [layerNames?.length]);
+  }, [layerNames]);
 
   const selectionCount = Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx.length : 0;
   const targetMode = contextParameterTargetMode === 'global' ? 'global' : 'individual';
@@ -766,7 +747,6 @@ const Controls = forwardRef(({
     const ids = getActiveTargetLayerIds();
     return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
   }, [getActiveTargetLayerIds, layerIds]);
-  const isGroupTarget = editTarget?.type === 'group' || editTarget?.type === 'selection';
 
   const applyTargetedUpdate = useCallback((updater) => {
     const { effective: targets } = resolveLayerTargets({
@@ -781,7 +761,7 @@ const Controls = forwardRef(({
     const ids = Array.from(targets || []);
     try {
       console.debug('[Controls] applyTargetedUpdate', targetMode, ids);
-    } catch {}
+    } catch { /* noop */ }
 
     if (targetMode === 'individual' && ids.length === 1) {
       const nextPatch = factory(currentLayer);
@@ -818,7 +798,7 @@ const Controls = forwardRef(({
         targets: Array.from(targets || []),
         value: wrapped,
       });
-    } catch {}
+    } catch { /* noop */ }
     if (typeof setLayers === 'function' && targets.size > 0) {
       setLayers(prev => applyWithVary({
         layers: prev,
@@ -836,7 +816,7 @@ const Controls = forwardRef(({
       console.debug('[Controls] targetMode changed:', targetMode);
       // Expose for quick manual inspection from DevTools if needed
       window.__artapp_targetMode = targetMode;
-    } catch {}
+    } catch { /* noop */ }
   }, [targetMode]);
 
   const handleTargetSelect = useCallback((e) => {
@@ -888,7 +868,7 @@ const Controls = forwardRef(({
     };
     window.addEventListener('keydown', onKeyDown);
     // Focus the popover for accessibility
-    try { deletePickerRef.current && deletePickerRef.current.focus?.(); } catch {}
+    try { deletePickerRef.current && deletePickerRef.current.focus?.(); } catch { /* noop */ }
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [showDeletePicker, deleteIndex, onDeleteLayer, layerNames]);
 
@@ -1442,7 +1422,7 @@ const Controls = forwardRef(({
       applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
     });
     return unregister;
-  }, [applyTargetedUpdate, registerParamHandler, currentLayer?.name, currentLayer?.numColors]);
+  }, [applyTargetedUpdate, currentLayer, registerParamHandler]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {
@@ -1457,7 +1437,7 @@ const Controls = forwardRef(({
       applyRotation(wrapped);
     });
     return unregister;
-  }, [registerParamHandler, currentLayer?.name, applyRotation]);
+  }, [applyRotation, currentLayer, registerParamHandler]);
 
   return (
     <div className="controls-panel">

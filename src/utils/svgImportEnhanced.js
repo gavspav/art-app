@@ -11,7 +11,6 @@ export function parseSVGForImport(svgString, options = {}) {
     centerOnCanvas = true,  // Center the shape on canvas
     preserveAspectRatio = true,
     extractColors = true,
-    applyToLayer = {}  // Additional layer properties to apply
   } = options;
 
   if (!svgString || typeof svgString !== 'string') {
@@ -104,7 +103,7 @@ function extractAllShapes(svgEl, dimensions) {
   const elements = svgEl.querySelectorAll('path, polygon, polyline, circle, ellipse, rect, line');
   
   elements.forEach((el, index) => {
-    const shape = extractShape(el, dimensions);
+    const shape = extractShape(el);
     if (!shape || shape.points.length < 3) return;
 
     // Compute shape bounding box to detect full-background rectangles
@@ -127,7 +126,7 @@ function extractAllShapes(svgEl, dimensions) {
 /**
  * Extract points from a single shape element
  */
-function extractShape(element, dimensions) {
+function extractShape(element) {
   const tag = element.tagName.toLowerCase();
   let points = [];
   let attributes = {};
@@ -383,19 +382,21 @@ function applyTransform(points, transformStr) {
     const { type, params } = transform;
     
     switch (type) {
-      case 'translate':
+      case 'translate': {
         const tx = params[0] || 0;
         const ty = params[1] || 0;
         result = result.map(p => ({ x: p.x + tx, y: p.y + ty }));
         break;
-        
-      case 'scale':
+      }
+
+      case 'scale': {
         const sx = params[0] || 1;
         const sy = params[1] || sx;
         result = result.map(p => ({ x: p.x * sx, y: p.y * sy }));
         break;
-        
-      case 'rotate':
+      }
+
+      case 'rotate': {
         const angle = (params[0] || 0) * Math.PI / 180;
         const cx = params[1] || 0;
         const cy = params[2] || 0;
@@ -408,8 +409,9 @@ function applyTransform(points, transformStr) {
           };
         });
         break;
-        
-      case 'matrix':
+      }
+
+      case 'matrix': {
         if (params.length === 6) {
           const [a, b, c, d, e, f] = params;
           result = result.map(p => ({
@@ -418,6 +420,7 @@ function applyTransform(points, transformStr) {
           }));
         }
         break;
+      }
     }
   }
   
@@ -587,7 +590,7 @@ function calculateOptimalTransform(shapes, dimensions, options) {
 /**
  * Convert parsed SVG data to layer nodes format
  */
-export function convertToLayerNodes(shapes, transform) {
+export function convertToLayerNodes(shapes) {
   if (!shapes || !shapes.length) return [];
   
   // Merge all shapes into a single set of nodes

@@ -49,7 +49,7 @@ export const AppStateProvider = ({ children }) => {
       if (seen.has(id)) {
         // Generate a fresh unique id when a duplicate is detected
         const newId = makeLayerId();
-        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: id, new: newId }); } catch {}
+        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: id, new: newId }); } catch { /* noop */ }
         out = { ...out, id: newId };
         id = newId;
       }
@@ -361,7 +361,7 @@ export const AppStateProvider = ({ children }) => {
       return true;
     }
     return false;
-  }, []);
+  }, [makeLayerId]);
 
   // Selection helpers
   const toggleLayerSelection = useCallback((layerId) => {
@@ -507,4 +507,3 @@ export const AppStateProvider = ({ children }) => {
     </AppStateContext.Provider>
   );
 };
-/* eslint-disable react-refresh/only-export-components */

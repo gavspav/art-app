@@ -1,5 +1,4 @@
-/* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext } from 'react';
 import { PARAMETERS } from '../config/parameters';
 
 // Merge helper that preserves authoritative defaults for critical params

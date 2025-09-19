@@ -26,7 +26,7 @@ export function useLayerManagement({
           }
         }
       }
-    } catch (e) { /* ignore */ }
+    } catch { /* noop */ }
 
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
@@ -113,7 +113,7 @@ export function useLayerManagement({
       });
       setLayers(prev => prev.map((l, i) => (i === idx ? { ...l, nodes } : l)));
     }
-  }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
+  }, [isNodeEditMode, layers, selectedLayerIndex, setLayers]);
 
   return {
     updateCurrentLayer,

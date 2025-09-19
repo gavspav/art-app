@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useMemo, useState, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, forwardRef, useMemo, useState, useImperativeHandle, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
@@ -18,14 +18,12 @@ const getArtboardMapping = (canvas) => {
 };
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
-const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
+const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
     // Destructure properties from the layer and its nested position object
     const {
         numSides: sides,
         curviness,
         wobble = 0.5,
-        width,
-        height,
         colors = [],
         /*blendMode,*/
         opacity = 1,
@@ -439,7 +437,7 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
 // Helper to compute initial regular polygon nodes in layer-local unit circle ([-1,1])
 // Resizes existing node array to desired length while preserving as many positions as possible
 const resizeNodes = (nodes, desired) => {
-    if (!Array.isArray(nodes) || desired < 3) return computeInitialNodes({ numSides: desired }, {});
+    if (!Array.isArray(nodes) || desired < 3) return computeInitialNodes({ numSides: desired });
     let curr = [...nodes];
     if (curr.length === desired) return curr;
     if (curr.length > desired) {
@@ -462,7 +460,7 @@ const resizeNodes = (nodes, desired) => {
     }
     return curr;
 };
-const computeInitialNodes = (layer, canvas) => {
+const computeInitialNodes = (layer) => {
     const { numSides: sides = 6 } = layer;
     const count = Math.max(3, sides);
     const nodes = [];
@@ -479,8 +477,6 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
     try {
         if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-        const cw = canvas?.width || 0;
-        const ch = canvas?.height || 0;
         const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
         const minWH = artSize;
         const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
@@ -550,7 +546,6 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const path = new Path2D();
     if (!layer || !canvas || !layer.position || !layer.visible) return path;
 
-    const { width: cw, height: ch } = canvas;
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
     const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
     const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
@@ -640,7 +635,6 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         selectedLayerIds: selectedLayerIdsCtx,
         clearSelection,
         setEditTarget,
-        editTarget,
         getActiveTargetLayerIds,
         showLayerOutlines,
     } = useAppState() || {};
@@ -665,7 +659,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
     const draggingKindRef = useRef(null); // 'node' | 'mid' | null
-    const [historyTick, setHistoryTick] = useState(0); // trigger re-render when history changes
+    const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
@@ -685,15 +679,15 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         }
         return true;
     };
-    const initHistoryBaseline = (idx) => {
+    const initHistoryBaseline = useCallback((idx) => {
         try {
             const layer = layers[idx];
             if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 1) return;
             const snap = cloneNodes(layer.nodes);
             historyRef.current = { stack: [snap], index: 0, layerIndex: idx };
             setHistoryTick(t => t + 1);
-        } catch {}
-    };
+        } catch { /* noop */ }
+    }, [layers]);
     const pushHistorySnapshot = () => {
         try {
             const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
@@ -713,7 +707,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             }
             cur.index = cur.stack.length - 1;
             setHistoryTick(t => t + 1);
-        } catch {}
+        } catch { /* noop */ }
     };
     const applySnapshot = (idx, snap) => {
         try {
@@ -725,9 +719,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (cache && typeof cache.set === 'function') {
                     cache.set(idx, cloned.map(n => ({ ...n })));
                 }
-            } catch {}
+            } catch { /* noop */ }
             setLayers(prev => prev.map((l, i) => i === idx ? { ...l, nodes: cloned } : l));
-        } catch {}
+        } catch { /* noop */ }
     };
     const undoOnce = () => {
         const cur = historyRef.current;
@@ -822,7 +816,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const hasChanged = currentBgHash !== backgroundHashRef.current;
         backgroundHashRef.current = currentBgHash;
         return hasChanged;
-    }, [backgroundColor, globalSeed, globalBlendMode, colorTick]);
+    }, [backgroundColor, globalSeed, globalBlendMode]);
 
     // Keep a stable time snapshot when entering frozen state so re-renders are identical
     useEffect(() => {
@@ -962,13 +956,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         ctx.restore();
                     };
                     if ((img.naturalWidth || 0) > 0) drawIt(); else img.onload = drawIt;
-                } catch (e) { /* ignore image draw error */ }
+                } catch { /* ignore image draw error */ }
             }
             // If user wants color to fade while frozen, drive it with wall time but keep continuity using the computed offset
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : timeNow;
-            layers.forEach((layer, index) => {
+            layers.forEach((layer) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
@@ -1037,7 +1031,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         ctx.restore();
                     };
                     if ((img.naturalWidth || 0) > 0) { drawIt(); } else { img.onload = drawIt; }
-                } catch {}
+                } catch { /* noop */ }
             }
         }
 
@@ -1137,7 +1131,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     });
                     ctx.restore();
                 }
-            } catch {}
+            } catch { /* noop */ }
         }
 
         // Debug overlay for imported positions (draw after content)
@@ -1279,7 +1273,25 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
 
-    }, [layerChanges, backgroundChanged, colorTick, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, selectedLayerIndex, classicMode, isFrozen, colorFadeWhileFrozen, canvasSize.width, canvasSize.height]);
+    }, [
+        layerChanges,
+        backgroundChanged,
+        colorTick,
+        backgroundColor,
+        globalSeed,
+        globalBlendMode,
+        isNodeEditMode,
+        selectedLayerIndex,
+        classicMode,
+        isFrozen,
+        colorFadeWhileFrozen,
+        canvasSize.width,
+        canvasSize.height,
+        layers,
+        selectedLayerIdsCtx,
+        getActiveTargetLayerIds,
+        showLayerOutlines,
+    ]);
 
     useEffect(() => {
         if (ref) {
@@ -1295,7 +1307,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
-            const nodes = computeInitialNodes(layer, canvas);
+            const nodes = computeInitialNodes(layer);
             // Avoid redundant updates
             if (!Array.isArray(layer.nodes) || layer.nodes.length !== nodes.length) {
                 setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes } : l));
@@ -1311,7 +1323,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const layer = layers[selectedLayerIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
-            const nodes = computeInitialNodes(layer, canvas);
+            const nodes = computeInitialNodes(layer);
             setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
             // Seed/refresh cache for this layer
             nodesCacheRef.current.set(selectedLayerIndex, nodes.map(n => ({ ...n })));
@@ -1349,7 +1361,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const key = selIndex;
         // Ensure cache exists
         if (!nodesCacheRef.current.has(key)) {
-            const base = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : computeInitialNodes(layer, canvas);
+            const base = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : computeInitialNodes(layer);
             nodesCacheRef.current.set(key, base.map(n => ({ ...n })));
         }
         const cache = nodesCacheRef.current.get(key) || [];
@@ -1365,7 +1377,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         } else {
             // Need to add new points: derive using current best resize, then append to cache
             const target = desired;
-            const current = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : (cache.length ? cache.slice(0) : computeInitialNodes(layer, canvas));
+            const current = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : (cache.length ? cache.slice(0) : computeInitialNodes(layer));
             const resized = resizeNodes(current, target);
             // Append any new points beyond cache length to cache
             for (let i = cache.length; i < resized.length; i++) {
@@ -1392,7 +1404,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
-            const nodes = computeInitialNodes(layer, canvas);
+            const nodes = computeInitialNodes(layer);
             // Only update if different or missing
             if (!nodesEqual(layer.nodes, nodes)) {
                 setLayers(prev => prev.map((l, i) => i === selIndex ? { ...l, nodes } : l));
@@ -1400,7 +1412,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             // Seed cache with freshly initialized nodes
             nodesCacheRef.current.set(selIndex, nodes.map(n => ({ ...n })));
         }
-    }, [layers.length, selectedLayerIndex, isNodeEditMode, setLayers]);
+    }, [layers, selectedLayerIndex, isNodeEditMode, setLayers]);
 
     // Mouse interaction for dragging nodes
     const getMousePos = (evt) => {
@@ -1707,7 +1719,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     if (historyRef.current.layerIndex !== idx || (historyRef.current.index < 0 && nodeLen > 0)) {
       initHistoryBaseline(idx);
     }
-  }, [isNodeEditMode, selectedLayerIndex, layers.length, layers[selectedLayerIndex]?.nodes?.length]);
+  }, [isNodeEditMode, initHistoryBaseline, layers, selectedLayerIndex]);
 
     return (
         <>

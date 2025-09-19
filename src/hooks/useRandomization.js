@@ -44,20 +44,20 @@ export function useRandomization({
   const getLayersSnapshot = () => Array.isArray(layersRef.current) ? layersRef.current : [];
 
   // Local mix using seeded RNG
-  const mixRand = (baseVal, min, max, w, integer = false) => {
+  const mixRand = useCallback((baseVal, min, max, w, integer = false) => {
     const rnd = min + rand() * Math.max(0, (max - min));
     let next = baseVal * (1 - w) + rnd * w;
     next = clamp(next, min, max);
     if (integer) next = Math.round(next);
     return next;
-  };
+  }, [rand]);
   const wrapTo180 = (deg) => (((deg + 180) % 360) + 360) % 360 - 180;
-  const randomBackgroundColor = () => {
+  const randomBackgroundColor = useCallback(() => {
     const h = Math.floor(rand() * 360);
     const s = Math.floor(40 + rand() * 40);
     const l = Math.floor(25 + rand() * 55);
     return hslToHex(h, s, l);
-  };
+  }, [rand]);
 
   // Subtle HSL perturbation helper for colour arrays (perceptual)
   const perturbColorsHSL = (arr, amount, rnd) => {
@@ -433,7 +433,7 @@ export function useRandomization({
           layersOut[i].selectedColor = 0;
         }
       }
-    } catch {}
+    } catch { /* noop */ }
 
     // Global opacity randomization (gated)
     if (incOpacity) {
@@ -467,7 +467,7 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, palettes, parameters, rand, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
 
   const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
@@ -603,7 +603,7 @@ export function useRandomization({
           newLayers[i].numColors = 1;
           newLayers[i].selectedColor = 0;
         }
-      } catch {}
+      } catch { /* noop */ }
     } else {
       // Preserve previous per-layer colours and counts
       for (let i = 0; i < newLayers.length; i++) {
@@ -637,7 +637,7 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomizeNumColors, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
 
   const randomizeScene = useCallback(() => {
     const layers = getLayersSnapshot();
@@ -645,7 +645,7 @@ export function useRandomization({
     const newLayers = layers.map((_, index) => randomizeLayer(index));
     setLayers(newLayers);
     setBackgroundColor(randomBackgroundColor());
-  }, [classicMode, classicRandomizeAll, randomizeLayer, setBackgroundColor, setLayers]);
+  }, [classicMode, classicRandomizeAll, randomBackgroundColor, randomizeLayer, setBackgroundColor, setLayers]);
 
   return useMemo(() => ({
     modernRandomizeAll,

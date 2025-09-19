@@ -5,8 +5,7 @@ import { MidiProvider, useMidi } from './context/MidiContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
-import { svgStringToNodes, samplePath, extractMergedNodesWithTransforms } from './utils/svgToNodes';
-import { importSVGFiles, parseSVGForImport, createLayerFromSVG } from './utils/svgImportEnhanced';
+import { importSVGFiles } from './utils/svgImportEnhanced';
 import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
@@ -15,14 +14,13 @@ import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
-import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, assignOneColorPerLayer as assignOneColorPerLayerPure, pickPaletteColors } from './utils/paletteUtils.js';
+import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 
 import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
 import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
-import SidebarResizer from './components/global/SidebarResizer.jsx';
 import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
 import BottomPanel from './components/BottomPanel.jsx';
 // LayerList removed; layer management moved to Controls header
@@ -30,7 +28,7 @@ import BottomPanel from './components/BottomPanel.jsx';
 
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
-  const { parameters, updateParameter } = useParameters(); // Get parameters from context
+  const { parameters } = useParameters();
   // Get app state from context
   const {
     isFrozen, setIsFrozen,
@@ -58,27 +56,16 @@ const MainApp = () => {
 
   // MIDI context
   const {
-    supported: midiSupported,
-    inputs: midiInputs,
-    selectedInputId: midiInputId,
-    setSelectedInputId: setMidiInputId,
     mappings: midiMappings,
     setMappingsFromExternal,
     registerParamHandler,
-    beginLearn,
-    clearMapping,
-    mappingLabel,
-    learnParamId,
   } = useMidi() || {};
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
-  const controlsRef = useRef(null);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
-  const [sidebarWidth, setSidebarWidth] = useState(350);
-  const dragRef = useRef({ dragging: false, startX: 0, startW: 350 });
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
@@ -91,10 +78,10 @@ const MainApp = () => {
       const { stream } = recorderRef.current || {};
       if (stream) {
         stream.getTracks()?.forEach(track => {
-          try { track.stop(); } catch {}
+          try { track.stop(); } catch { /* noop */ }
         });
       }
-    } catch {}
+    } catch { /* noop */ }
     recorderRef.current = { mediaRecorder: null, chunks: [], stream: null };
   }, []);
 
@@ -138,7 +125,7 @@ const MainApp = () => {
           if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mimeType)) {
             return { mimeType };
           }
-        } catch {}
+        } catch { /* noop */ }
       }
       return {};
     };
@@ -146,7 +133,7 @@ const MainApp = () => {
     const options = pickRecorderOptions();
     if (!options) {
       window.alert('MediaRecorder is not available in this browser.');
-      stream.getTracks()?.forEach(track => { try { track.stop(); } catch {}; });
+      stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
       return;
     }
 
@@ -160,7 +147,7 @@ const MainApp = () => {
       } catch (fallbackErr) {
         console.warn('Failed to create MediaRecorder without options', fallbackErr);
         window.alert('Unable to start recording: MediaRecorder could not be initialized.');
-        stream.getTracks()?.forEach(track => { try { track.stop(); } catch {}; });
+        stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
         return;
       }
     }
@@ -174,7 +161,7 @@ const MainApp = () => {
     mediaRecorder.onerror = (event) => {
       console.warn('MediaRecorder error', event?.error || event);
       window.alert('Recording encountered an error. Stopping recording.');
-      try { mediaRecorder.stop(); } catch {}
+      try { mediaRecorder.stop(); } catch { /* noop */ }
     };
 
     mediaRecorder.onstop = () => {
@@ -270,21 +257,8 @@ const MainApp = () => {
     layersRef.current = layers;
   }, [layers]);
 
-  // Diagnostics: log a concise snapshot when layers change to verify only targeted layers update
-  useEffect(() => {
-    try {
-      const snapshot = (Array.isArray(layers) ? layers : []).map(l => ({
-        id: l?.id,
-        name: l?.name,
-        numSides: l?.numSides,
-        movementSpeed: l?.movementSpeed,
-        rotation: l?.rotation,
-      }));
-      // console.debug('[App] layers changed:', snapshot);
-    } catch {}
-  }, [layers]);
   // Suppress animation briefly during direct user edits to avoid state races
-  const [suppressAnimation, setSuppressAnimation] = useState(false);
+  const [, setSuppressAnimation] = useState(false);
   const suppressTimerRef = useRef(null);
 
   // Cleanup any pending suppression timer on unmount
@@ -295,7 +269,7 @@ const MainApp = () => {
           clearTimeout(suppressTimerRef.current);
           suppressTimerRef.current = null;
         }
-      } catch {}
+      } catch { /* noop */ }
     };
   }, []);
 
@@ -306,7 +280,7 @@ const MainApp = () => {
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
           mediaRecorder.stop();
         }
-      } catch {}
+      } catch { /* noop */ }
       cleanupRecorder();
     };
   }, [cleanupRecorder]);
@@ -332,40 +306,6 @@ const MainApp = () => {
   }, [showShortcuts]);
 
   // Sidebar resize handlers
-  const onSidebarMouseMove = useCallback((e) => {
-    const st = dragRef.current || {};
-    if (!st.dragging) return;
-    const dx = (e.clientX || 0) - (st.startX || 0);
-    const nextW = Math.max(240, Math.min(800, (st.startW || 350) + dx));
-    setSidebarWidth(nextW);
-  }, []);
-
-  const onSidebarMouseUp = useCallback(() => {
-    const st = dragRef.current || {};
-    if (!st.dragging) return;
-    dragRef.current = { ...st, dragging: false };
-    window.removeEventListener('mousemove', onSidebarMouseMove);
-    window.removeEventListener('mouseup', onSidebarMouseUp);
-  }, [onSidebarMouseMove]);
-
-  const startResize = useCallback((e) => {
-    try { e.preventDefault(); } catch {}
-    const sx = Number(e?.clientX) || 0;
-    dragRef.current = { dragging: true, startX: sx, startW: sidebarWidth };
-    window.addEventListener('mousemove', onSidebarMouseMove);
-    window.addEventListener('mouseup', onSidebarMouseUp);
-  }, [sidebarWidth, onSidebarMouseMove, onSidebarMouseUp]);
-
-  useEffect(() => {
-    // Cleanup listeners on unmount just in case
-    return () => {
-      try {
-        window.removeEventListener('mousemove', onSidebarMouseMove);
-        window.removeEventListener('mouseup', onSidebarMouseUp);
-      } catch {}
-    };
-  }, [onSidebarMouseMove, onSidebarMouseUp]);
-
   // --- Import adjust panel state (moved to hook) ---
   const {
     showImportAdjust, setShowImportAdjust,
@@ -373,14 +313,11 @@ const MainApp = () => {
     importFitEnabled, setImportFitEnabled,
     importDebug, setImportDebug,
     importBaseRef, importRawRef,
-    recomputeImportLayout, applyImportAdjust,
+    applyImportAdjust,
   } = useImportAdjust({ setLayers });
 
   // Start animation loop (position, bounce/drift, z-scale)
   useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
-
-  // Remember prior frozen state when entering node edit mode
-  const prevFrozenRef = useRef(null);
 
   // Config save/load from contexts
   const {
@@ -493,7 +430,7 @@ const MainApp = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       // Apply MIDI mappings immediately if present
-      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch (e) { /* ignore */ }
+      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch { /* noop */ }
       // Save imported JSON into localStorage under a unique name, then load via existing loaders
       const base = file.name.replace(/\.json$/i, '') || 'imported';
       const existing = new Set(getSavedConfigList());
@@ -667,7 +604,20 @@ const MainApp = () => {
     } finally {
       e.target.value = '';
     }
-  }, [applyImportAdjust, importBaseRef, importDebug, importFitEnabled, importRawRef, importSVGFiles, layers.length, layersRef, recomputeImportLayout, selectedLayerIndex, setImportAdjust, setImportDebug, setImportFitEnabled, setIsNodeEditMode, setLayers, setSelectedLayerIndex, setShowImportAdjust]);
+  }, [
+    importBaseRef,
+    importFitEnabled,
+    importRawRef,
+    layers.length,
+    selectedLayerIndex,
+    setImportAdjust,
+    setImportDebug,
+    setImportFitEnabled,
+    setIsNodeEditMode,
+    setLayers,
+    setSelectedLayerIndex,
+    setShowImportAdjust,
+  ]);
 
 
   // (Removed invalid useEffect block accidentally inserted earlier)
@@ -798,7 +748,7 @@ const MainApp = () => {
     }
     const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  }, [colorCountMax, colorCountMin, palettes, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
+  }, [colorCountMax, colorCountMin, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
 
   // randomizeBackgroundColor handled within useRandomization
 
@@ -827,7 +777,6 @@ const MainApp = () => {
 
   // MIDI helper refs and handlers integration
   const rndAllPrevRef = useRef(0);
-  const rndLayerPrevRef = useRef(0);
 
   // Centralize all MIDI handlers
   const selectedIdxForMidi = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
@@ -919,7 +868,7 @@ const MainApp = () => {
       }, 'image/png');
     } catch (err) {
       console.warn('High-res export failed', err);
-      try { if (!isFrozen) setIsFrozen(false); } catch {}
+      try { if (!isFrozen) setIsFrozen(false); } catch { /* noop */ }
     }
   }, [backgroundColor, globalBlendMode, globalSeed, isFrozen, setIsFrozen]);
 

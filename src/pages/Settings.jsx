@@ -57,7 +57,7 @@ const Settings = () => {
       const obj = JSON.parse(raw);
       downloadJson(`${name}.json`, obj);
       showMessage(`Exported ${name}.json`);
-    } catch (e) {
+    } catch {
       showMessage('Failed to export configuration', true);
     }
   };
@@ -93,7 +93,7 @@ const Settings = () => {
         loadAppState(result.appState);
       }
       showMessage(`Imported '${name}'`, !result.success);
-    } catch (err) {
+    } catch {
       showMessage('Failed to import JSON', true);
     } finally {
       // reset input so the same file can be picked again
@@ -112,7 +112,7 @@ const Settings = () => {
         clearTimeout(msgTimerRef.current);
         msgTimerRef.current = null;
       }
-    } catch {}
+    } catch { /* noop */ }
     msgTimerRef.current = setTimeout(() => setMessage(''), 3000);
   };
 
@@ -123,7 +123,7 @@ const Settings = () => {
           clearTimeout(msgTimerRef.current);
           msgTimerRef.current = null;
         }
-      } catch {}
+      } catch { /* noop */ }
     };
   }, []);
 

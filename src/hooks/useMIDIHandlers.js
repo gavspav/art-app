@@ -17,7 +17,6 @@ export function useMIDIHandlers({
   // Palette helpers
   palettes,
   sampleColorsEven,
-  assignOneColorPerLayer,
   // Background
   backgroundColor,
   setBackgroundColor,
@@ -121,7 +120,6 @@ export function useMIDIHandlers({
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('layersCount', ({ value01 }) => {
       const target = Math.max(1, Math.min(20, Math.round(1 + value01 * 19)));
-      const wasLen = layers.length;
       setLayers?.(prev => {
         let next = prev;
         if (target > prev.length) {
@@ -154,7 +152,7 @@ export function useMIDIHandlers({
       setSelectedLayerIndex?.(Math.max(0, target - 1));
     });
     return unregister;
-  }, [registerParamHandler, setLayers, setSelectedLayerIndex, layers.length, DEFAULT_LAYER, buildVariedLayerFrom]);
+  }, [DEFAULT_LAYER, buildVariedLayerFrom, registerParamHandler, setLayers, setSelectedLayerIndex]);
 
   // (removed: global assign-one-per-layer variant to avoid duplicate id handlers)
 

@@ -58,7 +58,6 @@ const GlobalControls = ({
   setLayers,
   DEFAULT_LAYER,
   buildVariedLayerFrom,
-  setSelectedLayerIndex,
   // Actions
   handleRandomizeAll,
   // UI options
@@ -77,15 +76,12 @@ const GlobalControls = ({
         const fit = backgroundImage?.fit || 'cover';
         window.__artapp_bgimg = { enabled, src, opacity, fit };
       }
-    } catch {}
+    } catch { /* noop */ }
   }, [backgroundImage]);
   // Presets: contexts
   const {
     presetSlots,
-    setPresetSlot,
     getPresetSlot,
-    // clearPresetSlot, // not used yet in Phase 1 UI
-    getCurrentAppState,
     loadAppState,
     // Morph state
     morphEnabled,
@@ -101,7 +97,7 @@ const GlobalControls = ({
     morphMode,
     setMorphMode,
   } = useAppState() || {};
-  const { parameters, loadFullConfiguration } = useParameters() || {};
+  const { loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
 
   const paletteValue = useMemo(() => {
@@ -124,7 +120,7 @@ const GlobalControls = ({
     if (!setParameterTargetMode) return;
     const raw = typeof event === 'string' ? event : event?.target?.value;
     const normalized = (typeof raw === 'string' && raw.toLowerCase() === 'global') ? 'global' : 'individual';
-    try { console.debug('[GlobalControls] Target mode ->', normalized); } catch {}
+    try { console.debug('[GlobalControls] Target mode ->', normalized); } catch { /* noop */ }
     setParameterTargetMode(normalized);
   }, [setParameterTargetMode]);
 
@@ -283,26 +279,6 @@ const GlobalControls = ({
     setMorphMode,
   ]);
 
-  const handlePresetClick = useCallback(async (slotId, evt) => {
-    const slot = getPresetSlot ? getPresetSlot(slotId) : null;
-    if (!slot) return;
-    const isShift = !!(evt && (evt.shiftKey || evt.metaKey));
-    if (isShift) {
-      // Save current config into preset slot
-      try {
-        const now = new Date().toISOString();
-        const appStatePayload = typeof getCurrentAppState === 'function' ? getCurrentAppState() : null;
-        const paramPayload = Array.isArray(parameters) ? parameters : [];
-        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '1.0' };
-        setPresetSlot && setPresetSlot(slotId, (s) => ({ ...s, payload, savedAt: now }));
-      } catch (e) {
-        console.warn('[Presets] Failed to save to slot', slotId, e);
-      }
-      return;
-    }
-    recallPreset(slotId);
-  }, [getPresetSlot, setPresetSlot, getCurrentAppState, parameters, recallPreset]);
-
   // MIDI: learnable preset recall (maps 0..1 to buckets 1..8)
   useEffect(() => {
     if (!registerParamHandler) return;
@@ -312,38 +288,6 @@ const GlobalControls = ({
     });
     return () => { if (typeof unsub === 'function') unsub(); };
   }, [registerParamHandler, recallPreset]);
-
-  const renderPresetGrid = () => {
-    const slots = Array.isArray(presetSlots) ? presetSlots : [];
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        {Array.from({ length: 8 }, (_, i) => {
-          const slot = slots[i] || { id: i + 1, name: `P${i + 1}`, payload: null };
-          const hasData = !!slot.payload;
-          return (
-            <button
-              key={slot.id}
-              type="button"
-              onClick={(e) => handlePresetClick(slot.id, e)}
-              title={`${slot.name || `P${slot.id}`}${hasData ? ` • Saved ${slot.savedAt ? new Date(slot.savedAt).toLocaleString() : ''}` : ' • Empty'}\nClick: Recall • Shift+Click: Save`}
-              style={{
-                width: '100%',
-                aspectRatio: '1 / 1',
-                borderRadius: '999px',
-                border: hasData ? '2px solid #4fc3f7' : '2px dashed rgba(255,255,255,0.25)',
-                background: hasData ? 'rgba(79,195,247,0.25)' : 'transparent',
-                color: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontWeight: 600,
-              }}
-            >
-              {slot.name || `P${slot.id}`}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
 
   // Morph UI controls
   const [morphStatus, setMorphStatus] = useState(null);
@@ -359,7 +303,7 @@ const GlobalControls = ({
       .filter(n => Number.isFinite(n) && n >= 1 && n <= 8);
     setMorphRoute && setMorphRoute(vals);
   }, [routeDraft, setMorphRoute]);
-  const renderMorphControls = () => {
+  const _renderMorphControls = () => {
     const route = Array.isArray(morphRoute) ? morphRoute : [];
     const missing = (route || []).filter(id => {
       const s = getPresetSlot ? getPresetSlot(id) : null;
@@ -630,7 +574,7 @@ const GlobalControls = ({
               return out;
             });
           }
-        } catch {}
+        } catch { /* noop */ }
       }
 
       if (tRaw >= 1) {
@@ -642,7 +586,7 @@ const GlobalControls = ({
           const bLayers2 = Array.isArray(b2.layers) ? b2.layers : [];
           setLayers(() => bLayers2.map(l => ({ ...l })));
           setBackgroundColor && setBackgroundColor(b2.backgroundColor || '#000000');
-        } catch {}
+        } catch { /* noop */ }
         if (loopModeRef.current === 'pingpong') {
           if (forward) {
             if (legIndex + 1 >= routeNow.length - 1) {
@@ -680,7 +624,7 @@ const GlobalControls = ({
 
     rafRef.current = requestAnimationFrame(step);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [morphEnabled]);
+  }, [morphEnabled, setBackgroundColor, setLayers]);
 
   return (
     <div className="control-card">

@@ -1,6 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useAppState } from '../context/AppStateContext.jsx';
-import { useParameters } from '../context/ParameterContext.jsx';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMidi } from '../context/MidiContext.jsx';
 import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
@@ -148,28 +146,30 @@ const BottomPanel = ({
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [panelState, resetHideTimer]);
+  }, [dockV, panelState, resetHideTimer]);
 
   // Handle panel interactions
   const handlePanelInteraction = () => {
     resetHideTimer();
   };
 
-  const toggleLock = () => {
-    setIsLocked(!isLocked);
-    if (!isLocked) {
-      setPanelState('expanded');
-      if (hideTimeoutRef.current) {
-        clearTimeout(hideTimeoutRef.current);
+  const toggleLock = useCallback(() => {
+    setIsLocked(prev => {
+      if (!prev) {
+        setPanelState('expanded');
+        if (hideTimeoutRef.current) {
+          clearTimeout(hideTimeoutRef.current);
+        }
+      } else {
+        resetHideTimer();
       }
-    } else {
-      resetHideTimer();
-    }
-  };
+      return !prev;
+    });
+  }, [resetHideTimer]);
 
   // Persist panel height
   useEffect(() => {
-    try { localStorage.setItem('artapp-bottom-panel-height', String(panelHeight)); } catch {}
+    try { localStorage.setItem('artapp-bottom-panel-height', String(panelHeight)); } catch { /* noop */ }
   }, [panelHeight]);
 
   // Start/stop resize from the top edge handle
@@ -206,7 +206,7 @@ const BottomPanel = ({
   }, [onResizeMove, onResizeEnd]);
 
   // Drag the peek bar to set docking position (top/bottom + left/center/right)
-  const onDockDragStart = useCallback((e) => {
+  const onDockDragStart = useCallback(() => {
     isDockDraggingRef.current = true;
     document.body.style.cursor = 'move';
     document.body.style.userSelect = 'none';
@@ -224,7 +224,7 @@ const BottomPanel = ({
     const vPos = y < window.innerHeight / 2 ? 'top' : 'bottom';
     setDockH(hPos);
     setDockV(vPos);
-    try { localStorage.setItem('artapp-bottom-panel-dock', JSON.stringify({ h: hPos, v: vPos })); } catch {}
+    try { localStorage.setItem('artapp-bottom-panel-dock', JSON.stringify({ h: hPos, v: vPos })); } catch { /* noop */ }
   }, []);
 
   useEffect(() => {
@@ -259,7 +259,7 @@ const BottomPanel = ({
       resizeSideRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      try { localStorage.setItem('artapp-bottom-panel-widthvw', String(panelWidthVW)); } catch {}
+      try { localStorage.setItem('artapp-bottom-panel-widthvw', String(panelWidthVW)); } catch { /* noop */ }
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -269,14 +269,14 @@ const BottomPanel = ({
     };
   }, [panelWidthVW]);
 
-  const tabs = [
+  const tabs = useMemo(() => ([
     { id: 'global', label: 'Global', icon: '🌍' },
     { id: 'layer-shape', label: 'Layer Shape', icon: '⬟' },
     { id: 'layer-animation', label: 'Layer Animation', icon: '▶️' },
     { id: 'layer-colour', label: 'Layer Colour', icon: '🎨' },
     { id: 'presets', label: 'Presets', icon: '🎛️' },
     { id: 'groups', label: 'Groups', icon: '🧰' },
-  ];
+  ]), []);
 
   // Keyboard shortcuts: 1..5 to switch tabs (no modifiers)
   useEffect(() => {

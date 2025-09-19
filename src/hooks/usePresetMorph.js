@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 /**
@@ -56,11 +56,11 @@ export function usePresetMorph({
     return Number.isFinite(num) ? num : fallback;
   };
   const sanitizeHex = (val) => (typeof val === 'string' && /^#([0-9a-fA-F]{6})$/.test(val) ? val : '#000000');
-  const lerpColor = (ca, cb, t) => {
+  const lerpColor = useCallback((ca, cb, t) => {
     const ra = hexToRgb(sanitizeHex(ca));
     const rb = hexToRgb(sanitizeHex(cb));
     return rgbToHex({ r: Math.round(lerp(ra.r, rb.r, t)), g: Math.round(lerp(ra.g, rb.g, t)), b: Math.round(lerp(ra.b, rb.b, t)) });
-  };
+  }, []);
   const stripMorphFields = (state) => {
     if (!state || typeof state !== 'object') return state;
     const { morphEnabled: _me, morphRoute: _mr, morphDurationPerLeg: _md, morphEasing: _meas, morphLoopMode: _ml, morphMode: _mm, ...rest } = state;
@@ -229,7 +229,7 @@ export function usePresetMorph({
               });
             });
           }
-        } catch {}
+        } catch { /* noop */ }
       }
 
       if (tRaw >= 1) {
@@ -267,7 +267,7 @@ export function usePresetMorph({
 
     rafRef.current = requestAnimationFrame(step);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [morphEnabled]);
+  }, [lerpColor, morphEnabled, setBackgroundColor, setGlobalSpeedMultiplier, setLayers]);
 
   return { morphStatus };
 }
