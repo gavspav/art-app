@@ -16,6 +16,7 @@ export function useKeyboardShortcuts({
   hotkeyRef,
   setParameterTargetMode,
   setShowLayerOutlines,
+  deleteLayer,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -85,6 +86,17 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      if (key === 'delete' || key === 'backspace') {
+        const nodeMode = !!hotkeyRef?.current?.nodeEditMode;
+        const len = Number(hotkeyRef?.current?.layersLen) || 0;
+        if (nodeMode && len > 1) {
+          e.preventDefault();
+          const idx = Math.max(0, Math.min(len - 1, Number(hotkeyRef?.current?.selectedIndex) || 0));
+          deleteLayer?.(idx);
+        }
+        return;
+      }
+
       // [ or ] -> Select previous/next layer
       if (key === '[' || key === ']') {
         e.preventDefault();
@@ -132,5 +144,6 @@ export function useKeyboardShortcuts({
     hotkeyRef,
     setParameterTargetMode,
     setShowLayerOutlines,
+    deleteLayer,
   ]);
 }

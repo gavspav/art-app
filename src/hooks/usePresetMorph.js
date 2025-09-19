@@ -51,6 +51,10 @@ export function usePresetMorph({
   useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
 
   const lerp = (a, b, t) => a + (b - a) * t;
+  const toNumber = (value, fallback) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+  };
   const sanitizeHex = (val) => (typeof val === 'string' && /^#([0-9a-fA-F]{6})$/.test(val) ? val : '#000000');
   const lerpColor = (ca, cb, t) => {
     const ra = hexToRgb(sanitizeHex(ca));
@@ -139,38 +143,91 @@ export function usePresetMorph({
             }
             const aLayers = Array.isArray(a.layers) ? a.layers : [];
             const bLayers = Array.isArray(b.layers) ? b.layers : [];
-            setLayers(prev => prev.map((la, i) => {
-              const laSrc = aLayers[i] || la;
-              const lbSrc = bLayers[i] || la;
-              const pa = (laSrc.position) ? laSrc.position : { x: 0.5, y: 0.5, scale: 1 };
-              const pb = (lbSrc.position) ? lbSrc.position : { x: 0.5, y: 0.5, scale: 1 };
+            setLayers(prev => {
+              const prevLayers = Array.isArray(prev) ? [...prev] : [];
+              const maxLen = Math.max(prevLayers.length, aLayers.length, bLayers.length);
 
-              // Palette color interpolation: map color k of A -> color k of B
-              const ca = Array.isArray(la.colors) ? la.colors : [];
-              const cb = Array.isArray(lbSrc.colors) ? lbSrc.colors : ca;
-              const n = Math.min(ca.length || 0, cb.length || 0);
-              let nextColors = la.colors;
-              if (n > 0) {
-                nextColors = Array.from({ length: n }, (_, k) => lerpColor(ca[k], cb[k], t));
+              for (let i = prevLayers.length; i < maxLen; i += 1) {
+                const template = aLayers[i] || bLayers[i];
+                if (!template) continue;
+                const fromExists = Boolean(aLayers[i]);
+                const initialOpacity = fromExists ? toNumber(template.opacity ?? 1, 1) : 0;
+                prevLayers[i] = { ...template, opacity: initialOpacity };
               }
 
-              return {
-                ...la,
-                opacity: lerp(Number(la.opacity || 1), Number(lbSrc.opacity || 1), t),
-                rotation: lerp(Number(la.rotation || 0), Number(lbSrc.rotation || 0), t),
-                radiusFactor: lerp(Number(la.radiusFactor || 0.125), Number(lbSrc.radiusFactor || 0.125), t),
-                movementSpeed: lerp(Number(la.movementSpeed || 1), Number(lbSrc.movementSpeed || 1), t),
-                colors: nextColors,
-                numColors: Array.isArray(nextColors) ? nextColors.length : (la.numColors || 1),
-                selectedColor: 0,
-                position: {
-                  ...pa,
-                  x: lerp(Number(pa.x || 0.5), Number(pb.x || 0.5), t),
-                  y: lerp(Number(pa.y || 0.5), Number(pb.y || 0.5), t),
-                  scale: lerp(Number(pa.scale || 1), Number(pb.scale || 1), t),
-                },
-              };
-            }));
+              return prevLayers.map((la, i) => {
+                const fromTemplate = aLayers[i];
+                const toTemplate = bLayers[i];
+                const laSrc = fromTemplate || (toTemplate ? { ...toTemplate, opacity: 0 } : la);
+                const lbSrc = toTemplate || (fromTemplate ? { ...fromTemplate, opacity: 0 } : la);
+
+                const pa = laSrc?.position ? laSrc.position : (la?.position || { x: 0.5, y: 0.5, scale: 1 });
+                const pb = lbSrc?.position ? lbSrc.position : pa;
+
+                // Palette color interpolation: map color k of A -> color k of B
+                const ca = Array.isArray(laSrc?.colors) ? laSrc.colors : (Array.isArray(la?.colors) ? la.colors : []);
+                const cb = Array.isArray(lbSrc?.colors) ? lbSrc.colors : ca;
+                const n = Math.min(ca.length || 0, cb.length || 0);
+                let nextColors = Array.isArray(la?.colors) ? [...la.colors] : [];
+                if (n > 0) {
+                  nextColors = Array.from({ length: n }, (_, k) => lerpColor(ca[k], cb[k], t));
+                } else if (cb.length) {
+                  nextColors = cb.slice();
+                } else if (ca.length) {
+                  nextColors = ca.slice();
+                }
+
+                const baseLayer = la || laSrc || lbSrc || {};
+                const nextOpacity = lerp(
+                  toNumber(laSrc?.opacity ?? baseLayer.opacity ?? 1, 1),
+                  toNumber(lbSrc?.opacity ?? baseLayer.opacity ?? 1, 1),
+                  t,
+                );
+
+                return {
+                  ...baseLayer,
+                  opacity: Math.max(0, Math.min(1, nextOpacity)),
+                  rotation: lerp(
+                    toNumber(laSrc?.rotation ?? baseLayer.rotation ?? 0, 0),
+                    toNumber(lbSrc?.rotation ?? baseLayer.rotation ?? 0, 0),
+                    t,
+                  ),
+                  radiusFactor: lerp(
+                    toNumber(laSrc?.radiusFactor ?? baseLayer.radiusFactor ?? 0.125, 0.125),
+                    toNumber(lbSrc?.radiusFactor ?? baseLayer.radiusFactor ?? 0.125, 0.125),
+                    t,
+                  ),
+                  movementSpeed: lerp(
+                    toNumber(laSrc?.movementSpeed ?? baseLayer.movementSpeed ?? 1, 1),
+                    toNumber(lbSrc?.movementSpeed ?? baseLayer.movementSpeed ?? 1, 1),
+                    t,
+                  ),
+                  colors: nextColors,
+                  numColors: Array.isArray(nextColors) && nextColors.length
+                    ? nextColors.length
+                    : (baseLayer.numColors ?? 1),
+                  selectedColor: 0,
+                  position: {
+                    ...pa,
+                    x: lerp(
+                      toNumber(pa?.x ?? 0.5, 0.5),
+                      toNumber(pb?.x ?? (pa?.x ?? 0.5), pa?.x ?? 0.5),
+                      t,
+                    ),
+                    y: lerp(
+                      toNumber(pa?.y ?? 0.5, 0.5),
+                      toNumber(pb?.y ?? (pa?.y ?? 0.5), pa?.y ?? 0.5),
+                      t,
+                    ),
+                    scale: lerp(
+                      toNumber(pa?.scale ?? 1, 1),
+                      toNumber(pb?.scale ?? (pa?.scale ?? 1), pa?.scale ?? 1),
+                      t,
+                    ),
+                  },
+                };
+              });
+            });
           }
         } catch {}
       }

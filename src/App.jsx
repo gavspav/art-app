@@ -822,6 +822,7 @@ const MainApp = () => {
     clearSelection,
     setParameterTargetMode,
     setShowLayerOutlines,
+    deleteLayer,
   });
 
   // MIDI helper refs and handlers integration
@@ -942,6 +943,7 @@ const MainApp = () => {
                 <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
                 <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
                 <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
+                <div><kbd>Delete</kbd><span>Delete selected layer (Node Edit mode)</span></div>
                 <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
                 <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
                 <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>

@@ -280,9 +280,12 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, isNodeEditMode = fa
     }
 
     // Non-animated: use gradient between palette stops
+    const safeGX = Number.isFinite(gCenterX) ? gCenterX : centerX;
+    const safeGY = Number.isFinite(gCenterY) ? gCenterY : centerY;
+    const safeGR = Number.isFinite(gRadius) && gRadius > 0 ? gRadius : Math.max(1, Math.max(radiusX, radiusY));
     const gradient = ctx.createRadialGradient(
-        gCenterX, gCenterY, 0,
-        gCenterX, gCenterY, gRadius
+        safeGX, safeGY, 0,
+        safeGX, safeGY, safeGR
     );
     const denom = (baseStops.length - 1) || 1;
     for (let i = 0; i < baseStops.length; i++) {
@@ -1629,9 +1632,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         const wasDragging = draggingKindRef.current != null;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
-        const wantSelect = (!isNodeEditMode) || (isNodeEditMode && hasModifier);
 
-        if (wantSelect && !wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
+        if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
             const ctx = canvas.getContext('2d');
             if (ctx) {
                 const pos = getMousePos(e);
