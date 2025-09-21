@@ -17,6 +17,64 @@ const getArtboardMapping = (canvas) => {
     return { size, offsetX, offsetY };
 };
 
+// Resolve how a layer should map its normalized [0,1] coordinates onto the canvas space.
+// Drift mode uses the full canvas extents so shapes can traverse the entire viewport; other
+// movement styles stay constrained to the square artboard for symmetrical scaling.
+const getLayerCanvasMapping = (canvas, layer) => {
+    if (!canvas) {
+        return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
+    }
+    const art = getArtboardMapping(canvas);
+    const isDrift = layer?.movementStyle === 'drift';
+    const spanX = isDrift ? canvas.width : art.size;
+    const spanY = isDrift ? canvas.height : art.size;
+    const offsetX = isDrift ? 0 : art.offsetX;
+    const offsetY = isDrift ? 0 : art.offsetY;
+    const refSize = art.size;
+    return { spanX, spanY, offsetX, offsetY, refSize };
+};
+
+const getLayerGeometry = (layer, canvas) => {
+    if (!layer || !canvas) return null;
+    const { spanX, spanY, offsetX: artOffsetX, offsetY: artOffsetY, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
+    if (spanX <= 0 || spanY <= 0 || artSize <= 0) return null;
+    const { position = {} } = layer;
+    const { x = 0.5, y = 0.5, scale = 1 } = position;
+    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    const centerX = artOffsetX + x * spanX + offsetXPx;
+    const centerY = artOffsetY + y * spanY + offsetYPx;
+    const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
+    const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
+    const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
+    const rb = Number(layer?.radiusBump ?? 0);
+    const safeScale = Math.max(0, scale);
+    const baseRadiusX = Math.max(0, rfX) * artSize * safeScale;
+    const baseRadiusY = Math.max(0, rfY) * artSize * safeScale;
+    const bump = rb * (artSize * 0.02) * safeScale;
+    const rawRadiusX = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusX + bump);
+    const rawRadiusY = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusY + bump);
+    const radiusX = Math.max(1e-6, rawRadiusX);
+    const radiusY = Math.max(1e-6, rawRadiusY);
+    const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
+    const rotRad = (rotDeg * Math.PI) / 180;
+    return {
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        sinR: Math.sin(rotRad),
+        cosR: Math.cos(rotRad),
+        artSize,
+        artOffsetX,
+        artOffsetY,
+        offsetXPx,
+        offsetYPx,
+        spanX,
+        spanY,
+    };
+};
+
 // --- Shape Drawing Logic (supports node-based shapes) ---
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
     // Destructure properties from the layer and its nested position object
@@ -59,13 +117,13 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
-    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
-    const centerX = ax + x * artSize + offsetXPx2;
+    const centerX = ax + x * spanX + offsetXPx2;
     const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
-    const centerY = ay + y * artSize + offsetYPx2;
+    const centerY = ay + y * spanY + offsetYPx2;
 
-    // Radius mapping (fully relative): use radiusFactor against min(canvas width/height)
+    // Radius mapping (fully relative): use radiusFactor against reference artboard size
     const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? baseRadiusFactor ?? 0.4);
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
@@ -299,9 +357,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 // Estimate half-extents of the drawn content for a layer in pixels
 export const estimateLayerHalfExtents = (layer, canvas) => {
     try {
-        const w = canvas.width || 0;
-        const h = canvas.height || 0;
-        const minWH = Math.min(w, h); // artboard size
+        const { refSize: minWH } = getLayerCanvasMapping(canvas, layer);
         const scale = Number(layer?.position?.scale ?? 1);
         if (layer?.image?.src) {
             const cache = imageCache.get(layer.image.src);
@@ -318,8 +374,8 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
         const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
         const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const radiusX = layer?.viewBoxMapped ? (w / 2) * scale : Math.max(0, baseRadiusX + bump);
-        const radiusY = layer?.viewBoxMapped ? (h / 2) * scale : Math.max(0, baseRadiusY + bump);
+        const radiusX = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusX + bump);
+        const radiusY = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusY + bump);
         return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
     } catch {
         return { rx: 0, ry: 0 };
@@ -338,9 +394,11 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
     }
 
     const { x = 0.5, y = 0.5 } = layer?.position || {};
-    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
-    const cx = ax + x * artSize + (Number(layer.xOffset)||0)*canvas.width;
-    const cy = ay + y * artSize + (Number(layer.yOffset)||0)*canvas.height;
+    const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
+    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    const cx = ax + x * spanX + offsetXPx;
+    const cy = ay + y * spanY + offsetYPx;
     const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
 
     // Determine which neighbor offsets are needed
@@ -402,11 +460,11 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     }
     const img = cache.img;
 
-    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
     const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
-    const centerX = ax + x * artSize + offsetXPx2;
+    const centerX = ax + x * spanX + offsetXPx2;
     const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
-    const centerY = ay + y * artSize + offsetYPx2;
+    const centerY = ay + y * spanY + offsetYPx2;
     const iw0 = img.naturalWidth || img.width || 0;
     const ih0 = img.naturalHeight || img.height || 0;
     if (iw0 <= 0 || ih0 <= 0) { ctx.restore(); return; }
@@ -477,12 +535,12 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
     try {
         if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-        const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+        const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
         const minWH = artSize;
         const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
-    const centerX = ax + x * artSize + offsetXPx2;
+        const centerX = ax + x * spanX + offsetXPx2;
         const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
-    const centerY = ay + y * artSize + offsetYPx2;
+        const centerY = ay + y * spanY + offsetYPx2;
         const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
         const rfY = Number.isFinite(layer.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -547,11 +605,11 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     if (!layer || !canvas || !layer.position || !layer.visible) return path;
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
-    const { size: artSize, offsetX: ax, offsetY: ay } = getArtboardMapping(canvas);
+    const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
-    const centerX = ax + x * artSize + offsetXPx2;
+    const centerX = ax + x * spanX + offsetXPx2;
     const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
-    const centerY = ay + y * artSize + offsetYPx2;
+    const centerY = ay + y * spanY + offsetYPx2;
     const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
@@ -560,8 +618,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
     const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
     const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-    const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
-    const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
+        const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
+        const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
 
     const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
     const rotRad = (rotDeg * Math.PI) / 180;
@@ -1153,14 +1211,14 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
             }
-            const artboard = getArtboardMapping(canvas);
             layers.forEach(l => {
                 const lx = Number(l?.position?.x);
                 const ly = Number(l?.position?.y);
                 const offsetX = (Number(l?.xOffset) || 0) * width;
                 const offsetY = (Number(l?.yOffset) || 0) * height;
-                const x = artboard.offsetX + (Number.isFinite(lx) ? lx : 0.5) * artboard.size + offsetX;
-                const y = artboard.offsetY + (Number.isFinite(ly) ? ly : 0.5) * artboard.size + offsetY;
+                const { spanX, spanY, offsetX: mapX, offsetY: mapY } = getLayerCanvasMapping(canvas, l);
+                const x = mapX + (Number.isFinite(lx) ? lx : 0.5) * spanX + offsetX;
+                const y = mapY + (Number.isFinite(ly) ? ly : 0.5) * spanY + offsetY;
                 ctx.beginPath();
                 ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y);
                 ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8);
@@ -1173,14 +1231,14 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (isNodeEditMode && selectedLayerIndex != null && Array.isArray(layers) && layers.length > 0) {
             const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
             const sel = layers[clampedIndex];
-            const artboard = getArtboardMapping(canvas);
+            const mapping = getLayerCanvasMapping(canvas, sel);
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
-                const { size: artSize, offsetX: ax, offsetY: ay } = artboard;
+                const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * width;
                 const offsetYPx = (Number(sel.yOffset) || 0) * height;
-                const layerCX = ax + x * artSize + offsetXPx;
-                const layerCY = ay + y * artSize + offsetYPx;
+                const layerCX = ax + x * spanX + offsetXPx;
+                const layerCY = ay + y * spanY + offsetYPx;
                 // Prefer cached, last-rendered deformed points for exact alignment
                 let points = renderedPointsRef.current.get(clampedIndex);
                 if (!Array.isArray(points) || points.length !== sel.nodes.length) {
@@ -1251,13 +1309,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
             // Always draw Orbit center handle (white dot with red border)
             {
-                const { size: artSize, offsetX: ax, offsetY: ay } = artboard;
+                const { spanX, spanY, offsetX: ax, offsetY: ay } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * width;
                 const offsetYPx = (Number(sel.yOffset) || 0) * height;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
-                const ox = ax + ocx * artSize + offsetXPx;
-                const oy = ay + ocy * artSize + offsetYPx;
+                const ox = ax + ocx * spanX + offsetXPx;
+                const oy = ay + ocy * spanY + offsetYPx;
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(ox, oy, 6, 0, Math.PI * 2);
@@ -1445,36 +1503,32 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (!canvas) return;
         const layer = layers[selectedLayerIndex];
         if (!layer) return;
-        const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-        const centerX = x * canvas.width;
-        const centerY = y * canvas.height;
-        const minWH = Math.min(canvas.width, canvas.height);
-        // Use per-axis factors when present, otherwise fall back to master
-        const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
-        const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
-        const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
-        const rb = Number(layer?.radiusBump ?? 0);
-        const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-        const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-        const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const maxRadius = minWH * 0.4 * Math.max(0, scale);
-        const radiusX = layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min(Math.max(0, baseRadiusX + bump), maxRadius);
-        const radiusY = layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min(Math.max(0, baseRadiusY + bump), maxRadius);
-
-        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-        const rotRad = (rotDeg * Math.PI) / 180;
-        const sinR = Math.sin(rotRad);
-        const cosR = Math.cos(rotRad);
+        const geometry = getLayerGeometry(layer, canvas);
+        if (!geometry) return;
+        const {
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+            sinR,
+            cosR,
+            artOffsetX,
+            artOffsetY,
+            offsetXPx,
+            offsetYPx,
+            spanX,
+            spanY,
+        } = geometry;
 
         const pos = getMousePos(e);
         const hitRadius = 10;
 
         // Orbit center handle can be dragged regardless of node presence
         {
-            const ocx = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
-            const ocy = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
-            const ox = ocx * canvas.width;
-            const oy = ocy * canvas.height;
+            const ocxNorm = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
+            const ocyNorm = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
+            const ox = artOffsetX + ocxNorm * spanX + offsetXPx;
+            const oy = artOffsetY + ocyNorm * spanY + offsetYPx;
             const dx = ox - pos.x; const dy = oy - pos.y;
             if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
                 draggingOrbitCenterRef.current = true;
@@ -1568,27 +1622,36 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || !layer.position) return;
-        const { x, y, scale } = layer.position;
-        const centerX = x * canvas.width;
-        const centerY = y * canvas.height;
-        const radiusX = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.width / 2) * scale : Math.min((layer.width + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.width * 0.4) * scale));
-        const radiusY = Math.max(1e-6, (layer.viewBoxMapped ? (canvas.height / 2) * scale : Math.min((layer.height + (layer.radiusBump || 0) * 20) * (layer.baseRadiusFactor ?? 0.4), canvas.height * 0.4) * scale));
-        // Rotation basis for converting between canvas and local node coordinates
-        const rotDeg = ((((Number(layer.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-        const rotRad = (rotDeg * Math.PI) / 180;
-        const sinR = Math.sin(rotRad);
-        const cosR = Math.cos(rotRad);
+        const geometry = getLayerGeometry(layer, canvas);
+        if (!geometry) return;
+        const {
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+            sinR,
+            cosR,
+            artOffsetX,
+            artOffsetY,
+            offsetXPx,
+            offsetYPx,
+            spanX,
+            spanY,
+        } = geometry;
 
         const pos = getMousePos(e);
+        const normX = spanX > 0 ? (pos.x - artOffsetX - offsetXPx) / spanX : 0.5;
+        const normY = spanY > 0 ? (pos.y - artOffsetY - offsetYPx) / spanY : 0.5;
+
         if (draggingOrbit) {
-            const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
-            const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
+            const nx = Math.max(0, Math.min(1, normX));
+            const ny = Math.max(0, Math.min(1, normY));
             setLayers(prev => prev.map((l, i) => (
                 i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
             )));
         } else if (draggingCenter) {
-            const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
-            const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
+            const nx = Math.max(0, Math.min(1, normX));
+            const ny = Math.max(0, Math.min(1, normY));
             setLayers(prev => prev.map((l, i) => (
                 i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
             )));

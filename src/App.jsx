@@ -16,6 +16,7 @@ import { useRandomization } from './hooks/useRandomization.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
+import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
 
 import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
@@ -288,9 +289,7 @@ const MainApp = () => {
   // Global key handler for toggling shortcuts overlay
   useEffect(() => {
     const onKey = (e) => {
-      // ignore inputs
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (shouldIgnoreGlobalKey(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return; // allow Shift-k as well
       const key = (e.key || '').toLowerCase();
       if (key === 'k') {

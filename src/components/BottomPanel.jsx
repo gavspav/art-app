@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMidi } from '../context/MidiContext.jsx';
+import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
 import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
 import LayerSectionView from './LayerSectionView.jsx';
@@ -281,9 +282,7 @@ const BottomPanel = ({
   // Keyboard shortcuts: 1..5 to switch tabs (no modifiers)
   useEffect(() => {
     const handler = (e) => {
-      // Ignore when typing in inputs/textareas
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea') return;
+      if (shouldIgnoreGlobalKey(e)) return;
       // Require no modifiers (Shift/Ctrl/Meta/Alt) so it's simple 1..6
       if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const key = e.key;
@@ -315,8 +314,7 @@ const BottomPanel = ({
   // Keyboard shortcut: 'h' to minimize (peek) the panel (no modifiers)
   useEffect(() => {
     const onKey = (e) => {
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (shouldIgnoreGlobalKey(e)) return;
       if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const key = (e.key || '').toLowerCase();
       if (key === 'h') {
@@ -335,8 +333,7 @@ const BottomPanel = ({
   // Keyboard shortcut: 'l' to toggle lock/unlock (allow with or without Shift)
   useEffect(() => {
     const onKey = (e) => {
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+      if (shouldIgnoreGlobalKey(e)) return;
       // Block only Ctrl/Meta/Alt; allow Shift so uppercase 'L' also works
       if (e.altKey || e.metaKey || e.ctrlKey) return;
       const key = (e.key || '').toLowerCase();

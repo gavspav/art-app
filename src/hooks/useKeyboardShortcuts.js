@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
 
 // useKeyboardShortcuts: centralizes global keyboard handling
 // Expects stable setters/functions; uses hotkeyRef for dynamic state reads without re-binding
@@ -20,10 +21,7 @@ export function useKeyboardShortcuts({
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignore when focus is on inputs, selects, textareas, or contenteditable
-      const tag = (e.target?.tagName || '').toLowerCase();
-      const isTypingTarget = tag === 'input' || tag === 'select' || tag === 'textarea' || (e.target?.isContentEditable === true);
-      if (isTypingTarget) return;
+      if (shouldIgnoreGlobalKey(e)) return;
 
       const key = (e.key || '').toLowerCase();
       // Spacebar -> toggle Freeze
