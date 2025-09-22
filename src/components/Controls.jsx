@@ -8,6 +8,7 @@ import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
+import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
 
 // Per-layer MIDI Position control block
 // Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
@@ -292,10 +293,17 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     if (id === 'numSides') {
       applyUpdateToTargets((layer) => {
         const n = Math.max(3, Math.round(newValue));
-        if (layer?.layerType === 'shape' && layer?.syncNodesToNumSides) {
+        if (layer?.layerType !== 'shape') {
+          return { numSides: n };
+        }
+        if (layer.syncNodesToNumSides) {
           return { numSides: n, nodes: makeRegularNodes(n) };
         }
-        return { numSides: n };
+        const existing = Array.isArray(layer?.nodes) && layer.nodes.length
+          ? layer.nodes
+          : computeInitialNodes(n);
+        const nodes = resizeNodes(existing, n);
+        return { numSides: n, nodes, syncNodesToNumSides: false };
       });
       return;
     }
@@ -345,11 +353,18 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       if (id === 'numSides') {
         applyUpdateToTargets((layer) => {
           const n = Math.max(3, Math.round(clamped));
-          if (layer?.layerType === 'shape' && layer?.syncNodesToNumSides) {
+          if (layer?.layerType !== 'shape') {
+            return { numSides: n };
+          }
+          if (layer.syncNodesToNumSides) {
             const nodes = Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return { x: Math.cos(a), y: Math.sin(a) }; });
             return { numSides: n, nodes };
           }
-          return { numSides: n };
+          const existing = Array.isArray(layer?.nodes) && layer.nodes.length
+            ? layer.nodes
+            : computeInitialNodes(n);
+          const nodes = resizeNodes(existing, n);
+          return { numSides: n, nodes, syncNodesToNumSides: false };
         });
         return;
       }

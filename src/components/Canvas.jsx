@@ -3,6 +3,7 @@ import { useAppState } from '../context/AppStateContext.jsx';
 import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
+import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
@@ -490,43 +491,6 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     }
 
     ctx.restore();
-};
-
-// Helper to compute initial regular polygon nodes in layer-local unit circle ([-1,1])
-// Resizes existing node array to desired length while preserving as many positions as possible
-const resizeNodes = (nodes, desired) => {
-    if (!Array.isArray(nodes) || desired < 3) return computeInitialNodes({ numSides: desired });
-    let curr = [...nodes];
-    if (curr.length === desired) return curr;
-    if (curr.length > desired) {
-        // Keep first desired nodes
-        return curr.slice(0, desired);
-    }
-    // Need to add nodes
-    while (curr.length < desired) {
-        const _insertions = desired - curr.length;
-        // Distribute insertions over edges
-        for (let i = 0; i < curr.length && curr.length < desired; i++) {
-            const next = (i + 1) % curr.length;
-            const mid = {
-                x: (curr[i].x + curr[next].x) / 2,
-                y: (curr[i].y + curr[next].y) / 2,
-            };
-            curr.splice(next, 0, mid);
-            i++; // skip over newly inserted node
-        }
-    }
-    return curr;
-};
-const computeInitialNodes = (layer) => {
-    const { numSides: sides = 6 } = layer;
-    const count = Math.max(3, sides);
-    const nodes = [];
-    for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2;
-        nodes.push({ x: Math.cos(angle), y: Math.sin(angle) });
-    }
-    return nodes;
 };
 
 // Compute deformed node points exactly like drawShape's node path, so handles align.
@@ -1415,15 +1379,36 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
+        const currentNodes = Array.isArray(layer.nodes) ? layer.nodes : [];
+        const desiredRaw = Number(layer?.numSides);
+        const desired = Math.max(3, Number.isFinite(desiredRaw) ? Math.round(desiredRaw) : (currentNodes.length || 3));
+
         if (layer.syncNodesToNumSides === false) {
-            // For imported SVGs we still want an initial cache for edits
-            if (!nodesCacheRef.current.has(selIndex) && Array.isArray(layer.nodes)) {
-                nodesCacheRef.current.set(selIndex, [...layer.nodes.map(n => ({...n}))]);
+            const hasNodes = currentNodes.length >= 3;
+            const baseNodes = hasNodes ? currentNodes : computeInitialNodes(desired);
+            const baseClones = baseNodes.map(n => ({ ...n }));
+            nodesCacheRef.current.set(selIndex, baseClones);
+
+            if (!hasNodes) {
+                setLayers(prev => prev.map((l, i) => (
+                    i === selIndex ? { ...l, nodes: baseClones, syncNodesToNumSides: false } : l
+                )));
+                return;
+            }
+
+            if (desired !== baseNodes.length) {
+                const resized = resizeNodes(baseNodes, desired);
+                const resizedClones = resized.map(n => ({ ...n }));
+                nodesCacheRef.current.set(selIndex, resizedClones);
+                if (!nodesEqual(currentNodes, resizedClones)) {
+                    setLayers(prev => prev.map((l, i) => (
+                        i === selIndex ? { ...l, nodes: resizedClones, syncNodesToNumSides: false } : l
+                    )));
+                }
             }
             return;
         }
 
-        const desired = Math.max(3, layer.numSides || 3);
         const key = selIndex;
         // Ensure cache exists
         if (!nodesCacheRef.current.has(key)) {
@@ -1670,7 +1655,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (Array.isArray(cache) && cache.length >= nodes.length) {
                     cache[idx] = { x: nx, y: ny };
                 }
-                return { ...l, nodes };
+                return { ...l, nodes, syncNodesToNumSides: false };
             }));
         } else if (mid != null) {
             setLayers(prev => prev.map((l, i) => {
@@ -1706,7 +1691,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                     cache[aIdx] = { ...nodes[aIdx] };
                     cache[bIdx] = { ...nodes[bIdx] };
                 }
-                return { ...l, nodes };
+                return { ...l, nodes, syncNodesToNumSides: false };
             }));
         }
     };
