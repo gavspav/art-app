@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
@@ -30,6 +30,10 @@ import BottomPanel from './components/BottomPanel.jsx';
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
   const { parameters } = useParameters();
+  const layersCountParam = useMemo(
+    () => parameters?.find?.((param) => param.id === 'layersCount'),
+    [parameters],
+  );
   // Get app state from context
   const {
     isFrozen, setIsFrozen,
@@ -47,6 +51,7 @@ const MainApp = () => {
     // Color randomization toggles
     randomizePalette, setRandomizePalette,
     randomizeNumColors, setRandomizeNumColors,
+    syncLayerColorsToFirst, setSyncLayerColorsToFirst,
     parameterTargetMode, setParameterTargetMode,
     // Global: fade while frozen
     colorFadeWhileFrozen, setColorFadeWhileFrozen,
@@ -818,9 +823,58 @@ const MainApp = () => {
     rndAllPrevRef,
     handleRandomizeAll,
     clampedSelectedIndex: selectedIdxForMidi,
+    layersCountParam,
   });
 
   // randomizeScene provided by hook
+
+  useEffect(() => {
+    if (!syncLayerColorsToFirst) return;
+    if (!Array.isArray(layers) || layers.length <= 1) return;
+
+    const baseLayer = layers[0] || {};
+    const baseColors = Array.isArray(baseLayer.colors) ? baseLayer.colors : [];
+    const baseNumColors = Number.isFinite(baseLayer.numColors) ? baseLayer.numColors : baseColors.length;
+    const baseSelectedRaw = Number.isFinite(baseLayer.selectedColor) ? baseLayer.selectedColor : 0;
+    const desiredSelected = baseColors.length > 0
+      ? Math.max(0, Math.min(baseSelectedRaw, baseColors.length - 1))
+      : 0;
+
+    const allMatch = layers.slice(1).every(layer => {
+      if (!layer) return false;
+      const layerColors = Array.isArray(layer.colors) ? layer.colors : [];
+      const colorsMatch = layerColors.length === baseColors.length && layerColors.every((c, i) => c === baseColors[i]);
+      const numMatch = Number(layer.numColors) === baseNumColors;
+      const layerSelectedRaw = Number.isFinite(layer.selectedColor) ? layer.selectedColor : 0;
+      const layerSelected = baseColors.length > 0
+        ? Math.max(0, Math.min(layerSelectedRaw, baseColors.length - 1))
+        : 0;
+      return colorsMatch && numMatch && layerSelected === desiredSelected;
+    });
+
+    if (allMatch) return;
+
+    setLayers(prev => {
+      if (!Array.isArray(prev) || prev.length <= 1) return prev;
+      return prev.map((layer, idx) => {
+        if (idx === 0) return layer;
+        const layerColors = Array.isArray(layer?.colors) ? layer.colors : [];
+        const colorsMatch = layerColors.length === baseColors.length && layerColors.every((c, i) => c === baseColors[i]);
+        const numMatch = Number(layer?.numColors) === baseNumColors;
+        const layerSelectedRaw = Number.isFinite(layer?.selectedColor) ? layer.selectedColor : 0;
+        const layerSelected = baseColors.length > 0
+          ? Math.max(0, Math.min(layerSelectedRaw, baseColors.length - 1))
+          : 0;
+        if (colorsMatch && numMatch && layerSelected === desiredSelected) return layer;
+        return {
+          ...layer,
+          colors: [...baseColors],
+          numColors: baseNumColors,
+          selectedColor: desiredSelected,
+        };
+      });
+    });
+  }, [layers, setLayers, syncLayerColorsToFirst]);
 
   // Download helper – choose resolution, freeze time during export
   const downloadImage = useCallback(async () => {
@@ -1072,6 +1126,8 @@ const MainApp = () => {
             setRandomizePalette={setRandomizePalette}
             randomizeNumColors={randomizeNumColors}
             setRandomizeNumColors={setRandomizeNumColors}
+            syncLayerColorsToFirst={syncLayerColorsToFirst}
+            setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
             colorCountMin={colorCountMin}
             colorCountMax={colorCountMax}
             setColorCountMin={setColorCountMin}

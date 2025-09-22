@@ -33,6 +33,8 @@ const GlobalControls = ({
   // Fade while frozen
   colorFadeWhileFrozen,
   setColorFadeWhileFrozen,
+  syncLayerColorsToFirst,
+  setSyncLayerColorsToFirst,
   // MIDI
   midiSupported,
   beginLearn,
@@ -1062,6 +1064,21 @@ const GlobalControls = ({
           </div>
 
           <div className="compact-field">
+            <label
+              className="compact-label"
+              title="When enabled, every layer copies Layer 1 colours"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
+            >
+              <span>Match colours to Layer 1</span>
+              <input
+                type="checkbox"
+                checked={!!syncLayerColorsToFirst}
+                onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
+              />
+            </label>
+          </div>
+
+          <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}</span>
               <button
@@ -1208,6 +1225,7 @@ const areGlobalPropsEqual = (prev, next) => {
     prev.isFrozen === next.isFrozen &&
     prev.zIgnore === next.zIgnore &&
     prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
+    prev.syncLayerColorsToFirst === next.syncLayerColorsToFirst &&
     prev.classicMode === next.classicMode &&
     prev.showGlobalMidi === next.showGlobalMidi &&
     prev.globalSeed === next.globalSeed &&

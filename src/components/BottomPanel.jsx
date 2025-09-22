@@ -61,6 +61,8 @@ const BottomPanel = ({
   setRandomizePalette,
   randomizeNumColors,
   setRandomizeNumColors,
+  syncLayerColorsToFirst,
+  setSyncLayerColorsToFirst,
   colorCountMin,
   colorCountMax,
   setColorCountMin,
@@ -410,6 +412,8 @@ const BottomPanel = ({
               buildVariedLayerFrom={buildVariedLayerFrom}
               setSelectedLayerIndex={setSelectedLayerIndex}
               handleRandomizeAll={handleRandomizeAll}
+              syncLayerColorsToFirst={syncLayerColorsToFirst}
+              setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
               hidePresets
             />
           </div>

@@ -81,6 +81,8 @@ export const AppStateProvider = ({ children }) => {
     randomizeNumColors: true,
     // Global: allow colour fading to continue while frozen
     colorFadeWhileFrozen: true,
+    // Keep every layer in sync with layer 1 colours when enabled
+    syncLayerColorsToFirst: false,
     // Parameter targeting mode
     parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
     // Selection outline visibility (disabled by default)
@@ -244,6 +246,10 @@ export const AppStateProvider = ({ children }) => {
     }));
   }, []);
 
+  const setSyncLayerColorsToFirst = useCallback((value) => {
+    setAppState(prev => ({ ...prev, syncLayerColorsToFirst: !!value }));
+  }, []);
+
   // Morph setters
   const setMorphEnabled = useCallback((value) => {
     setAppState(prev => ({ ...prev, morphEnabled: !!value }));
@@ -346,6 +352,9 @@ export const AppStateProvider = ({ children }) => {
       setAppState(prevState => ({
         ...prevState,
         ...newState,
+        syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
+          ? newState.syncLayerColorsToFirst
+          : !!prevState.syncLayerColorsToFirst,
         backgroundImage: {
           src: null,
           opacity: 1,
@@ -443,6 +452,7 @@ export const AppStateProvider = ({ children }) => {
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
       colorFadeWhileFrozen: true,
       showLayerOutlines: false,
+      syncLayerColorsToFirst: false,
     });
   }, []);
 
@@ -472,6 +482,8 @@ export const AppStateProvider = ({ children }) => {
     setRandomizePalette,
     setRandomizeNumColors,
     setColorFadeWhileFrozen,
+    syncLayerColorsToFirst: appState.syncLayerColorsToFirst,
+    setSyncLayerColorsToFirst,
     setParameterTargetMode,
     setShowLayerOutlines,
 

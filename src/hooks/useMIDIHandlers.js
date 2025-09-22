@@ -285,6 +285,51 @@ export function useMIDIHandlers({
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
   }, [registerParamHandler, setLayers, layers]);
 
+  // Secret hardcoded CC handlers for Layer 1 RGB (CC 50/51/52)
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const byteFromMsg = ({ value01, raw }) => {
+      const rawVal = Number.isFinite(raw?.value) ? raw.value : Math.round(Math.max(0, Math.min(1, value01)) * 127);
+      const doubled = rawVal * 2;
+      return Math.max(0, Math.min(255, doubled));
+    };
+
+    const makeHandler = (channel) => ({ value01, raw }) => {
+      setLayers?.(prev => {
+        if (!Array.isArray(prev) || prev.length === 0) return prev;
+        const next = [...prev];
+        const layer = { ...next[0] };
+        const selIdxRaw = Number.isFinite(layer.selectedColor) ? layer.selectedColor : 0;
+        const selIdx = Math.max(0, Math.min(selIdxRaw, (Array.isArray(layer.colors) ? layer.colors.length : 1) - 1));
+        const colors = Array.isArray(layer.colors) && layer.colors.length
+          ? [...layer.colors]
+          : ['#000000'];
+        if (selIdx >= colors.length) {
+          while (colors.length <= selIdx) colors.push('#000000');
+        }
+        const currentHex = colors[selIdx] || '#000000';
+        const current = hexToRgb(currentHex);
+        const nextByte = byteFromMsg({ value01, raw });
+        const updated = { ...current, [channel]: nextByte };
+        colors[selIdx] = rgbToHex(updated);
+        layer.colors = colors;
+        layer.numColors = Number.isFinite(layer.numColors) ? Math.max(layer.numColors, colors.length) : colors.length;
+        next[0] = layer;
+        return next;
+      });
+    };
+
+    const unregR = registerParamHandler('__secretLayer1ColorR', makeHandler('r'));
+    const unregG = registerParamHandler('__secretLayer1ColorG', makeHandler('g'));
+    const unregB = registerParamHandler('__secretLayer1ColorB', makeHandler('b'));
+
+    return () => {
+      if (typeof unregR === 'function') unregR();
+      if (typeof unregG === 'function') unregG();
+      if (typeof unregB === 'function') unregB();
+    };
+  }, [registerParamHandler, setLayers]);
+
   // Register MIDI: Global Palette Preset -> applies to currently selected layer
   useEffect(() => {
     if (!registerParamHandler) return;

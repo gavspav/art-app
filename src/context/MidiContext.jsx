@@ -108,6 +108,21 @@ export const MidiProvider = ({ children }) => {
   }, [selectedInputId]);
 
   // MIDI message handler
+  const SECRET_CC_PARAMS = useMemo(() => ({
+    50: '__secretLayer1ColorR',
+    51: '__secretLayer1ColorG',
+    52: '__secretLayer1ColorB',
+  }), []);
+
+  const triggerHandlers = useCallback((paramId, value01, msg) => {
+    if (!paramId) return;
+    const handlers = handlersRef.current.get(paramId);
+    if (!handlers || handlers.size === 0) return;
+    handlers.forEach(fn => {
+      try { fn({ value01, raw: msg }); } catch { /* noop */ }
+    });
+  }, []);
+
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]
     if (!data || data.length < 2) return;
@@ -144,13 +159,16 @@ export const MidiProvider = ({ children }) => {
                    (!m.channel || m.channel === msg.channel) &&
                    (m.number === msg.number);
       if (!same) continue;
-      const handlers = handlersRef.current.get(paramId);
-      if (!handlers || handlers.size === 0) continue;
-      handlers.forEach(fn => {
-        try { fn({ value01, raw: msg }); } catch { /* noop */ }
-      });
+      triggerHandlers(paramId, value01, msg);
     }
-  }, [learnParamId, mappings, persist]);
+
+    if (msg.type === 'cc') {
+      const secretParam = SECRET_CC_PARAMS[msg.number];
+      if (secretParam) {
+        triggerHandlers(secretParam, value01, msg);
+      }
+    }
+  }, [SECRET_CC_PARAMS, learnParamId, mappings, persist, triggerHandlers]);
 
   // Attach listener to selected input
   useEffect(() => {
