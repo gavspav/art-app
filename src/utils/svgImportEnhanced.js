@@ -21,6 +21,7 @@ export function parseSVGForImport(svgString, options = {}) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgString, 'image/svg+xml');
     const svgEl = doc.querySelector('svg');
+    const classStyles = parseEmbeddedStyles(doc);
     
     if (!svgEl) {
       throw new Error('No SVG element found');
@@ -31,10 +32,10 @@ export function parseSVGForImport(svgString, options = {}) {
     const dimensions = getSVGDimensions(svgEl, viewBox);
     
     // Extract all paths and shapes
-    const shapes = extractAllShapes(svgEl, dimensions);
+    const shapes = extractAllShapes(svgEl, dimensions, classStyles);
     
     // Extract colors if requested
-    const colors = extractColors ? extractSVGColors(svgEl) : [];
+    const colors = extractColors ? extractSVGColors(svgEl, classStyles) : [];
     
     // Calculate optimal scale and position
     const transform = calculateOptimalTransform(shapes, dimensions, {
@@ -98,26 +99,39 @@ function getSVGDimensions(svgEl, viewBox) {
 /**
  * Extract all drawable shapes from SVG
  */
-function extractAllShapes(svgEl, dimensions) {
+function extractAllShapes(svgEl, dimensions, classStyles = {}) {
   const shapes = [];
   const elements = svgEl.querySelectorAll('path, polygon, polyline, circle, ellipse, rect, line');
   
   elements.forEach((el, index) => {
-    const shape = extractShape(el);
-    if (!shape || shape.points.length < 3) return;
+    try {
+      const shape = extractShape(el, classStyles);
+      if (!shape || shape.points.length < 3) return;
 
-    // Compute shape bounding box to detect full-background rectangles
-    const bbox = calculateBoundingBox([{ points: shape.points }]);
-    const isFullWidth = bbox.width >= 0.95 * dimensions.width;
-    const isFullHeight = bbox.height >= 0.95 * dimensions.height;
-    const isBackgroundRect = (shape.type === 'rect') && isFullWidth && isFullHeight;
-    if (isBackgroundRect) return; // skip likely background
+      // Compute shape bounding box to detect full-background rectangles
+      const bboxTargets = Array.isArray(shape.subpaths) && shape.subpaths.length > 0
+        ? shape.subpaths.map(sp => ({ points: sp }))
+        : [{ points: shape.points }];
+      const bbox = calculateBoundingBox(bboxTargets);
+      const isFullWidth = bbox.width >= 0.95 * dimensions.width;
+      const isFullHeight = bbox.height >= 0.95 * dimensions.height;
+      const isBackgroundRect = (shape.type === 'rect') && isFullWidth && isFullHeight;
+      if (isBackgroundRect) return; // skip likely background
 
-    shapes.push({
-      ...shape,
-      id: `shape_${index}`,
-      originalElement: el.tagName.toLowerCase()
-    });
+      shapes.push({
+        ...shape,
+        id: `shape_${index}`,
+        originalElement: el.tagName.toLowerCase()
+      });
+    } catch (err) {
+      console.warn('Failed to extract SVG element', {
+        tag: el?.tagName,
+        index,
+        id: el?.getAttribute?.('id') || null,
+        className: el?.getAttribute?.('class') || null,
+        error: err instanceof Error ? err.message : err
+      });
+    }
   });
   
   return shapes;
@@ -126,20 +140,19 @@ function extractAllShapes(svgEl, dimensions) {
 /**
  * Extract points from a single shape element
  */
-function extractShape(element) {
+function extractShape(element, classStyles = {}) {
   const tag = element.tagName.toLowerCase();
   let points = [];
-  let attributes = {};
-  
-  // Extract common attributes
-  ['fill', 'stroke', 'stroke-width', 'opacity', 'transform'].forEach(attr => {
-    const value = element.getAttribute(attr);
-    if (value) attributes[attr] = value;
-  });
+  let subpaths = null;
+  const attributes = collectShapeAttributes(element, classStyles);
   
   switch (tag) {
     case 'path':
-      points = samplePathElement(element);
+      const sampled = samplePathElement(element);
+      points = sampled.points;
+      if (Array.isArray(sampled.subpaths) && sampled.subpaths.length > 0) {
+        subpaths = sampled.subpaths;
+      }
       break;
     case 'polygon':
     case 'polyline':
@@ -181,7 +194,12 @@ function extractShape(element) {
   // Apply transforms if present
   const transform = element.getAttribute('transform');
   if (transform && points.length > 0) {
-    points = applyTransform(points, transform);
+    if (Array.isArray(subpaths) && subpaths.length > 0) {
+      subpaths = subpaths.map(sp => applyTransform(sp, transform));
+      points = subpaths.flat();
+    } else {
+      points = applyTransform(points, transform);
+    }
   }
   
   // Apply parent transforms
@@ -189,7 +207,12 @@ function extractShape(element) {
   while (parent && parent !== element.ownerDocument.documentElement) {
     const parentTransform = parent.getAttribute('transform');
     if (parentTransform) {
-      points = applyTransform(points, parentTransform);
+      if (Array.isArray(subpaths) && subpaths.length > 0) {
+        subpaths = subpaths.map(sp => applyTransform(sp, parentTransform));
+        points = subpaths.flat();
+      } else {
+        points = applyTransform(points, parentTransform);
+      }
     }
     parent = parent.parentElement;
   }
@@ -197,8 +220,95 @@ function extractShape(element) {
   return {
     type: tag,
     points,
+    subpaths,
     attributes
   };
+}
+
+function collectShapeAttributes(element, classStyles = {}) {
+  const styleAttrs = ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'clip-rule'];
+  const collected = {};
+
+  const nodes = [];
+  let current = element;
+  while (current && current !== element.ownerDocument.documentElement) {
+    nodes.push(current);
+    current = current.parentElement;
+  }
+  nodes.reverse();
+
+  const applyFromNode = (node) => {
+    if (!node) return;
+    const styleAttr = node.getAttribute('style') || '';
+    const styleEntries = {};
+    if (styleAttr) {
+      styleAttr.split(';').forEach(part => {
+        if (!part) return;
+        const [rawProp, rawVal] = part.split(':');
+        if (!rawProp || rawVal == null) return;
+        const prop = rawProp.trim().toLowerCase();
+        const val = rawVal.trim();
+        styleEntries[prop] = val;
+      });
+    }
+
+    const classAttr = node.getAttribute('class');
+    if (classAttr) {
+      classAttr.split(/\s+/).forEach(cls => {
+        const entry = classStyles[cls];
+        if (!entry) return;
+        styleAttrs.forEach(attr => {
+          const value = entry[attr];
+          if (value != null && value !== '') {
+            collected[attr] = value;
+          }
+        });
+      });
+    }
+
+    styleAttrs.forEach(attr => {
+      const direct = node.getAttribute(attr);
+      if (direct != null && direct !== '') {
+        collected[attr] = direct;
+        return;
+      }
+      const styleVal = styleEntries[attr];
+      if (styleVal != null && styleVal !== '') {
+        collected[attr] = styleVal;
+      }
+    });
+  };
+
+  nodes.forEach(applyFromNode);
+  return collected;
+}
+
+function parseEmbeddedStyles(doc) {
+  const styleNodes = doc.querySelectorAll('style');
+  const classStyles = {};
+  styleNodes.forEach(node => {
+    const text = node.textContent || '';
+    const regex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const className = match[1];
+      const body = match[2];
+      const decls = body.split(';');
+      const styleEntry = classStyles[className] || {};
+      decls.forEach(decl => {
+        if (!decl) return;
+        const [rawProp, rawVal] = decl.split(':');
+        if (!rawProp || rawVal == null) return;
+        const prop = rawProp.trim().toLowerCase();
+        const val = rawVal.trim();
+        if (['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'clip-rule'].includes(prop)) {
+          styleEntry[prop] = val;
+        }
+      });
+      classStyles[className] = styleEntry;
+    }
+  });
+  return classStyles;
 }
 
 /**
@@ -206,41 +316,67 @@ function extractShape(element) {
  */
 function samplePathElement(pathEl, sampleCount = 0) {
   try {
-    const totalLength = pathEl.getTotalLength();
-    if (!totalLength || totalLength <= 0) return [];
-    
-    // Adaptive sampling based on path complexity
-    const count = sampleCount || Math.max(32, Math.min(256, Math.floor(totalLength / 2)));
-    const points = [];
-    
-    for (let i = 0; i <= count; i++) {
-      const point = pathEl.getPointAtLength((i / count) * totalLength);
-      points.push({ x: point.x, y: point.y });
-    }
-    
-    return points;
+    const d = pathEl.getAttribute('d') || '';
+    const segments = splitPathDataIntoSubpaths(d);
+    const subpaths = [];
+    const allPoints = [];
+
+    const sampleSegment = (pathNode) => {
+      const totalLength = pathNode.getTotalLength();
+      if (!totalLength || totalLength <= 0) return [];
+      const count = sampleCount || Math.max(32, Math.min(256, Math.floor(totalLength / 2)));
+      const pts = [];
+      for (let i = 0; i <= count; i++) {
+        const point = pathNode.getPointAtLength((i / count) * totalLength);
+        pts.push({ x: point.x, y: point.y });
+      }
+      return pts;
+    };
+
+    const svgRoot = pathEl.ownerSVGElement || pathEl;
+    const doc = pathEl.ownerDocument || (typeof document !== 'undefined' ? document : null);
+    const targetSegments = segments.length > 0 ? segments : (d ? [d] : []);
+
+    targetSegments.forEach(seg => {
+      if (!seg || !doc) return;
+      const tempPath = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+      tempPath.setAttribute('d', seg);
+      svgRoot.appendChild(tempPath);
+      try {
+        const pts = sampleSegment(tempPath);
+        if (pts.length >= 3) {
+          subpaths.push(pts);
+          allPoints.push(...pts);
+        }
+      } finally {
+        tempPath.remove();
+      }
+    });
+
+    return { points: allPoints, subpaths };
   } catch (error) {
     console.warn('Error sampling path:', error);
-    return [];
+    return { points: [], subpaths: [] };
   }
 }
 
-/**
- * Parse polygon/polyline points
- */
-function parsePolygonPoints(pointsStr) {
-  if (!pointsStr) return [];
-  
-  const numbers = pointsStr.trim().split(/[\s,]+/).map(parseFloat);
-  const points = [];
-  
-  for (let i = 0; i < numbers.length - 1; i += 2) {
-    if (Number.isFinite(numbers[i]) && Number.isFinite(numbers[i + 1])) {
-      points.push({ x: numbers[i], y: numbers[i + 1] });
+function splitPathDataIntoSubpaths(d = '') {
+  const segments = [];
+  if (!d || typeof d !== 'string') return segments;
+  let current = '';
+  for (let i = 0; i < d.length; i++) {
+    const ch = d[i];
+    if ((ch === 'M' || ch === 'm') && current.trim().length > 0) {
+      segments.push(current.trim());
+      current = ch;
+    } else {
+      current += ch;
     }
   }
-  
-  return points;
+  if (current.trim().length > 0) {
+    segments.push(current.trim());
+  }
+  return segments;
 }
 
 /**
@@ -430,7 +566,7 @@ function applyTransform(points, transformStr) {
 /**
  * Extract colors from SVG
  */
-function extractSVGColors(svgEl) {
+function extractSVGColors(svgEl, classStyles = {}) {
   const colors = new Set();
   const elements = svgEl.querySelectorAll('*');
   
@@ -458,13 +594,17 @@ function extractSVGColors(svgEl) {
       });
     }
   });
-  
-  // Remove common defaults and convert to array
-  colors.delete('#000000');
-  colors.delete('#ffffff');
-  colors.delete('black');
-  colors.delete('white');
-  
+
+  Object.values(classStyles || {}).forEach(entry => {
+    ['fill', 'stroke'].forEach(key => {
+      const value = entry?.[key];
+      if (value && value !== 'none' && value !== 'transparent') {
+        const color = normalizeColor(value);
+        if (color) colors.add(color);
+      }
+    });
+  });
+
   return Array.from(colors);
 }
 
@@ -580,8 +720,20 @@ function calculateOptimalTransform(shapes, dimensions, options) {
     };
   }
   
+  // Clamp to canvas bounds with small margin
+  const margin = 0.02;
+  position = {
+    x: Math.max(margin, Math.min(1 - margin, position.x || 0.5)),
+    y: Math.max(margin, Math.min(1 - margin, position.y || 0.5))
+  };
+  
+  // Prevent extreme scales (avoid zero or enormous values)
+  const minScale = 0.01;
+  const maxScale = 5;
+  const safeScale = Math.max(minScale, Math.min(maxScale, Number.isFinite(scale) ? scale : targetScale));
+  
   return {
-    scale,
+    scale: safeScale,
     position,
     bbox
   };
@@ -590,21 +742,121 @@ function calculateOptimalTransform(shapes, dimensions, options) {
 /**
  * Convert parsed SVG data to layer nodes format
  */
+const resolveColorValue = (color) => {
+  if (!color) return null;
+  const trimmed = String(color).trim();
+  if (!trimmed || trimmed.toLowerCase() === 'none' || trimmed.toLowerCase() === 'transparent') {
+    return null;
+  }
+  return normalizeColor(trimmed) || trimmed;
+};
+
+const resolveOpacity = (value) => {
+  if (value == null) return null;
+  const num = parseFloat(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(1, num));
+};
+
 export function convertToLayerNodes(shapes) {
-  if (!shapes || !shapes.length) return [];
+  if (!shapes || !shapes.length) {
+    return {
+      nodes: [],
+      subpaths: null,
+      styles: null
+    };
+  }
   
   // Merge all shapes into a single set of nodes
   const allPoints = [];
   const subpaths = [];
+  const subpathMeta = [];
+  const styleList = [];
   
-  shapes.forEach(shape => {
-    if (shape.points && shape.points.length > 0) {
-      subpaths.push(shape.points);
-      allPoints.push(...shape.points);
+  shapes.forEach((shape, shapeIndex) => {
+    if (!shape || !shape.points || shape.points.length === 0) return;
+
+    const attr = shape.attributes || {};
+    const fillRaw = attr.fill;
+    const strokeRaw = attr.stroke;
+    const fill = resolveColorValue(fillRaw);
+    const stroke = resolveColorValue(strokeRaw);
+    const strokeWidthRaw = attr['stroke-width'] ?? attr.strokeWidth;
+    const strokeWidth = Number.isFinite(parseFloat(strokeWidthRaw)) ? parseFloat(strokeWidthRaw) : null;
+    const fillOpacity = resolveOpacity(attr['fill-opacity']);
+    const strokeOpacity = resolveOpacity(attr['stroke-opacity']);
+    const opacity = resolveOpacity(attr.opacity);
+    const fillSpecified = Object.prototype.hasOwnProperty.call(attr, 'fill');
+    const strokeSpecified = Object.prototype.hasOwnProperty.call(attr, 'stroke');
+    const fillIsNone = fillSpecified && typeof fillRaw === 'string' && fillRaw.trim().toLowerCase() === 'none';
+    const strokeIsNone = strokeSpecified && typeof strokeRaw === 'string' && strokeRaw.trim().toLowerCase() === 'none';
+    const fillRule = attr['fill-rule'] ?? attr.fillRule ?? null;
+    const clipRule = attr['clip-rule'] ?? attr.clipRule ?? null;
+
+    const effectiveOpacity = opacity != null
+      ? opacity
+      : (fillOpacity != null ? fillOpacity : 1);
+    const discardShape = effectiveOpacity <= 0.01;
+
+    const styles = {
+      fill,
+      stroke,
+      strokeWidth,
+      fillOpacity,
+      strokeOpacity,
+      opacity,
+      fillSpecified,
+      strokeSpecified,
+      fillIsNone,
+      strokeIsNone,
+      fillRule,
+      clipRule,
+    };
+    const hasStyle = [fill, stroke, strokeWidth, fillOpacity, strokeOpacity, opacity].some(v => v != null);
+
+    if (discardShape) {
+      return;
     }
+
+    const shapeSubpaths = Array.isArray(shape.subpaths) && shape.subpaths.length > 0
+      ? shape.subpaths
+      : [shape.points];
+
+    shapeSubpaths.forEach((pathPoints, subIndex) => {
+      if (!Array.isArray(pathPoints) || pathPoints.length < 3) return;
+      const bbox = calculateBoundingBox([{ points: pathPoints }]);
+      const area = Math.abs(bbox.width * bbox.height);
+      const minDim = Math.min(bbox.width, bbox.height);
+      const isTiny = area < 1e-4 && minDim < 0.02;
+      if (isTiny) return;
+
+      subpaths.push(pathPoints);
+      allPoints.push(...pathPoints);
+      subpathMeta.push({
+        sourceShapeId: shape.id,
+        sourceShapeIndex: shapeIndex,
+        subpathIndex: subIndex,
+        fillRule: styles.fillRule || null,
+        clipRule: styles.clipRule || null,
+        hasStyle,
+        groupId: shape.id,
+      });
+      if (hasStyle) {
+        styleList.push({ ...styles, groupId: shape.id });
+      } else {
+        styleList.push(null);
+      }
+    });
   });
-  
-  if (allPoints.length < 3) return [];
+
+  if (allPoints.length < 3) {
+    return {
+      nodes: [],
+      subpaths: null,
+      styles: null,
+      subpathGroups: null,
+    };
+  }
   
   // Normalize points to [-1, 1] range centered at origin
   const bbox = calculateBoundingBox([{ points: allPoints }]);
@@ -623,10 +875,125 @@ export function convertToLayerNodes(shapes) {
       y: (p.y - centerY) / scale
     }))
   );
-  
+
+  const hasSubpaths = normalizedSubpaths.length > 0;
+  const normalizedStyles = hasSubpaths
+    ? normalizeSubpathStyles(styleList, normalizedSubpaths.length)
+    : null;
+  const subpathGroups = hasSubpaths
+    ? buildSubpathGroups(subpathMeta, normalizedStyles)
+    : null;
+
   return {
     nodes: normalizedNodes,
-    subpaths: normalizedSubpaths.length > 1 ? normalizedSubpaths : null
+    subpaths: hasSubpaths ? normalizedSubpaths : null,
+    styles: normalizedStyles,
+    subpathGroups,
+  };
+}
+
+function normalizeSubpathStyles(styles, expectedLength) {
+  if (!Array.isArray(styles) || styles.length === 0) return null;
+  const normalized = [];
+  for (let i = 0; i < expectedLength; i++) {
+    const style = styles[i];
+    if (!style) {
+      normalized.push(null);
+      continue;
+    }
+    normalized.push({
+      fill: style.fill ?? null,
+      stroke: style.stroke ?? null,
+      strokeWidth: style.strokeWidth ?? null,
+      fillOpacity: style.fillOpacity ?? null,
+      strokeOpacity: style.strokeOpacity ?? null,
+      opacity: style.opacity ?? null,
+      fillSpecified: style.fillSpecified ?? false,
+      strokeSpecified: style.strokeSpecified ?? false,
+      fillIsNone: style.fillIsNone ?? (style.fillSpecified ? style.fill == null : false),
+      strokeIsNone: style.strokeIsNone ?? (style.strokeSpecified ? style.stroke == null : false),
+      fillRule: style.fillRule ?? null,
+      clipRule: style.clipRule ?? null,
+      groupId: style.groupId ?? null,
+    });
+  }
+  return normalized;
+}
+
+function buildSubpathGroups(metaList, styles) {
+  if (!Array.isArray(metaList) || metaList.length === 0) return null;
+  const groups = new Map();
+  const styleArray = Array.isArray(styles) ? styles : [];
+
+  metaList.forEach((meta, idx) => {
+    if (!meta) return;
+    const style = styleArray[idx] || null;
+    const groupId = style?.groupId || meta.groupId || meta.sourceShapeId || `group_${idx}`;
+    const fillRuleRaw = style?.fillRule || meta.fillRule || null;
+    const fillRule = fillRuleRaw && typeof fillRuleRaw === 'string' && fillRuleRaw.toLowerCase() === 'evenodd'
+      ? 'evenodd'
+      : 'nonzero';
+
+    const key = `${groupId}::${fillRule}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        id: groupId,
+        fillRule,
+        indices: []
+      };
+      groups.set(key, group);
+    }
+    group.indices.push(idx);
+  });
+
+  const result = Array.from(groups.values()).filter(group => Array.isArray(group.indices) && group.indices.length > 0);
+  return result.length ? result : null;
+}
+
+function applySubpathStyleFallbacks(styles, count, palette = []) {
+  if (count <= 0) {
+    return { styles: null, palette: Array.isArray(palette) ? [...palette] : [] };
+  }
+
+  const normalized = Array.isArray(styles) ? styles.slice(0, count) : [];
+  const output = [];
+  const paletteSet = new Set((Array.isArray(palette) ? palette : []).filter(Boolean));
+  for (let i = 0; i < count; i++) {
+    const existing = normalized[i] || {};
+    const result = { ...existing };
+
+    const wantsFill = !(result.fillSpecified && result.fillIsNone);
+    if (!result.fill && wantsFill) {
+      const fallbackColor = '#000000';
+      result.fill = fallbackColor;
+      paletteSet.add(fallbackColor);
+    }
+    if (!wantsFill) {
+      result.fill = null;
+    }
+
+    const wantsStroke = !(result.strokeSpecified && result.strokeIsNone);
+    if (!wantsStroke) {
+      result.stroke = null;
+    }
+
+    if ((result.fill && wantsFill) || (result.stroke && wantsStroke)) {
+      if (wantsFill && result.fillOpacity == null) result.fillOpacity = 1;
+      if (result.stroke && wantsStroke && result.strokeOpacity == null) result.strokeOpacity = 1;
+      if (result.opacity == null) result.opacity = 1;
+    }
+
+    if (wantsFill && result.fill) paletteSet.add(result.fill);
+    if (result.stroke && wantsStroke) paletteSet.add(result.stroke);
+
+    output.push(Object.keys(result).length ? result : null);
+  }
+
+  const hasStyled = output.some(style => style && (style.fill || style.stroke));
+  return {
+    styles: hasStyled ? output : null,
+    palette: Array.from(paletteSet)
   };
 }
 
@@ -636,8 +1003,16 @@ export function convertToLayerNodes(shapes) {
 export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}) {
   const {
     nodes,
-    subpaths
+    subpaths,
+    styles,
+    subpathGroups
   } = convertToLayerNodes(svgData.shapes, svgData.transform);
+  const subpathCount = Array.isArray(subpaths) ? subpaths.length : 0;
+  const palette = Array.isArray(svgData.colors) ? svgData.colors : [];
+  const { styles: resolvedSubpathStyles, palette: paletteWithFallbacks } = applySubpathStyleFallbacks(styles, subpathCount, palette);
+  const finalPalette = (Array.isArray(paletteWithFallbacks) && paletteWithFallbacks.length)
+    ? paletteWithFallbacks
+    : (palette.length ? palette : []);
   
   const layer = {
     ...DEFAULT_LAYER,
@@ -646,6 +1021,8 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
     layerType: 'shape',
     nodes: subpaths ? null : nodes,  // Use subpaths if multiple paths
     subpaths: subpaths,
+    subpathStyles: resolvedSubpathStyles,
+    subpathGroups: Array.isArray(subpathGroups) && subpathGroups.length ? subpathGroups : null,
     syncNodesToNumSides: false,
     viewBoxMapped: false,
     
@@ -664,8 +1041,8 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
     },
     
     // Apply extracted colors if available
-    colors: svgData.colors.length > 0 ? svgData.colors : DEFAULT_LAYER.colors,
-    numColors: svgData.colors.length > 0 ? svgData.colors.length : DEFAULT_LAYER.numColors,
+    colors: finalPalette.length > 0 ? finalPalette : DEFAULT_LAYER.colors,
+    numColors: finalPalette.length > 0 ? finalPalette.length : DEFAULT_LAYER.numColors,
     
     // Animation - can be customized after import
     movementStyle: options.movementStyle || 'still',

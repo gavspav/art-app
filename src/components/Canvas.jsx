@@ -150,6 +150,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 
     let points = [];
     let usedNodes = false;
+    const subpathStyles = Array.isArray(layer?.subpathStyles) ? layer.subpathStyles : null;
+    const hasStyledSubpaths = Array.isArray(subpathStyles)
+        ? subpathStyles.some(style => style && (style.fill || style.stroke))
+        : false;
+    const baseLayerAlpha = ctx.globalAlpha;
 
     // Allow rotation in range [-180,180]; treat values outside by modulo 360
     let rotDeg = Number(layer.rotation) || 0;
@@ -220,8 +225,99 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     // Use explicit nodes whenever present so edits persist after exiting node mode
     if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
         usedNodes = true;
-        // Draw each subpath separately to avoid connecting lines between them
         const t = Math.max(0, Math.min(1, (curviness ?? 0)));
+
+        if (hasStyledSubpaths) {
+            const rawSubpaths = Array.isArray(layer.subpaths) ? layer.subpaths : [];
+            const deformedSubpaths = rawSubpaths.map(sp => (Array.isArray(sp) && sp.length >= 3) ? buildDeformedPoints(sp) : null);
+            const resolvedGroups = Array.isArray(layer.subpathGroups) && layer.subpathGroups.length > 0
+                ? layer.subpathGroups
+                : rawSubpaths.map((_, idx) => ({
+                    id: `subpath_${idx}`,
+                    fillRule: (subpathStyles?.[idx]?.fillRule || '').toLowerCase() === 'evenodd' ? 'evenodd' : 'nonzero',
+                    indices: [idx],
+                }));
+
+            resolvedGroups.forEach(group => {
+                const indices = Array.isArray(group?.indices)
+                    ? group.indices.filter(i => Number.isInteger(i) && i >= 0 && i < deformedSubpaths.length)
+                    : [];
+                if (!indices.length) return;
+
+                const primaryIdx = indices[0];
+                const style = subpathStyles?.[primaryIdx] || null;
+                const wantsFill = !(style?.fillSpecified && style?.fillIsNone);
+                const fillOpacity = style?.fillOpacity != null
+                    ? Math.max(0, Math.min(1, style.fillOpacity))
+                    : 1;
+                const styleOpacity = style?.opacity != null
+                    ? Math.max(0, Math.min(1, style.opacity))
+                    : 1;
+                const effectiveFillAlpha = Math.max(0, Math.min(1, baseLayerAlpha * styleOpacity * fillOpacity));
+                let fillColor = null;
+                if (wantsFill) {
+                    if (style?.fill) {
+                        fillColor = style.fill;
+                    } else if (Array.isArray(colors) && colors.length > 0) {
+                        fillColor = colors[Math.min(primaryIdx, colors.length - 1)];
+                    }
+                }
+
+                if (fillColor && effectiveFillAlpha > 0) {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = effectiveFillAlpha;
+                    ctx.fillStyle = fillColor;
+                    ctx.beginPath();
+                    indices.forEach(idx => {
+                        const pts = deformedSubpaths[idx];
+                        if (!pts || pts.length < 3) return;
+                        drawSmoothClosed(pts, t);
+                    });
+                    if ((group?.fillRule || '').toLowerCase() === 'evenodd') {
+                        ctx.fill('evenodd');
+                    } else {
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                }
+            });
+
+            rawSubpaths.forEach((sp, idx) => {
+                const pts = deformedSubpaths[idx];
+                if (!pts || pts.length < 3) return;
+                const style = subpathStyles?.[idx] || null;
+                const wantsStroke = style?.stroke && !(style.strokeSpecified && style.strokeIsNone);
+                if (!wantsStroke) return;
+
+                const styleOpacity = style?.opacity != null
+                    ? Math.max(0, Math.min(1, style.opacity))
+                    : 1;
+                const strokeOpacity = style?.strokeOpacity != null
+                    ? Math.max(0, Math.min(1, style.strokeOpacity))
+                    : 1;
+                const effectiveStrokeAlpha = Math.max(0, Math.min(1, baseLayerAlpha * styleOpacity * strokeOpacity));
+                if (effectiveStrokeAlpha <= 0) return;
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = effectiveStrokeAlpha;
+                ctx.strokeStyle = style.stroke;
+                const strokeWidth = Number.isFinite(style.strokeWidth)
+                    ? Math.max(0.5, style.strokeWidth)
+                    : 1;
+                ctx.lineWidth = strokeWidth;
+                ctx.beginPath();
+                drawSmoothClosed(pts, t);
+                ctx.stroke();
+                ctx.restore();
+            });
+
+            ctx.restore();
+            return;
+        }
+
+        // No styled subpaths: fall back to gradient fill across merged points
         let all = [];
         for (const sp of layer.subpaths) {
             if (!Array.isArray(sp) || sp.length < 3) continue;
