@@ -158,6 +158,34 @@ canvas {
   background: linear-gradient(135deg, #7c84ff 0%, #6b71df 100%);
 }
 
+.fab.recording-active {
+  background: linear-gradient(135deg, #ff4f4f 0%, #d62828 100%);
+  box-shadow: 0 0 0 3px rgba(255, 79, 79, 0.25), 0 0 30px rgba(214, 40, 40, 0.55);
+  animation: recordingPulse 1s ease-in-out infinite;
+}
+
+.fab.recording-active:hover {
+  background: linear-gradient(135deg, #ff6b6b 0%, #e63946 100%);
+}
+
+.control-button.recording-active {
+  background: linear-gradient(135deg, rgba(255, 79, 79, 0.85) 0%, rgba(214, 40, 40, 0.85) 100%);
+  border-color: rgba(255, 79, 79, 0.5);
+  color: #ffffff;
+  animation: recordingPulse 1s ease-in-out infinite;
+}
+
+@keyframes recordingPulse {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 0 rgba(214, 40, 40, 0.45);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 0 0 8px rgba(214, 40, 40, 0);
+  }
+}
+
 .fab:active {
   transform: translateY(-1px) scale(1.05);
 }

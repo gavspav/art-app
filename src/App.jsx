@@ -17,6 +17,7 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { convertRecordingToMp4, isMimeMp4H264 } from './utils/videoExport.js';
 
 import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
@@ -76,6 +77,7 @@ const MainApp = () => {
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isConvertingRecording, setIsConvertingRecording] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, chunks: [], stream: null });
   const latestRecordingNameRef = useRef('art-recording');
 
@@ -92,7 +94,12 @@ const MainApp = () => {
   }, []);
 
   const startRecording = useCallback(() => {
-    if (isRecording) return;
+    if (isRecording || isConvertingRecording) {
+      if (isConvertingRecording) {
+        window.alert('Please wait for the previous recording to finish exporting.');
+      }
+      return;
+    }
     const canvasHandle = canvasRef.current;
     const canvasEl = canvasHandle?.canvas || canvasHandle;
     if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
@@ -171,34 +178,58 @@ const MainApp = () => {
     };
 
     mediaRecorder.onstop = () => {
-      try {
-        const mime = mediaRecorder.mimeType || 'video/webm';
-        const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
-        if (blob) {
-          const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
-          const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
-          const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
-          latestRecordingNameRef.current = baseName;
-          const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
-          // Pick extension based on actual recorder MIME
-          const lower = (mime || '').toLowerCase();
-          const ext = lower.includes('mp4') ? 'mp4' : 'webm';
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = `${safeName}.${ext}`;
-          anchor.click();
-          URL.revokeObjectURL(url);
-        } else {
-          window.alert('Recording stopped but produced no data.');
+      (async () => {
+        try {
+          const mime = mediaRecorder.mimeType || 'video/webm';
+          const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
+          if (blob) {
+            const frameRate = stream?.getVideoTracks?.()?.[0]?.getSettings?.()?.frameRate || 60;
+            let finalBlob = blob;
+            let finalMime = mime;
+            let fileExtension = (mime || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+
+            if (!isMimeMp4H264(finalMime)) {
+              let conversionInProgress = false;
+              try {
+                conversionInProgress = true;
+                setIsConvertingRecording(true);
+                const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, { frameRate });
+                finalBlob = convertedBlob;
+                finalMime = convertedMime;
+                fileExtension = 'mp4';
+              } catch (conversionError) {
+                console.warn('Failed to convert recording to MP4 (H.264). Saving original format instead.', conversionError);
+                window.alert('Unable to convert the recording to MP4 (H.264). The original WebM file will be saved instead.');
+              } finally {
+                if (conversionInProgress) {
+                  setIsConvertingRecording(false);
+                }
+              }
+            }
+
+            const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
+            const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
+            const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
+            latestRecordingNameRef.current = baseName;
+            const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
+
+            const url = URL.createObjectURL(finalBlob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `${safeName}.${fileExtension}`;
+            anchor.click();
+            URL.revokeObjectURL(url);
+          } else {
+            window.alert('Recording stopped but produced no data.');
+          }
+        } catch (err) {
+          console.warn('Failed to export recording', err);
+          window.alert('Recording stopped but exporting failed. Check console for details.');
+        } finally {
+          cleanupRecorder();
+          setIsRecording(false);
         }
-      } catch (err) {
-        console.warn('Failed to export recording', err);
-        window.alert('Recording stopped but exporting failed. Check console for details.');
-      } finally {
-        cleanupRecorder();
-        setIsRecording(false);
-      }
+      })();
     };
 
     recorderRef.current = { mediaRecorder, chunks, stream };
@@ -214,7 +245,7 @@ const MainApp = () => {
     }
 
     setIsRecording(true);
-  }, [canvasRef, cleanupRecorder, isRecording]);
+  }, [canvasRef, cleanupRecorder, isConvertingRecording, isRecording]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
