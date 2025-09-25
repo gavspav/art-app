@@ -1731,8 +1731,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
             )));
         } else if (draggingCenter) {
-            const nx = Math.max(0, Math.min(1, normX));
-            const ny = Math.max(0, Math.min(1, normY));
+            const minXNorm = spanX > 0 ? (0 - artOffsetX - offsetXPx) / spanX : 0;
+            const maxXNorm = spanX > 0 ? ((canvas.width) - artOffsetX - offsetXPx) / spanX : 1;
+            const minYNorm = spanY > 0 ? (0 - artOffsetY - offsetYPx) / spanY : 0;
+            const maxYNorm = spanY > 0 ? ((canvas.height) - artOffsetY - offsetYPx) / spanY : 1;
+            const nx = Math.max(minXNorm, Math.min(maxXNorm, normX));
+            const ny = Math.max(minYNorm, Math.min(maxYNorm, normY));
             setLayers(prev => prev.map((l, i) => (
                 i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
             )));
