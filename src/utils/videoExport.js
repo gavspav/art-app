@@ -42,27 +42,70 @@ export const isMimeMp4H264 = (mime = '') => {
   return lower.includes('mp4') && (lower.includes('h264') || lower.includes('avc1'));
 };
 
-export const convertRecordingToMp4 = async (blob, { frameRate } = {}) => {
+const buildConversionArgs = ({
+  inputName,
+  outputName,
+  frameRate,
+  preset,
+}) => {
+  const clampedFps = Number.isFinite(frameRate) && frameRate > 0 ? Math.round(frameRate) : 60;
+  return [
+    '-i', inputName,
+    '-r', String(clampedFps),
+    '-vsync', '1',
+    '-c:v', 'libx264',
+    '-preset', preset,
+    '-pix_fmt', 'yuv420p',
+    '-movflags', 'faststart',
+    '-an',
+    outputName,
+  ];
+};
+
+export const convertRecordingToMp4 = async (
+  blob,
+  { frameRate, presets } = {},
+) => {
   const ffmpeg = await ensureFFmpegLoaded();
   const inputName = 'input.webm';
   const outputName = 'output.mp4';
+  const presetList = Array.isArray(presets) && presets.length
+    ? presets
+    : ['veryfast', 'slow'];
 
   ffmpeg.FS('writeFile', inputName, await fetchFileRef(blob));
 
-  const args = ['-i', inputName, '-c:v', 'libx264', '-preset', 'medium', '-pix_fmt', 'yuv420p', '-movflags', 'faststart', '-an'];
-  if (typeof frameRate === 'number' && Number.isFinite(frameRate) && frameRate > 0) {
-    args.push('-r', String(Math.round(frameRate)));
-  }
-  args.push(outputName);
+  let lastError = null;
 
   try {
-    await ffmpeg.run(...args);
-    const data = ffmpeg.FS('readFile', outputName);
-    const mp4Blob = new Blob([data], { type: 'video/mp4' });
-    return {
-      blob: mp4Blob,
-      mime: 'video/mp4',
-    };
+    for (const preset of presetList) {
+      const args = buildConversionArgs({
+        inputName,
+        outputName,
+        frameRate,
+        preset,
+      });
+
+      try {
+        await ffmpeg.run(...args);
+        const data = ffmpeg.FS('readFile', outputName);
+        const mp4Blob = new Blob([data], { type: 'video/mp4' });
+        return {
+          blob: mp4Blob,
+          mime: 'video/mp4',
+          preset,
+        };
+      } catch (error) {
+        lastError = error;
+        try { ffmpeg.FS('unlink', outputName); } catch { /* noop */ }
+      }
+    }
+
+    const error = new Error('All MP4 conversion presets failed');
+    if (lastError) {
+      error.cause = lastError;
+    }
+    throw error;
   } finally {
     try { ffmpeg.FS('unlink', inputName); } catch { /* noop */ }
     try { ffmpeg.FS('unlink', outputName); } catch { /* noop */ }

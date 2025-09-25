@@ -136,11 +136,16 @@ const MainApp = () => {
       for (const mimeType of typeCandidates) {
         try {
           if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mimeType)) {
-            return { mimeType };
+            return {
+              mimeType,
+              videoBitsPerSecond: 20_000_000,
+            };
           }
         } catch { /* noop */ }
       }
-      return {};
+      return {
+        videoBitsPerSecond: 20_000_000,
+      };
     };
 
     const options = pickRecorderOptions();
@@ -183,7 +188,9 @@ const MainApp = () => {
           const mime = mediaRecorder.mimeType || 'video/webm';
           const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
           if (blob) {
-            const frameRate = stream?.getVideoTracks?.()?.[0]?.getSettings?.()?.frameRate || 60;
+            const videoTrack = stream?.getVideoTracks?.()?.[0];
+            const trackSettings = videoTrack?.getSettings?.() || {};
+            const frameRate = Number.isFinite(trackSettings.frameRate) ? trackSettings.frameRate : 60;
             let finalBlob = blob;
             let finalMime = mime;
             let fileExtension = (mime || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
@@ -193,13 +200,27 @@ const MainApp = () => {
               try {
                 conversionInProgress = true;
                 setIsConvertingRecording(true);
-                const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, { frameRate });
+                const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, {
+                  frameRate,
+                  presets: ['veryfast', 'medium', 'slow', 'veryslow'],
+                });
                 finalBlob = convertedBlob;
                 finalMime = convertedMime;
                 fileExtension = 'mp4';
               } catch (conversionError) {
                 console.warn('Failed to convert recording to MP4 (H.264). Saving original format instead.', conversionError);
-                window.alert('Unable to convert the recording to MP4 (H.264). The original WebM file will be saved instead.');
+                try {
+                  const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, {
+                    frameRate,
+                    presets: ['placebo'],
+                  });
+                  finalBlob = convertedBlob;
+                  finalMime = convertedMime;
+                  fileExtension = 'mp4';
+                } catch (secondaryError) {
+                  console.warn('Secondary MP4 conversion attempt failed. Falling back to WebM.', secondaryError);
+                  window.alert('Unable to convert the recording to MP4 (H.264). The original WebM file will be saved instead.');
+                }
               } finally {
                 if (conversionInProgress) {
                   setIsConvertingRecording(false);
@@ -235,7 +256,7 @@ const MainApp = () => {
     recorderRef.current = { mediaRecorder, chunks, stream };
 
     try {
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
     } catch (err) {
       console.warn('MediaRecorder.start failed', err);
       window.alert('Unable to start recording: MediaRecorder start failed.');

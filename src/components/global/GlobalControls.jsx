@@ -68,6 +68,29 @@ const GlobalControls = ({
   onQuickSave,
   onQuickLoad,
 }) => {
+  const layerSeedNonceRef = useRef(0);
+  const generateLayerSeed = useCallback(() => {
+    const MOD = 2147483646;
+    let randomValue = 0;
+    try {
+      if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+        const arr = new Uint32Array(1);
+        window.crypto.getRandomValues(arr);
+        randomValue = arr[0] % MOD;
+      }
+    } catch {
+      // noop — fallback to Math.random below
+    }
+    if (!randomValue) {
+      randomValue = Math.floor(Math.random() * MOD);
+    }
+    if (randomValue === 0) randomValue = 1;
+    layerSeedNonceRef.current = (layerSeedNonceRef.current + 1013904223) % MOD;
+    let seed = (randomValue + layerSeedNonceRef.current) % MOD;
+    if (seed <= 0) seed += MOD - 1;
+    return seed;
+  }, []);
+
   // Keep Canvas background image renderer in sync
   useEffect(() => {
     try {
@@ -207,11 +230,27 @@ const GlobalControls = ({
           color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
           position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
         };
-        const last = prev[prev.length - 1] || DEFAULT_LAYER;
-        const toAdd = Array.from({ length: addCount }, (_, i) => buildVariedLayerFrom((i === 0 ? last : next[next.length - 1]), prev.length + i + 1, baseVar));
-        next = [...prev, ...toAdd];
+        const additions = [];
+        let prevLayerRef = prev[prev.length - 1] || DEFAULT_LAYER;
+        for (let i = 0; i < addCount; i += 1) {
+          const randomSeed = generateLayerSeed();
+          const nameIndex = prev.length + additions.length + 1;
+          const layer = buildVariedLayerFrom(prevLayerRef, nameIndex, baseVar, { randomSeed });
+          additions.push(layer);
+          prevLayerRef = layer;
+        }
+        next = [...prev, ...additions];
       } else if (target < prev.length) {
         next = prev.slice(0, target).map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+        if (target === 1) {
+          const [first] = next;
+          const reseeded = {
+            ...first,
+            seed: generateLayerSeed(),
+            noiseSeed: generateLayerSeed(),
+          };
+          next[0] = reseeded;
+        }
       }
       return next;
     });
@@ -259,9 +298,19 @@ const GlobalControls = ({
 
       const rebuilt = [firstLayer];
       let prevLayer = firstLayer;
+      const categoryMap = {
+        variationPosition: ['position'],
+        variationShape: ['shape'],
+        variationAnim: ['anim'],
+        variationColor: ['color'],
+      };
+      const affectCategories = categoryMap[prop] || null;
       for (let i = 1; i < updated.length; i += 1) {
         const original = updated[i];
-        const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar) || original;
+        const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
+          affectCategories,
+          preserveSeeds: true,
+        }) || original;
         const merged = {
           ...original,
           ...varied,
