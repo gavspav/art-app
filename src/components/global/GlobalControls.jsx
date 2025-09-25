@@ -98,6 +98,8 @@ const GlobalControls = ({
     setMorphLoopMode,
     morphMode,
     setMorphMode,
+    applyVariationInstantly,
+    setApplyVariationInstantly,
   } = useAppState() || {};
   const { loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
@@ -228,6 +230,51 @@ const GlobalControls = ({
   const [variationColorMin, setVariationColorMin] = useState(0);
   const [variationColorMax, setVariationColorMax] = useState(3);
   const [variationColorStep, setVariationColorStep] = useState(0.01);
+
+  const applyVariationValue = useCallback((prop, rawValue) => {
+    setLayers(prev => {
+      if (!Array.isArray(prev) || !prev.length) return prev;
+
+      let anyChange = false;
+      const updated = prev.map((layer, idx) => {
+        const shouldApply = applyVariationInstantly || idx === 0;
+        const nextValue = shouldApply ? rawValue : layer?.[prop];
+        if (layer?.[prop] === nextValue) return layer;
+        anyChange = true;
+        return { ...layer, [prop]: nextValue };
+      });
+
+      if (!anyChange) return prev;
+      if (!applyVariationInstantly || updated.length <= 1) {
+        return updated;
+      }
+
+      const firstLayer = updated[0];
+      const baseVar = {
+        shape: Number(firstLayer?.variationShape ?? DEFAULT_LAYER.variationShape),
+        anim: Number(firstLayer?.variationAnim ?? DEFAULT_LAYER.variationAnim),
+        color: Number(firstLayer?.variationColor ?? DEFAULT_LAYER.variationColor),
+        position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
+      };
+
+      const rebuilt = [firstLayer];
+      let prevLayer = firstLayer;
+      for (let i = 1; i < updated.length; i += 1) {
+        const original = updated[i];
+        const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar) || original;
+        const merged = {
+          ...original,
+          ...varied,
+          id: original.id ?? varied.id,
+          name: original.name || varied.name,
+        };
+        rebuilt.push(merged);
+        prevLayer = merged;
+      }
+
+      return rebuilt;
+    });
+  }, [applyVariationInstantly, buildVariedLayerFrom, DEFAULT_LAYER.variationAnim, DEFAULT_LAYER.variationColor, DEFAULT_LAYER.variationPosition, DEFAULT_LAYER.variationShape, setLayers]);
 
   // Presets: helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
@@ -1064,18 +1111,32 @@ const GlobalControls = ({
           </div>
 
           <div className="compact-field">
-            <label
-              className="compact-label"
-              title="When enabled, every layer copies Layer 1 colours"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
-            >
-              <span>Match colours to Layer 1</span>
-              <input
-                type="checkbox"
-                checked={!!syncLayerColorsToFirst}
-                onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
-              />
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <label
+                className="compact-label"
+                title="When enabled, every layer copies Layer 1 colours"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>Match colours to Layer 1</span>
+                <input
+                  type="checkbox"
+                  checked={!!syncLayerColorsToFirst}
+                  onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
+                />
+              </label>
+              <label
+                className="compact-label"
+                title="Apply variation sliders to every layer in real time"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>Instant variation</span>
+                <input
+                  type="checkbox"
+                  checked={!!applyVariationInstantly}
+                  onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)}
+                />
+              </label>
+            </div>
           </div>
 
           <div className="compact-field">
@@ -1101,7 +1162,7 @@ const GlobalControls = ({
               value={Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition)}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
-                setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: v } : l)));
+                applyVariationValue('variationPosition', v);
               }}
             />
             {showVariationPositionSettings && (
@@ -1126,7 +1187,18 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('variationShape')} onChange={(e) => setIsRnd('variationShape', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationShapeMin} max={variationShapeMax} step={variationShapeStep} value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: v } : l))); }} />
+            <input
+              className="compact-range"
+              type="range"
+              min={variationShapeMin}
+              max={variationShapeMax}
+              step={variationShapeStep}
+              value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationShape', v);
+              }}
+            />
             {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1155,7 +1227,18 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('variationAnim')} onChange={(e) => setIsRnd('variationAnim', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationAnimMin} max={variationAnimMax} step={variationAnimStep} value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: v } : l))); }} />
+            <input
+              className="compact-range"
+              type="range"
+              min={variationAnimMin}
+              max={variationAnimMax}
+              step={variationAnimStep}
+              value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationAnim', v);
+              }}
+            />
             {showVariationAnimSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1184,7 +1267,18 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('variationColor')} onChange={(e) => setIsRnd('variationColor', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationColorMin} max={variationColorMax} step={variationColorStep} value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: v } : l))); }} />
+            <input
+              className="compact-range"
+              type="range"
+              min={variationColorMin}
+              max={variationColorMax}
+              step={variationColorStep}
+              value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationColor', v);
+              }}
+            />
             {showGlobalMidi && (
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>

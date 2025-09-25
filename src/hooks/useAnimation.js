@@ -74,7 +74,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
                 scaleDirection: layer.position.scaleDirection,
             }
         };
-    } else if (movementStyle !== 'still') {
+    } else if (movementStyle !== 'still' && movementStyle !== 'spin') {
         newX = x + vx;
         newY = y + vy;
     }
@@ -99,7 +99,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
     // 4. Z-axis scaling (skip when style is 'still' or globally ignored)
     let newScale = scale;
     let newScaleDirection = scaleDirection;
-    if (movementStyle !== 'still' && !zIgnore) {
+    if (movementStyle !== 'still' && movementStyle !== 'spin' && !zIgnore) {
         newScale = scale + (scaleDirection * scaleSpeed * globalSpeedMultiplier * 0.01);
         if (newScale > scaleMax || newScale < scaleMin) {
             newScaleDirection *= -1;
@@ -107,10 +107,21 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
         }
     }
 
+    let nextRotation = Number(layer.rotation) || 0;
+    let spinAngle = Number(layer.spinAngle) || 0;
+    if (movementStyle === 'spin') {
+        const effectiveSpinSpeed = Math.max(0, Number(layer.movementSpeed) || 0);
+        const delta = effectiveSpinSpeed * globalSpeedMultiplier * 4;
+        nextRotation = ((((nextRotation + delta) + 180) % 360) + 360) % 360 - 180;
+        spinAngle = spinAngle + delta;
+    }
+
     // Return new layer object with updated properties
     return {
         ...layer,
         movementAngle: newMovementAngle, // Update angle if it changed due to bouncing
+        rotation: nextRotation,
+        spinAngle,
         position: {
             ...layer.position,
             x: newX,

@@ -303,7 +303,7 @@ export function useRandomization({
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
       {
-        const styles = ['bounce', 'drift', 'still'];
+        const styles = ['bounce', 'drift', 'still', 'orbit', 'spin'];
         const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
         let nextStyle = cur;
         const changeProb = Math.max(0.3, wAnim); // ensure some chance even at low variation
@@ -347,9 +347,14 @@ export function useRandomization({
       };
 
       // Velocity recompute
-      const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
-      varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
-      varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+      if (varied.movementStyle === 'spin') {
+        varied.vx = 0;
+        varied.vy = 0;
+      } else {
+        const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
+        varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+        varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+      }
 
       // Colors (continuous response):
       // - wColor === 0: no change

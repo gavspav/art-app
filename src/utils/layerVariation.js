@@ -3,6 +3,7 @@ import { DEFAULT_LAYER as defaultLayer } from '../constants/defaults';
 import { pickPaletteColors } from './paletteUtils';
 import { createSeededRandom as defaultCreateSeededRandom } from './random';
 import { clamp as defaultClamp, mixRandom as defaultMixRandom } from './mathUtils';
+import { hexToHsl, hslToHex, hexToRgb, rgbToHex } from './colorUtils';
 
 // Builds a new layer by varying from a previous layer using split variation weights.
 // When shape variation is zero we keep geometry identical while still applying
@@ -42,7 +43,10 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     if (z > 3) z = 3;
     return z;
   };
-  const wColor = clamp(boostAboveOne(v.color || 0) / 3, 0, 1);
+  const colorIntensityRaw = Number(v.color || 0);
+  const boostedColor = boostAboveOne(colorIntensityRaw);
+  const wColor = clamp(boostedColor / 3, 0, 1);
+  const extendedColor = clamp(colorIntensityRaw <= 1 ? colorIntensityRaw : 1 + (colorIntensityRaw - 1) * 0.75, 0, 2.5);
   const wPosition = clamp((v.position || 0) / 3, 0, 1);
 
   const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
@@ -103,7 +107,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   // Movement (use wAnim)
   const mixAnim = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wAnim, integer);
   if (varyFlags.movementStyle && wAnim > 0.7 && Math.random() < wAnim) {
-    const styles = ['bounce', 'drift', 'still'];
+    const styles = ['bounce', 'drift', 'still', 'orbit', 'spin'];
     const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
     const others = styles.filter(s => s !== cur);
     varied.movementStyle = (others[Math.floor(Math.random() * others.length)] || cur);
@@ -149,7 +153,10 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   };
 
   // Recompute velocity from angle/speed
-  {
+  if (varied.movementStyle === 'spin') {
+    varied.vx = 0;
+    varied.vy = 0;
+  } else {
     const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
     const spd = (varied.movementSpeed ?? prev.movementSpeed ?? 0) * 0.001;
     varied.vx = Math.cos(angleRad) * spd;
@@ -166,125 +173,65 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
         const nextPalette = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
         varied.colors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
         varied.numColors = varied.colors.length;
-      } else if (wColor >= 0.15) {
-        const uniqueCount = (() => {
-          try { return new Set(prev.colors.map(c => (c || '').toLowerCase())).size; }
-          catch { return prev.colors.length; }
-        })();
-        if (uniqueCount <= 1) {
-          const amt = Math.max(0.02, wColor);
-          const hueMax = 1 + 24 * (amt * amt);
-          const satMax = 1 + 18 * (amt * amt);
-          const lightMax = 1 + 18 * (amt * amt);
-          const perturbed = (prev.colors || []).map(hex => {
-            const toHsl = (h) => {
-              const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-              let R = 0, G = 0, B = 0;
-              if (m) { R = parseInt(m[1], 16); G = parseInt(m[2], 16); B = parseInt(m[3], 16); }
-              const r1 = R / 255, g1 = G / 255, b1 = B / 255;
-              const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
-              let hh = 0, ss = 0; const ll = (max + min) / 2;
-              if (max !== min) {
-                const d = max - min;
-                ss = ll > 0.5 ? d / (2 - max - min) : d / (max - min);
-                switch (max) {
-                  case r1: hh = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
-                  case g1: hh = (b1 - r1) / d + 2; break;
-                  case b1: hh = (r1 - g1) / d + 4; break;
-                  default: break;
-                }
-                hh /= 6;
-              }
-              return { h: hh * 360, s: ss * 100, l: ll * 100 };
-            };
-            const fromHsl = (h, s, l) => {
-              const s1 = s / 100, l1 = l / 100;
-              const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-              const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-              const m = l1 - c / 2;
-              let r = 0, g = 0, b = 0;
-              if (h < 60) { r = c; g = x; b = 0; }
-              else if (h < 120) { r = x; g = c; b = 0; }
-              else if (h < 180) { r = 0; g = c; b = x; }
-              else if (h < 240) { r = 0; g = x; b = c; }
-              else if (h < 300) { r = x; g = 0; b = c; }
-              else { r = c; g = 0; b = x; }
-              const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-              return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-            };
-            const { h, s, l } = toHsl(hex);
-            const h2 = ((h + (Math.random() * 2 - 1) * hueMax) % 360 + 360) % 360;
-            const s2 = Math.max(0, Math.min(100, s + (Math.random() * 2 - 1) * satMax));
-            const l2 = Math.max(0, Math.min(100, l + (Math.random() * 2 - 1) * lightMax));
-            return fromHsl(h2, s2, l2);
-          });
-          varied.colors = perturbed;
-          varied.numColors = perturbed.length;
-        } else {
-          const arr = [...prev.colors];
-          for (let i = arr.length - 1; i > 0; i--) {
-            if (Math.random() < 0.5 * wColor) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [arr[i], arr[j]] = [arr[j], arr[i]];
-            }
-          }
-          const same = arr.length === prev.colors.length && arr.every((c, i) => c === prev.colors[i]);
-          varied.colors = same ? [...arr.slice(1), arr[0]] : [...arr];
-          varied.numColors = arr.length;
-        }
-      } else if (wColor > 0) {
-        // Subtle HSL perturbation for perceptual similarity
-        const amt = Math.max(0.05, wColor);
-        const hueMax = 2 + 8 * amt;
-        const satMax = 2 + 6 * amt;
-        const lightMax = 2 + 6 * amt;
-        const perturbed = (prev.colors || []).map(hex => {
-          const toHsl = (h) => {
-            const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-            let R = 0, G = 0, B = 0;
-            if (m) { R = parseInt(m[1], 16); G = parseInt(m[2], 16); B = parseInt(m[3], 16); }
-            const r1 = R / 255, g1 = G / 255, b1 = B / 255;
-            const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
-            let hh = 0, ss = 0; const ll = (max + min) / 2;
-            if (max !== min) {
-              const d = max - min;
-              ss = ll > 0.5 ? d / (2 - max - min) : d / (max - min);
-              switch (max) {
-                case r1: hh = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
-                case g1: hh = (b1 - r1) / d + 2; break;
-                case b1: hh = (r1 - g1) / d + 4; break;
-                default: break;
-              }
-              hh /= 6;
-            }
-            return { h: hh * 360, s: ss * 100, l: ll * 100 };
-          };
-          const fromHsl = (h, s, l) => {
-            const s1 = s / 100, l1 = l / 100;
-            const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-            const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-            const m = l1 - c / 2;
-            let r = 0, g = 0, b = 0;
-            if (h < 60) { r = c; g = x; b = 0; }
-            else if (h < 120) { r = x; g = c; b = 0; }
-            else if (h < 180) { r = 0; g = c; b = x; }
-            else if (h < 240) { r = 0; g = x; b = c; }
-            else if (h < 300) { r = x; g = 0; b = c; }
-            else { r = c; g = 0; b = x; }
-            const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-            return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-          };
-          const { h, s, l } = toHsl(hex);
-          const h2 = ((h + (Math.random() * 2 - 1) * hueMax) % 360 + 360) % 360;
-          const s2 = Math.max(0, Math.min(100, s + (Math.random() * 2 - 1) * satMax));
-          const l2 = Math.max(0, Math.min(100, l + (Math.random() * 2 - 1) * lightMax));
-          return fromHsl(h2, s2, l2);
-        });
-        varied.colors = perturbed;
-        varied.numColors = perturbed.length;
       } else {
-        varied.colors = [...prev.colors];
-        varied.numColors = prev.numColors ?? prev.colors.length;
+        const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+        const perturbHueRange = 6 + 180 * Math.pow(Math.min(1, extendedColor), 1.25);
+        const perturbSatRange = 4 + 70 * Math.pow(Math.min(1, extendedColor), 1.1);
+        const perturbLightRange = 4 + 60 * Math.pow(Math.min(1, extendedColor), 1.05);
+        const perturbColor = (hex) => {
+          const { h, s, l } = hexToHsl(hex);
+          const nextH = (h + (Math.random() * 2 - 1) * perturbHueRange + 360) % 360;
+          const nextS = clamp(s + (Math.random() * 2 - 1) * perturbSatRange, 0, 100);
+          const nextL = clamp(l + (Math.random() * 2 - 1) * perturbLightRange, 0, 100);
+          return hslToHex(nextH, nextS, nextL);
+        };
+        const blendTowards = (fromHex, toHex, weight) => {
+          const a = hexToRgb(fromHex);
+          const b = hexToRgb(toHex);
+          return rgbToHex({
+            r: a.r + (b.r - a.r) * weight,
+            g: a.g + (b.g - a.g) * weight,
+            b: a.b + (b.b - a.b) * weight,
+          });
+        };
+        const ensurePaletteDifference = () => {
+          if (!Array.isArray(prev.colors) || !prev.colors.length) return [...prev.colors];
+          let candidate = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
+          const asLower = (arr) => (arr || []).map(c => (c || '').toLowerCase());
+          const baseLower = asLower(prev.colors);
+          let attempts = 0;
+          while (attempts < 3 && candidate && candidate.length && asLower(candidate).every((c, i) => c === baseLower[i % baseLower.length])) {
+            candidate = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
+            attempts += 1;
+          }
+          return Array.isArray(candidate) && candidate.length ? [...candidate] : [...prev.colors];
+        };
+        const baseColors = [...prev.colors];
+        const replacementPalette = ensurePaletteDifference();
+        const replacementChance = wColor <= 0.22 ? 0 : easeOutCubic(clamp((wColor - 0.22) / (0.6 - 0.22), 0, 1));
+        const shuffleChance = clamp(wColor * 0.45, 0, 0.6);
+        const blendBias = 0.35 + 0.65 * clamp(wColor, 0, 1);
+
+        const mutated = baseColors.map((hex, idx) => {
+          const safeHex = (typeof hex === 'string' && /^#?[0-9a-fA-F]{6}$/.test(hex.replace('#', ''))) ? (hex.startsWith('#') ? hex : `#${hex}`) : '#000000';
+          const replacement = replacementPalette[idx % replacementPalette.length] || safeHex;
+          if (Math.random() < replacementChance) {
+            return blendTowards(safeHex, replacement, blendBias);
+          }
+          return perturbColor(safeHex);
+        });
+
+        if (mutated.length > 1 && shuffleChance > 0) {
+          const swaps = Math.max(1, Math.round(mutated.length * shuffleChance));
+          for (let n = 0; n < swaps; n++) {
+            const i = Math.floor(Math.random() * mutated.length);
+            const j = Math.floor(Math.random() * mutated.length);
+            if (i !== j) [mutated[i], mutated[j]] = [mutated[j], mutated[i]];
+          }
+        }
+
+        varied.colors = mutated;
+        varied.numColors = mutated.length;
       }
     } else {
       varied.colors = [...prev.colors];

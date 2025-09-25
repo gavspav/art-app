@@ -26,6 +26,7 @@ export const DEFAULT_LAYER = {
   scaleSpeed: 0.05,
   scaleMin: 0.0,
   scaleMax: 1.5,
+  spinAngle: 0,
 
   // Variation controls (legacy + split)
   variation: 0.2, // legacy single control (kept for backward-compat)
@@ -152,4 +153,5 @@ export const DEFAULTS = {
   selectedLayerIndex: 0,
   parameterTargetMode: 'individual',
   showLayerOutlines: true,
+  applyVariationInstantly: true,
 };

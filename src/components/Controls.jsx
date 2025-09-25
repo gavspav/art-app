@@ -313,7 +313,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
   const effectiveOptions = useMemo(() => (
-    id === 'movementStyle' ? ['bounce', 'drift', 'still', 'orbit'] : options
+    id === 'movementStyle' ? ['bounce', 'drift', 'still', 'orbit', 'spin'] : options
   ), [id, options]);
 
   const randomizeThisParam = () => {

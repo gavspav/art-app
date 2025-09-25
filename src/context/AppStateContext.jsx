@@ -83,6 +83,7 @@ export const AppStateProvider = ({ children }) => {
     colorFadeWhileFrozen: true,
     // Keep every layer in sync with layer 1 colours when enabled
     syncLayerColorsToFirst: false,
+    applyVariationInstantly: DEFAULTS.applyVariationInstantly ?? true,
     // Parameter targeting mode
     parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
     // Selection outline visibility (disabled by default)
@@ -250,6 +251,10 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, syncLayerColorsToFirst: !!value }));
   }, []);
 
+  const setApplyVariationInstantly = useCallback((value) => {
+    setAppState(prev => ({ ...prev, applyVariationInstantly: !!value }));
+  }, []);
+
   // Morph setters
   const setMorphEnabled = useCallback((value) => {
     setAppState(prev => ({ ...prev, morphEnabled: !!value }));
@@ -304,7 +309,7 @@ export const AppStateProvider = ({ children }) => {
         position.x = Math.max(-0.2, Math.min(1.2, position.x));
         position.y = Math.max(-0.2, Math.min(1.2, position.y));
         position.scale = Math.max(0.05, Math.min(5, position.scale));
-        const movementStyle = ['bounce','drift','still'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
+        const movementStyle = ['bounce','drift','still','orbit','spin'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
         const movementSpeed = Number.isFinite(base.movementSpeed) ? Math.max(0, Math.min(5, base.movementSpeed)) : DEFAULT_LAYER.movementSpeed;
         const movementAngle = Number.isFinite(base.movementAngle) ? ((Math.round(base.movementAngle) % 360) + 360) % 360 : DEFAULT_LAYER.movementAngle;
         const scaleSpeed = Number.isFinite(base.scaleSpeed) ? Math.max(0, Math.min(0.2, base.scaleSpeed)) : DEFAULT_LAYER.scaleSpeed;
@@ -484,6 +489,8 @@ export const AppStateProvider = ({ children }) => {
     setColorFadeWhileFrozen,
     syncLayerColorsToFirst: appState.syncLayerColorsToFirst,
     setSyncLayerColorsToFirst,
+    applyVariationInstantly: appState.applyVariationInstantly,
+    setApplyVariationInstantly,
     setParameterTargetMode,
     setShowLayerOutlines,
 
