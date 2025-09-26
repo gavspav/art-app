@@ -1,40 +1,60 @@
 let ffmpegInstance = null;
 let loadPromise = null;
 let modulePromise = null;
-let createFFmpegRef = null;
-let fetchFileRef = null;
+
+const resolveModule = (mod) => {
+  if (mod?.FFmpeg) {
+    return mod;
+  }
+  if (mod?.default?.FFmpeg) {
+    return mod.default;
+  }
+  return null;
+};
 
 const loadModule = async () => {
   if (!modulePromise) {
-    modulePromise = import('@ffmpeg/ffmpeg');
+    modulePromise = (async () => {
+      const candidate = await import('@ffmpeg/ffmpeg');
+      const resolved = resolveModule(candidate);
+      if (!resolved) {
+        throw new Error('Failed to load @ffmpeg/ffmpeg module');
+      }
+      return resolved;
+    })();
   }
-  const mod = await modulePromise;
-  if (mod?.createFFmpeg && mod?.fetchFile) {
-    return mod;
-  }
-  const fallback = mod?.default;
-  if (fallback?.createFFmpeg && fallback?.fetchFile) {
-    return fallback;
-  }
-  throw new Error('Failed to load @ffmpeg/ffmpeg module');
+  return modulePromise;
 };
 
 const ensureFFmpegLoaded = async () => {
-  if (!createFFmpegRef || !fetchFileRef) {
-    const mod = await loadModule();
-    createFFmpegRef = mod.createFFmpeg;
-    fetchFileRef = mod.fetchFile;
-  }
+  const mod = await loadModule();
   if (!ffmpegInstance) {
-    ffmpegInstance = createFFmpegRef({ log: false });
+    ffmpegInstance = new mod.FFmpeg();
   }
-  if (ffmpegInstance && !ffmpegInstance.isLoaded()) {
+  if (ffmpegInstance && !ffmpegInstance.loaded) {
     if (!loadPromise) {
-      loadPromise = ffmpegInstance.load();
+      loadPromise = ffmpegInstance.load().catch((error) => {
+        loadPromise = null;
+        throw error;
+      });
     }
     await loadPromise;
   }
   return ffmpegInstance;
+};
+
+const blobToUint8Array = async (input) => {
+  if (input instanceof Uint8Array) {
+    return input;
+  }
+  if (input instanceof ArrayBuffer) {
+    return new Uint8Array(input);
+  }
+  if (typeof input?.arrayBuffer === 'function') {
+    const buffer = await input.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+  throw new TypeError('Unsupported input type for FFmpeg writeFile');
 };
 
 export const isMimeMp4H264 = (mime = '') => {
@@ -73,7 +93,7 @@ export const convertRecordingToMp4 = async (
     ? presets
     : ['veryfast', 'slow'];
 
-  ffmpeg.FS('writeFile', inputName, await fetchFileRef(blob));
+  await ffmpeg.writeFile(inputName, await blobToUint8Array(blob));
 
   let lastError = null;
 
@@ -87,8 +107,11 @@ export const convertRecordingToMp4 = async (
       });
 
       try {
-        await ffmpeg.run(...args);
-        const data = ffmpeg.FS('readFile', outputName);
+        const result = await ffmpeg.exec(args);
+        if (typeof result === 'number' && result !== 0) {
+          throw new Error(`FFmpeg exited with code ${result}`);
+        }
+        const data = await ffmpeg.readFile(outputName);
         const mp4Blob = new Blob([data], { type: 'video/mp4' });
         return {
           blob: mp4Blob,
@@ -97,7 +120,7 @@ export const convertRecordingToMp4 = async (
         };
       } catch (error) {
         lastError = error;
-        try { ffmpeg.FS('unlink', outputName); } catch { /* noop */ }
+        try { await ffmpeg.deleteFile(outputName); } catch { /* noop */ }
       }
     }
 
@@ -107,7 +130,7 @@ export const convertRecordingToMp4 = async (
     }
     throw error;
   } finally {
-    try { ffmpeg.FS('unlink', inputName); } catch { /* noop */ }
-    try { ffmpeg.FS('unlink', outputName); } catch { /* noop */ }
+    try { await ffmpeg.deleteFile(inputName); } catch { /* noop */ }
+    try { await ffmpeg.deleteFile(outputName); } catch { /* noop */ }
   }
 };
