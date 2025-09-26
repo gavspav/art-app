@@ -8,6 +8,33 @@ import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
 import './BottomPanel.css';
 
+const PANEL_STATE_KEY = 'artapp-bottom-panel-state';
+const PANEL_LOCK_KEY = 'artapp-bottom-panel-locked';
+const PANEL_HIDE_DELAY_MS = 4500;
+
+const readInitialLock = () => {
+  try {
+    const stored = localStorage.getItem(PANEL_LOCK_KEY);
+    if (stored === 'true' || stored === 'false') {
+      return stored === 'true';
+    }
+  } catch { /* noop */ }
+  return true;
+};
+
+const readInitialPanelState = (initialLock) => {
+  try {
+    const stored = localStorage.getItem(PANEL_STATE_KEY);
+    if (stored === 'expanded' || stored === 'peek' || stored === 'hidden') {
+      if (initialLock) {
+        return 'expanded';
+      }
+      return stored === 'hidden' ? 'peek' : stored;
+    }
+  } catch { /* noop */ }
+  return initialLock ? 'expanded' : 'peek';
+};
+
 const BottomPanel = ({
   // All props from App.jsx for GlobalControls
   backgroundColor,
@@ -76,9 +103,17 @@ const BottomPanel = ({
   moveSelectedLayerDown,
   handleImportSVGClick,
 }) => {
-  const [activeTab, setActiveTab] = useState('presets');
-  const [panelState, setPanelState] = useState('peek'); // 'hidden', 'peek', 'expanded', 'locked'
-  const [isLocked, setIsLocked] = useState(false);
+  const initialLock = useMemo(() => readInitialLock(), []);
+  const initialPanelState = useMemo(() => readInitialPanelState(initialLock), [initialLock]);
+
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const stored = localStorage.getItem('artapp-bottom-panel-tab');
+      return typeof stored === 'string' && stored.length ? stored : 'global';
+    } catch { return 'global'; }
+  });
+  const [panelState, setPanelState] = useState(initialPanelState);
+  const [isLocked, setIsLocked] = useState(initialLock);
   const hideTimeoutRef = useRef(null);
   const panelRef = useRef(null);
   const tabsContainerRef = useRef(null);
@@ -128,7 +163,7 @@ const BottomPanel = ({
     if (!isLocked && panelState === 'expanded') {
       hideTimeoutRef.current = setTimeout(() => {
         setPanelState('peek');
-      }, 3000); // Hide after 3 seconds of inactivity
+      }, PANEL_HIDE_DELAY_MS);
     }
   }, [isLocked, panelState]);
 
@@ -158,7 +193,9 @@ const BottomPanel = ({
 
   const toggleLock = useCallback(() => {
     setIsLocked(prev => {
-      if (!prev) {
+      const next = !prev;
+      try { localStorage.setItem(PANEL_LOCK_KEY, String(next)); } catch { /* noop */ }
+      if (next) {
         setPanelState('expanded');
         if (hideTimeoutRef.current) {
           clearTimeout(hideTimeoutRef.current);
@@ -166,7 +203,7 @@ const BottomPanel = ({
       } else {
         resetHideTimer();
       }
-      return !prev;
+      return next;
     });
   }, [resetHideTimer]);
 
@@ -174,6 +211,24 @@ const BottomPanel = ({
   useEffect(() => {
     try { localStorage.setItem('artapp-bottom-panel-height', String(panelHeight)); } catch { /* noop */ }
   }, [panelHeight]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_STATE_KEY, panelState); } catch { /* noop */ }
+  }, [panelState]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_LOCK_KEY, String(isLocked)); } catch { /* noop */ }
+  }, [isLocked]);
+
+  useEffect(() => {
+    try { localStorage.setItem('artapp-bottom-panel-tab', activeTab); } catch { /* noop */ }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (isLocked && panelState !== 'expanded') {
+      setPanelState('expanded');
+    }
+  }, [isLocked, panelState]);
 
   // Start/stop resize from the top edge handle
   const onResizeStart = useCallback((e) => {

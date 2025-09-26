@@ -17,7 +17,6 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
-import { convertRecordingToMp4, isMimeMp4H264 } from './utils/videoExport.js';
 
 import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
 import Controls from './components/Controls';
@@ -27,6 +26,29 @@ import FloatingActionButtons from './components/global/FloatingActionButtons.jsx
 import BottomPanel from './components/BottomPanel.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
+
+const pickBestRecorderMime = () => {
+  if (typeof MediaRecorder === 'undefined') {
+    return 'video/webm';
+  }
+  const candidates = [
+    'video/mp4;codecs=h264',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) {
+        return candidate;
+      }
+    } catch {
+      /* noop */
+    }
+  }
+  return 'video/webm';
+};
 
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
@@ -77,8 +99,8 @@ const MainApp = () => {
   // Global MIDI learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isConvertingRecording, setIsConvertingRecording] = useState(false);
-  const recorderRef = useRef({ mediaRecorder: null, chunks: [], stream: null });
+  const recorderRef = useRef({ mediaRecorder: null, stream: null });
+  const recordedChunksRef = useRef([]);
   const latestRecordingNameRef = useRef('art-recording');
 
   const cleanupRecorder = useCallback(() => {
@@ -90,14 +112,13 @@ const MainApp = () => {
         });
       }
     } catch { /* noop */ }
-    recorderRef.current = { mediaRecorder: null, chunks: [], stream: null };
+    recorderRef.current = { mediaRecorder: null, stream: null };
+    recordedChunksRef.current = [];
+    setIsRecording(false);
   }, []);
 
   const startRecording = useCallback(() => {
-    if (isRecording || isConvertingRecording) {
-      if (isConvertingRecording) {
-        window.alert('Please wait for the previous recording to finish exporting.');
-      }
+    if (isRecording) {
       return;
     }
     const canvasHandle = canvasRef.current;
@@ -110,8 +131,8 @@ const MainApp = () => {
     let stream;
     try {
       stream = canvasEl.captureStream(60);
-    } catch (err) {
-      console.warn('Failed to capture canvas stream', err);
+    } catch (error) {
+      console.warn('Failed to capture canvas stream', error);
       window.alert('Unable to start recording: canvas capture stream failed.');
       return;
     }
@@ -121,58 +142,28 @@ const MainApp = () => {
       return;
     }
 
-    const chunks = [];
-    // Prefer MP4 (H.264) when supported by the browser; fall back to WebM variants
-    const typeCandidates = [
-      'video/mp4;codecs=h264',
-      'video/mp4',
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm',
-    ];
-
-    const pickRecorderOptions = () => {
-      if (typeof MediaRecorder === 'undefined') return null;
-      for (const mimeType of typeCandidates) {
-        try {
-          if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mimeType)) {
-            return {
-              mimeType,
-              videoBitsPerSecond: 20_000_000,
-            };
-          }
-        } catch { /* noop */ }
-      }
-      return {
-        videoBitsPerSecond: 20_000_000,
-      };
-    };
-
-    const options = pickRecorderOptions();
-    if (!options) {
-      window.alert('MediaRecorder is not available in this browser.');
-      stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
-      return;
-    }
-
+    const preferredMime = pickBestRecorderMime();
+    const options = { mimeType: preferredMime, videoBitsPerSecond: 20_000_000 };
     let mediaRecorder;
     try {
       mediaRecorder = new MediaRecorder(stream, options);
-    } catch (err) {
-      console.warn('Failed to create MediaRecorder with options', options, err);
+    } catch (error) {
+      console.warn('Failed to create MediaRecorder with options', options, error);
       try {
         mediaRecorder = new MediaRecorder(stream);
-      } catch (fallbackErr) {
-        console.warn('Failed to create MediaRecorder without options', fallbackErr);
+      } catch (fallbackError) {
+        console.warn('Failed to create MediaRecorder without options', fallbackError);
         window.alert('Unable to start recording: MediaRecorder could not be initialized.');
         stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
         return;
       }
     }
 
+    recordedChunksRef.current = [];
+
     mediaRecorder.ondataavailable = (event) => {
       if (event?.data && event.data.size > 0) {
-        chunks.push(event.data);
+        recordedChunksRef.current.push(event.data);
       }
     };
 
@@ -183,99 +174,56 @@ const MainApp = () => {
     };
 
     mediaRecorder.onstop = () => {
-      (async () => {
-        try {
-          const mime = mediaRecorder.mimeType || 'video/webm';
-          const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
-          if (blob) {
-            const videoTrack = stream?.getVideoTracks?.()?.[0];
-            const trackSettings = videoTrack?.getSettings?.() || {};
-            const frameRate = Number.isFinite(trackSettings.frameRate) ? trackSettings.frameRate : 60;
-            let finalBlob = blob;
-            let finalMime = mime;
-            let fileExtension = (mime || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
-
-            if (!isMimeMp4H264(finalMime)) {
-              let conversionInProgress = false;
-              try {
-                conversionInProgress = true;
-                setIsConvertingRecording(true);
-                const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, {
-                  frameRate,
-                  presets: ['veryfast', 'medium', 'slow', 'veryslow'],
-                });
-                finalBlob = convertedBlob;
-                finalMime = convertedMime;
-                fileExtension = 'mp4';
-              } catch (conversionError) {
-                console.warn('Failed to convert recording to MP4 (H.264). Saving original format instead.', conversionError);
-                try {
-                  const { blob: convertedBlob, mime: convertedMime } = await convertRecordingToMp4(blob, {
-                    frameRate,
-                    presets: ['placebo'],
-                  });
-                  finalBlob = convertedBlob;
-                  finalMime = convertedMime;
-                  fileExtension = 'mp4';
-                } catch (secondaryError) {
-                  console.warn('Secondary MP4 conversion attempt failed. Falling back to WebM.', secondaryError);
-                  window.alert('Unable to convert the recording to MP4 (H.264). The original WebM file will be saved instead.');
-                }
-              } finally {
-                if (conversionInProgress) {
-                  setIsConvertingRecording(false);
-                }
-              }
-            }
-
-            const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
-            const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
-            const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
-            latestRecordingNameRef.current = baseName;
-            const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
-
-            const url = URL.createObjectURL(finalBlob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `${safeName}.${fileExtension}`;
-            anchor.click();
-            URL.revokeObjectURL(url);
-          } else {
-            window.alert('Recording stopped but produced no data.');
-          }
-        } catch (err) {
-          console.warn('Failed to export recording', err);
-          window.alert('Recording stopped but exporting failed. Check console for details.');
-        } finally {
-          cleanupRecorder();
-          setIsRecording(false);
+      try {
+        const chunks = recordedChunksRef.current;
+        if (!chunks.length) {
+          window.alert('Recording stopped but produced no data.');
+          return;
         }
-      })();
+        const finalMime = mediaRecorder.mimeType || preferredMime || 'video/webm';
+        const blob = new Blob(chunks, { type: finalMime });
+        const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
+        const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
+        const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
+        latestRecordingNameRef.current = baseName;
+        const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
+        const fileExtension = finalMime.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${safeName}.${fileExtension}`;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (error) {
+        console.warn('Failed to export recording', error);
+        window.alert('Recording stopped but exporting failed. Check console for details.');
+      } finally {
+        stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+        cleanupRecorder();
+      }
     };
 
-    recorderRef.current = { mediaRecorder, chunks, stream };
+    recorderRef.current = { mediaRecorder, stream };
 
     try {
       mediaRecorder.start(1000);
-    } catch (err) {
-      console.warn('MediaRecorder.start failed', err);
+    } catch (error) {
+      console.warn('MediaRecorder.start failed', error);
       window.alert('Unable to start recording: MediaRecorder start failed.');
+      stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
       cleanupRecorder();
-      setIsRecording(false);
       return;
     }
 
     setIsRecording(true);
-  }, [canvasRef, cleanupRecorder, isConvertingRecording, isRecording]);
+  }, [cleanupRecorder, isRecording]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
     if (!mediaRecorder) {
       cleanupRecorder();
-      setIsRecording(false);
       return;
     }
-    setIsRecording(false);
     if (mediaRecorder.state !== 'inactive') {
       try {
         mediaRecorder.stop();

@@ -8,10 +8,40 @@ import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
 
+const DEFAULT_PIXEL_RATIO = 1;
+
+const getCanvasPixelRatio = (canvas) => {
+    if (!canvas) {
+        return DEFAULT_PIXEL_RATIO;
+    }
+    const declared = Number(canvas.dataset?.pixelRatio);
+    if (Number.isFinite(declared) && declared > 0) {
+        return declared;
+    }
+    if (typeof window !== 'undefined') {
+        const dpr = window.devicePixelRatio || DEFAULT_PIXEL_RATIO;
+        return Number.isFinite(dpr) && dpr > 0 ? dpr : DEFAULT_PIXEL_RATIO;
+    }
+    return DEFAULT_PIXEL_RATIO;
+};
+
+const getCanvasLogicalDimensions = (canvas) => {
+    if (!canvas) {
+        return { width: 0, height: 0, ratio: DEFAULT_PIXEL_RATIO };
+    }
+    const ratio = getCanvasPixelRatio(canvas);
+    const rawWidth = canvas.width || 0;
+    const rawHeight = canvas.height || 0;
+    return {
+        width: Number.isFinite(rawWidth) ? rawWidth / ratio : 0,
+        height: Number.isFinite(rawHeight) ? rawHeight / ratio : 0,
+        ratio,
+    };
+};
+
 // Map fractional positions to a centered square artboard of size min(width,height)
 const getArtboardMapping = (canvas) => {
-    const w = canvas?.width || 0;
-    const h = canvas?.height || 0;
+    const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
     const size = Math.max(0, Math.min(w, h));
     const offsetX = (w - size) / 2;
     const offsetY = (h - size) / 2;
@@ -25,10 +55,11 @@ const getLayerCanvasMapping = (canvas, layer) => {
     if (!canvas) {
         return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
     }
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const art = getArtboardMapping(canvas);
     const isDrift = layer?.movementStyle === 'drift';
-    const spanX = isDrift ? canvas.width : art.size;
-    const spanY = isDrift ? canvas.height : art.size;
+    const spanX = isDrift ? canvasWidth : art.size;
+    const spanY = isDrift ? canvasHeight : art.size;
     const offsetX = isDrift ? 0 : art.offsetX;
     const offsetY = isDrift ? 0 : art.offsetY;
     const refSize = art.size;
@@ -37,12 +68,13 @@ const getLayerCanvasMapping = (canvas, layer) => {
 
 const getLayerGeometry = (layer, canvas) => {
     if (!layer || !canvas) return null;
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: artOffsetX, offsetY: artOffsetY, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     if (spanX <= 0 || spanY <= 0 || artSize <= 0) return null;
     const { position = {} } = layer;
     const { x = 0.5, y = 0.5, scale = 1 } = position;
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetXPx = (Number(layer.xOffset) || 0) * canvasWidth;
+    const offsetYPx = (Number(layer.yOffset) || 0) * canvasHeight;
     const centerX = artOffsetX + x * spanX + offsetXPx;
     const centerY = artOffsetY + y * spanY + offsetYPx;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
@@ -118,10 +150,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
     const centerY = ay + y * spanY + offsetYPx2;
 
     // Radius mapping (fully relative): use radiusFactor against reference artboard size
@@ -481,8 +514,9 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
 
 // Draw a layer with toroidal wrapping for 'drift' movement
 const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
-    const w = canvas.width;
-    const h = canvas.height;
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const w = canvasWidth;
+    const h = canvasHeight;
     // Only wrap when drifting; otherwise a single draw is sufficient
     const isDrift = (layer?.movementStyle === 'drift');
     if (!isDrift) {
@@ -492,8 +526,8 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
 
     const { x = 0.5, y = 0.5 } = layer?.position || {};
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetXPx = (Number(layer.xOffset) || 0) * canvasWidth;
+    const offsetYPx = (Number(layer.yOffset) || 0) * canvasHeight;
     const cx = ax + x * spanX + offsetXPx;
     const cy = ay + y * spanY + offsetYPx;
     const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
@@ -535,6 +569,8 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = globalBlendMode;
 
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+
     const filters = [];
     if (imageBlur > 0) filters.push(`blur(${imageBlur}px)`);
     if (imageBrightness !== 100) filters.push(`brightness(${imageBrightness}%)`);
@@ -558,9 +594,9 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     const img = cache.img;
 
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
     const centerY = ay + y * spanY + offsetYPx2;
     const iw0 = img.naturalWidth || img.width || 0;
     const ih0 = img.naturalHeight || img.height || 0;
@@ -595,11 +631,12 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
     try {
         if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
+        const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
         const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
         const minWH = artSize;
-        const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+        const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
         const centerX = ax + x * spanX + offsetXPx2;
-        const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+        const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
         const centerY = ay + y * spanY + offsetYPx2;
         const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
@@ -665,10 +702,11 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     if (!layer || !canvas || !layer.position || !layer.visible) return path;
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
     const centerY = ay + y * spanY + offsetYPx2;
     const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
@@ -768,7 +806,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const draggingOrbitCenterRef = useRef(false);
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
-    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
     // Drive re-render for color fade while frozen so colours visibly animate
     const [colorTick, setColorTick] = useState(0);
     // Accumulated animation time (seconds), advances only when not frozen
@@ -877,17 +915,34 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         const applySize = () => {
             const rect = container.getBoundingClientRect();
-            const w = Math.max(1, Math.floor(rect.width));
-            const h = Math.max(1, Math.floor(rect.height));
-            if (canvas.width !== w || canvas.height !== h) {
-                canvas.width = w;
-                canvas.height = h;
-                setCanvasSize({ width: w, height: h });
+            const displayWidth = Math.max(1, Math.floor(rect.width));
+            const displayHeight = Math.max(1, Math.floor(rect.height));
+            const dpr = (typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio))
+                ? Math.max(DEFAULT_PIXEL_RATIO, window.devicePixelRatio)
+                : DEFAULT_PIXEL_RATIO;
+            const pixelWidth = Math.max(1, Math.round(displayWidth * dpr));
+            const pixelHeight = Math.max(1, Math.round(displayHeight * dpr));
+
+            if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+                canvas.width = pixelWidth;
+                canvas.height = pixelHeight;
             }
+
+            if (canvas.style.width !== `${displayWidth}px`) {
+                canvas.style.width = `${displayWidth}px`;
+            }
+            if (canvas.style.height !== `${displayHeight}px`) {
+                canvas.style.height = `${displayHeight}px`;
+            }
+
+            canvas.dataset.pixelRatio = String(dpr);
+            setCanvasSize({ width: displayWidth, height: displayHeight, pixelRatio: dpr });
+
             if (typeof window !== 'undefined') {
                 window.__artapp_canvasMeta = {
-                    width: canvas.width,
-                    height: canvas.height,
+                    width: displayWidth,
+                    height: displayHeight,
+                    pixelRatio: dpr,
                 };
             }
         };
@@ -1005,12 +1060,17 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const { width, height } = canvas;
+        if (!ctx) return;
+        const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
 
-        const renderStart = performance.now();
+        ctx.save();
+        ctx.setTransform(canvasPixelRatio, 0, 0, canvasPixelRatio, 0, 0);
 
-        // Force a render when node edit mode toggles or selected layer changes
-        const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
+        try {
+            const renderStart = performance.now();
+
+            // Force a render when node edit mode toggles or selected layer changes
+            const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
 
         const countChanged = prevLayersCountRef.current !== layers.length;
         // Always repaint the background so color changes show immediately (even when frozen)
@@ -1398,6 +1458,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         // Update trackers after a pass
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = layers.length;
+        } finally {
+            ctx.restore();
+        }
 
     }, [
         layerChanges,
@@ -1413,6 +1476,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         colorFadeWhileFrozen,
         canvasSize.width,
         canvasSize.height,
+        canvasSize.pixelRatio,
         layers,
         selectedLayerIdsCtx,
         getActiveTargetLayerIds,
