@@ -1630,8 +1630,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+        const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
+        const scaleX = rect.width ? logicalWidth / rect.width : 1;
+        const scaleY = rect.height ? logicalHeight / rect.height : 1;
         return {
             x: (evt.clientX - rect.left) * scaleX,
             y: (evt.clientY - rect.top) * scaleY,
@@ -1795,10 +1796,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
             )));
         } else if (draggingCenter) {
+            const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
             const minXNorm = spanX > 0 ? (0 - artOffsetX - offsetXPx) / spanX : 0;
-            const maxXNorm = spanX > 0 ? ((canvas.width) - artOffsetX - offsetXPx) / spanX : 1;
+            const maxXNorm = spanX > 0 ? (canvasWidth - artOffsetX - offsetXPx) / spanX : 1;
             const minYNorm = spanY > 0 ? (0 - artOffsetY - offsetYPx) / spanY : 0;
-            const maxYNorm = spanY > 0 ? ((canvas.height) - artOffsetY - offsetYPx) / spanY : 1;
+            const maxYNorm = spanY > 0 ? (canvasHeight - artOffsetY - offsetYPx) / spanY : 1;
             const nx = Math.max(minXNorm, Math.min(maxXNorm, normX));
             const ny = Math.max(minYNorm, Math.min(maxYNorm, normY));
             setLayers(prev => prev.map((l, i) => (

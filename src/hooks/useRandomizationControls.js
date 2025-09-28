@@ -107,7 +107,7 @@ export function useRandomizationControls({
       selectedColor: 0,
     };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  }, [colorCountMax, colorCountMin, layersRef, palettes, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
+  }, [colorCountMax, colorCountMin, layersRef, palettes, pickPaletteColors, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
 
   const handleRandomizeAll = useCallback(() => {
     if (classicMode) {

@@ -147,25 +147,28 @@ function extractShape(element, classStyles = {}) {
   const attributes = collectShapeAttributes(element, classStyles);
   
   switch (tag) {
-    case 'path':
+    case 'path': {
       const sampled = samplePathElement(element);
       points = sampled.points;
       if (Array.isArray(sampled.subpaths) && sampled.subpaths.length > 0) {
         subpaths = sampled.subpaths;
       }
       break;
+    }
     case 'polygon':
-    case 'polyline':
+    case 'polyline': {
       points = parsePolygonPoints(element.getAttribute('points'));
       break;
-    case 'circle':
+    }
+    case 'circle': {
       points = generateCirclePoints(
         parseFloat(element.getAttribute('cx') || 0),
         parseFloat(element.getAttribute('cy') || 0),
         parseFloat(element.getAttribute('r') || 0)
       );
       break;
-    case 'ellipse':
+    }
+    case 'ellipse': {
       points = generateEllipsePoints(
         parseFloat(element.getAttribute('cx') || 0),
         parseFloat(element.getAttribute('cy') || 0),
@@ -173,7 +176,8 @@ function extractShape(element, classStyles = {}) {
         parseFloat(element.getAttribute('ry') || 0)
       );
       break;
-    case 'rect':
+    }
+    case 'rect': {
       points = generateRectPoints(
         parseFloat(element.getAttribute('x') || 0),
         parseFloat(element.getAttribute('y') || 0),
@@ -183,11 +187,15 @@ function extractShape(element, classStyles = {}) {
         parseFloat(element.getAttribute('ry') || 0)
       );
       break;
-    case 'line':
+    }
+    case 'line': {
       points = [
         { x: parseFloat(element.getAttribute('x1') || 0), y: parseFloat(element.getAttribute('y1') || 0) },
         { x: parseFloat(element.getAttribute('x2') || 0), y: parseFloat(element.getAttribute('y2') || 0) }
       ];
+      break;
+    }
+    default:
       break;
   }
   
@@ -377,6 +385,24 @@ function splitPathDataIntoSubpaths(d = '') {
     segments.push(current.trim());
   }
   return segments;
+}
+
+function parsePolygonPoints(pointsAttr = '') {
+  if (!pointsAttr || typeof pointsAttr !== 'string') {
+    return [];
+  }
+
+  const values = pointsAttr
+    .trim()
+    .split(/[\s,]+/)
+    .map(token => parseFloat(token))
+    .filter(Number.isFinite);
+
+  const points = [];
+  for (let i = 0; i + 1 < values.length; i += 2) {
+    points.push({ x: values[i], y: values[i + 1] });
+  }
+  return points;
 }
 
 /**
