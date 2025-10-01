@@ -34,6 +34,7 @@ export const DEFAULT_LAYER = {
   variationAnim: 0.2,
   variationColor: 0.2,
   variationPosition: 0.2,
+  variationScale: 0,
 
   // Seeding
   seed: 1,

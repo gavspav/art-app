@@ -29,11 +29,13 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   const includeAnim = !affectSet || affectSet.has('anim');
   const includeColor = !affectSet || affectSet.has('color');
   const includePosition = !affectSet || affectSet.has('position');
+  const includeScale = !affectSet || affectSet.has('scale');
 
   const vShapeBase = Number(prev?.variationShape ?? prev?.variation ?? DEFAULT_LAYER.variationShape ?? 0.2);
   const vAnimBase = Number(prev?.variationAnim ?? prev?.variation ?? DEFAULT_LAYER.variationAnim ?? 0.2);
   const vColorBase = Number(prev?.variationColor ?? prev?.variation ?? DEFAULT_LAYER.variationColor ?? 0.2);
   const vPositionBase = Number(prev?.variationPosition ?? prev?.variation ?? DEFAULT_LAYER.variationPosition ?? 0.2);
+  const vScaleBase = Number(prev?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0);
   const resolveVar = (value, fallback) => (Number.isFinite(value) ? value : fallback);
   const v = (baseVar && typeof baseVar === 'object')
     ? {
@@ -41,12 +43,14 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       anim: resolveVar(Number(baseVar.anim), vAnimBase),
       color: resolveVar(Number(baseVar.color), vColorBase),
       position: resolveVar(Number(baseVar.position), vPositionBase),
+      scale: resolveVar(Number(baseVar.scale), vScaleBase),
     }
     : {
       shape: resolveVar(Number(baseVar), vShapeBase),
       anim: resolveVar(Number(baseVar), vAnimBase),
       color: resolveVar(Number(baseVar), vColorBase),
       position: resolveVar(Number(baseVar), vPositionBase),
+      scale: resolveVar(Number(baseVar), vScaleBase),
     };
 
   const sourceSeed = normalizeSeed(
@@ -91,6 +95,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
 
   const wShape = clamp((v.shape || 0) / 3, 0, 1);
   const wAnim = clamp((v.anim || 0) / 3, 0, 1);
+  const wScale = clamp((v.scale || 0) / 3, 0, 1);
   const boostAboveOne = (x) => {
     let z = Number(x) || 0;
     if (z > 1) z = 1 + (z - 1) * 1.4;
@@ -212,6 +217,39 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       scale: prev.position?.scale ?? 1.0,
       scaleDirection: prev.position?.scaleDirection ?? 1,
     };
+  }
+
+  // Scale variation (independent of animation variation)
+  // Supports both positive (larger scales) and negative (smaller scales) variation
+  if (includeScale) {
+    const baseScale = prev.position?.scale ?? 1.0;
+    const rawScaleVar = Number(v.scale || 0);
+    
+    if (rawScaleVar !== 0) {
+      // Normalize variation value: divide by 3 to get weight in [0,1] range
+      const absWeight = Math.abs(rawScaleVar) / 3;
+      const isNegative = rawScaleVar < 0;
+      
+      if (isNegative) {
+        // Negative variation: make scales smaller (0.1 to 1.0)
+        const scaleRange = 0.45 * absWeight; // At max, range is 0.45
+        const scaleJitter = random01() * scaleRange;
+        const newScale = clamp(baseScale - scaleJitter, 0.1, 1.0);
+        varied.position = {
+          ...(varied.position || prev.position || DEFAULT_LAYER.position),
+          scale: newScale,
+        };
+      } else {
+        // Positive variation: make scales larger (1.0 to 2.0)
+        const scaleRange = 1.0 * absWeight; // At max, range is 1.0
+        const scaleJitter = random01() * scaleRange;
+        const newScale = clamp(baseScale + scaleJitter, 1.0, 2.0);
+        varied.position = {
+          ...(varied.position || prev.position || DEFAULT_LAYER.position),
+          scale: newScale,
+        };
+      }
+    }
   }
 
   // Recompute velocity from angle/speed

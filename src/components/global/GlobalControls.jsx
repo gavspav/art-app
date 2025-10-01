@@ -179,6 +179,7 @@ const GlobalControls = ({
   const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
   const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
   const [showVariationColorSettings, setShowVariationColorSettings] = useState(false);
+  const [showVariationScaleSettings, setShowVariationScaleSettings] = useState(false);
 
   const numericSeed = Number(globalSeed);
   const seedValue = Number.isFinite(numericSeed)
@@ -269,6 +270,9 @@ const GlobalControls = ({
   const [variationColorMin, setVariationColorMin] = useState(0);
   const [variationColorMax, setVariationColorMax] = useState(3);
   const [variationColorStep, setVariationColorStep] = useState(0.01);
+  const [variationScaleMin, setVariationScaleMin] = useState(-3);
+  const [variationScaleMax, setVariationScaleMax] = useState(3);
+  const [variationScaleStep, setVariationScaleStep] = useState(0.01);
 
   const applyVariationValue = useCallback((prop, rawValue) => {
     setLayers(prev => {
@@ -294,6 +298,7 @@ const GlobalControls = ({
         anim: Number(firstLayer?.variationAnim ?? DEFAULT_LAYER.variationAnim),
         color: Number(firstLayer?.variationColor ?? DEFAULT_LAYER.variationColor),
         position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
+        scale: Number(firstLayer?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0),
       };
 
       const rebuilt = [firstLayer];
@@ -303,6 +308,7 @@ const GlobalControls = ({
         variationShape: ['shape'],
         variationAnim: ['anim'],
         variationColor: ['color'],
+        variationScale: ['scale'],
       };
       const affectCategories = categoryMap[prop] || null;
       for (let i = 1; i < updated.length; i += 1) {
@@ -1345,6 +1351,46 @@ const GlobalControls = ({
                   <input type="number" step={0.01} value={variationColorMax} onChange={(e) => setVariationColorMax(parseFloat(e.target.value) || 0)} />
                   <label className="compact-label">Step</label>
                   <input type="number" step={0.001} value={variationColorStep} onChange={(e) => setVariationColorStep(parseFloat(e.target.value) || 0.01)} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="compact-label">Scale Variation: {Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0).toFixed(2)}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Variation settings"
+                aria-label="Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationScaleSettings(s => !s); }}
+              >⚙</button>
+              <label className="compact-label" title="Include Scale Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationScale')} onChange={(e) => setIsRnd('variationScale', e.target.checked)} /> Include
+              </label>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={variationScaleMin}
+              max={variationScaleMax}
+              step={variationScaleStep}
+              value={Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationScale', v);
+              }}
+            />
+            {showVariationScaleSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                  <label className="compact-label">Min</label>
+                  <input type="number" step={0.01} value={variationScaleMin} onChange={(e) => setVariationScaleMin(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Max</label>
+                  <input type="number" step={0.01} value={variationScaleMax} onChange={(e) => setVariationScaleMax(parseFloat(e.target.value) || 0)} />
+                  <label className="compact-label">Step</label>
+                  <input type="number" step={0.001} value={variationScaleStep} onChange={(e) => setVariationScaleStep(parseFloat(e.target.value) || 0.01)} />
                 </div>
               </div>
             )}

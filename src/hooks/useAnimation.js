@@ -81,6 +81,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
 
     // 3. Handle screen boundaries (immutable)
     if (movementStyle === 'bounce') {
+        // Simple bounce: detect when center point hits the boundary
         const hitVertical = newX > 1 || newX < 0;
         const hitHorizontal = newY > 1 || newY < 0;
 
@@ -88,6 +89,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
             newMovementAngle = calculateBounceAngle(movementAngle, hitVertical, hitHorizontal);
         }
 
+        // Clamp position to keep center within bounds
         newX = Math.max(0, Math.min(1, newX));
         newY = Math.max(0, Math.min(1, newY));
     } else if (movementStyle === 'drift') {

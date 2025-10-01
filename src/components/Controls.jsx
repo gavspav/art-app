@@ -188,7 +188,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -582,6 +582,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               </span>
             </Header>
             <input
+              key={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               type="range"
               min={min}
               max={max}
@@ -603,7 +604,11 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             <Header>
               <span>{label}:</span>
             </Header>
-            <select value={value} onChange={handleChange}>
+            <select 
+              key={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
+              value={value} 
+              onChange={handleChange}
+            >
               {(effectiveOptions || options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
             </select>
           </div>
@@ -616,28 +621,10 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 };
 
 // Memoized version: re-render when metadata, target scope, or displayed value changes.
-const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
-  if (prev.param !== next.param) return false;
-  if (prev.targetMode !== next.targetMode) return false;
-  if (!!prev.param?.isRandomizable !== !!next.param?.isRandomizable) return false;
-
-  const prevId = prev.currentLayer?.id;
-  const nextId = next.currentLayer?.id;
-  if (prevId !== nextId) return false;
-
-  const paramId = prev.param?.id;
-  if (!paramId) return false;
-
-  const readValue = (layer) => {
-    if (!layer) return undefined;
-    if (paramId === 'scale') return layer.position?.scale;
-    return layer[paramId];
-  };
-
-  if (readValue(prev.currentLayer) !== readValue(next.currentLayer)) return false;
-
-  return true;
-});
+// IMPORTANT: We don't use React.memo here because it causes bugs when switching between
+// layers/groups - the control shows stale values and becomes unresponsive.
+// The performance impact is negligible since controls are lightweight.
+const DynamicControl = DynamicControlBase;
 
 // Collapsible Section component defined at module scope to maintain stable identity across renders
 const Section = ({ title, id, defaultOpen = false, children }) => {
@@ -995,7 +982,7 @@ const Controls = forwardRef(({
           </div>
           <div style={{ marginTop: '0.5rem' }}>
             {movementParams.map(param => (
-              <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
+              <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
                 <DynamicControl
                   param={param}
                   currentLayer={currentLayer}
@@ -1003,6 +990,7 @@ const Controls = forwardRef(({
                   setLayers={setLayers}
                   buildTargetSet={buildTargetSet}
                   targetMode={targetMode}
+                  editTarget={editTarget}
                 />
               </div>
             ))}
@@ -1025,6 +1013,7 @@ const Controls = forwardRef(({
                 </div>
               </div>
               <input
+                key={`orbitX-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                 type="range"
                 min={0}
                 max={0.5}
@@ -1043,6 +1032,7 @@ const Controls = forwardRef(({
                 </div>
               </div>
               <input
+                key={`orbitY-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                 type="range"
                 min={0}
                 max={0.5}
@@ -1062,7 +1052,7 @@ const Controls = forwardRef(({
     <div className="tab-section">
       <div className="control-card">
         {shapeParams.map(param => (
-          <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
+          <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
             <DynamicControl
               param={param}
               currentLayer={currentLayer}
@@ -1111,6 +1101,7 @@ const Controls = forwardRef(({
               </div>
             </div>
             <input
+              key={`rotation-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               type="range"
               min={-180}
               max={180}
@@ -1215,6 +1206,7 @@ const Controls = forwardRef(({
 
         <label>Number of colours:</label>
         <input
+          key={`numColors-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
           type="number"
           min={1}
           step={1}
@@ -1225,6 +1217,7 @@ const Controls = forwardRef(({
 
         <label>Colour Preset:</label>
         <select
+          key={`palette-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
           value={(() => {
             const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
             const idx = matchPaletteIndex(colors);
@@ -1379,6 +1372,7 @@ const Controls = forwardRef(({
                 <div className="compact-row" style={{ alignItems: 'center', gap: '0.6rem' }}>
                   <label className="compact-label">Fade speed</label>
                   <input
+                    key={`colorFadeSpeed-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                     type="range"
                     min={0}
                     max={4}
@@ -1398,9 +1392,11 @@ const Controls = forwardRef(({
           </div>
 
           <ColorPicker 
+            key={`colorpicker-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
             label="Colours"
             colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
             onChange={handleLayerColorChange}
+            layerId={currentLayer?.id}
           />
         </div>
       </div>

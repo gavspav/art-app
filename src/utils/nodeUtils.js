@@ -37,3 +37,37 @@ export const resizeNodes = (nodes, desired) => {
   }
   return curr;
 };
+
+// Calculate the actual bounding box extents from custom nodes
+// Nodes are in normalized [-1, 1] space, returns the max extent in each direction
+export const calculateNodeExtents = (nodes, rotation = 0) => {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    // Fallback to circular bounds
+    return { minX: -1, maxX: 1, minY: -1, maxY: 1 };
+  }
+
+  const rotRad = (rotation * Math.PI) / 180;
+  const cosR = Math.cos(rotRad);
+  const sinR = Math.sin(rotRad);
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (const node of nodes) {
+    const nx = Number(node?.x) || 0;
+    const ny = Number(node?.y) || 0;
+    
+    // Apply rotation
+    const rx = nx * cosR - ny * sinR;
+    const ry = nx * sinR + ny * cosR;
+    
+    minX = Math.min(minX, rx);
+    maxX = Math.max(maxX, rx);
+    minY = Math.min(minY, ry);
+    maxY = Math.max(maxY, ry);
+  }
+
+  return { minX, maxX, minY, maxY };
+};

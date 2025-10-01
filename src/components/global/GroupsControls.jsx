@@ -30,6 +30,8 @@ export default function GroupsControls() {
     selectedLayerIds,
     layerGroups,
     editTarget,
+    parameterTargetMode,
+    setParameterTargetMode,
     // actions
     createGroup,
     addMembersToGroup,
@@ -164,6 +166,39 @@ export default function GroupsControls() {
 
       <div className="compact-row" style={{ opacity: 0.8 }}>
         <span>Tip: Shift+Click on the canvas to build a selection. The Layer tab dropdown lets you target that selection or a group for parameter edits.</span>
+      </div>
+
+      {/* Target Mode Selector for Group Parameter Changes */}
+      <div className="dc-inner" style={{ marginTop: '0.75rem' }}>
+        <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+          <strong>Parameter Target Mode</strong>
+        </div>
+        <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="groupTargetMode"
+              value="individual"
+              checked={parameterTargetMode === 'individual'}
+              onChange={() => setParameterTargetMode && setParameterTargetMode('individual')}
+            />
+            <span>Individual</span>
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="groupTargetMode"
+              value="global"
+              checked={parameterTargetMode === 'global'}
+              onChange={() => setParameterTargetMode && setParameterTargetMode('global')}
+            />
+            <span>Global</span>
+          </label>
+        </div>
+        <div style={{ fontSize: '0.85rem', opacity: 0.75, marginTop: '0.5rem' }}>
+          <strong>Individual:</strong> Changes apply only to the selected group/selection.<br />
+          <strong>Global:</strong> Changes apply to all layers.
+        </div>
       </div>
     </div>
   );

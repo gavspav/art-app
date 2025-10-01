@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ColorPicker = ({ label, colors, onChange }) => {
+const ColorPicker = ({ label, colors, onChange, layerId }) => {
 
     const handleColorChange = (index, newColor) => {
         const newColors = [...colors];
@@ -23,8 +23,9 @@ const ColorPicker = ({ label, colors, onChange }) => {
             <label>{label}</label>
             <div className="color-inputs">
                 {colors.map((color, index) => (
-                    <div key={index} className="color-input-wrapper">
+                    <div key={`${layerId || 'default'}-${index}-${color}`} className="color-input-wrapper">
                         <input
+                            key={`input-${layerId || 'default'}-${index}`}
                             type="color"
                             value={color}
                             onChange={(e) => handleColorChange(index, e.target.value)}

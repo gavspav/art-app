@@ -49,19 +49,19 @@ const getArtboardMapping = (canvas) => {
 };
 
 // Resolve how a layer should map its normalized [0,1] coordinates onto the canvas space.
-// Drift mode uses the full canvas extents so shapes can traverse the entire viewport; other
-// movement styles stay constrained to the square artboard for symmetrical scaling.
+// Drift and bounce modes use the full canvas extents so shapes can traverse the entire viewport;
+// other movement styles stay constrained to the square artboard for symmetrical scaling.
 const getLayerCanvasMapping = (canvas, layer) => {
     if (!canvas) {
         return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
     }
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const art = getArtboardMapping(canvas);
-    const isDrift = layer?.movementStyle === 'drift';
-    const spanX = isDrift ? canvasWidth : art.size;
-    const spanY = isDrift ? canvasHeight : art.size;
-    const offsetX = isDrift ? 0 : art.offsetX;
-    const offsetY = isDrift ? 0 : art.offsetY;
+    const useFullCanvas = layer?.movementStyle === 'drift' || layer?.movementStyle === 'bounce';
+    const spanX = useFullCanvas ? canvasWidth : art.size;
+    const spanY = useFullCanvas ? canvasHeight : art.size;
+    const offsetX = useFullCanvas ? 0 : art.offsetX;
+    const offsetY = useFullCanvas ? 0 : art.offsetY;
     const refSize = art.size;
     return { spanX, spanY, offsetX, offsetY, refSize };
 };
@@ -1062,6 +1062,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
+        
+        // Store canvas dimensions globally for bounce detection in useAnimation
+        if (typeof window !== 'undefined') {
+            window.__artapp_canvasMeta = window.__artapp_canvasMeta || {};
+            window.__artapp_canvasMeta.width = width;
+            window.__artapp_canvasMeta.height = height;
+        }
 
         ctx.save();
         ctx.setTransform(canvasPixelRatio, 0, 0, canvasPixelRatio, 0, 0);

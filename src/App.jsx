@@ -81,6 +81,9 @@ const MainApp = () => {
     showLayerOutlines, setShowLayerOutlines,
     clearSelection,
     setEditTarget,
+    // Group and selection state
+    editTarget,
+    layerGroups,
   } = useAppState();
 
   // MIDI context
@@ -371,10 +374,27 @@ const MainApp = () => {
   }, []);
 
   // Clamp selection and expose currentLayer for Controls
+  // When a group is selected, show the first layer in that group
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
-  const currentLayer = (Array.isArray(layers) && layers.length > 0)
-    ? (layers[clampedSelectedIndex] || layers[0])
-    : DEFAULT_LAYER;
+  const currentLayer = useMemo(() => {
+    if (!Array.isArray(layers) || layers.length === 0) return DEFAULT_LAYER;
+    
+    // If a group is selected, find the first layer in that group
+    if (editTarget?.type === 'group' && editTarget.groupId) {
+      const group = (layerGroups || []).find(g => g.id === editTarget.groupId);
+      if (group && Array.isArray(group.memberIds) && group.memberIds.length > 0) {
+        const firstLayerId = group.memberIds[0];
+        const firstLayer = layers.find(l => l?.id === firstLayerId);
+        if (firstLayer) return firstLayer;
+      }
+    }
+    
+    // If a selection is active, show the first selected layer
+    // (This is handled by editTarget, but we'll use selectedLayerIndex as fallback)
+    
+    // Default: use the selected layer index
+    return layers[clampedSelectedIndex] || layers[0];
+  }, [layers, clampedSelectedIndex, editTarget, layerGroups]);
 
   const getExportMeta = useCallback(() => {
     const handle = canvasRef.current;

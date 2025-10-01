@@ -224,11 +224,8 @@ const BottomPanel = ({
     try { localStorage.setItem('artapp-bottom-panel-tab', activeTab); } catch { /* noop */ }
   }, [activeTab]);
 
-  useEffect(() => {
-    if (isLocked && panelState !== 'expanded') {
-      setPanelState('expanded');
-    }
-  }, [isLocked, panelState]);
+  // Removed: Lock no longer forces panel to stay expanded
+  // This allows the 'H' keyboard shortcut to work even when locked
 
   // Start/stop resize from the top edge handle
   const onResizeStart = useCallback((e) => {
