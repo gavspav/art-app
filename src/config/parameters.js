@@ -160,6 +160,18 @@ export const PARAMETERS = [
     showInOverlay: true,
     group: 'General',
   },
+  {
+    id: 'variationScale',
+    label: 'Scale Variation',
+    type: 'slider',
+    min: -3,
+    max: 3,
+    step: 0.1,
+    defaultValue: 0,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'General',
+  },
 
   // Appearance
   {
