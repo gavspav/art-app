@@ -15,24 +15,58 @@ export const resizeNodes = (nodes, desired) => {
   if (!Array.isArray(nodes) || nodes.length === 0) {
     return computeInitialNodes(target);
   }
-  let curr = nodes.map((node) => ({
+  const toPoint = (node) => ({
     x: Number.isFinite(node?.x) ? Number(node.x) : 0,
     y: Number.isFinite(node?.y) ? Number(node.y) : 0,
-  }));
-  if (curr.length === target) return curr;
-  if (curr.length > target) {
-    return curr.slice(0, target);
+  });
+  const distance = (a, b) => Math.hypot((b?.x || 0) - (a?.x || 0), (b?.y || 0) - (a?.y || 0));
+  const EPSILON = 1e-9;
+  let curr = nodes.map(toPoint);
+  if (curr.length < 3) {
+    return computeInitialNodes(target);
   }
+  if (curr.length === target) return curr;
+  // Expand by repeatedly splitting the longest edge so new points spread around the shape
   while (curr.length < target) {
-    const len = curr.length;
-    for (let i = 0; i < len && curr.length < target; i++) {
-      const next = (i + 1) % len;
-      const mid = {
-        x: (curr[i].x + curr[next].x) / 2,
-        y: (curr[i].y + curr[next].y) / 2,
-      };
-      curr.splice(next, 0, mid);
-      i++;
+    let longestIndex = -1;
+    let longestLength = -Infinity;
+    for (let i = 0; i < curr.length; i++) {
+      const nextIndex = (i + 1) % curr.length;
+      const len = distance(curr[i], curr[nextIndex]);
+      if (len > longestLength) {
+        longestLength = len;
+        longestIndex = i;
+      }
+    }
+    if (!(longestLength > EPSILON) || longestIndex < 0) {
+      return computeInitialNodes(target);
+    }
+    const insertIndex = (longestIndex + 1) % curr.length;
+    const a = curr[longestIndex];
+    const b = curr[insertIndex];
+    const midpoint = {
+      x: (a.x + b.x) / 2,
+      y: (a.y + b.y) / 2,
+    };
+    curr.splice(insertIndex, 0, midpoint);
+  }
+  // Reduce by removing the point whose removal least distorts the surrounding edges
+  while (curr.length > target) {
+    let removalIndex = -1;
+    let minPenalty = Infinity;
+    for (let i = 0; i < curr.length; i++) {
+      const prev = curr[(i - 1 + curr.length) % curr.length];
+      const next = curr[(i + 1) % curr.length];
+      const penalty = distance(prev, curr[i]) + distance(curr[i], next) - distance(prev, next);
+      if (penalty < minPenalty) {
+        minPenalty = penalty;
+        removalIndex = i;
+      }
+    }
+    if (removalIndex < 0) {
+      curr.pop();
+    } else {
+      curr.splice(removalIndex, 1);
     }
   }
   return curr;
