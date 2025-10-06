@@ -243,6 +243,17 @@ export const ParameterProvider = ({ children }) => {
     return { success: true, message: 'Parameters reset to defaults' };
   };
 
+  const applyParametersSnapshot = React.useCallback((snapshot) => {
+    try {
+      const merged = mergeWithDefaults(snapshot);
+      setParameters(merged);
+      return true;
+    } catch (error) {
+      console.warn('Failed to apply parameter snapshot:', error);
+      return false;
+    }
+  }, []);
+
   const value = {
     parameters,
     updateParameter,
@@ -253,6 +264,7 @@ export const ParameterProvider = ({ children }) => {
     deleteConfiguration,
     getSavedConfigList,
     resetToDefaults,
+    applyParametersSnapshot,
   };
 
   return (

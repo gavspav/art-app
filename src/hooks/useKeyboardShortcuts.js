@@ -18,6 +18,8 @@ export function useKeyboardShortcuts({
   setParameterTargetMode,
   setShowLayerOutlines,
   deleteLayer,
+  saveQuickPresetToMemory,
+  recallQuickPresetFromMemory,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -54,8 +56,20 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && key === 's') {
+        e.preventDefault();
+        saveQuickPresetToMemory?.();
+        return;
+      }
+
+      if (!e.metaKey && !e.ctrlKey && key === 'a' && e.shiftKey) {
+        e.preventDefault();
+        recallQuickPresetFromMemory?.();
+        return;
+      }
+
       // R -> Randomize All
-      if (key === 'r') {
+      if (key === 'r' && !e.shiftKey) {
         e.preventDefault();
         handleRandomizeAll?.();
         return;
@@ -143,5 +157,7 @@ export function useKeyboardShortcuts({
     setParameterTargetMode,
     setShowLayerOutlines,
     deleteLayer,
+    saveQuickPresetToMemory,
+    recallQuickPresetFromMemory,
   ]);
 }

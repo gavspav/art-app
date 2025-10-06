@@ -103,6 +103,28 @@ export const AppStateProvider = ({ children }) => {
     morphMode: 'tween', // 'tween' | 'fade'
   });
 
+  // RAM preset slot stored in-memory only
+  const [quickPreset, setQuickPreset] = useState(null);
+
+  const setQuickPresetSnapshot = useCallback((snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') {
+      setQuickPreset(null);
+      return;
+    }
+    try {
+      const cloned = typeof structuredClone === 'function'
+        ? structuredClone(snapshot)
+        : JSON.parse(JSON.stringify(snapshot));
+      setQuickPreset(cloned);
+    } catch {
+      setQuickPreset(snapshot);
+    }
+  }, []);
+
+  const clearQuickPresetSnapshot = useCallback(() => {
+    setQuickPreset(null);
+  }, []);
+
   // Preset slots state (16 slots), persisted to localStorage
   const [presetSlots, setPresetSlots] = useState(() => {
     try {
@@ -464,6 +486,9 @@ export const AppStateProvider = ({ children }) => {
   const value = {
     // Current state
     ...appState,
+    quickPreset,
+    setQuickPresetSnapshot,
+    clearQuickPresetSnapshot,
     // Presets API
     presetSlots,
     setPresetSlots,

@@ -26,6 +26,8 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
           <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
           <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
+          <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
+          <div><kbd>Shift</kbd> + <kbd>A</kbd><span>Recall RAM preset</span></div>
           <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
           <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
           <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>

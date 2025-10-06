@@ -52,12 +52,14 @@ const pickBestRecorderMime = () => {
 
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
-  const { parameters } = useParameters();
+  const parametersCtx = useParameters();
+  const { parameters, applyParametersSnapshot } = parametersCtx;
   const layersCountParam = useMemo(
     () => parameters?.find?.((param) => param.id === 'layersCount'),
     [parameters],
   );
   // Get app state from context
+  const appStateCtx = useAppState();
   const {
     isFrozen, setIsFrozen,
     backgroundColor, setBackgroundColor,
@@ -84,7 +86,11 @@ const MainApp = () => {
     // Group and selection state
     editTarget,
     layerGroups,
-  } = useAppState();
+    quickPreset,
+    setQuickPresetSnapshot,
+    getCurrentAppState,
+    loadAppState,
+  } = appStateCtx;
 
   // MIDI context
   const {
@@ -333,8 +339,7 @@ const MainApp = () => {
     /* unused: saveFullConfiguration */
     loadFullConfiguration,
     getSavedConfigList,
-  } = useParameters();
-  const { getCurrentAppState, loadAppState } = useAppState();
+  } = parametersCtx;
 
   // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
   const [includeRnd, setIncludeRnd] = useState({
@@ -427,6 +432,41 @@ const MainApp = () => {
     };
     downloadJson(`${baseName}.json`, payload);
   }, [downloadJson, getCurrentAppState, getExportMeta, midiMappings, parameters]);
+
+  const handleRamPresetSave = useCallback(() => {
+    if (typeof setQuickPresetSnapshot !== 'function') return;
+    try {
+      const snapshot = {
+        parameters: Array.isArray(parameters) ? parameters : [],
+        appState: typeof getCurrentAppState === 'function' ? getCurrentAppState() : null,
+        exportMeta: getExportMeta(),
+        savedAt: new Date().toISOString(),
+      };
+      setQuickPresetSnapshot(snapshot);
+    } catch (error) {
+      console.warn('[RAM Preset] Failed to capture snapshot', error);
+    }
+  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot]);
+
+  const handleRamPresetRecall = useCallback(() => {
+    if (!quickPreset) {
+      console.info('[RAM Preset] No snapshot stored yet');
+      return;
+    }
+    try {
+      if (Array.isArray(quickPreset.parameters) && typeof applyParametersSnapshot === 'function') {
+        applyParametersSnapshot(quickPreset.parameters);
+      }
+      if (quickPreset.appState && typeof loadAppState === 'function') {
+        loadAppState(quickPreset.appState);
+      }
+      if (quickPreset.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = quickPreset.exportMeta;
+      }
+    } catch (error) {
+      console.warn('[RAM Preset] Failed to recall snapshot', error);
+    }
+  }, [applyParametersSnapshot, loadAppState, quickPreset]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -818,6 +858,8 @@ const MainApp = () => {
     setParameterTargetMode,
     setShowLayerOutlines,
     deleteLayer,
+    saveQuickPresetToMemory: handleRamPresetSave,
+    recallQuickPresetFromMemory: handleRamPresetRecall,
   });
 
   // MIDI helper refs and handlers integration
