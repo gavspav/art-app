@@ -222,28 +222,33 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   // Scale variation (independent of animation variation)
   // Supports both positive (larger scales) and negative (smaller scales) variation
   if (includeScale) {
-    const baseScale = prev.position?.scale ?? 1.0;
+    const baseScale = (() => {
+      const raw = prev.position?.scale;
+      if (Number.isFinite(raw) && raw > 0) return raw;
+      const variedRaw = varied.position?.scale;
+      if (Number.isFinite(variedRaw) && variedRaw > 0) return variedRaw;
+      return 1.0;
+    })();
     const rawScaleVar = Number(v.scale || 0);
-    
+
     if (rawScaleVar !== 0) {
-      // Normalize variation value: divide by 3 to get weight in [0,1] range
-      const absWeight = Math.abs(rawScaleVar) / 3;
-      const isNegative = rawScaleVar < 0;
-      
-      if (isNegative) {
-        // Negative variation: make scales smaller (0.1 to 1.0)
-        const scaleRange = 0.45 * absWeight; // At max, range is 0.45
-        const scaleJitter = random01() * scaleRange;
-        const newScale = clamp(baseScale - scaleJitter, 0.1, 1.0);
+      const absWeight = clamp(Math.abs(rawScaleVar) / 3, 0, 1);
+      const minScale = 0.05;
+      const maxScale = 5;
+      if (rawScaleVar < 0) {
+        // Negative variation shrinks relative to each layer's base scale.
+        const shrinkIntensity = 0.95 * absWeight;
+        const ratio = Math.max(0.05, 1 - random01() * shrinkIntensity);
+        const newScale = clamp(baseScale * ratio, minScale, maxScale);
         varied.position = {
           ...(varied.position || prev.position || DEFAULT_LAYER.position),
           scale: newScale,
         };
       } else {
-        // Positive variation: make scales larger (1.0 to 2.0)
-        const scaleRange = 1.0 * absWeight; // At max, range is 1.0
-        const scaleJitter = random01() * scaleRange;
-        const newScale = clamp(baseScale + scaleJitter, 1.0, 2.0);
+        // Positive variation grows relative to each layer's base scale.
+        const growthIntensity = 1.2 * absWeight;
+        const ratio = 1 + random01() * growthIntensity;
+        const newScale = clamp(baseScale * ratio, minScale, maxScale);
         varied.position = {
           ...(varied.position || prev.position || DEFAULT_LAYER.position),
           scale: newScale,

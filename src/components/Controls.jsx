@@ -274,18 +274,42 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     }
 
     if (id === 'radiusFactor') {
+      const targetRF = Number(newValue);
+      const refRF = Number(currentLayer?.radiusFactor);
+      const hasGlobalRatio = targetMode === 'global' && Number.isFinite(refRF) && Math.abs(refRF) > 1e-9;
+      const globalRatio = hasGlobalRatio ? (targetRF / refRF) : null;
       applyUpdateToTargets((layer) => {
         const prevRF = Number(layer?.radiusFactor);
-        const rx = Number(layer?.radiusFactorX);
-        const ry = Number(layer?.radiusFactorY);
-        const targetRF = Number(newValue);
-        const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
+        const prevX = Number(layer?.radiusFactorX);
+        const prevY = Number(layer?.radiusFactorY);
+        if (hasGlobalRatio && Number.isFinite(prevRF)) {
+          const scaledRF = prevRF * globalRatio;
+          const nextX = Number.isFinite(prevX) ? prevX * globalRatio : scaledRF;
+          const nextY = Number.isFinite(prevY) ? prevY * globalRatio : scaledRF;
+          return { radiusFactor: scaledRF, radiusFactorX: nextX, radiusFactorY: nextY };
+        }
+        const ratioRaw = (Number.isFinite(prevRF) && Math.abs(prevRF) > 1e-9) ? (targetRF / prevRF) : targetRF;
         const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-        const baseX = Number.isFinite(rx) ? rx : 1;
-        const baseY = Number.isFinite(ry) ? ry : 1;
+        const baseX = Number.isFinite(prevX) ? prevX : 1;
+        const baseY = Number.isFinite(prevY) ? prevY : 1;
         const nextX = baseX * ratio;
         const nextY = baseY * ratio;
         return { radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
+      });
+      return;
+    }
+
+    if (id === 'radiusFactorX' || id === 'radiusFactorY') {
+      const targetAxis = Number(newValue);
+      const refAxis = Number(currentLayer?.[id]);
+      const hasGlobalRatio = targetMode === 'global' && Number.isFinite(refAxis) && Math.abs(refAxis) > 1e-9;
+      const globalRatio = hasGlobalRatio ? (targetAxis / refAxis) : null;
+      applyUpdateToTargets((layer) => {
+        const prevAxis = Number(layer?.[id]);
+        if (hasGlobalRatio && Number.isFinite(prevAxis)) {
+          return { [id]: prevAxis * globalRatio };
+        }
+        return { [id]: targetAxis };
       });
       return;
     }
