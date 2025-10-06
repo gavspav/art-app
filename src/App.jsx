@@ -18,7 +18,7 @@ import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers 
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
 
-import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
+import Canvas from './components/Canvas';
 import Controls from './components/Controls';
 import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
@@ -898,12 +898,14 @@ const MainApp = () => {
 
   // Download helper – choose resolution, freeze time during export
   const downloadImage = useCallback(async () => {
+    const wasFrozen = isFrozen;
     try {
-      // 1. Freeze animation to capture exact frame
-      const wasFrozen = isFrozen;
-      if (!wasFrozen) setIsFrozen(true);
-      // Wait one animation frame to ensure freeze applied and Canvas has repainted
-      await new Promise(res => requestAnimationFrame(() => res()));
+      if (!wasFrozen) {
+        setIsFrozen(true);
+      }
+
+      // Wait one frame so the freeze is reflected in the canvas output
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
       const canvasHandle = canvasRef.current;
       if (!canvasHandle) return;
@@ -912,12 +914,15 @@ const MainApp = () => {
 
       const viewW = src.width || 1;
       const viewH = src.height || 1;
-      // 2. Ask user for resolution choice
-      const choiceRaw = (window.prompt('Export size (A4, A3, A2, VIEW):', 'A3') || '').trim().toUpperCase();
-      const choice = ['A4','A3','A2','VIEW'].includes(choiceRaw) ? choiceRaw : 'A3';
-      const MAX_DIM = (choice === 'VIEW') ? Math.max(viewW, viewH) : (choice === 'A4' ? 3508 : (choice === 'A2' ? 7016 : 4961));
 
-      let targetW, targetH;
+      const choiceRaw = (window.prompt('Export size (A4, A3, A2, VIEW):', 'A3') || '').trim().toUpperCase();
+      const choice = ['A4', 'A3', 'A2', 'VIEW'].includes(choiceRaw) ? choiceRaw : 'A3';
+      const MAX_DIM = choice === 'VIEW'
+        ? Math.max(viewW, viewH)
+        : (choice === 'A4' ? 3508 : (choice === 'A2' ? 7016 : 4961));
+
+      let targetW;
+      let targetH;
       if (viewW >= viewH) {
         targetW = MAX_DIM;
         targetH = Math.round(MAX_DIM * viewH / viewW);
@@ -932,39 +937,31 @@ const MainApp = () => {
       const ctx = off.getContext('2d');
       if (!ctx) return;
 
-      // Fill background
-      ctx.fillStyle = backgroundColor || '#ffffff';
-      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, targetW, targetH);
 
-      const animTime = (canvasHandle.getAnimationTime ? canvasHandle.getAnimationTime() : 0) || 0;
-      // Render each layer exactly once at high resolution
-      const snapshot = layersRef.current || [];
-      snapshot.forEach(layer => {
-        if (!layer?.visible) return;
-        drawLayerWithWrap(ctx, layer, off, (c, l, cv) => {
-          if (l.image && l.image.src) {
-            drawImage(c, l, cv, globalBlendMode);
-          } else {
-            drawShape(c, l, cv, globalSeed, animTime, false, globalBlendMode);
-          }
-        });
-      });
+      const blob = await new Promise(resolve => off.toBlob(resolve, 'image/png'));
+      if (!blob) return;
 
-      off.toBlob(blob => {
-        if (!blob) return;
-        const link = document.createElement('a');
-        link.download = `layered-shape-${choice.toLowerCase()}-${targetW}x${targetH}.png`;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-        // 4. Restore previous frozen state
-        if (!wasFrozen) setIsFrozen(false);
-      }, 'image/png');
+      const link = document.createElement('a');
+      link.download = `layered-shape-${choice.toLowerCase()}-${targetW}x${targetH}.png`;
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err) {
       console.warn('High-res export failed', err);
-      try { if (!isFrozen) setIsFrozen(false); } catch { /* noop */ }
+    } finally {
+      if (!wasFrozen) {
+        try {
+          setIsFrozen(false);
+        } catch {
+          /* noop */
+        }
+      }
     }
-  }, [backgroundColor, globalBlendMode, globalSeed, isFrozen, setIsFrozen]);
+  }, [isFrozen, setIsFrozen]);
 
   return (
     <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
