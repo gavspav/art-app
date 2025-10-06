@@ -267,9 +267,29 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       });
     };
     if (id === 'scale') {
-      applyUpdateToTargets((layer) => ({
-        position: { ...(layer?.position || {}), scale: newValue },
-      }));
+      const targetScale = newValue;
+      const refScale = Number(currentLayer?.position?.scale);
+      const hasGlobalRatio = targetMode === 'global'
+        && Number.isFinite(refScale)
+        && Math.abs(refScale) > 1e-9;
+      const ratio = hasGlobalRatio ? (targetScale / refScale) : null;
+      const clampScale = (value) => {
+        if (!Number.isFinite(value)) return targetScale;
+        if (Number.isFinite(min) && Number.isFinite(max)) {
+          return Math.min(max, Math.max(min, value));
+        }
+        return value;
+      };
+      applyUpdateToTargets((layer) => {
+        const prevScale = Number(layer?.position?.scale);
+        const rawScale = hasGlobalRatio && Number.isFinite(prevScale)
+          ? prevScale * ratio
+          : targetScale;
+        const clampedScale = clampScale(rawScale);
+        return {
+          position: { ...(layer?.position || {}), scale: clampedScale },
+        };
+      });
       return;
     }
 
