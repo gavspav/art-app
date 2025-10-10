@@ -1,0 +1,48 @@
+.canvas-wrapper {
+  position: relative;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px 16px 72px;
+}
+
+.artboard {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-width: 480px;
+  touch-action: none;
+  user-select: none;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.5));
+  border-radius: 24px;
+  overflow: visible;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px rgba(15, 23, 42, 0.4);
+}
+
+.artboard-bg {
+  fill: rgba(15, 23, 42, 0.85);
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 0.8;
+}
+
+.base-shape {
+  fill: none;
+  stroke: rgba(226, 232, 240, 0.85);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.node-handle {
+  fill: rgba(148, 163, 184, 0.9);
+  stroke: rgba(15, 23, 42, 0.8);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  transition: transform 0.15s ease, fill 0.2s ease;
+}
+
+.node-handle:hover,
+.node-handle.active {
+  fill: #38bdf8;
+  transform: scale(1.15);
+}

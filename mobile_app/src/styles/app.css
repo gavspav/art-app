@@ -1,0 +1,16 @@
+.app-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.85));
+  border-radius: 28px 28px 0 0;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(2, 6, 23, 0.55);
+}
+
+@media (min-width: 640px) {
+  .app-shell {
+    border-radius: 36px;
+  }
+}
