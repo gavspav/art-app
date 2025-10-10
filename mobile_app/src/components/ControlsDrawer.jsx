@@ -31,6 +31,7 @@ const ControlsDrawer = () => {
     isDrawerOpen,
     setDrawerOpen,
     size,
+    sides,
     variationPosition,
     variationShape,
     variationColor,
@@ -62,6 +63,15 @@ const ControlsDrawer = () => {
             max={1.1}
             step={0.01}
             onChange={(value) => setSlider('size', value)}
+          />
+          <Slider
+            id="sides"
+            label="Sides"
+            value={sides}
+            min={3}
+            max={10}
+            step={1}
+            onChange={(value) => setSlider('sides', value)}
           />
         </div>
         <div className="drawer-group">
