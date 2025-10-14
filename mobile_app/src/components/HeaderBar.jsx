@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
 import { isDesktop } from '../utils/platform.js';
 import '../styles/header.css';
@@ -15,6 +15,82 @@ const HeaderBar = () => {
   } = useMobileArtState();
 
   const [isDesktopMode] = useState(isDesktop());
+  const [motionReady, setMotionReady] = useState(false);
+  const lastMagnitude = useRef(null);
+  const lastShakeTime = useRef(0);
+
+  const ensureMotionPermission = useCallback(async () => {
+    if (motionReady) return;
+    if (typeof DeviceMotionEvent === 'undefined') return;
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const status = await DeviceMotionEvent.requestPermission();
+        if (status === 'granted') {
+          setMotionReady(true);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    } else {
+      setMotionReady(true);
+    }
+  }, [motionReady]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (motionReady) return undefined;
+    const handler = () => {
+      ensureMotionPermission();
+    };
+    window.addEventListener('pointerdown', handler, { passive: true });
+    window.addEventListener('touchstart', handler, { passive: true });
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('pointerdown', handler, { passive: true });
+      window.removeEventListener('touchstart', handler, { passive: true });
+      window.removeEventListener('keydown', handler);
+    };
+  }, [ensureMotionPermission, motionReady]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof DeviceMotionEvent === 'undefined') return undefined;
+    if (typeof DeviceMotionEvent.requestPermission !== 'function') {
+      if (!motionReady) {
+        setMotionReady(true);
+      }
+    }
+    if (!motionReady) return undefined;
+    const handleMotion = (event) => {
+      const data = event.acceleration ?? event.accelerationIncludingGravity;
+      if (!data) return;
+      const { x = 0, y = 0, z = 0 } = data;
+      const magnitude = Math.sqrt(x * x + y * y + z * z);
+      if (lastMagnitude.current == null) {
+        lastMagnitude.current = magnitude;
+        return;
+      }
+      const delta = Math.abs(magnitude - lastMagnitude.current);
+      lastMagnitude.current = magnitude;
+      const now = Date.now();
+      if ((delta > 4 || magnitude > 20) && now - lastShakeTime.current > 800) {
+        lastShakeTime.current = now;
+        randomizeShape();
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          navigator.vibrate(50);
+        }
+      }
+    };
+    window.addEventListener('devicemotion', handleMotion);
+    return () => {
+      window.removeEventListener('devicemotion', handleMotion);
+      lastMagnitude.current = null;
+    };
+  }, [motionReady, randomizeShape]);
+
+  const handleRandomizeClick = useCallback(async () => {
+    await ensureMotionPermission();
+    randomizeShape();
+  }, [ensureMotionPermission, randomizeShape]);
 
   return (
     <header className="header-bar">
@@ -25,7 +101,7 @@ const HeaderBar = () => {
         <button type="button" className="header-btn" onClick={resetShape}>
           Reset
         </button>
-        <button type="button" className="header-btn" onClick={randomizeShape} aria-label="Randomize">
+        <button type="button" className="header-btn" onClick={handleRandomizeClick} aria-label="Randomize">
           🎲
         </button>
         {isDesktopMode && (

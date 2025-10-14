@@ -182,6 +182,9 @@ const TouchCanvas = () => {
     const aspect = Number.isFinite(canvasAspect) && canvasAspect > 0 ? canvasAspect : 1;
     const scaleX = aspect >= 1 ? aspect : 1;
     const scaleY = aspect >= 1 ? 1 : 1 / aspect;
+    const fillScale = Math.max(scaleX, scaleY);
+    const compensateX = scaleX === 0 ? 1 : fillScale / scaleX;
+    const compensateY = scaleY === 0 ? 1 : fillScale / scaleY;
     return Array.from({ length: count }).map((_, index) => {
       let layerNodes = layerNodeSets[index] || nodes;
       if (liveNodeOverrides[index]) {
@@ -193,7 +196,11 @@ const TouchCanvas = () => {
         variationPosition,
         layerIndex: index,
       });
-      const scaledPoints = points.map((point) => ({
+      const compensatedPoints = points.map((point) => ({
+        x: point.x * compensateX,
+        y: point.y * compensateY,
+      }));
+      const scaledPoints = compensatedPoints.map((point) => ({
         x: point.x * scaleX,
         y: point.y * scaleY,
       }));
