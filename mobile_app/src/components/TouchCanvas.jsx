@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useRef, useEffect, useMemo, useCallback, useState } from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
 import { clampValue, buildSmoothPath, deriveLayerPoints } from '../utils/shapeMath.js';
+import { isDesktop } from '../utils/platform.js';
 import '../styles/canvas.css';
 
 const normalizeCoord = (client, rect) => {
@@ -51,11 +52,17 @@ const TouchCanvas = () => {
     variationPosition,
     variationShape,
     variationColor,
-    palette,
+    backgroundColor,
+    foregroundColor,
+    isNodeEditMode,
     setNodes,
     setLayerOverride,
     setSelectedLayer,
   } = useMobileArtState();
+
+  const [isDesktopMode] = useState(isDesktop());
+  const [hoveredNodeIndex, setHoveredNodeIndex] = useState(null);
+  const [draggingNodeIndex, setDraggingNodeIndex] = useState(null);
 
   const svgRef = useRef(null);
   const layerNodeSets = useMemo(() => {
@@ -90,7 +97,6 @@ const TouchCanvas = () => {
   const layerPaths = useMemo(() => {
     if (!Array.isArray(nodes)) return [];
     const count = Math.max(1, Math.floor(layers));
-    const baseColor = palette?.color || '#38bdf8';
     return Array.from({ length: count }).map((_, index) => {
       const layerNodes = layerNodeSets[index] || nodes;
       const points = deriveLayerPoints(layerNodes, {
@@ -103,10 +109,10 @@ const TouchCanvas = () => {
         id: `layer-${index}`,
         path: buildSmoothPath(points, curviness),
         opacity: clamp01(1 - index / Math.max(1, count + 1)),
-        color: tintColor(baseColor, variationColor, index),
+        color: tintColor(foregroundColor, variationColor, index),
       };
     });
-  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, palette]);
+  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, foregroundColor]);
 
   const commitNodes = useCallback((layerIndex, updatedNodes) => {
     if (layerIndex === 0) {
@@ -342,22 +348,110 @@ const TouchCanvas = () => {
     };
   }, [commitNodes, setSelectedLayer, layers]);
 
+  // Node editing helpers for desktop
+  const handleNodeMouseDown = useCallback((e, nodeIndex) => {
+    if (!isDesktopMode || !isNodeEditMode) return;
+    e.stopPropagation();
+    setDraggingNodeIndex(nodeIndex);
+  }, [isDesktopMode, isNodeEditMode]);
+
+  const handleNodeMouseMove = useCallback((e) => {
+    if (!isDesktopMode || !isNodeEditMode || draggingNodeIndex === null) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    
+    const rect = svg.getBoundingClientRect();
+    const normalized = normalizeCoord({ x: e.clientX, y: e.clientY }, rect);
+    
+    const layerIndex = selectedLayerRef.current;
+    const currentNodes = layerNodeSetsRef.current[layerIndex] || [];
+    
+    if (draggingNodeIndex >= 0 && draggingNodeIndex < currentNodes.length) {
+      const updatedNodes = currentNodes.map((node, i) => 
+        i === draggingNodeIndex ? { ...node, x: normalized.x, y: normalized.y } : node
+      );
+      
+      if (layerIndex === 0) {
+        setNodes(updatedNodes);
+      } else {
+        setLayerOverride(layerIndex, updatedNodes);
+      }
+    }
+  }, [isDesktopMode, isNodeEditMode, draggingNodeIndex, setNodes, setLayerOverride]);
+
+  const handleNodeMouseUp = useCallback(() => {
+    setDraggingNodeIndex(null);
+  }, []);
+
+  // Attach mouse listeners for desktop node editing
+  useEffect(() => {
+    if (!isDesktopMode || !isNodeEditMode) return;
+    
+    window.addEventListener('mousemove', handleNodeMouseMove);
+    window.addEventListener('mouseup', handleNodeMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleNodeMouseMove);
+      window.removeEventListener('mouseup', handleNodeMouseUp);
+    };
+  }, [isDesktopMode, isNodeEditMode, handleNodeMouseMove, handleNodeMouseUp]);
+
+  // Render node handles for desktop edit mode
+  const renderNodeHandles = () => {
+    if (!isDesktopMode || !isNodeEditMode) return null;
+    
+    const layerIndex = selectedLayer;
+    const currentNodes = layerNodeSets[layerIndex] || [];
+    
+    return currentNodes.map((node, index) => {
+      const points = deriveLayerPoints([node], {
+        size,
+        variationShape: 0,
+        variationPosition: 0,
+        layerIndex: 0,
+      });
+      
+      if (!points || points.length === 0) return null;
+      
+      const point = points[0];
+      const isHovered = hoveredNodeIndex === index;
+      const isDragging = draggingNodeIndex === index;
+      
+      return (
+        <circle
+          key={`node-${index}`}
+          cx={point.x * 100}
+          cy={point.y * 100}
+          r={isDragging ? 2.5 : isHovered ? 2.2 : 1.8}
+          fill={isDragging ? '#fbbf24' : isHovered ? '#60a5fa' : foregroundColor}
+          stroke="rgba(15, 23, 42, 0.8)"
+          strokeWidth="0.5"
+          style={{ cursor: 'grab', transition: 'all 0.15s ease' }}
+          onMouseDown={(e) => handleNodeMouseDown(e, index)}
+          onMouseEnter={() => setHoveredNodeIndex(index)}
+          onMouseLeave={() => setHoveredNodeIndex(null)}
+        />
+      );
+    });
+  };
+
   return (
     <div className="canvas-wrapper">
       <svg ref={svgRef} className="artboard" viewBox="-100 -100 200 200">
-        <rect className="artboard-bg" x="-100" y="-100" width="200" height="200" rx="18" />
+        <rect className="artboard-bg" x="-100" y="-100" width="200" height="200" rx="18" fill={backgroundColor} />
         {layerPaths.map((layer, index) => (
           <g key={layer.id} data-layer-index={index} data-shape-path="true">
             <path
               d={layer.path}
               fill={layer.color}
               fillOpacity={Math.max(0.18, layer.opacity)}
-              stroke={index === selectedLayer ? palette?.color || '#e2e8f0' : 'none'}
+              stroke={index === selectedLayer ? foregroundColor : 'none'}
               strokeOpacity={index === selectedLayer ? 0.35 : 0}
               strokeWidth={index === selectedLayer ? 1.4 : 0}
             />
           </g>
         ))}
+        {renderNodeHandles()}
       </svg>
     </div>
   );

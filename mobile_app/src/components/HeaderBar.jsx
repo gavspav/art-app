@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
+import { isDesktop } from '../utils/platform.js';
 import '../styles/header.css';
 
 const HeaderBar = () => {
@@ -8,8 +9,12 @@ const HeaderBar = () => {
     toggleDrawer,
     resetShape,
     randomizeShape,
-    palette,
+    foregroundColor,
+    isNodeEditMode,
+    toggleNodeEditMode,
   } = useMobileArtState();
+
+  const [isDesktopMode] = useState(isDesktop());
 
   return (
     <header className="header-bar">
@@ -24,6 +29,17 @@ const HeaderBar = () => {
         <button type="button" className="header-btn" onClick={randomizeShape}>
           Randomize
         </button>
+        {isDesktopMode && (
+          <button
+            type="button"
+            className={`header-btn ${isNodeEditMode ? 'active' : ''}`}
+            onClick={toggleNodeEditMode}
+            aria-pressed={isNodeEditMode}
+            title="Toggle node editing mode"
+          >
+            {isNodeEditMode ? '✓ Edit Nodes' : 'Edit Nodes'}
+          </button>
+        )}
         <button
           type="button"
           className="header-btn primary"
@@ -34,8 +50,8 @@ const HeaderBar = () => {
           {isDrawerOpen ? 'Hide' : 'Controls'}
         </button>
       </div>
-      <div className="header-palette">
-        {palette?.name}
+      <div className="header-palette" style={{ color: foregroundColor }}>
+        {isDesktopMode ? 'Desktop Mode' : 'Mobile Mode'}
       </div>
     </header>
   );

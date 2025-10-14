@@ -8,28 +8,6 @@ import {
 
 const MobileArtContext = createContext(null);
 
-const paletteOptions = [
-  {
-    id: 'sunset',
-    name: 'Sunset Bloom',
-    color: '#f97316',
-  },
-  {
-    id: 'lagoon',
-    name: 'Lagoon',
-    color: '#22d3ee',
-  },
-  {
-    id: 'neon',
-    name: 'Neon Night',
-    color: '#a855f7',
-  },
-  {
-    id: 'mono',
-    name: 'Monochrome',
-    color: '#94a3b8',
-  },
-];
 
 const defaults = {
   nodes: createRegularPolygon(6, 0.65),
@@ -40,10 +18,12 @@ const defaults = {
   variationPosition: 0,
   variationShape: 0,
   variationColor: 0,
-  paletteIndex: 0,
+  backgroundColor: '#0f172a',
+  foregroundColor: '#38bdf8',
   isDrawerOpen: true,
   selectedLayer: 0,
   layerOverrides: {},
+  isNodeEditMode: false,
 };
 
 const sliderRanges = {
@@ -131,18 +111,42 @@ const reducer = (state, action) => {
         ...state,
         selectedLayer: clampValue(action.index, 0, state.layers - 1),
       };
+    case 'SET_BACKGROUND_COLOR':
+      return {
+        ...state,
+        backgroundColor: action.color || defaults.backgroundColor,
+      };
+    case 'SET_FOREGROUND_COLOR':
+      return {
+        ...state,
+        foregroundColor: action.color || defaults.foregroundColor,
+      };
+    case 'SET_NODE_EDIT_MODE':
+      return {
+        ...state,
+        isNodeEditMode: !!action.value,
+      };
+    case 'TOGGLE_NODE_EDIT_MODE':
+      return {
+        ...state,
+        isNodeEditMode: !state.isNodeEditMode,
+      };
     case 'RESET_SHAPE':
       return {
         ...state,
         ...defaults,
         nodes: createRegularPolygon(defaults.sides, 0.65),
-        paletteIndex: state.paletteIndex,
+        backgroundColor: state.backgroundColor,
+        foregroundColor: state.foregroundColor,
       };
     case 'RANDOMIZE_SHAPE': {
       const sides = Math.floor(clampValue(Math.random() * 5 + 4, 4, 8));
       const newNodes = clampNodes(
         jitterPolygon(createRegularPolygon(sides, clampValue(Math.random() * 0.3 + 0.5, 0.45, 0.8)), 0.12),
       );
+      const randomColors = [
+        '#f97316', '#22d3ee', '#a855f7', '#94a3b8', '#ef4444', '#10b981', '#f59e0b',
+      ];
       return {
         ...state,
         nodes: newNodes,
@@ -153,20 +157,11 @@ const reducer = (state, action) => {
         variationShape: clampValue(Math.random() * 0.45, 0, 0.8),
         variationColor: clampValue(Math.random() * 0.6, 0, 0.9),
         layers: Math.floor(Math.random() * 3) + 1,
-        paletteIndex: Math.floor(Math.random() * paletteOptions.length),
+        foregroundColor: randomColors[Math.floor(Math.random() * randomColors.length)],
         layerOverrides: {},
         selectedLayer: 0,
       };
     }
-    case 'SET_PALETTE_INDEX':
-      return {
-        ...state,
-        paletteIndex: clampValue(
-          Math.round(action.index),
-          0,
-          paletteOptions.length - 1,
-        ),
-      };
     default:
       return state;
   }
@@ -215,16 +210,25 @@ export const MobileArtProvider = ({ children }) => {
     dispatch({ type: 'RANDOMIZE_SHAPE' });
   }, []);
 
-  const setPaletteIndex = useCallback((index) => {
-    dispatch({ type: 'SET_PALETTE_INDEX', index });
+  const setBackgroundColor = useCallback((color) => {
+    dispatch({ type: 'SET_BACKGROUND_COLOR', color });
+  }, []);
+
+  const setForegroundColor = useCallback((color) => {
+    dispatch({ type: 'SET_FOREGROUND_COLOR', color });
+  }, []);
+
+  const setNodeEditMode = useCallback((value) => {
+    dispatch({ type: 'SET_NODE_EDIT_MODE', value });
+  }, []);
+
+  const toggleNodeEditMode = useCallback(() => {
+    dispatch({ type: 'TOGGLE_NODE_EDIT_MODE' });
   }, []);
 
   const value = useMemo(() => {
-    const palette = paletteOptions[state.paletteIndex] || paletteOptions[0];
     return {
       ...state,
-      palette,
-      paletteOptions,
       setSlider,
       setNodes,
       setLayers,
@@ -235,9 +239,12 @@ export const MobileArtProvider = ({ children }) => {
       setSelectedLayer,
       resetShape,
       randomizeShape,
-      setPaletteIndex,
+      setBackgroundColor,
+      setForegroundColor,
+      setNodeEditMode,
+      toggleNodeEditMode,
     };
-  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setPaletteIndex]);
+  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setBackgroundColor, setForegroundColor, setNodeEditMode, toggleNodeEditMode]);
 
   return React.createElement(MobileArtContext.Provider, { value }, children);
 };

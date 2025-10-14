@@ -1,13 +1,39 @@
-# Mobile Art App (Touch Edition)
+# Mobile Art App
 
-## Overview
-The mobile edition is a streamlined, touch-first React application that focuses on direct manipulation of the base layer shape. It supports node-based editing, a small set of parameter sliders, and lightweight layer variation controls ideal for phone screens.
+A cross-platform generative art application that works on both mobile and desktop.
 
-## Feature Scope
-- **Base Layer Node Editing**: Drag nodes on the primary shape using touch or mouse pointer events.
-- **Shape Controls**: Size, scale, and curviness sliders that update the base layer in real time.
-- **Layer Variations**: Adjustable layer count and variation intensity to generate offset copies of the base shape.
-- **Hideable UI**: A bottom sheet controls drawer that can be collapsed to maximize the canvas area.
+## Platform Detection
+
+The app automatically detects whether you're on a desktop or mobile device:
+
+- **Mobile Mode**: Touch-based shape manipulation with pinch-to-zoom and drag gestures
+- **Desktop Mode**: Mouse-based node editing with individual vertex control
+
+## Features
+
+### Mobile (Touch Devices)
+- Touch and drag shapes to deform them
+- Pinch to scale shapes
+- Multi-layer support with per-layer shape variations
+- Simple color pickers for background and foreground
+
+### Desktop (Mouse & Keyboard)
+- **Node Editing Mode**: Click "Edit Nodes" button to enable precise vertex manipulation
+- Drag individual nodes to reshape polygons
+- Visual feedback with hover states and color-coded handles
+- All mobile features also available via pointer events
+
+## Controls
+
+- **Reset**: Return to default shape
+- **Randomize**: Generate random shape parameters
+- **Edit Nodes** (Desktop only): Toggle node editing mode
+- **Controls**: Open/close the settings drawer
+
+### Settings Drawer
+- Size, Sides, Position/Shape/Color variation sliders
+- Layer count control
+- Background and foreground color pickers
 
 ## Core Modules
 - **`src/App.jsx`**: Assembles the layout with a full-height canvas, header actions, and the collapsible controls drawer.

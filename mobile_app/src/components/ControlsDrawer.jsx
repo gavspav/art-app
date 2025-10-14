@@ -38,9 +38,10 @@ const ControlsDrawer = () => {
     layers,
     setSlider,
     setLayers,
-    paletteIndex,
-    paletteOptions,
-    setPaletteIndex,
+    backgroundColor,
+    foregroundColor,
+    setBackgroundColor,
+    setForegroundColor,
   } = useMobileArtState();
 
   const drawerClass = `controls-drawer${isDrawerOpen ? ' open' : ''}`;
@@ -118,20 +119,29 @@ const ControlsDrawer = () => {
             />
           </label>
         </div>
-        <div className="drawer-group palette-group">
-          <h3>Colour</h3>
-          <div className="palette-options">
-            {paletteOptions.map((option, index) => (
-              <button
-                key={option.id}
-                type="button"
-                className={`palette-chip${index === paletteIndex ? ' selected' : ''}`}
-                onClick={() => setPaletteIndex(index)}
-              >
-                <span className="palette-chip__color" style={{ backgroundColor: option.color }} />
-                <span className="palette-chip__label">{option.name}</span>
-              </button>
-            ))}
+        <div className="drawer-group color-group">
+          <h3>Colours</h3>
+          <div className="color-pickers">
+            <label className="color-picker" htmlFor="backgroundColor">
+              <span className="color-picker__label">Background</span>
+              <input
+                id="backgroundColor"
+                type="color"
+                className="color-picker__input"
+                value={backgroundColor}
+                onChange={(e) => setBackgroundColor(e.target.value)}
+              />
+            </label>
+            <label className="color-picker" htmlFor="foregroundColor">
+              <span className="color-picker__label">Foreground</span>
+              <input
+                id="foregroundColor"
+                type="color"
+                className="color-picker__input"
+                value={foregroundColor}
+                onChange={(e) => setForegroundColor(e.target.value)}
+              />
+            </label>
           </div>
         </div>
       </div>

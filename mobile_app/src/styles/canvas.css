@@ -21,7 +21,7 @@
 }
 
 .artboard-bg {
-  fill: rgba(15, 23, 42, 0.85);
+  /* fill is set dynamically via backgroundColor prop */
   stroke: rgba(255, 255, 255, 0.08);
   stroke-width: 0.8;
 }

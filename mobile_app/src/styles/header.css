@@ -71,6 +71,17 @@
   background: linear-gradient(135deg, #0ea5e9, #4338ca);
 }
 
+.header-btn.active {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(74, 222, 128, 0.5);
+  color: #86efac;
+}
+
+.header-btn.active:hover {
+  background: rgba(34, 197, 94, 0.35);
+  border-color: rgba(74, 222, 128, 0.7);
+}
+
 .header-palette {
   font-size: 13px;
   color: rgba(226, 232, 240, 0.72);
