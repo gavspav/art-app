@@ -24,6 +24,9 @@ const defaults = {
   selectedLayer: 0,
   layerOverrides: {},
   isNodeEditMode: false,
+  blendMode: 'normal',
+  paletteIndex: null,
+  layerColors: [],
 };
 
 const sliderRanges = {
@@ -36,7 +39,7 @@ const sliderRanges = {
 
 const clampNodes = (nodes) => nodes.map((node) => ({
   ...node,
-  ...clampPoint(node, 0.92),
+  ...clampPoint(node, 0.85),
 }));
 
 const reducer = (state, action) => {
@@ -84,7 +87,7 @@ const reducer = (state, action) => {
       };
     }
     case 'SET_LAYERS': {
-      const value = clampValue(action.value, 1, 6);
+      const value = clampValue(action.value, 1, 20);
       const nextLayerCount = Math.round(value);
       const nextOverrides = Object.fromEntries(
         Object.entries(state.layerOverrides).filter(([key]) => Number(key) < nextLayerCount),
@@ -130,6 +133,17 @@ const reducer = (state, action) => {
       return {
         ...state,
         isNodeEditMode: !state.isNodeEditMode,
+      };
+    case 'SET_BLEND_MODE':
+      return {
+        ...state,
+        blendMode: action.mode || defaults.blendMode,
+      };
+    case 'SET_PALETTE':
+      return {
+        ...state,
+        paletteIndex: action.index,
+        layerColors: action.colors || [],
       };
     case 'RESET_SHAPE':
       return {
@@ -226,6 +240,14 @@ export const MobileArtProvider = ({ children }) => {
     dispatch({ type: 'TOGGLE_NODE_EDIT_MODE' });
   }, []);
 
+  const setBlendMode = useCallback((mode) => {
+    dispatch({ type: 'SET_BLEND_MODE', mode });
+  }, []);
+
+  const setPalette = useCallback((index, colors) => {
+    dispatch({ type: 'SET_PALETTE', index, colors });
+  }, []);
+
   const value = useMemo(() => {
     return {
       ...state,
@@ -243,8 +265,10 @@ export const MobileArtProvider = ({ children }) => {
       setForegroundColor,
       setNodeEditMode,
       toggleNodeEditMode,
+      setBlendMode,
+      setPalette,
     };
-  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setBackgroundColor, setForegroundColor, setNodeEditMode, toggleNodeEditMode]);
+  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setBackgroundColor, setForegroundColor, setNodeEditMode, toggleNodeEditMode, setBlendMode, setPalette]);
 
   return React.createElement(MobileArtContext.Provider, { value }, children);
 };

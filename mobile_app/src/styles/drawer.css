@@ -190,6 +190,42 @@
   border-radius: 8px;
 }
 
+.drawer-select {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #cbd5f5;
+  font-weight: 500;
+}
+
+.drawer-select__label {
+  font-size: 14px;
+  color: #e2e8f0;
+}
+
+.drawer-select__input {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.drawer-select__input:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.drawer-select__input:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.7);
+  background: rgba(15, 23, 42, 0.8);
+}
+
 @media (max-width: 420px) {
   .controls-drawer {
     width: calc(100% - 16px);

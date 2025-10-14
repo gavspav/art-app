@@ -1,5 +1,7 @@
 import React from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
+import { blendModes } from '../constants/blendModes.js';
+import { palettes } from '../constants/palettes.js';
 import '../styles/drawer.css';
 
 const Slider = ({ id, label, value, min, max, step, onChange }) => {
@@ -42,7 +44,23 @@ const ControlsDrawer = () => {
     foregroundColor,
     setBackgroundColor,
     setForegroundColor,
+    blendMode,
+    setBlendMode,
+    paletteIndex,
+    setPalette,
   } = useMobileArtState();
+
+  const handlePaletteChange = (e) => {
+    const index = parseInt(e.target.value, 10);
+    if (index === -1) {
+      setPalette(null, []);
+    } else {
+      const palette = palettes[index];
+      if (palette) {
+        setPalette(index, palette.colors);
+      }
+    }
+  };
 
   const drawerClass = `controls-drawer${isDrawerOpen ? ' open' : ''}`;
 
@@ -112,7 +130,7 @@ const ControlsDrawer = () => {
               id="layers"
               type="range"
               min={1}
-              max={6}
+              max={20}
               step={1}
               value={layers}
               onChange={(event) => setLayers(Number(event.target.value))}
@@ -143,6 +161,41 @@ const ControlsDrawer = () => {
               />
             </label>
           </div>
+        </div>
+        <div className="drawer-group">
+          <label className="drawer-select" htmlFor="blendMode">
+            <span className="drawer-select__label">Blend Mode</span>
+            <select
+              id="blendMode"
+              className="drawer-select__input"
+              value={blendMode}
+              onChange={(e) => setBlendMode(e.target.value)}
+            >
+              {blendModes.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="drawer-group">
+          <label className="drawer-select" htmlFor="palette">
+            <span className="drawer-select__label">Palette</span>
+            <select
+              id="palette"
+              className="drawer-select__input"
+              value={paletteIndex ?? -1}
+              onChange={handlePaletteChange}
+            >
+              <option value={-1}>None (Use Foreground)</option>
+              {palettes.map((palette, index) => (
+                <option key={index} value={index}>
+                  {palette.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
     </aside>

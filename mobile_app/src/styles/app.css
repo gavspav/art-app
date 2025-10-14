@@ -1,8 +1,16 @@
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+}
+
 .app-shell {
   position: relative;
   display: flex;
   flex-direction: column;
+  height: 100svh;
   min-height: 100dvh;
+  width: 100vw;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.85));
   border-radius: 28px 28px 0 0;
   overflow: hidden;

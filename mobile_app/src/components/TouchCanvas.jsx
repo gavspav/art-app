@@ -27,6 +27,35 @@ const hexToRgb = (hex) => {
   return { r, g, b };
 };
 
+const rgbToHex = ({ r, g, b }) => {
+  const clamp = (value) => Math.max(0, Math.min(255, Math.round(value)));
+  return `#${[clamp(r), clamp(g), clamp(b)].map((component) => component.toString(16).padStart(2, '0')).join('')}`;
+};
+
+const samplePaletteColor = (palette, position) => {
+  if (!Array.isArray(palette) || palette.length === 0) return '#ffffff';
+  if (palette.length === 1) return palette[0];
+
+  const normalized = ((position % 1) + 1) % 1;
+  const scaledIndex = normalized * (palette.length - 1);
+  const leftIndex = Math.floor(scaledIndex);
+  const rightIndex = Math.min(palette.length - 1, Math.ceil(scaledIndex));
+  const fraction = scaledIndex - leftIndex;
+
+  if (leftIndex === rightIndex || fraction <= 0) {
+    return palette[leftIndex];
+  }
+
+  const a = hexToRgb(palette[leftIndex]);
+  const b = hexToRgb(palette[rightIndex]);
+  const mixed = {
+    r: a.r + (b.r - a.r) * fraction,
+    g: a.g + (b.g - a.g) * fraction,
+    b: a.b + (b.b - a.b) * fraction,
+  };
+  return rgbToHex(mixed);
+};
+
 const tintColor = (baseHex, variation, layerIndex) => {
   const amount = clamp01(variation * layerIndex);
   if (amount <= 0) return baseHex;
@@ -55,6 +84,9 @@ const TouchCanvas = () => {
     backgroundColor,
     foregroundColor,
     isNodeEditMode,
+    blendMode,
+    paletteIndex,
+    layerColors,
     setNodes,
     setLayerOverride,
     setSelectedLayer,
@@ -63,8 +95,58 @@ const TouchCanvas = () => {
   const [isDesktopMode] = useState(isDesktop());
   const [hoveredNodeIndex, setHoveredNodeIndex] = useState(null);
   const [draggingNodeIndex, setDraggingNodeIndex] = useState(null);
+  const [liveNodeOverrides, setLiveNodeOverrides] = useState({});
+  const [canvasAspect, setCanvasAspect] = useState(1);
+
+  const liveNodeOverridesRef = useRef(liveNodeOverrides);
+  useEffect(() => {
+    liveNodeOverridesRef.current = liveNodeOverrides;
+  }, [liveNodeOverrides]);
 
   const svgRef = useRef(null);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || typeof ResizeObserver === 'undefined') return undefined;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (height > 0) {
+        setCanvasAspect(width / height);
+      }
+    });
+
+    resizeObserver.observe(wrapper);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  const viewBoxConfig = useMemo(() => {
+    const SAFE_MIN = 0.1;
+    const aspect = Number.isFinite(canvasAspect) && canvasAspect > SAFE_MIN ? canvasAspect : 1;
+    const base = 100;
+    let halfWidth = base;
+    let halfHeight = base;
+    if (aspect >= 1) {
+      halfWidth = base * aspect;
+    } else {
+      halfHeight = base / aspect;
+    }
+
+    return {
+      viewBox: `${-halfWidth} ${-halfHeight} ${halfWidth * 2} ${halfHeight * 2}`,
+      clipX: -halfWidth,
+      clipY: -halfHeight,
+      clipWidth: halfWidth * 2,
+      clipHeight: halfHeight * 2,
+      clipRadius: 18 * Math.min(halfWidth / base, halfHeight / base),
+    };
+  }, [canvasAspect]);
   const layerNodeSets = useMemo(() => {
     const count = Math.max(1, layers);
     return Array.from({ length: count }).map((_, index) => {
@@ -97,22 +179,48 @@ const TouchCanvas = () => {
   const layerPaths = useMemo(() => {
     if (!Array.isArray(nodes)) return [];
     const count = Math.max(1, Math.floor(layers));
+    const aspect = Number.isFinite(canvasAspect) && canvasAspect > 0 ? canvasAspect : 1;
+    const scaleX = aspect >= 1 ? aspect : 1;
+    const scaleY = aspect >= 1 ? 1 : 1 / aspect;
     return Array.from({ length: count }).map((_, index) => {
-      const layerNodes = layerNodeSets[index] || nodes;
+      let layerNodes = layerNodeSets[index] || nodes;
+      if (liveNodeOverrides[index]) {
+        layerNodes = liveNodeOverrides[index];
+      }
       const points = deriveLayerPoints(layerNodes, {
         size,
         variationShape,
         variationPosition,
         layerIndex: index,
       });
+      const scaledPoints = points.map((point) => ({
+        x: point.x * scaleX,
+        y: point.y * scaleY,
+      }));
+
+      // Determine color: use palette if available, otherwise use foreground with tinting
+      let color;
+      if (paletteIndex !== null && Array.isArray(layerColors) && layerColors.length > 0) {
+        const palette = layerColors;
+        const layersCount = Math.max(1, count);
+        const basePosition = layersCount === 1 ? 0 : Math.min(1, index / (layersCount - 1));
+        const normalizedVariation = clamp01(variationColor / 0.9);
+        const samplePosition = basePosition + normalizedVariation;
+        color = samplePaletteColor(palette, samplePosition);
+      } else {
+        // No palette: use foreground with tinting based on variation
+        color = tintColor(foregroundColor, variationColor, index);
+      }
+      
       return {
         id: `layer-${index}`,
-        path: buildSmoothPath(points, curviness),
+        path: buildSmoothPath(scaledPoints, curviness),
         opacity: clamp01(1 - index / Math.max(1, count + 1)),
-        color: tintColor(foregroundColor, variationColor, index),
+        color,
+        nodePoints: scaledPoints,
       };
     });
-  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, foregroundColor]);
+  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, foregroundColor, paletteIndex, layerColors, liveNodeOverrides, canvasAspect]);
 
   const commitNodes = useCallback((layerIndex, updatedNodes) => {
     if (layerIndex === 0) {
@@ -370,7 +478,12 @@ const TouchCanvas = () => {
       const updatedNodes = currentNodes.map((node, i) => 
         i === draggingNodeIndex ? { ...node, x: normalized.x, y: normalized.y } : node
       );
-      
+
+      setLiveNodeOverrides((prev) => ({
+        ...prev,
+        [layerIndex]: updatedNodes,
+      }));
+
       if (layerIndex === 0) {
         setNodes(updatedNodes);
       } else {
@@ -380,6 +493,20 @@ const TouchCanvas = () => {
   }, [isDesktopMode, isNodeEditMode, draggingNodeIndex, setNodes, setLayerOverride]);
 
   const handleNodeMouseUp = useCallback(() => {
+    const layerIndex = selectedLayerRef.current;
+    const overrides = liveNodeOverridesRef.current[layerIndex];
+    if (overrides) {
+      if (layerIndex === 0) {
+        setNodes(overrides);
+      } else {
+        setLayerOverride(layerIndex, overrides);
+      }
+    }
+    setLiveNodeOverrides((prev) => {
+      const next = { ...prev };
+      delete next[layerIndex];
+      return next;
+    });
     setDraggingNodeIndex(null);
   }, []);
 
@@ -402,30 +529,24 @@ const TouchCanvas = () => {
     
     const layerIndex = selectedLayer;
     const currentNodes = layerNodeSets[layerIndex] || [];
+    const layerData = layerPaths[layerIndex];
+    const nodePoints = layerData?.nodePoints || [];
     
     return currentNodes.map((node, index) => {
-      const points = deriveLayerPoints([node], {
-        size,
-        variationShape: 0,
-        variationPosition: 0,
-        layerIndex: 0,
-      });
-      
-      if (!points || points.length === 0) return null;
-      
-      const point = points[0];
+      const point = nodePoints[index];
+      if (!point) return null;
       const isHovered = hoveredNodeIndex === index;
       const isDragging = draggingNodeIndex === index;
       
       return (
         <circle
           key={`node-${index}`}
-          cx={point.x * 100}
-          cy={point.y * 100}
-          r={isDragging ? 2.5 : isHovered ? 2.2 : 1.8}
+          cx={point.x}
+          cy={point.y}
+          r={isDragging ? 4.5 : isHovered ? 4 : 3.5}
           fill={isDragging ? '#fbbf24' : isHovered ? '#60a5fa' : foregroundColor}
           stroke="rgba(15, 23, 42, 0.8)"
-          strokeWidth="0.5"
+          strokeWidth="1"
           style={{ cursor: 'grab', transition: 'all 0.15s ease' }}
           onMouseDown={(e) => handleNodeMouseDown(e, index)}
           onMouseEnter={() => setHoveredNodeIndex(index)}
@@ -436,21 +557,43 @@ const TouchCanvas = () => {
   };
 
   return (
-    <div className="canvas-wrapper">
-      <svg ref={svgRef} className="artboard" viewBox="-100 -100 200 200">
-        <rect className="artboard-bg" x="-100" y="-100" width="200" height="200" rx="18" fill={backgroundColor} />
-        {layerPaths.map((layer, index) => (
-          <g key={layer.id} data-layer-index={index} data-shape-path="true">
-            <path
-              d={layer.path}
-              fill={layer.color}
-              fillOpacity={Math.max(0.18, layer.opacity)}
-              stroke={index === selectedLayer ? foregroundColor : 'none'}
-              strokeOpacity={index === selectedLayer ? 0.35 : 0}
-              strokeWidth={index === selectedLayer ? 1.4 : 0}
+    <div ref={wrapperRef} className="canvas-wrapper">
+      <svg ref={svgRef} className="artboard" viewBox={viewBoxConfig.viewBox} preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <clipPath id="canvas-clip">
+            <rect
+              x={viewBoxConfig.clipX}
+              y={viewBoxConfig.clipY}
+              width={viewBoxConfig.clipWidth}
+              height={viewBoxConfig.clipHeight}
+              rx={viewBoxConfig.clipRadius}
             />
-          </g>
-        ))}
+          </clipPath>
+        </defs>
+        <rect
+          className="artboard-bg"
+          x={viewBoxConfig.clipX}
+          y={viewBoxConfig.clipY}
+          width={viewBoxConfig.clipWidth}
+          height={viewBoxConfig.clipHeight}
+          rx={viewBoxConfig.clipRadius}
+          fill={backgroundColor}
+        />
+        <g clipPath="url(#canvas-clip)">
+          {layerPaths.map((layer, index) => (
+            <g key={layer.id} data-layer-index={index} data-shape-path="true">
+              <path
+                d={layer.path}
+                fill={layer.color}
+                fillOpacity={Math.max(0.18, layer.opacity)}
+                stroke={index === selectedLayer ? foregroundColor : 'none'}
+                strokeOpacity={index === selectedLayer ? 0.35 : 0}
+                strokeWidth={index === selectedLayer ? 1.4 : 0}
+                style={{ mixBlendMode: blendMode }}
+              />
+            </g>
+          ))}
+        </g>
         {renderNodeHandles()}
       </svg>
     </div>

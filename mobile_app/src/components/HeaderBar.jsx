@@ -19,15 +19,14 @@ const HeaderBar = () => {
   return (
     <header className="header-bar">
       <div className="header-title">
-        <span className="brand-badge">gav</span>
         <span className="brand-text">gavxflx</span>
       </div>
       <div className="header-actions">
         <button type="button" className="header-btn" onClick={resetShape}>
           Reset
         </button>
-        <button type="button" className="header-btn" onClick={randomizeShape}>
-          Randomize
+        <button type="button" className="header-btn" onClick={randomizeShape} aria-label="Randomize">
+          🎲
         </button>
         {isDesktopMode && (
           <button

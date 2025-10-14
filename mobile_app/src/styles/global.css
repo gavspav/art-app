@@ -12,15 +12,12 @@
 body {
   margin: 0;
   min-height: 100dvh;
+  width: 100%;
   background: radial-gradient(circle at top, rgba(15, 23, 42, 0.9), #020617 55%);
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
 }
 
 #root {
   width: 100%;
-  max-width: 600px;
   min-height: 100dvh;
 }
 
