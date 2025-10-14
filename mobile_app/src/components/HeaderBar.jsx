@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
 import { isDesktop } from '../utils/platform.js';
+import PrintDialog from './PrintDialog.jsx';
 import '../styles/header.css';
 
 const HeaderBar = () => {
+  const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
   const {
     isDrawerOpen,
     toggleDrawer,
@@ -117,6 +119,14 @@ const HeaderBar = () => {
         )}
         <button
           type="button"
+          className="header-btn"
+          onClick={() => setIsPrintDialogOpen(true)}
+          aria-label="Order print"
+        >
+          🖼️ Print
+        </button>
+        <button
+          type="button"
           className="header-btn primary"
           onClick={toggleDrawer}
           aria-expanded={isDrawerOpen}
@@ -128,6 +138,7 @@ const HeaderBar = () => {
       <div className="header-palette" style={{ color: foregroundColor }}>
         {isDesktopMode ? 'Desktop Mode' : 'Mobile Mode'}
       </div>
+      <PrintDialog isOpen={isPrintDialogOpen} onClose={() => setIsPrintDialogOpen(false)} />
     </header>
   );
 };

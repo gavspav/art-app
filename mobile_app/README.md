@@ -26,7 +26,8 @@ The app automatically detects whether you're on a desktop or mobile device:
 ## Controls
 
 - **Reset**: Return to default shape
-- **Randomize**: Generate random shape parameters
+- **Randomize**: Generate random shape parameters (also triggered by shaking your phone!)
+- **Print**: Order high-quality prints via Gelato print-on-demand
 - **Edit Nodes** (Desktop only): Toggle node editing mode
 - **Controls**: Open/close the settings drawer
 
@@ -53,7 +54,31 @@ The app automatically detects whether you're on a desktop or mobile device:
 - The controls drawer snaps between collapsed and expanded states; it occupies at most 45% of the viewport height when open.
 - Typography and control hit areas follow a minimum 44px touch target guideline.
 
+## Print-on-Demand Integration
+
+This app includes Gelato print-on-demand integration for ordering high-quality prints of your artwork.
+
+### Quick Start
+See **[QUICK_START.md](./QUICK_START.md)** for 5-minute setup guide.
+
+### Features
+- High-resolution export (300 DPI) for print quality
+- Multiple print sizes: 12x16", 18x24", 24x36", 30x40"
+- Secure backend proxy (API key never exposed to client)
+- Order tracking and confirmation
+- Mobile-responsive print dialog
+
+### Setup Required
+1. Obtain Gelato API key from https://gelato.com/en-US/contact/
+2. Configure backend with API key (see `backend/.env.example`)
+3. Start backend server: `cd backend && npm run dev`
+4. Configure frontend (see `.env.example`)
+5. Test the integration!
+
+For complete setup instructions, see **[SETUP_GELATO.md](./SETUP_GELATO.md)**.
+
 ## Build Tooling
 - Packaged as an independent Vite + React project under `mobile_app/` with its own `package.json`.
 - Uses modern ECMAScript modules and Tailwind-free lightweight CSS modules to keep bundle size small.
+- Backend proxy service (Express) handles Gelato API integration securely.
 - Future enhancements (e.g., PWA support, offline capability) can be layered without impacting the desktop app.
