@@ -370,20 +370,37 @@ const TouchCanvas = () => {
       const normalized = normalizeCoord({ x: event.clientX, y: event.clientY }, rect);
       const gesture = getGesture();
 
+      const nodeHandle = event.target?.closest?.('[data-node-handle="true"]');
       const layerElement = event.target?.closest?.('[data-layer-index]');
+
+      let layerIndex = -1;
       if (layerElement) {
-        const layerIndex = Number.parseInt(layerElement.dataset.layerIndex, 10);
-        if (Number.isFinite(layerIndex)) {
-          setSelectedLayer(layerIndex);
-          selectedLayerRef.current = clampValue(layerIndex, 0, layers - 1);
+        const parsed = Number.parseInt(layerElement.dataset.layerIndex, 10);
+        if (Number.isFinite(parsed)) {
+          layerIndex = parsed;
         }
+      } else if (nodeHandle) {
+        const parsed = Number.parseInt(nodeHandle.dataset.layerIndex, 10);
+        if (Number.isFinite(parsed)) {
+          layerIndex = parsed;
+        }
+      }
+
+      if (layerIndex >= 0) {
+        setSelectedLayer(layerIndex);
+        selectedLayerRef.current = clampValue(layerIndex, 0, layers - 1);
       } else {
         setSelectedLayer(-1);
         selectedLayerRef.current = -1;
       }
 
-      const touchingShape = !!layerElement;
+      const touchingShape = !!layerElement || !!nodeHandle;
       if (!touchingShape && gesture.pointers.size === 0) {
+        return;
+      }
+
+      // Node handles use mouse events for dragging; avoid interfering with pointer gestures.
+      if (nodeHandle) {
         return;
       }
 
@@ -482,11 +499,15 @@ const TouchCanvas = () => {
   }, [commitNodes, setSelectedLayer, layers]);
 
   // Node editing helpers for desktop
-  const handleNodeMouseDown = useCallback((e, nodeIndex) => {
+  const handleNodeMouseDown = useCallback((e, targetLayerIndex, nodeIndex) => {
     if (!isDesktopMode || !isNodeEditMode) return;
     e.stopPropagation();
+    if (Number.isFinite(targetLayerIndex) && targetLayerIndex >= 0) {
+      setSelectedLayer(targetLayerIndex);
+      selectedLayerRef.current = clampValue(targetLayerIndex, 0, layers - 1);
+    }
     setDraggingNodeIndex(nodeIndex);
-  }, [isDesktopMode, isNodeEditMode]);
+  }, [isDesktopMode, isNodeEditMode, setSelectedLayer, layers]);
 
   const handleNodeMouseMove = useCallback((e) => {
     if (!isDesktopMode || !isNodeEditMode || draggingNodeIndex === null) return;
@@ -509,12 +530,6 @@ const TouchCanvas = () => {
         ...prev,
         [layerIndex]: updatedNodes,
       }));
-
-      if (layerIndex === 0) {
-        setNodes(updatedNodes);
-      } else {
-        setLayerOverride(layerIndex, updatedNodes);
-      }
     }
   }, [isDesktopMode, isNodeEditMode, draggingNodeIndex, setNodes, setLayerOverride]);
 
@@ -570,6 +585,9 @@ const TouchCanvas = () => {
       if (!point) return null;
       const isHovered = hoveredNodeIndex === index;
       const isDragging = draggingNodeIndex === index;
+      if (isDragging) {
+        return null;
+      }
       
       return (
         <circle
@@ -580,8 +598,10 @@ const TouchCanvas = () => {
           fill={isDragging ? '#fbbf24' : isHovered ? '#60a5fa' : foregroundColor}
           stroke="rgba(15, 23, 42, 0.8)"
           strokeWidth="1"
+          data-node-handle="true"
+          data-layer-index={layerIndex}
           style={{ cursor: 'grab', transition: 'all 0.15s ease' }}
-          onMouseDown={(e) => handleNodeMouseDown(e, index)}
+          onMouseDown={(e) => handleNodeMouseDown(e, layerIndex, index)}
           onMouseEnter={() => setHoveredNodeIndex(index)}
           onMouseLeave={() => setHoveredNodeIndex(null)}
         />
