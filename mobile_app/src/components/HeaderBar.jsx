@@ -97,12 +97,16 @@ const HeaderBar = () => {
   return (
     <header className="header-bar">
       <div className="header-title">
-        <span className="brand-text">gavxflx</span>
+        <button
+          type="button"
+          className="brand-text"
+          onClick={resetShape}
+          aria-label="Reset artwork"
+        >
+          gavxflx
+        </button>
       </div>
       <div className="header-actions">
-        <button type="button" className="header-btn" onClick={resetShape}>
-          Reset
-        </button>
         <button type="button" className="header-btn" onClick={handleRandomizeClick} aria-label="Randomize">
           🎲
         </button>
