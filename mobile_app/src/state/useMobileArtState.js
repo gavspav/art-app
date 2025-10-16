@@ -29,6 +29,11 @@ const defaults = {
   blendMode: 'normal',
   paletteIndex: null,
   layerColors: [],
+  noiseAmount: 0,
+  noiseSeed: 1,
+  noiseFreq1: 2,
+  noiseFreq2: 3,
+  noiseFreq3: 4,
 };
 
 const sliderRanges = {
@@ -37,6 +42,10 @@ const sliderRanges = {
   variationPosition: { min: 0, max: 0.6, step: 0.01 },
   variationShape: { min: 0, max: 0.8, step: 0.02 },
   variationColor: { min: 0, max: 0.9, step: 0.01 },
+  noiseAmount: { min: 0, max: 1, step: 0.01 },
+  noiseFreq1: { min: 0.5, max: 12, step: 0.1 },
+  noiseFreq2: { min: 0.5, max: 12, step: 0.1 },
+  noiseFreq3: { min: 0.5, max: 30, step: 0.1 },
 };
 
 const clampNodes = (nodes) => nodes.map((node) => ({
@@ -155,6 +164,11 @@ const reducer = (state, action) => {
         paletteIndex: action.index,
         layerColors: action.colors || [],
       };
+    case 'SET_NOISE_SEED':
+      return {
+        ...state,
+        noiseSeed: Number.isFinite(action.seed) ? Math.max(1, Math.floor(action.seed)) : defaults.noiseSeed,
+      };
     case 'RESET_SHAPE':
       return {
         ...state,
@@ -207,6 +221,11 @@ const reducer = (state, action) => {
         blendMode: blendChoice,
         paletteIndex: nextPaletteIndex,
         layerColors: nextLayerColors,
+        noiseAmount: clampValue(Math.random(), 0, 1),
+        noiseSeed: Math.floor(Math.random() * 1_000_000) + 1,
+        noiseFreq1: clampValue(1 + Math.random() * 5, sliderRanges.noiseFreq1.min, sliderRanges.noiseFreq1.max),
+        noiseFreq2: clampValue(1 + Math.random() * 6, sliderRanges.noiseFreq2.min, sliderRanges.noiseFreq2.max),
+        noiseFreq3: clampValue(2 + Math.random() * 10, sliderRanges.noiseFreq3.min, sliderRanges.noiseFreq3.max),
       };
     }
     default:
@@ -281,6 +300,10 @@ export const MobileArtProvider = ({ children }) => {
     dispatch({ type: 'SET_PALETTE', index, colors });
   }, []);
 
+  const setNoiseSeed = useCallback((seed) => {
+    dispatch({ type: 'SET_NOISE_SEED', seed });
+  }, []);
+
   const value = useMemo(() => {
     return {
       ...state,
@@ -300,8 +323,9 @@ export const MobileArtProvider = ({ children }) => {
       toggleNodeEditMode,
       setBlendMode,
       setPalette,
+      setNoiseSeed,
     };
-  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setBackgroundColor, setForegroundColor, setNodeEditMode, toggleNodeEditMode, setBlendMode, setPalette]);
+  }, [state, setSlider, setNodes, setLayers, setDrawerOpen, toggleDrawer, setLayerOverride, clearLayerOverride, setSelectedLayer, resetShape, randomizeShape, setBackgroundColor, setForegroundColor, setNodeEditMode, toggleNodeEditMode, setBlendMode, setPalette, setNoiseSeed]);
 
   return React.createElement(MobileArtContext.Provider, { value }, children);
 };

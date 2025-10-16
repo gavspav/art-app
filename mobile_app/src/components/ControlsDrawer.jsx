@@ -72,6 +72,12 @@ const ControlsDrawer = () => {
     setBlendMode,
     paletteIndex,
     setPalette,
+    noiseAmount,
+    noiseFreq1,
+    noiseFreq2,
+    noiseFreq3,
+    noiseSeed,
+    setNoiseSeed,
   } = useMobileArtState();
 
   const handlePaletteChange = (e) => {
@@ -117,6 +123,19 @@ const ControlsDrawer = () => {
       }
     }
   }, [setPalette]);
+
+  const randomizeNoiseSeed = useCallback(() => {
+    const nextSeed = Math.floor(Math.random() * 1_000_000) + 1;
+    setNoiseSeed(nextSeed);
+  }, [setNoiseSeed]);
+
+  const randomizeNoiseSettings = useCallback(() => {
+    setSlider('noiseAmount', Math.random());
+    setSlider('noiseFreq1', 1 + Math.random() * 5);
+    setSlider('noiseFreq2', 1 + Math.random() * 6);
+    setSlider('noiseFreq3', 2 + Math.random() * 10);
+    randomizeNoiseSeed();
+  }, [setSlider, randomizeNoiseSeed]);
 
   const drawerClass = `controls-drawer${isDrawerOpen ? ' open' : ''}`;
 
@@ -193,7 +212,60 @@ const ControlsDrawer = () => {
             onRandom={randomizeLayers}
           />
         </div>
-        <div className="drawer-group color-group">
+        <div className="drawer-group">
+          <div className="drawer-group__header">
+            <h3>Noise</h3>
+            <DiceButton onClick={randomizeNoiseSettings} label="Noise settings" />
+          </div>
+          <Slider
+            id="noiseAmount"
+            label="Noise Amount"
+            value={noiseAmount}
+            min={0}
+            max={1}
+            step={0.01}
+            onChange={(value) => setSlider('noiseAmount', value)}
+            onRandom={() => setSlider('noiseAmount', Math.random())}
+          />
+          <Slider
+            id="noiseFreq1"
+            label="Frequency 1"
+            value={noiseFreq1}
+            min={0.5}
+            max={12}
+            step={0.1}
+            onChange={(value) => setSlider('noiseFreq1', value)}
+            onRandom={() => setSlider('noiseFreq1', 1 + Math.random() * 5)}
+          />
+          <Slider
+            id="noiseFreq2"
+            label="Frequency 2"
+            value={noiseFreq2}
+            min={0.5}
+            max={12}
+            step={0.1}
+            onChange={(value) => setSlider('noiseFreq2', value)}
+            onRandom={() => setSlider('noiseFreq2', 1 + Math.random() * 6)}
+          />
+          <Slider
+            id="noiseFreq3"
+            label="Frequency 3"
+            value={noiseFreq3}
+            min={0.5}
+            max={30}
+            step={0.1}
+            onChange={(value) => setSlider('noiseFreq3', value)}
+            onRandom={() => setSlider('noiseFreq3', 2 + Math.random() * 10)}
+          />
+          <div className="noise-seed-row">
+            <div className="noise-seed-info">
+              <span className="noise-seed-label">Seed</span>
+              <span className="noise-seed-value">{noiseSeed}</span>
+            </div>
+            <DiceButton onClick={randomizeNoiseSeed} label="Noise seed" />
+          </div>
+        </div>
+        <div className="drawer-group">
           <h3>Colours</h3>
           <div className="color-pickers">
             <label className="color-picker" htmlFor="backgroundColor">

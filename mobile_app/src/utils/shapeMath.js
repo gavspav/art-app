@@ -1,3 +1,5 @@
+import { createSeededRandom } from './random.js';
+
 const TWO_PI = Math.PI * 2;
 
 const round = (value) => Number.parseFloat(Number(value).toFixed(3));
@@ -87,7 +89,17 @@ export const buildSmoothPath = (points, curviness = 0) => {
   return path;
 };
 
-export const deriveLayerPoints = (nodes, { size, variationShape = 0, variationPosition = 0, layerIndex = 0 }) => {
+export const deriveLayerPoints = (nodes, {
+  size,
+  variationShape = 0,
+  variationPosition = 0,
+  layerIndex = 0,
+  noiseAmount = 0,
+  noiseSeed = 1,
+  noiseFreq1 = 2,
+  noiseFreq2 = 3,
+  noiseFreq3 = 4,
+} = {}) => {
   if (!Array.isArray(nodes)) return [];
   const baseFactor = Math.max(0.2, size) * 100;
   const shapeInfluence = clampValue(variationShape, 0, 1) * layerIndex;
@@ -100,12 +112,49 @@ export const deriveLayerPoints = (nodes, { size, variationShape = 0, variationPo
   const tx = Math.cos(angle) * shiftMagnitude;
   const ty = Math.sin(angle) * shiftMagnitude;
 
+  const noiseIntensity = clampValue(noiseAmount, 0, 1);
+  const symmetryFactor = clampValue(variationShape, 0, 1);
+  const seededRandom = noiseIntensity > 0
+    ? createSeededRandom((Number.isFinite(noiseSeed) ? noiseSeed : 1) + layerIndex * 9973)
+    : null;
+  const baseFreq1 = Number.isFinite(noiseFreq1) ? noiseFreq1 : 2;
+  const baseFreq2 = Number.isFinite(noiseFreq2) ? noiseFreq2 : 3;
+  const baseFreq3 = Number.isFinite(noiseFreq3) ? noiseFreq3 : 4;
+  const freqOffsets = seededRandom
+    ? {
+        f1: baseFreq1 + (seededRandom() - 0.5) * 3,
+        f2: baseFreq2 + (seededRandom() - 0.5) * 3,
+        f3: baseFreq3 + (seededRandom() - 0.5) * 30,
+      }
+    : { f1: baseFreq1, f2: baseFreq2, f3: baseFreq3 };
+
   return nodes.map((node, index) => {
     const nodeAngle = Math.atan2(node.y, node.x) + wobble * Math.sin(index + layerIndex * 0.8);
     const magnitude = Math.hypot(node.x, node.y);
     const stretchedMag = magnitude * (1 + wobble * Math.cos(index * 1.2 + layerIndex));
-    const x = Math.cos(nodeAngle) * stretchedMag * factor + tx;
-    const y = Math.sin(nodeAngle) * stretchedMag * factor + ty;
+    const baseX = Math.cos(nodeAngle) * stretchedMag * factor;
+    const baseY = Math.sin(nodeAngle) * stretchedMag * factor;
+
+    let noisyX = baseX;
+    let noisyY = baseY;
+
+    if (seededRandom) {
+      const totalNodes = Math.max(1, nodes.length);
+      const angleRatio = (index / totalNodes) * TWO_PI;
+      const phase = (1 - symmetryFactor) * (index % 2) * Math.PI;
+      const n1 = Math.sin(angleRatio * freqOffsets.f1 + phase);
+      const n2 = Math.cos(angleRatio * freqOffsets.f2 - phase * 0.5);
+      const n3 = Math.sin(angleRatio * freqOffsets.f3 + phase * 0.25);
+      const combined = n1 * 1 + n2 * 0.75 + n3 * 0.5;
+      const baseRadius = Math.max(Math.abs(baseX), Math.abs(baseY), 1);
+      const offsetMagnitude = combined * baseRadius * 0.12 * noiseIntensity;
+      const dist = Math.hypot(baseX, baseY) || 1;
+      noisyX += (baseX / dist) * offsetMagnitude;
+      noisyY += (baseY / dist) * offsetMagnitude;
+    }
+
+    const x = noisyX + tx;
+    const y = noisyY + ty;
     return {
       id: node.id || `node-${index}`,
       x,

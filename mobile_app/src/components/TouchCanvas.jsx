@@ -87,6 +87,11 @@ const TouchCanvas = () => {
     blendMode,
     paletteIndex,
     layerColors,
+    noiseAmount,
+    noiseSeed,
+    noiseFreq1,
+    noiseFreq2,
+    noiseFreq3,
     setNodes,
     setLayerOverride,
     setSelectedLayer,
@@ -195,6 +200,11 @@ const TouchCanvas = () => {
         variationShape,
         variationPosition,
         layerIndex: index,
+        noiseAmount,
+        noiseSeed,
+        noiseFreq1,
+        noiseFreq2,
+        noiseFreq3,
       });
       const compensatedPoints = points.map((point) => ({
         x: point.x * compensateX,
@@ -227,7 +237,7 @@ const TouchCanvas = () => {
         nodePoints: scaledPoints,
       };
     });
-  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, foregroundColor, paletteIndex, layerColors, liveNodeOverrides, canvasAspect]);
+  }, [layerNodeSets, nodes, layers, size, variationShape, variationPosition, variationColor, curviness, foregroundColor, paletteIndex, layerColors, liveNodeOverrides, canvasAspect, noiseAmount, noiseSeed, noiseFreq1, noiseFreq2, noiseFreq3]);
 
   const commitNodes = useCallback((layerIndex, updatedNodes) => {
     if (layerIndex === 0) {
