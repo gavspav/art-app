@@ -101,7 +101,7 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
     onProgress = null;
   }
 
-  const { preset } = options || {};
+  const { preset, matchScreenAspect, screenAspect } = options || {};
 
   const {
     nodes,
@@ -117,12 +117,18 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
     blendMode,
     paletteIndex,
     layerColors,
+    noiseAmount,
+    noiseSeed,
+    noiseFreq1,
+    noiseFreq2,
+    noiseFreq3,
   } = artState;
 
   // Calculate target dimensions (base print size)
   const dimensions = calculateDimensions(printSize);
   let { width: baseWidth, height: baseHeight } = dimensions;
 
+  // Apply preset scaling first
   if (preset?.maxEdge) {
     const currentMax = Math.max(baseWidth, baseHeight);
     if (currentMax > 0) {
@@ -136,6 +142,33 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
     baseHeight = Math.round(baseHeight * scale);
   }
 
+  // Store original print dimensions before aspect matching
+  const originalPrintWidth = baseWidth;
+  const originalPrintHeight = baseHeight;
+  let needsPadding = false;
+  let paddingLeft = 0;
+  let paddingTop = 0;
+
+  // Match screen aspect ratio if requested (after preset scaling)
+  if (matchScreenAspect && Number.isFinite(screenAspect) && screenAspect > 0) {
+    const printAspect = baseWidth / baseHeight;
+    if (Math.abs(printAspect - screenAspect) > 0.01) {
+      needsPadding = true;
+      // Expand canvas to match screen aspect (add padding, don't crop)
+      if (screenAspect > printAspect) {
+        // Screen is wider: expand width with padding
+        const newWidth = Math.round(baseHeight * screenAspect);
+        paddingLeft = Math.round((newWidth - baseWidth) / 2);
+        baseWidth = newWidth;
+      } else {
+        // Screen is taller: expand height with padding
+        const newHeight = Math.round(baseWidth / screenAspect);
+        paddingTop = Math.round((newHeight - baseHeight) / 2);
+        baseHeight = newHeight;
+      }
+    }
+  }
+
   const targetWidth = Math.max(1, baseWidth);
   const targetHeight = Math.max(1, baseHeight);
 
@@ -144,6 +177,29 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
   const pixelRatio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
   const canvasWidth = Math.max(1, Math.round(targetWidth * pixelRatio));
   const canvasHeight = Math.max(1, Math.round(targetHeight * pixelRatio));
+
+  // Validate canvas dimensions (browser limit is typically 32767x32767)
+  const MAX_CANVAS_DIMENSION = 16384;
+  if (canvasWidth > MAX_CANVAS_DIMENSION || canvasHeight > MAX_CANVAS_DIMENSION) {
+    throw new Error(`Canvas dimensions too large: ${canvasWidth}x${canvasHeight}. Maximum is ${MAX_CANVAS_DIMENSION}x${MAX_CANVAS_DIMENSION}`);
+  }
+
+  console.log('[imageExport] Export dimensions:', {
+    printSize: `${printSize.width}x${printSize.height}`,
+    originalPrintWidth,
+    originalPrintHeight,
+    targetWidth,
+    targetHeight,
+    canvasWidth,
+    canvasHeight,
+    pixelRatio,
+    preset: preset?.label || 'none',
+    matchScreenAspect,
+    screenAspect,
+    needsPadding,
+    paddingLeft,
+    paddingTop,
+  });
 
   if (onProgress) onProgress(0.1);
 
@@ -193,6 +249,11 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
       variationShape,
       variationPosition,
       layerIndex: i,
+      noiseAmount,
+      noiseSeed,
+      noiseFreq1,
+      noiseFreq2,
+      noiseFreq3,
     });
     layerNodeSets.push(derived);
   }
@@ -201,6 +262,17 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
 
   // Render each layer
   const clamp01 = (value) => Math.max(0, Math.min(1, value));
+  
+  console.log('[imageExport] Starting layer rendering:', {
+    layers,
+    canvasAspect,
+    viewHalfWidth,
+    viewHalfHeight,
+    pixelScaleX,
+    pixelScaleY,
+    compensateX,
+    compensateY,
+  });
   
   for (let index = 0; index < layers; index++) {
     const layerNodes = layerNodeSets[index] || [];
@@ -215,9 +287,13 @@ export const exportHighResImage = async (artState, printSize, optionsOrProgress 
       y: point.y * aspectScaleY,
     }));
 
+    // Calculate center position accounting for padding
+    const centerX = needsPadding ? (originalPrintWidth * pixelRatio) / 2 + paddingLeft * pixelRatio : targetWidth / 2;
+    const centerY = needsPadding ? (originalPrintHeight * pixelRatio) / 2 + paddingTop * pixelRatio : targetHeight / 2;
+    
     const pixelPoints = scaledPoints.map((point) => ({
-      x: point.x * pixelScaleX + targetWidth / 2,
-      y: point.y * pixelScaleY + targetHeight / 2,
+      x: point.x * pixelScaleX + centerX,
+      y: point.y * pixelScaleY + centerY,
     }));
 
     // Determine color

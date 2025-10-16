@@ -5,7 +5,7 @@ import { uploadArtwork, createOrder } from '../services/gelatoService.js';
 import '../styles/print-dialog.css';
 
 const PRINT_PRESETS = {
-  VIEW: { label: 'View (Screen Resolution)', scale: 1 },
+  VIEW: { label: 'View (Screen Resolution)', maxEdge: typeof window !== 'undefined' ? Math.max(window.innerWidth, window.innerHeight) : 1920 },
   A4: { label: 'A4 (3508px max edge)', maxEdge: 3508 },
   A3: { label: 'A3 (4961px max edge)', maxEdge: 4961 },
   A2: { label: 'A2 (7016px max edge)', maxEdge: 7016 },
@@ -25,6 +25,8 @@ const PrintDialog = ({ isOpen, onClose }) => {
   const [selectedSize, setSelectedSize] = useState('MEDIUM');
   const [quantity, setQuantity] = useState(1);
   const [printPreset, setPrintPreset] = useState('A3');
+  const [matchScreenAspect, setMatchScreenAspect] = useState(true);
+  const [previewDataUrl, setPreviewDataUrl] = useState(null);
   const [shippingAddress, setShippingAddress] = useState({
     firstName: '',
     lastName: '',
@@ -40,6 +42,8 @@ const PrintDialog = ({ isOpen, onClose }) => {
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
   const [orderConfirmation, setOrderConfirmation] = useState(null);
+
+  const screenAspect = typeof window !== 'undefined' ? window.innerWidth / window.innerHeight : 1;
 
   useEffect(() => {
     if (isOpen && status === 'idle' && dialogRef.current) {
@@ -61,7 +65,7 @@ const PrintDialog = ({ isOpen, onClose }) => {
     return true;
   }, [shippingAddress]);
 
-  const handleTestDownload = useCallback(async () => {
+  const handleGeneratePreview = useCallback(async () => {
     try {
       setStatus('exporting');
       setProgress(0);
@@ -72,19 +76,39 @@ const PrintDialog = ({ isOpen, onClose }) => {
         printSize,
         {
           preset,
+          matchScreenAspect,
+          screenAspect,
         },
         (p) => {
           setProgress(p);
         });
-      downloadImage(imageBlob, `test-export-${selectedSize}.png`);
+      const dataUrl = URL.createObjectURL(imageBlob);
+      setPreviewDataUrl(dataUrl);
       setStatus('idle');
       setProgress(0);
     } catch (error) {
-      console.error('Export error:', error);
-      setErrorMessage(error.message || 'Failed to export image');
+      console.error('Preview error:', error);
+      setErrorMessage(error.message || 'Failed to generate preview');
       setStatus('error');
     }
-  }, [artState, selectedSize, printPreset]);
+  }, [artState, selectedSize, printPreset, matchScreenAspect, screenAspect]);
+
+  const handleDownloadPreview = useCallback(() => {
+    if (previewDataUrl) {
+      const link = document.createElement('a');
+      link.href = previewDataUrl;
+      link.download = `preview-${selectedSize}.png`;
+      link.click();
+    }
+  }, [previewDataUrl, selectedSize]);
+
+  useEffect(() => {
+    return () => {
+      if (previewDataUrl) {
+        URL.revokeObjectURL(previewDataUrl);
+      }
+    };
+  }, [previewDataUrl]);
 
   const handleSubmitOrder = useCallback(async () => {
     if (!validateAddress()) {
@@ -104,6 +128,8 @@ const PrintDialog = ({ isOpen, onClose }) => {
         printSize,
         {
           preset,
+          matchScreenAspect,
+          screenAspect,
         },
         (p) => {
           setProgress(p * 0.3); // 0-30% for export
@@ -239,7 +265,10 @@ const PrintDialog = ({ isOpen, onClose }) => {
                         name="size"
                         value={key}
                         checked={selectedSize === key}
-                        onChange={(e) => setSelectedSize(e.target.value)}
+                        onChange={(e) => {
+                          setSelectedSize(e.target.value);
+                          setPreviewDataUrl(null);
+                        }}
                       />
                       <span className="size-option__label">{size.name}</span>
                     </label>
@@ -258,13 +287,48 @@ const PrintDialog = ({ isOpen, onClose }) => {
                         name="print-preset"
                         value={key}
                         checked={printPreset === key}
-                        onChange={(e) => setPrintPreset(e.target.value)}
+                        onChange={(e) => {
+                          setPrintPreset(e.target.value);
+                          setPreviewDataUrl(null);
+                        }}
                       />
                       <span className="size-option__label">{preset.label}</span>
                     </label>
                   ))}
                 </div>
               </div>
+
+              {/* Aspect Ratio Matching */}
+              <div className="form-section">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={matchScreenAspect}
+                    onChange={(e) => {
+                      setMatchScreenAspect(e.target.checked);
+                      setPreviewDataUrl(null);
+                    }}
+                  />
+                  <span>Match screen aspect ratio ({screenAspect.toFixed(2)}:1)</span>
+                </label>
+                <p className="form-hint">
+                  When enabled, the print will match your screen's aspect ratio by adding background padding.
+                  {matchScreenAspect ? ' Artwork will be centered with no cropping.' : ' Print will use standard dimensions.'}
+                </p>
+              </div>
+
+              {/* Preview */}
+              {previewDataUrl && (
+                <div className="form-section">
+                  <h3>Preview</h3>
+                  <div className="preview-container">
+                    <img src={previewDataUrl} alt="Print preview" className="preview-image" />
+                    <button type="button" className="btn-link" onClick={handleDownloadPreview}>
+                      Download Preview
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Quantity */}
               <div className="form-section">
@@ -364,8 +428,8 @@ const PrintDialog = ({ isOpen, onClose }) => {
                 <button type="button" className="btn-secondary" onClick={handleClose}>
                   Cancel
                 </button>
-                <button type="button" className="btn-secondary" onClick={handleTestDownload}>
-                  Test Download
+                <button type="button" className="btn-secondary" onClick={handleGeneratePreview}>
+                  Generate Preview
                 </button>
                 <button type="button" className="btn-primary" onClick={handleSubmitOrder}>
                   Place Order
