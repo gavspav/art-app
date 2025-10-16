@@ -4,6 +4,7 @@
  */
 
 import { buildSmoothPath, deriveLayerPoints } from './shapeMath.js';
+import { getPixelRatio } from './pixelRatio.js';
 
 // Print size presets (width x height in inches)
 export const PRINT_SIZES = {
@@ -87,7 +88,21 @@ const tintColor = (baseHex, variation, layerIndex) => {
  * @param {Function} onProgress - Progress callback (0-1)
  * @returns {Promise<Blob>} PNG image blob
  */
-export const exportHighResImage = async (artState, printSize, onProgress = null) => {
+export const exportHighResImage = async (artState, printSize, optionsOrProgress = null, progressArg = null) => {
+  let options = optionsOrProgress;
+  let onProgress = progressArg;
+
+  if (typeof optionsOrProgress === 'function' || optionsOrProgress === null) {
+    onProgress = optionsOrProgress;
+    options = {};
+  }
+
+  if (onProgress === null) {
+    onProgress = null;
+  }
+
+  const { preset } = options || {};
+
   const {
     nodes,
     curviness,
@@ -104,37 +119,81 @@ export const exportHighResImage = async (artState, printSize, onProgress = null)
     layerColors,
   } = artState;
 
-  // Calculate target dimensions
+  // Calculate target dimensions (base print size)
   const dimensions = calculateDimensions(printSize);
-  const { width, height } = dimensions;
+  let { width: baseWidth, height: baseHeight } = dimensions;
+
+  if (preset?.maxEdge) {
+    const currentMax = Math.max(baseWidth, baseHeight);
+    if (currentMax > 0) {
+      const scale = preset.maxEdge / currentMax;
+      baseWidth = Math.round(baseWidth * scale);
+      baseHeight = Math.round(baseHeight * scale);
+    }
+  } else if (preset?.scale && Number.isFinite(preset.scale)) {
+    const scale = Math.max(0.1, preset.scale);
+    baseWidth = Math.round(baseWidth * scale);
+    baseHeight = Math.round(baseHeight * scale);
+  }
+
+  const targetWidth = Math.max(1, baseWidth);
+  const targetHeight = Math.max(1, baseHeight);
+
+  const useDevicePixelRatio = !preset?.maxEdge;
+  const devicePixelRatio = useDevicePixelRatio ? getPixelRatio() : 1;
+  const pixelRatio = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
+  const canvasWidth = Math.max(1, Math.round(targetWidth * pixelRatio));
+  const canvasHeight = Math.max(1, Math.round(targetHeight * pixelRatio));
 
   if (onProgress) onProgress(0.1);
 
   // Create off-screen canvas
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
   const ctx = canvas.getContext('2d', { alpha: false });
+  if (!ctx) {
+    throw new Error('Failed to create canvas context');
+  }
+
+  if (pixelRatio !== 1) {
+    ctx.scale(pixelRatio, pixelRatio);
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   // Fill background
   ctx.fillStyle = backgroundColor;
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
 
   if (onProgress) onProgress(0.2);
 
-  // Calculate canvas aspect and scaling
-  const canvasAspect = width / height;
-  const scaleX = width / 2;
-  const scaleY = height / 2;
-  const compensateX = canvasAspect > 1 ? 1 : canvasAspect;
-  const compensateY = canvasAspect < 1 ? 1 : 1 / canvasAspect;
+  // Match TouchCanvas scaling logic
+  const canvasAspect = targetWidth / targetHeight;
+  const base = 100;
+  const aspectScaleX = canvasAspect >= 1 ? canvasAspect : 1;
+  const aspectScaleY = canvasAspect >= 1 ? 1 : 1 / canvasAspect;
+  const fillScale = Math.max(aspectScaleX, aspectScaleY);
+  const compensateX = fillScale / aspectScaleX;
+  const compensateY = fillScale / aspectScaleY;
+
+  const viewHalfWidth = base * (canvasAspect >= 1 ? canvasAspect : 1);
+  const viewHalfHeight = base * (canvasAspect >= 1 ? 1 : 1 / canvasAspect);
+  const pixelScaleX = targetWidth / (viewHalfWidth * 2);
+  const pixelScaleY = targetHeight / (viewHalfHeight * 2);
 
   // Generate layer node sets (same logic as TouchCanvas)
   const layerNodeSets = [];
   for (let i = 0; i < layers; i++) {
     const override = layerOverrides[i];
     const baseNodes = override || nodes;
-    const derived = deriveLayerPoints(baseNodes, i, layers, variationPosition, variationShape, size);
+    const derived = deriveLayerPoints(baseNodes, {
+      size,
+      variationShape,
+      variationPosition,
+      layerIndex: i,
+    });
     layerNodeSets.push(derived);
   }
 
@@ -152,8 +211,13 @@ export const exportHighResImage = async (artState, printSize, onProgress = null)
       y: point.y * compensateY,
     }));
     const scaledPoints = compensatedPoints.map((point) => ({
-      x: point.x * scaleX + width / 2,
-      y: point.y * scaleY + height / 2,
+      x: point.x * aspectScaleX,
+      y: point.y * aspectScaleY,
+    }));
+
+    const pixelPoints = scaledPoints.map((point) => ({
+      x: point.x * pixelScaleX + targetWidth / 2,
+      y: point.y * pixelScaleY + targetHeight / 2,
     }));
 
     // Determine color
@@ -172,7 +236,7 @@ export const exportHighResImage = async (artState, printSize, onProgress = null)
     const opacity = clamp01(1 - index / Math.max(1, layers + 1));
 
     // Build path
-    const path = buildSmoothPath(scaledPoints, curviness);
+    const path = buildSmoothPath(pixelPoints, curviness);
 
     // Draw shape
     ctx.save();
@@ -182,7 +246,7 @@ export const exportHighResImage = async (artState, printSize, onProgress = null)
     ctx.beginPath();
 
     // Parse and draw path
-    const commands = path.split(/(?=[MLQ])/);
+    const commands = path.split(/(?=[MLQC])/);
     for (const cmd of commands) {
       const type = cmd[0];
       const coords = cmd
@@ -195,6 +259,8 @@ export const exportHighResImage = async (artState, printSize, onProgress = null)
         ctx.moveTo(coords[0], coords[1]);
       } else if (type === 'L' && coords.length >= 2) {
         ctx.lineTo(coords[0], coords[1]);
+      } else if (type === 'C' && coords.length >= 6) {
+        ctx.bezierCurveTo(coords[0], coords[1], coords[2], coords[3], coords[4], coords[5]);
       } else if (type === 'Q' && coords.length >= 4) {
         ctx.quadraticCurveTo(coords[0], coords[1], coords[2], coords[3]);
       }

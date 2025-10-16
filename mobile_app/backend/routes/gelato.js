@@ -49,6 +49,11 @@ const gelatoRequest = async (endpoint, options = {}) => {
   const baseUrl = process.env.GELATO_API_BASE_URL || 'https://order.gelatoapis.com';
   const url = `${baseUrl}${endpoint}`;
 
+  console.log(`[Gelato API] ${options.method || 'GET'} ${url}`);
+  if (options.body) {
+    console.log('[Gelato API] Request body:', options.body);
+  }
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -59,9 +64,13 @@ const gelatoRequest = async (endpoint, options = {}) => {
   });
 
   const data = await response.json();
+  console.log(`[Gelato API] Response status: ${response.status}`);
+  console.log('[Gelato API] Response data:', JSON.stringify(data, null, 2));
 
   if (!response.ok) {
-    throw new Error(data.message || `Gelato API error: ${response.status}`);
+    const errorMessage = data.message || data.error || JSON.stringify(data);
+    console.error('[Gelato API] Error:', errorMessage);
+    throw new Error(errorMessage || `Gelato API error: ${response.status}`);
   }
 
   return data;
@@ -73,13 +82,22 @@ const gelatoRequest = async (endpoint, options = {}) => {
  */
 router.get('/products', validateApiKey, async (req, res, next) => {
   try {
-    // Note: Actual endpoint may vary - check Gelato API docs
-    const data = await gelatoRequest('/v4/products', {
+    // Try the catalog endpoint
+    const data = await gelatoRequest('/v4/catalog/products', {
       method: 'GET',
     });
     res.json(data);
   } catch (error) {
-    next(error);
+    console.error('Failed to fetch products:', error.message);
+    // If that fails, try without /catalog
+    try {
+      const data = await gelatoRequest('/v4/products', {
+        method: 'GET',
+      });
+      res.json(data);
+    } catch (error2) {
+      next(error2);
+    }
   }
 });
 
@@ -96,7 +114,7 @@ router.post('/upload-image', validateApiKey, upload.single('image'), async (req,
     // For now, return the local file path
     // In production, you'd upload to cloud storage (S3, Cloudinary, etc.)
     // and return a publicly accessible URL
-    const fileUrl = `${req.protocol}://${req.get('host')}/api/gelato/files/${req.file.filename}`;
+    const fileUrl = `https://markus-homuncular-prejudicedly.ngrok-free.dev/api/gelato/files/${req.file.filename}`;
 
     res.json({
       success: true,

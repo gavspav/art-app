@@ -92,7 +92,7 @@ const ControlsDrawer = () => {
   }, [setSlider]);
 
   const randomizeLayers = useCallback(() => {
-    const value = randomFromRange(1, 20, 1);
+    const value = randomFromRange(3, 7, 1);
     setLayers(value);
   }, [setLayers]);
 

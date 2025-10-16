@@ -246,6 +246,11 @@ const TouchCanvas = () => {
     const ensureBaseNodes = () => {
       const gesture = getGesture();
       const layerIndex = selectedLayerRef.current;
+      if (layerIndex == null || layerIndex < 0) {
+        gesture.activeLayerIndex = -1;
+        gesture.baseNodes = [];
+        return gesture.baseNodes;
+      }
       const sourceNodes = layerNodeSetsRef.current[layerIndex] || [];
       gesture.activeLayerIndex = layerIndex;
       gesture.baseNodes = sourceNodes.map((node) => ({ ...node }));
@@ -362,6 +367,9 @@ const TouchCanvas = () => {
           setSelectedLayer(layerIndex);
           selectedLayerRef.current = clampValue(layerIndex, 0, layers - 1);
         }
+      } else {
+        setSelectedLayer(-1);
+        selectedLayerRef.current = -1;
       }
 
       const touchingShape = !!layerElement;
@@ -479,8 +487,9 @@ const TouchCanvas = () => {
     const normalized = normalizeCoord({ x: e.clientX, y: e.clientY }, rect);
     
     const layerIndex = selectedLayerRef.current;
+    if (layerIndex == null || layerIndex < 0) return;
     const currentNodes = layerNodeSetsRef.current[layerIndex] || [];
-    
+
     if (draggingNodeIndex >= 0 && draggingNodeIndex < currentNodes.length) {
       const updatedNodes = currentNodes.map((node, i) => 
         i === draggingNodeIndex ? { ...node, x: normalized.x, y: normalized.y } : node
@@ -501,6 +510,10 @@ const TouchCanvas = () => {
 
   const handleNodeMouseUp = useCallback(() => {
     const layerIndex = selectedLayerRef.current;
+    if (layerIndex == null || layerIndex < 0) {
+      setDraggingNodeIndex(null);
+      return;
+    }
     const overrides = liveNodeOverridesRef.current[layerIndex];
     if (overrides) {
       if (layerIndex === 0) {
@@ -535,6 +548,9 @@ const TouchCanvas = () => {
     if (!isDesktopMode || !isNodeEditMode) return null;
     
     const layerIndex = selectedLayer;
+    if (layerIndex == null || layerIndex < 0) {
+      return null;
+    }
     const currentNodes = layerNodeSets[layerIndex] || [];
     const layerData = layerPaths[layerIndex];
     const nodePoints = layerData?.nodePoints || [];

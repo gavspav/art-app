@@ -5,6 +5,8 @@ import {
   createRegularPolygon,
   jitterPolygon,
 } from '../utils/shapeMath.js';
+import { blendModes } from '../constants/blendModes.js';
+import { palettes } from '../constants/palettes.js';
 
 const MobileArtContext = createContext(null);
 
@@ -109,11 +111,19 @@ const reducer = (state, action) => {
         ...state,
         isDrawerOpen: !state.isDrawerOpen,
       };
-    case 'SET_SELECTED_LAYER':
+    case 'SET_SELECTED_LAYER': {
+      const index = Number.isFinite(action.index) ? action.index : null;
+      if (index === null || index < 0) {
+        return {
+          ...state,
+          selectedLayer: -1,
+        };
+      }
       return {
         ...state,
-        selectedLayer: clampValue(action.index, 0, state.layers - 1),
+        selectedLayer: clampValue(index, 0, state.layers - 1),
       };
+    }
     case 'SET_BACKGROUND_COLOR':
       return {
         ...state,
@@ -161,6 +171,26 @@ const reducer = (state, action) => {
       const randomColors = [
         '#f97316', '#22d3ee', '#a855f7', '#94a3b8', '#ef4444', '#10b981', '#f59e0b',
       ];
+      const availableBlendModes = Array.isArray(blendModes) && blendModes.length > 0
+        ? blendModes
+        : [{ value: defaults.blendMode }];
+      const blendChoice = availableBlendModes[Math.floor(Math.random() * availableBlendModes.length)]?.value
+        || defaults.blendMode;
+
+      const paletteOptions = Array.isArray(palettes) && palettes.length > 0
+        ? [-1, ...palettes.map((_, index) => index)]
+        : [-1];
+      const paletteChoice = paletteOptions[Math.floor(Math.random() * paletteOptions.length)] ?? -1;
+      let nextPaletteIndex = null;
+      let nextLayerColors = [];
+      if (paletteChoice !== -1) {
+        const selectedPalette = palettes[paletteChoice];
+        if (selectedPalette) {
+          nextPaletteIndex = paletteChoice;
+          nextLayerColors = Array.isArray(selectedPalette.colors) ? [...selectedPalette.colors] : [];
+        }
+      }
+
       return {
         ...state,
         nodes: newNodes,
@@ -170,10 +200,13 @@ const reducer = (state, action) => {
         variationPosition: clampValue(Math.random() * 0.4, 0, 0.6),
         variationShape: clampValue(Math.random() * 0.45, 0, 0.8),
         variationColor: clampValue(Math.random() * 0.6, 0, 0.9),
-        layers: Math.floor(Math.random() * 20) + 1,
+        layers: Math.floor(Math.random() * 5) + 3,
         foregroundColor: randomColors[Math.floor(Math.random() * randomColors.length)],
         layerOverrides: {},
         selectedLayer: 0,
+        blendMode: blendChoice,
+        paletteIndex: nextPaletteIndex,
+        layerColors: nextLayerColors,
       };
     }
     default:

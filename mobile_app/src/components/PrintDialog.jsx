@@ -1,21 +1,30 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useMobileArtState } from '../state/useMobileArtState.js';
-import { PRINT_SIZES, exportHighResImage } from '../utils/imageExport.js';
+import { PRINT_SIZES, exportHighResImage, downloadImage } from '../utils/imageExport.js';
 import { uploadArtwork, createOrder } from '../services/gelatoService.js';
 import '../styles/print-dialog.css';
 
+const PRINT_PRESETS = {
+  VIEW: { label: 'View (Screen Resolution)', scale: 1 },
+  A4: { label: 'A4 (3508px max edge)', maxEdge: 3508 },
+  A3: { label: 'A3 (4961px max edge)', maxEdge: 4961 },
+  A2: { label: 'A2 (7016px max edge)', maxEdge: 7016 },
+};
+
 const PRODUCT_UIDS = {
-  SMALL: 'posters_portrait_pt_170gsm-gloss_cl_4-0_kf_12x16',
-  MEDIUM: 'posters_portrait_pt_170gsm-gloss_cl_4-0_kf_18x24',
-  LARGE: 'posters_portrait_pt_170gsm-gloss_cl_4-0_kf_24x36',
-  XLARGE: 'posters_portrait_pt_170gsm-gloss_cl_4-0_kf_30x40',
+  SMALL: 'flat_300x450-mm-12x18-inch_200-gsm-80lb-uncoated_4-0_ver', // Test UID
+  MEDIUM: 'flat_300x450-mm-12x18-inch_200-gsm-80lb-uncoated_4-0_ver', // Test UID
+  LARGE: 'flat_300x450-mm-12x18-inch_200-gsm-80lb-uncoated_4-0_ver', // Test UID
+  XLARGE: 'flat_300x450-mm-12x18-inch_200-gsm-80lb-uncoated_4-0_ver', // Test UID
 };
 
 const PrintDialog = ({ isOpen, onClose }) => {
   const artState = useMobileArtState();
+  const dialogRef = useRef(null);
   
   const [selectedSize, setSelectedSize] = useState('MEDIUM');
   const [quantity, setQuantity] = useState(1);
+  const [printPreset, setPrintPreset] = useState('A3');
   const [shippingAddress, setShippingAddress] = useState({
     firstName: '',
     lastName: '',
@@ -32,6 +41,12 @@ const PrintDialog = ({ isOpen, onClose }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [orderConfirmation, setOrderConfirmation] = useState(null);
 
+  useEffect(() => {
+    if (isOpen && status === 'idle' && dialogRef.current) {
+      dialogRef.current.scrollTop = 0;
+    }
+  }, [isOpen, status]);
+
   const handleAddressChange = useCallback((field, value) => {
     setShippingAddress(prev => ({ ...prev, [field]: value }));
   }, []);
@@ -46,6 +61,31 @@ const PrintDialog = ({ isOpen, onClose }) => {
     return true;
   }, [shippingAddress]);
 
+  const handleTestDownload = useCallback(async () => {
+    try {
+      setStatus('exporting');
+      setProgress(0);
+      const printSize = PRINT_SIZES[selectedSize];
+      const preset = PRINT_PRESETS[printPreset] || PRINT_PRESETS.A3;
+      const imageBlob = await exportHighResImage(
+        artState,
+        printSize,
+        {
+          preset,
+        },
+        (p) => {
+          setProgress(p);
+        });
+      downloadImage(imageBlob, `test-export-${selectedSize}.png`);
+      setStatus('idle');
+      setProgress(0);
+    } catch (error) {
+      console.error('Export error:', error);
+      setErrorMessage(error.message || 'Failed to export image');
+      setStatus('error');
+    }
+  }, [artState, selectedSize, printPreset]);
+
   const handleSubmitOrder = useCallback(async () => {
     if (!validateAddress()) {
       setErrorMessage('Please fill in all required shipping address fields');
@@ -58,9 +98,17 @@ const PrintDialog = ({ isOpen, onClose }) => {
       setStatus('exporting');
       setProgress(0);
       const printSize = PRINT_SIZES[selectedSize];
-      const imageBlob = await exportHighResImage(artState, printSize, (p) => {
-        setProgress(p * 0.3); // 0-30% for export
-      });
+      const preset = PRINT_PRESETS[printPreset] || PRINT_PRESETS.A3;
+      const imageBlob = await exportHighResImage(
+        artState,
+        printSize,
+        {
+          preset,
+        },
+        (p) => {
+          setProgress(p * 0.3); // 0-30% for export
+        }
+      );
 
       // Step 2: Upload image
       setStatus('uploading');
@@ -110,7 +158,7 @@ const PrintDialog = ({ isOpen, onClose }) => {
       setErrorMessage(error.message || 'Failed to create order');
       setStatus('error');
     }
-  }, [artState, selectedSize, quantity, shippingAddress, validateAddress]);
+  }, [artState, selectedSize, quantity, shippingAddress, validateAddress, printPreset]);
 
   const handleClose = useCallback(() => {
     if (status === 'exporting' || status === 'uploading' || status === 'ordering') {
@@ -128,7 +176,11 @@ const PrintDialog = ({ isOpen, onClose }) => {
 
   return (
     <div className="print-dialog-overlay" onClick={handleClose}>
-      <div className="print-dialog" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="print-dialog"
+        ref={dialogRef}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="print-dialog__header">
           <h2>Order Print</h2>
           <button
@@ -190,6 +242,25 @@ const PrintDialog = ({ isOpen, onClose }) => {
                         onChange={(e) => setSelectedSize(e.target.value)}
                       />
                       <span className="size-option__label">{size.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Quality / Resolution Preset */}
+              <div className="form-section">
+                <h3>Print Quality</h3>
+                <div className="size-options">
+                  {Object.entries(PRINT_PRESETS).map(([key, preset]) => (
+                    <label key={key} className="size-option">
+                      <input
+                        type="radio"
+                        name="print-preset"
+                        value={key}
+                        checked={printPreset === key}
+                        onChange={(e) => setPrintPreset(e.target.value)}
+                      />
+                      <span className="size-option__label">{preset.label}</span>
                     </label>
                   ))}
                 </div>
@@ -292,6 +363,9 @@ const PrintDialog = ({ isOpen, onClose }) => {
               <div className="form-actions">
                 <button type="button" className="btn-secondary" onClick={handleClose}>
                   Cancel
+                </button>
+                <button type="button" className="btn-secondary" onClick={handleTestDownload}>
+                  Test Download
                 </button>
                 <button type="button" className="btn-primary" onClick={handleSubmitOrder}>
                   Place Order

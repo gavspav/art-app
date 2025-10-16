@@ -10,10 +10,22 @@ This guide walks you through setting up the Gelato print-on-demand integration f
 
 ## Step 1: Get Gelato API Key
 
-1. Visit [Gelato's contact page](https://gelato.com/en-US/contact/) to request API access
-2. Specify you need API integration for print-on-demand
-3. Request both **test** and **live** API keys
-4. Save your API keys securely
+### For Testing (Sandbox Environment)
+
+Gelato does not provide separate test API keys. Instead, create a testing environment:
+
+1. Create a new Gelato account using a **different email address**
+2. **Do NOT add any payment method** during signup
+3. Generate an API key from this account (Settings → API)
+4. Use this API key for development/testing
+
+**Note:** Orders created with this key won't be processed since there's no payment method attached.
+
+### For Production (Live Environment)
+
+1. Use your main Gelato account with payment method configured
+2. Generate a production API key (Settings → API)
+3. Keep this key secure and only use it in production
 
 ## Step 2: Backend Setup
 
@@ -34,8 +46,8 @@ cp .env.example .env
 2. Edit `.env` and add your Gelato API key:
 ```env
 GELATO_API_KEY=your_actual_api_key_here
-GELATO_API_BASE_URL=https://order.test.gelatoapis.com  # Use test for development
-GELATO_CONNECT_BASE_URL=https://connect.test.gelato.tech
+GELATO_API_BASE_URL=https://order.gelatoapis.com
+GELATO_CONNECT_BASE_URL=https://connect.gelato.tech
 
 PORT=3001
 NODE_ENV=development
@@ -44,11 +56,9 @@ MAX_FILE_SIZE_MB=50
 UPLOAD_DIR=./uploads
 ```
 
-3. For production, use live URLs:
-```env
-GELATO_API_BASE_URL=https://order.gelatoapis.com
-GELATO_CONNECT_BASE_URL=https://connect.live.gelato.tech
-```
+**Note:** Use the same API URLs for both testing and production. The difference is:
+- **Testing:** API key from account without payment method (orders won't process)
+- **Production:** API key from account with payment method (orders will process)
 
 ### Start Backend Server
 
@@ -249,16 +259,16 @@ To get current product UIDs:
 - [ ] Print dialog opens when clicking Print button
 - [ ] High-res image export completes (check progress bar)
 - [ ] Image upload succeeds (check backend logs)
-- [ ] Order creation succeeds with test API key
+- [ ] Order creation succeeds (or fails gracefully if using test account without payment)
 - [ ] Success message displays with order ID
 - [ ] Uploaded files are cleaned up (optional)
 
 ## Next Steps
 
-1. Test with real Gelato test API key
-2. Place a test order and verify it appears in Gelato dashboard
+1. Test with API key from account without payment method
+2. Verify order creation flow works (orders won't process without payment)
 3. Customize product offerings (add canvas, framed prints, etc.)
 4. Add pricing display (integrate Gelato quote API)
 5. Implement order tracking
 6. Add email notifications
-7. Switch to live API key for production
+7. Switch to API key from production account with payment method for live orders
