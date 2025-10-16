@@ -111,10 +111,14 @@ router.post('/upload-image', validateApiKey, upload.single('image'), async (req,
       return res.status(400).json({ error: 'No image file provided' });
     }
 
-    // For now, return the local file path
-    // In production, you'd upload to cloud storage (S3, Cloudinary, etc.)
-    // and return a publicly accessible URL
-    const fileUrl = `https://markus-homuncular-prejudicedly.ngrok-free.dev/api/gelato/files/${req.file.filename}`;
+    // Build public URL for the uploaded file
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+    const host = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+    const resolvedBase = process.env.PUBLIC_BASE_URL
+      || (proto && host ? `${proto}://${host}` : `${req.protocol}://${req.get('host')}`);
+    const fileUrl = `${resolvedBase}/api/gelato/files/${req.file.filename}`;
 
     res.json({
       success: true,
