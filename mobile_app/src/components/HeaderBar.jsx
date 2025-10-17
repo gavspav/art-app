@@ -121,14 +121,16 @@ const HeaderBar = () => {
             {isNodeEditMode ? '✓ Edit Nodes' : 'Edit Nodes'}
           </button>
         )}
-        <button
-          type="button"
-          className="header-btn"
-          onClick={() => setIsPrintDialogOpen(true)}
-          aria-label="Order print"
-        >
-          🖼️ Print
-        </button>
+        {isDesktopMode && (
+          <button
+            type="button"
+            className="header-btn"
+            onClick={() => setIsPrintDialogOpen(true)}
+            aria-label="Order print"
+          >
+            🖼️ Print
+          </button>
+        )}
         <button
           type="button"
           className="header-btn primary"
