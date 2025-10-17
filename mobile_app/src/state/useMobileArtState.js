@@ -1,3 +1,9 @@
+/**
+ * Global art-state context for the mobile app.
+ * Centralizes every parameter that influences the rendered artwork and UI
+ * controls so individual components can stay declarative and focused on their
+ * presentation. Components consume this context via `useMobileArtState()`.
+ */
 import React, { createContext, useContext, useReducer, useMemo, useCallback } from 'react';
 import {
   clampValue,
@@ -11,6 +17,7 @@ import { palettes } from '../constants/palettes.js';
 const MobileArtContext = createContext(null);
 
 
+// Default artwork configuration shown when the app loads or when a reset occurs.
 const defaults = {
   nodes: createRegularPolygon(6, 0.65),
   curviness: 1,
@@ -36,6 +43,7 @@ const defaults = {
   noiseFreq3: 4,
 };
 
+// Allowed ranges for all slider-driven parameters to keep UI input constrained.
 const sliderRanges = {
   size: { min: 0.35, max: 1.1, step: 0.01 },
   sides: { min: 3, max: 10, step: 1 },
@@ -48,18 +56,22 @@ const sliderRanges = {
   noiseFreq3: { min: 0.5, max: 30, step: 0.1 },
 };
 
+// Ensure node coordinates never stray outside the visible canvas boundary.
 const clampNodes = (nodes) => nodes.map((node) => ({
   ...node,
   ...clampPoint(node, 0.85),
 }));
 
+// Reducer drives all state transitions in response to dispatched actions.
 const reducer = (state, action) => {
   switch (action.type) {
     case 'SET_SLIDER': {
+      // Update any slider-controlled scalar value while respecting its range.
       if (!(action.key in sliderRanges)) return state;
       const range = sliderRanges[action.key];
       const rawValue = clampValue(action.value, range.min, range.max);
       if (action.key === 'sides') {
+        // Changing polygon sides regenerates the base node list and clears overrides.
         const sides = Math.round(rawValue);
         const newNodes = createRegularPolygon(sides, 0.65);
         return {
@@ -76,11 +88,13 @@ const reducer = (state, action) => {
       };
     }
     case 'SET_NODES':
+      // Replace the root layer nodes (layer 0) with clamped coordinates.
       return {
         ...state,
         nodes: clampNodes(action.nodes || []),
       };
     case 'SET_LAYER_OVERRIDE':
+      // Persist per-layer node overrides for layers above the base layer.
       return {
         ...state,
         layerOverrides: {
@@ -98,6 +112,7 @@ const reducer = (state, action) => {
       };
     }
     case 'SET_LAYERS': {
+      // Adjust number of rendered layers and discard overrides beyond the limit.
       const value = clampValue(action.value, 1, 20);
       const nextLayerCount = Math.round(value);
       const nextOverrides = Object.fromEntries(
@@ -111,16 +126,19 @@ const reducer = (state, action) => {
       };
     }
     case 'SET_DRAWER_OPEN':
+      // Explicitly set the controls drawer visibility.
       return {
         ...state,
         isDrawerOpen: !!action.value,
       };
     case 'TOGGLE_DRAWER':
+      // Flip the drawer open/closed state.
       return {
         ...state,
         isDrawerOpen: !state.isDrawerOpen,
       };
     case 'SET_SELECTED_LAYER': {
+      // Update which layer is selected for editing or deselect when negative.
       const index = Number.isFinite(action.index) ? action.index : null;
       if (index === null || index < 0) {
         return {
@@ -134,42 +152,50 @@ const reducer = (state, action) => {
       };
     }
     case 'SET_BACKGROUND_COLOR':
+      // Update the background fill used behind the artwork.
       return {
         ...state,
         backgroundColor: action.color || defaults.backgroundColor,
       };
     case 'SET_FOREGROUND_COLOR':
+      // Update the primary color used for shapes when no palette is active.
       return {
         ...state,
         foregroundColor: action.color || defaults.foregroundColor,
       };
     case 'SET_NODE_EDIT_MODE':
+      // Enable or disable node-edit handles in desktop mode.
       return {
         ...state,
         isNodeEditMode: !!action.value,
       };
     case 'TOGGLE_NODE_EDIT_MODE':
+      // Toggle node-edit handles visibility.
       return {
         ...state,
         isNodeEditMode: !state.isNodeEditMode,
       };
     case 'SET_BLEND_MODE':
+      // Change the canvas blend mode applied to layers.
       return {
         ...state,
         blendMode: action.mode || defaults.blendMode,
       };
     case 'SET_PALETTE':
+      // Select a palette and store its colors for layer sampling.
       return {
         ...state,
         paletteIndex: action.index,
         layerColors: action.colors || [],
       };
     case 'SET_NOISE_SEED':
+      // Assign deterministic seed value for layer noise deformation.
       return {
         ...state,
         noiseSeed: Number.isFinite(action.seed) ? Math.max(1, Math.floor(action.seed)) : defaults.noiseSeed,
       };
     case 'RESET_SHAPE':
+      // Restore defaults (keeping background/foreground colors) for a fresh start.
       return {
         ...state,
         ...defaults,
@@ -178,6 +204,7 @@ const reducer = (state, action) => {
         foregroundColor: state.foregroundColor,
       };
     case 'RANDOMIZE_SHAPE': {
+      // Procedurally pick new geometry, colors, layers, blend mode, and noise values.
       const sides = Math.floor(clampValue(Math.random() * 5 + 4, 4, 8));
       const newNodes = clampNodes(
         jitterPolygon(createRegularPolygon(sides, clampValue(Math.random() * 0.3 + 0.5, 0.45, 0.8)), 0.12),
@@ -234,6 +261,7 @@ const reducer = (state, action) => {
 };
 
 export const MobileArtProvider = ({ children }) => {
+  // Hold the reducer state and expose memoized callbacks for consumers.
   const [state, dispatch] = useReducer(reducer, defaults);
 
   const setSlider = useCallback((key, value) => {
@@ -305,6 +333,7 @@ export const MobileArtProvider = ({ children }) => {
   }, []);
 
   const value = useMemo(() => {
+    // Context value merges the current state snapshot with action dispatchers.
     return {
       ...state,
       setSlider,
@@ -331,6 +360,7 @@ export const MobileArtProvider = ({ children }) => {
 };
 
 export const useMobileArtState = () => {
+  // Shortcut hook for components; enforces provider usage at runtime.
   const ctx = useContext(MobileArtContext);
   if (!ctx) {
     throw new Error('useMobileArtState must be used within a MobileArtProvider');

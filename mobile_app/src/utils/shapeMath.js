@@ -1,14 +1,22 @@
+/**
+ * Collection of geometry helpers shared across the art rendering pipeline.
+ * Functions in this module never touch React; they focus purely on math so
+ * components can ask for shapes, smoothing, and noise with minimal boilerplate.
+ */
 import { createSeededRandom } from './random.js';
 
 const TWO_PI = Math.PI * 2;
 
+// Reduce floating-point noise so SVG path strings stay compact and stable.
 const round = (value) => Number.parseFloat(Number(value).toFixed(3));
 
+// Clamp a numeric value to the provided inclusive range.
 export const clampValue = (value, min, max) => {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
 };
 
+// Constrain a point to a circle, keeping deformation bounded around the origin.
 export const clampPoint = (point, radius = 1) => {
   if (!point) return { x: 0, y: 0 };
   const x = Number.isFinite(point.x) ? point.x : 0;
@@ -34,6 +42,7 @@ export const createRegularPolygon = (sides = 5, radius = 1) => {
   });
 };
 
+// Apply random jitter to each polygon node for organic variation.
 export const jitterPolygon = (nodes, jitterAmount = 0.1) => {
   const amount = clampValue(jitterAmount, 0, 0.5);
   return nodes.map((node, index) => {
@@ -51,6 +60,7 @@ export const jitterPolygon = (nodes, jitterAmount = 0.1) => {
   });
 };
 
+// Build a closed SVG path string from a sequence of points using cubic curves.
 export const buildSmoothPath = (points, curviness = 0) => {
   if (!Array.isArray(points) || points.length === 0) return '';
   if (points.length === 1) {
@@ -100,6 +110,8 @@ export const deriveLayerPoints = (nodes, {
   noiseFreq2 = 3,
   noiseFreq3 = 4,
 } = {}) => {
+  // Convert normalized node coordinates into layer-specific canvas coordinates
+  // by applying scaling, positional offsets, and optional noise distortion.
   if (!Array.isArray(nodes)) return [];
   const baseFactor = Math.max(0.2, size) * 100;
   const shapeInfluence = clampValue(variationShape, 0, 1) * layerIndex;
@@ -139,6 +151,9 @@ export const deriveLayerPoints = (nodes, {
     let noisyY = baseY;
 
     if (seededRandom) {
+      // Combine several sinusoidal noise sources to create smooth, repeatable
+      // offsets. Frequencies receive slight random offsets per layer so each
+      // layer deforms differently while staying deterministic for a given seed.
       const totalNodes = Math.max(1, nodes.length);
       const angleRatio = (index / totalNodes) * TWO_PI;
       const phase = (1 - symmetryFactor) * (index % 2) * Math.PI;
