@@ -639,11 +639,13 @@ const TouchCanvas = () => {
                 d={layer.path}
                 fill={layer.color}
                 fillOpacity={Math.max(0.18, layer.opacity)}
-                stroke={index === selectedLayer ? foregroundColor : 'none'}
-                strokeOpacity={index === selectedLayer ? 0.35 : 0}
-                strokeWidth={index === selectedLayer ? 1.4 : 0}
                 style={{ mixBlendMode: blendMode }}
               />
+              {/**
+               * stroke={index === selectedLayer ? foregroundColor : 'none'}
+               * strokeOpacity={index === selectedLayer ? 0.35 : 0}
+               * strokeWidth={index === selectedLayer ? 1.4 : 0}
+               */}
             </g>
           ))}
         </g>
