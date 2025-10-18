@@ -1,9 +1,13 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
-import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
-
-const SEED_MIN = 1;
-const SEED_MAX = 2147483646;
-const generateSeed = () => Math.floor(Math.random() * (SEED_MAX - SEED_MIN + 1)) + SEED_MIN;
+import { DEFAULTS } from '../constants/defaults';
+import {
+  StateStore,
+  createInitialAppState,
+  normalizeImportedAppState,
+  assignLayerIds,
+  createLayerIdFactory,
+  DEFAULT_APP_STATE,
+} from '@art-app/core';
 
 // Create the context
 const AppStateContext = createContext();
@@ -28,80 +32,36 @@ const buildDefaultPresetSlots = () => (
 
 // Create the provider component
 export const AppStateProvider = ({ children }) => {
-  // Simple unique id generator for layers
-  const uidSeedRef = useRef(Math.floor(Math.random() * 1e6));
-  const uidCounterRef = useRef(0);
-  const makeLayerId = useCallback(() => {
-    uidCounterRef.current += 1;
-    return `layer-${uidSeedRef.current}-${Date.now().toString(36)}-${uidCounterRef.current}`;
+  const layerIdFactoryRef = useRef(createLayerIdFactory());
+  const makeLayerId = useCallback(() => layerIdFactoryRef.current(), []);
+  const assignIds = useCallback(
+    (layers = []) => assignLayerIds(layers, makeLayerId),
+    [makeLayerId],
+  );
+
+  const createStateFromDefaults = useCallback(() => {
+    const base = createInitialAppState();
+    return {
+      ...base,
+      backgroundColor: DEFAULTS.backgroundColor ?? base.backgroundColor,
+      globalBlendMode: DEFAULTS.globalBlendMode ?? base.globalBlendMode,
+      globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier ?? base.globalSpeedMultiplier,
+      selectedLayerIndex: DEFAULTS.selectedLayerIndex ?? base.selectedLayerIndex,
+      parameterTargetMode: DEFAULTS.parameterTargetMode ?? base.parameterTargetMode ?? 'individual',
+      applyVariationInstantly: DEFAULTS.applyVariationInstantly ?? base.applyVariationInstantly ?? true,
+    };
   }, []);
 
-  const ensureLayerId = useCallback((l) => {
-    if (l && typeof l === 'object' && typeof l.id === 'string' && l.id.length > 0) return l;
-    return { ...l, id: makeLayerId() };
-  }, [makeLayerId]);
-  const assignIds = useCallback((layers = []) => {
-    const list = Array.isArray(layers) ? layers : [];
-    const seen = new Set();
-    return list.map((layer) => {
-      let out = ensureLayerId(layer);
-      let id = out.id;
-      if (seen.has(id)) {
-        // Generate a fresh unique id when a duplicate is detected
-        const newId = makeLayerId();
-        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: id, new: newId }); } catch { /* noop */ }
-        out = { ...out, id: newId };
-        id = newId;
-      }
-      seen.add(id);
-      return out;
-    });
-  }, [ensureLayerId, makeLayerId]);
-  // Main app state that should be saveable
-  const [appState, setAppState] = useState({
-    isFrozen: DEFAULTS.isFrozen,
-    backgroundColor: DEFAULTS.backgroundColor,
-    backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
-    globalBlendMode: DEFAULTS.globalBlendMode,
-    globalSeed: generateSeed(),
-    globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
-    layers: [{
-      id: `layer-init-${Date.now()}`,
-      ...DEFAULT_LAYER,
-      position: { ...DEFAULT_LAYER.position }
-    }],
-    selectedLayerIndex: DEFAULTS.selectedLayerIndex,
-    isOverlayVisible: true,
-    isNodeEditMode: false,
-    classicMode: false,
-    // Z-axis movement ignore (disable all Z scaling movement)
-    zIgnore: false,
-    // Global randomization toggles for palette and color count
-    randomizePalette: true,
-    randomizeNumColors: true,
-    // Global: allow colour fading to continue while frozen
-    colorFadeWhileFrozen: true,
-    // Keep every layer in sync with layer 1 colours when enabled
-    syncLayerColorsToFirst: false,
-    applyVariationInstantly: DEFAULTS.applyVariationInstantly ?? true,
-    // Parameter targeting mode
-    parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
-    // Selection outline visibility (disabled by default)
-    showLayerOutlines: false,
-
-    // Multi-select and Layer Groups
-    selectedLayerIds: [], // array of layer.id
-    layerGroups: [], // { id, name, color?, memberIds: string[] }
-    editTarget: { type: 'single' }, // 'single' | 'selection' | 'group'
-
-    // Preset morphing (Phase 3)
-    morphEnabled: false,
-    morphRoute: [1, 2], // array of preset ids (1..8)
-    morphDurationPerLeg: 5, // seconds
-    morphEasing: 'linear', // 'linear' | future: 'easeInOut'
-    morphLoopMode: 'loop', // 'loop' | 'pingpong'
-    morphMode: 'tween', // 'tween' | 'fade'
+  const storeRef = useRef(new StateStore({ initialState: createStateFromDefaults() }));
+  const [{ appState, version }, setSnapshot] = useState(() => {
+    const snap = storeRef.current.snapshot();
+    return { appState: snap.state, version: snap.version };
   });
+
+  const syncFromStore = useCallback(() => {
+    const snap = storeRef.current.snapshot();
+    setSnapshot({ appState: snap.state, version: snap.version });
+  }, []);
 
   // RAM preset slot stored in-memory only
   const [quickPreset, setQuickPreset] = useState(null);
@@ -175,276 +135,264 @@ export const AppStateProvider = ({ children }) => {
 
   // Individual state setters for backward compatibility
   const setIsFrozen = useCallback((value) => {
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
-      isFrozen: (typeof value === 'function') ? value(prev.isFrozen) : value,
+      isFrozen: typeof value === 'function' ? value(prev.isFrozen) : value,
     }));
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setBackgroundColor = useCallback((value) => {
-    setAppState(prev => ({ ...prev, backgroundColor: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, backgroundColor: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setBackgroundImage = useCallback((value) => {
-    // value can be partial update or full object
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
       backgroundImage: typeof value === 'function'
         ? value(prev.backgroundImage)
-        : { ...prev.backgroundImage, ...(value || {}) }
+        : { ...prev.backgroundImage, ...(value || {}) },
     }));
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setGlobalBlendMode = useCallback((value) => {
-    setAppState(prev => ({ ...prev, globalBlendMode: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, globalBlendMode: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setGlobalSeed = useCallback((value) => {
-    setAppState(prev => ({ ...prev, globalSeed: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, globalSeed: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setGlobalSpeedMultiplier = useCallback((value) => {
-    setAppState(prev => ({ ...prev, globalSpeedMultiplier: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, globalSpeedMultiplier: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Important: support functional updates correctly to avoid stale state reappearing.
   // If an updater function is provided, call it with prev.layers inside setAppState.
   const setLayers = useCallback((value) => {
-    if (typeof value === 'function') {
-      setAppState(prev => ({ ...prev, layers: assignIds(value(prev.layers)) }));
-    } else {
-      setAppState(prev => ({ ...prev, layers: assignIds(value) }));
-    }
-  }, [assignIds]);
+    storeRef.current.update((prev) => {
+      const nextLayers = typeof value === 'function' ? value(prev.layers) : value;
+      return { ...prev, layers: assignIds(nextLayers) };
+    });
+    syncFromStore();
+  }, [assignIds, syncFromStore]);
 
   const setSelectedLayerIndex = useCallback((value) => {
-    setAppState(prev => ({ ...prev, selectedLayerIndex: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, selectedLayerIndex: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setIsOverlayVisible = useCallback((value) => {
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
-      isOverlayVisible: (typeof value === 'function') ? value(prev.isOverlayVisible) : value,
+      isOverlayVisible: typeof value === 'function' ? value(prev.isOverlayVisible) : value,
     }));
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setIsNodeEditMode = useCallback((value) => {
-    setAppState(prev => ({ ...prev, isNodeEditMode: value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, isNodeEditMode: value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Toggle Classic Mode (original CodePen-like aesthetics)
   const setClassicMode = useCallback((value) => {
-    setAppState(prev => ({ ...prev, classicMode: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, classicMode: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Toggle Z-Ignore (disable Z movement)
   const setZIgnore = useCallback((value) => {
-    setAppState(prev => ({ ...prev, zIgnore: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, zIgnore: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Global toggles for color randomization behavior
   const setRandomizePalette = useCallback((value) => {
-    setAppState(prev => ({ ...prev, randomizePalette: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, randomizePalette: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setRandomizeNumColors = useCallback((value) => {
-    setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, randomizeNumColors: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setColorFadeWhileFrozen = useCallback((value) => {
-    setAppState(prev => ({ ...prev, colorFadeWhileFrozen: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, colorFadeWhileFrozen: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setParameterTargetMode = useCallback((mode) => {
-    const normalized = (typeof mode === 'string' && mode.toLowerCase() === 'global') ? 'global' : 'individual';
-    setAppState(prev => ({ ...prev, parameterTargetMode: normalized }));
-  }, []);
+    const normalized = typeof mode === 'string' && mode.toLowerCase() === 'global' ? 'global' : 'individual';
+    storeRef.current.update((prev) => ({ ...prev, parameterTargetMode: normalized }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setShowLayerOutlines = useCallback((value) => {
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
-      showLayerOutlines: (typeof value === 'function')
-        ? !!value(prev.showLayerOutlines)
-        : !!value,
+      showLayerOutlines: typeof value === 'function' ? !!value(prev.showLayerOutlines) : !!value,
     }));
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setSyncLayerColorsToFirst = useCallback((value) => {
-    setAppState(prev => ({ ...prev, syncLayerColorsToFirst: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, syncLayerColorsToFirst: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   const setApplyVariationInstantly = useCallback((value) => {
-    setAppState(prev => ({ ...prev, applyVariationInstantly: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, applyVariationInstantly: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Morph setters
   const setMorphEnabled = useCallback((value) => {
-    setAppState(prev => ({ ...prev, morphEnabled: !!value }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, morphEnabled: !!value }));
+    syncFromStore();
+  }, [syncFromStore]);
   const setMorphRoute = useCallback((value) => {
-    setAppState(prev => ({ ...prev, morphRoute: Array.isArray(value) ? value.slice(0, 16) : prev.morphRoute }));
-  }, []);
+    storeRef.current.update((prev) => ({
+      ...prev,
+      morphRoute: Array.isArray(value) ? value.slice(0, 16) : prev.morphRoute,
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
   const setMorphDurationPerLeg = useCallback((value) => {
     const v = parseFloat(value);
-    setAppState(prev => ({ ...prev, morphDurationPerLeg: Number.isFinite(v) ? Math.max(0.2, Math.min(120, v)) : prev.morphDurationPerLeg }));
-  }, []);
+    storeRef.current.update((prev) => ({
+      ...prev,
+      morphDurationPerLeg: Number.isFinite(v) ? Math.max(0.2, Math.min(120, v)) : prev.morphDurationPerLeg,
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
   const setMorphEasing = useCallback((value) => {
     const allowed = ['linear'];
-    setAppState(prev => ({ ...prev, morphEasing: allowed.includes(value) ? value : prev.morphEasing }));
-  }, []);
+    storeRef.current.update((prev) => ({
+      ...prev,
+      morphEasing: allowed.includes(value) ? value : prev.morphEasing,
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
   const setMorphLoopMode = useCallback((value) => {
-    const allowed = ['loop','pingpong'];
-    setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
-  }, []);
+    const allowed = ['loop', 'pingpong'];
+    storeRef.current.update((prev) => ({
+      ...prev,
+      morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode,
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
   const setMorphMode = useCallback((value) => {
-    const allowed = ['tween','fade'];
-    setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
-  }, []);
+    const allowed = ['tween', 'fade'];
+    storeRef.current.update((prev) => ({
+      ...prev,
+      morphMode: allowed.includes(value) ? value : prev.morphMode,
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
-    // Omit deprecated legacy fields from layers
-    const cleanedLayers = (appState.layers || []).map(l => {
-      const out = { ...l };
-      delete out.width;
-      delete out.height;
-      return out;
-    });
-    return { ...appState, layers: cleanedLayers };
-  }, [appState]);
+    const snap = storeRef.current.snapshot();
+    return snap.state;
+  }, []);
 
   // Function to load app state
   const loadAppState = useCallback((newState) => {
-    if (newState) {
-      const normalizeLayer = (layer) => {
-        const base = { ...DEFAULT_LAYER, ...layer };
-        const pos = base.position && typeof base.position === 'object' ? base.position : {};
-        const position = {
-          x: Number.isFinite(pos.x) ? pos.x : DEFAULT_LAYER.position.x,
-          y: Number.isFinite(pos.y) ? pos.y : DEFAULT_LAYER.position.y,
-          vx: Number.isFinite(pos.vx) ? pos.vx : 0,
-          vy: Number.isFinite(pos.vy) ? pos.vy : 0,
-          scale: Number.isFinite(pos.scale) ? pos.scale : DEFAULT_LAYER.position.scale,
-          scaleDirection: (pos.scaleDirection === -1 || pos.scaleDirection === 1) ? pos.scaleDirection : 1,
-        };
-        // Clamp common fields
-        position.x = Math.max(-0.2, Math.min(1.2, position.x));
-        position.y = Math.max(-0.2, Math.min(1.2, position.y));
-        position.scale = Math.max(0.05, Math.min(5, position.scale));
-        const movementStyle = ['bounce','drift','still','orbit','spin'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
-        const movementSpeed = Number.isFinite(base.movementSpeed) ? Math.max(0, Math.min(5, base.movementSpeed)) : DEFAULT_LAYER.movementSpeed;
-        const movementAngle = Number.isFinite(base.movementAngle) ? ((Math.round(base.movementAngle) % 360) + 360) % 360 : DEFAULT_LAYER.movementAngle;
-        const scaleSpeed = Number.isFinite(base.scaleSpeed) ? Math.max(0, Math.min(0.2, base.scaleSpeed)) : DEFAULT_LAYER.scaleSpeed;
-        // Migrate legacy width/height to radiusFactor if missing
-        let migratedRadiusFactor = base.radiusFactor;
-        if (!Number.isFinite(migratedRadiusFactor)) {
-          const w = Number(base.width) || 0;
-          const h = Number(base.height) || 0;
-          if (w > 0 || h > 0) {
-            const avg = (w + h) / 2;
-            const baseRF = Number.isFinite(base.baseRadiusFactor) ? base.baseRadiusFactor : 0.4;
-            // Legacy effective radius ≈ avg * baseRadiusFactor; ratio to legacy cap (0.4 * minWH)
-            const assumedMinWH = 640; // fallback when container size isn't available here
-            const legacyRadiusPx = avg * baseRF;
-            const rfEst = (legacyRadiusPx) / (assumedMinWH * 0.4);
-            migratedRadiusFactor = Math.max(0.02, Math.min(0.9, rfEst || DEFAULT_LAYER.radiusFactor));
-          } else {
-            migratedRadiusFactor = DEFAULT_LAYER.radiusFactor;
-          }
-        }
-
-        const layerOut = {
-          ...base,
-          radiusFactor: migratedRadiusFactor,
-          movementStyle,
-          movementSpeed,
-          movementAngle,
-          scaleSpeed,
-          position,
-        };
-        // Ensure a stable id exists
-        if (typeof layerOut.id !== 'string' || layerOut.id.length === 0) {
-          layerOut.id = makeLayerId();
-        }
-        // Remove deprecated fields to avoid exporting them
-        delete layerOut.width;
-        delete layerOut.height;
-        // Ensure arrays are arrays
-        if (!Array.isArray(layerOut.colors)) layerOut.colors = [...(DEFAULT_LAYER.colors || ['#ffffff'])];
-        // Ensure nodes valid or null
-        if (layerOut.nodes && (!Array.isArray(layerOut.nodes) || layerOut.nodes.length < 3)) layerOut.nodes = null;
-        return layerOut;
-      };
-
-      setAppState(prevState => ({
-        ...prevState,
-        ...newState,
-        syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
-          ? newState.syncLayerColorsToFirst
-          : !!prevState.syncLayerColorsToFirst,
-        backgroundImage: {
-          src: null,
-          opacity: 1,
-          fit: 'cover',
-          enabled: false,
-          ...(newState.backgroundImage || {})
-        },
-        // Ensure layers have proper structure
-        layers: Array.isArray(newState.layers) && newState.layers.length > 0
-          ? newState.layers.map(normalizeLayer)
-          : prevState.layers.map(normalizeLayer)
-      }));
-      return true;
+    if (!newState) {
+      return false;
     }
-    return false;
-  }, [makeLayerId]);
+    try {
+      storeRef.current.replaceState(normalizeImportedAppState(newState, makeLayerId));
+      syncFromStore();
+      return true;
+    } catch (error) {
+      console.warn('[AppState] Failed to load app state', error);
+      return false;
+    }
+  }, [makeLayerId, syncFromStore]);
 
   // Selection helpers
   const toggleLayerSelection = useCallback((layerId) => {
-    setAppState(prev => {
+    storeRef.current.update((prev) => {
       const set = new Set(prev.selectedLayerIds || []);
-      if (set.has(layerId)) set.delete(layerId); else set.add(layerId);
+      if (set.has(layerId)) {
+        set.delete(layerId);
+      } else {
+        set.add(layerId);
+      }
       return { ...prev, selectedLayerIds: Array.from(set) };
     });
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
   const clearSelection = useCallback(() => {
-    setAppState(prev => ({ ...prev, selectedLayerIds: [] }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, selectedLayerIds: [] }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Groups CRUD
   const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
     const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`;
-    setAppState(prev => ({ ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }] }));
-    return id;
-  }, []);
-  const renameGroup = useCallback((groupId, name) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, name } : g) }));
-  }, []);
-  const setGroupColor = useCallback((groupId, color) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, color } : g) }));
-  }, []);
-  const addMembersToGroup = useCallback((groupId, ids = []) => {
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
-      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: Array.from(new Set([...(g.memberIds || []), ...ids])) } : g)
+      layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }],
     }));
-  }, []);
+    syncFromStore();
+    return id;
+  }, [syncFromStore]);
+  const renameGroup = useCallback((groupId, name) => {
+    storeRef.current.update((prev) => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).map((g) => (g.id === groupId ? { ...g, name } : g)),
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
+  const setGroupColor = useCallback((groupId, color) => {
+    storeRef.current.update((prev) => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).map((g) => (g.id === groupId ? { ...g, color } : g)),
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
+  const addMembersToGroup = useCallback((groupId, ids = []) => {
+    storeRef.current.update((prev) => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).map((g) => (g.id === groupId
+        ? { ...g, memberIds: Array.from(new Set([...(g.memberIds || []), ...ids])) }
+        : g)),
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
   const removeMembersFromGroup = useCallback((groupId, ids = []) => {
     const remove = new Set(ids);
-    setAppState(prev => ({
+    storeRef.current.update((prev) => ({
       ...prev,
-      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: (g.memberIds || []).filter(id => !remove.has(id)) } : g)
+      layerGroups: (prev.layerGroups || []).map((g) => (g.id === groupId
+        ? { ...g, memberIds: (g.memberIds || []).filter((id) => !remove.has(id)) }
+        : g)),
     }));
-  }, []);
+    syncFromStore();
+  }, [syncFromStore]);
   const deleteGroup = useCallback((groupId) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId) }));
-  }, []);
+    storeRef.current.update((prev) => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).filter((g) => g.id !== groupId),
+    }));
+    syncFromStore();
+  }, [syncFromStore]);
 
   // Edit target
   const setEditTarget = useCallback((target) => {
     // target: { type: 'single'|'selection'|'group', groupId? }
-    setAppState(prev => ({ ...prev, editTarget: target && target.type ? target : { type: 'single' } }));
-  }, []);
+    storeRef.current.update((prev) => ({ ...prev, editTarget: target && target.type ? target : { type: 'single' } }));
+    syncFromStore();
+  }, [syncFromStore]);
   const getActiveTargetLayerIds = useCallback(() => {
     const state = appState;
     if (state.editTarget?.type === 'selection') return state.selectedLayerIds || [];
@@ -460,32 +408,14 @@ export const AppStateProvider = ({ children }) => {
 
   // Function to reset app state to defaults
   const resetAppState = useCallback(() => {
-    setAppState({
-      isFrozen: DEFAULTS.isFrozen,
-      backgroundColor: DEFAULTS.backgroundColor,
-      backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
-      globalSeed: generateSeed(),
-      globalSpeedMultiplier: DEFAULTS.globalSpeedMultiplier,
-      layers: [{
-        ...DEFAULT_LAYER,
-        position: { ...DEFAULT_LAYER.position }
-      }],
-      selectedLayerIndex: DEFAULTS.selectedLayerIndex,
-      isOverlayVisible: true,
-      isNodeEditMode: false,
-      classicMode: false,
-      randomizePalette: true,
-      randomizeNumColors: true,
-      parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
-      colorFadeWhileFrozen: true,
-      showLayerOutlines: false,
-      syncLayerColorsToFirst: false,
-    });
-  }, []);
+    storeRef.current.replaceState(createStateFromDefaults());
+    syncFromStore();
+  }, [createStateFromDefaults, syncFromStore]);
 
   const value = {
     // Current state
     ...appState,
+    version,
     quickPreset,
     setQuickPresetSnapshot,
     clearQuickPresetSnapshot,
