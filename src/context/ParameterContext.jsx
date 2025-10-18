@@ -1,55 +1,16 @@
 import React, { createContext, useState, useContext } from 'react';
-import { PARAMETERS } from '../config/parameters';
+import {
+  DEFAULT_PARAMETERS,
+  mergeParametersWithDefaults,
+  applyParameterUpdate,
+} from '@art-app/core';
 
-// Merge helper that preserves authoritative defaults for critical params
 const mergeWithDefaults = (savedParams) => {
   try {
-    const saved = Array.isArray(savedParams) ? savedParams : [];
-    return PARAMETERS.map(defaultParam => {
-      const savedParam = saved.find(p => p.id === defaultParam.id);
-      // Start with defaults, then overlay saved fields to avoid missing keys
-      let merged = savedParam ? { ...defaultParam, ...savedParam } : { ...defaultParam };
-
-      // Enforce authoritative bounds/labels/groups for certain params to avoid legacy/broken metadata
-      const forceIds = new Set(['width','height','movementSpeed','wobble','noiseAmount','scaleSpeed','scaleMin','scaleMax']);
-      if (forceIds.has(merged.id)) {
-        merged = {
-          ...merged,
-          label: defaultParam.label,
-          min: defaultParam.min,
-          max: defaultParam.max,
-          step: defaultParam.step,
-          defaultValue: defaultParam.defaultValue,
-          group: defaultParam.group,
-        };
-      }
-
-      // Harden all sliders: if min/max are invalid (NaN, equal, or reversed), restore from defaults
-      if (merged.type === 'slider') {
-        const isNum = (v) => Number.isFinite(v);
-        const badBounds = !isNum(merged.min) || !isNum(merged.max) || merged.max <= merged.min;
-        if (badBounds) {
-          merged.min = defaultParam.min;
-          merged.max = defaultParam.max;
-        }
-        if (!isNum(merged.step) || merged.step <= 0) merged.step = defaultParam.step;
-        // Clamp defaultValue into bounds
-        const lo = isNum(merged.min) ? merged.min : defaultParam.min;
-        const hi = isNum(merged.max) ? merged.max : defaultParam.max;
-        const dv = isNum(merged.defaultValue) ? merged.defaultValue : defaultParam.defaultValue;
-        merged.defaultValue = Math.min(hi, Math.max(lo, dv));
-      }
-
-      // Force hardcoded options for movementStyle to ensure 'still' and 'orbit' are present regardless of saved metadata
-      if (merged.id === 'movementStyle') {
-        merged = { ...merged, options: ['bounce','drift','still','orbit'] };
-      }
-
-      return merged;
-    });
+    return mergeParametersWithDefaults(savedParams);
   } catch (e) {
     console.warn('Failed to merge parameters with defaults, falling back to defaults', e);
-    return PARAMETERS;
+    return DEFAULT_PARAMETERS.map(param => ({ ...param }));
   }
 };
 
@@ -72,32 +33,13 @@ export const ParameterProvider = ({ children }) => {
     } catch (error) {
       console.warn('Failed to load saved parameters:', error);
     }
-    return PARAMETERS;
+    return DEFAULT_PARAMETERS.map(param => ({ ...param }));
   });
 
   const updateParameter = (id, field, value) => {
     setParameters(prevParams => {
-      let found = false;
-      const updatedParams = prevParams.map(p => {
-        if (p.id === id) {
-          found = true;
-          // Ensure numeric values are stored as numbers
-          const numericFields = ['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'];
-          const newValue = (numericFields.includes(field)) ? parseFloat(value) : value;
-          return { ...p, [field]: newValue };
-        }
-        return p;
-      });
+      let nextParams = applyParameterUpdate(prevParams, id, field, value);
 
-      // If the id wasn't present (e.g., newly added global metadata), append it using defaults
-      let nextParams = updatedParams;
-      if (!found) {
-        const defaults = PARAMETERS.find(dp => dp.id === id) || { id, label: id, type: 'global' };
-        const numericFields = ['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'];
-        const newValue = (numericFields.includes(field)) ? parseFloat(value) : value;
-        nextParams = [...updatedParams, { ...defaults, [field]: newValue }];
-      }
-      
       // Auto-save to localStorage
       try {
         localStorage.setItem('artapp-parameters', JSON.stringify(nextParams));
@@ -238,14 +180,14 @@ export const ParameterProvider = ({ children }) => {
   };
 
   const resetToDefaults = () => {
-    setParameters(PARAMETERS);
+    setParameters(DEFAULT_PARAMETERS.map(param => ({ ...param })));
     // Don't clear saved configurations, just reset current parameters
     return { success: true, message: 'Parameters reset to defaults' };
   };
 
   const applyParametersSnapshot = React.useCallback((snapshot) => {
     try {
-      const merged = mergeWithDefaults(snapshot);
+      const merged = mergeParametersWithDefaults(snapshot);
       setParameters(merged);
       return true;
     } catch (error) {
