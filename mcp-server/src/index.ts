@@ -1,12 +1,15 @@
+import { createRequire } from 'module';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerTools } from './tools/index.js';
-import pkg from '../package.json' assert { type: 'json' };
+
+const require = createRequire(import.meta.url);
+const pkgJson = require('../package.json');
 
 const server = new Server(
   {
-    name: pkg.name ?? 'art-app-mcp-server',
-    version: pkg.version ?? '0.1.0',
+    name: pkgJson.name ?? 'art-app-mcp-server',
+    version: pkgJson.version ?? '0.1.0',
   },
   {
     capabilities: {
