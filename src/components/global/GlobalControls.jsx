@@ -323,6 +323,94 @@ const GlobalControls = ({
           id: original.id ?? varied.id,
           name: original.name || varied.name,
         };
+        const categorySet = affectCategories ? new Set(affectCategories) : null;
+        if (categorySet) {
+          if (!categorySet.has('color')) {
+            if (Array.isArray(original.colors)) {
+              merged.colors = [...original.colors];
+            } else {
+              merged.colors = original.colors;
+            }
+            if (typeof original.numColors !== 'undefined') {
+              merged.numColors = original.numColors;
+            }
+          }
+          if (!categorySet.has('position') && !categorySet.has('scale')) {
+            if (typeof original.xOffset !== 'undefined') merged.xOffset = original.xOffset;
+            if (typeof original.yOffset !== 'undefined') merged.yOffset = original.yOffset;
+            if (original.position && typeof original.position === 'object') {
+              merged.position = { ...original.position };
+            }
+          }
+          if (!categorySet.has('shape')) {
+            const shapeFields = [
+              'numSides',
+              'curviness',
+              'wobble',
+              'noiseAmount',
+              'width',
+              'height',
+              'radiusFactor',
+              'radiusFactorX',
+              'radiusFactorY',
+              'nodes',
+              'syncNodesToNumSides',
+              'viewBoxMapped',
+            ];
+            shapeFields.forEach((field) => {
+              if (field in original) {
+                merged[field] = Array.isArray(original[field])
+                  ? [...original[field]]
+                  : (original[field] && typeof original[field] === 'object'
+                    ? { ...original[field] }
+                    : original[field]);
+              }
+            });
+          }
+          if (!categorySet.has('anim')) {
+            const animFields = [
+              'movementStyle',
+              'movementSpeed',
+              'movementAngle',
+              'scaleSpeed',
+              'scaleMin',
+              'scaleMax',
+              'imageBlur',
+              'imageBrightness',
+              'imageContrast',
+              'imageHue',
+              'imageSaturation',
+              'imageDistortion',
+              'vx',
+              'vy',
+              'orbitCenterX',
+              'orbitCenterY',
+              'orbitAngle',
+              'orbitRadiusX',
+              'orbitRadiusY',
+            ];
+            animFields.forEach((field) => {
+              if (field in original) {
+                merged[field] = original[field];
+              }
+            });
+          }
+          if (!categorySet.has('scale')) {
+            if (typeof original.variationScale !== 'undefined') {
+              merged.variationScale = original.variationScale;
+            }
+            if (original.position && typeof original.position === 'object') {
+              const originalScale = original.position.scale;
+              const originalScaleDirection = original.position.scaleDirection;
+              merged.position = {
+                ...(merged.position || {}),
+                ...(original.position || {}),
+                scale: originalScale,
+                scaleDirection: originalScaleDirection,
+              };
+            }
+          }
+        }
         rebuilt.push(merged);
         prevLayer = merged;
       }
