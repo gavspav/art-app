@@ -5,6 +5,7 @@ import { useMidi } from '../../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
+import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -218,8 +219,9 @@ const GlobalControls = ({
 
   // Helper to set layer count uniformly from slider or number box
   const setLayerCount = (targetRaw) => {
-    let target = parseInt(targetRaw, 10);
+    let target = Number(targetRaw);
     if (!Number.isFinite(target)) return;
+    target = Math.round(target);
     target = Math.max(layersMin, Math.min(layersMax, target));
     setLayers(prev => {
       let next = prev;
@@ -862,16 +864,16 @@ const GlobalControls = ({
             aria-label="Adjust global seed"
             style={{ flex: '1 1 auto' }}
           />
-          <input
-            className="compact-number"
-            type="number"
+          <BufferedNumberInput
+            value={seedValue}
             min={GLOBAL_SEED_MIN}
             max={GLOBAL_SEED_MAX}
-            value={seedValue}
-            onChange={handleSeedInputChange}
+            step={1}
+            onCommit={updateSeed}
             title="Global seed value"
-            aria-label="Global seed value"
+            className="compact-number"
             style={{ width: 80 }}
+            inputMode="numeric"
           />
         </div>
         {/* Quick Save/Load configuration */}
@@ -1065,11 +1067,32 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={speedMin} onChange={(e) => setSpeedMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={speedMin}
+                    step={0.01}
+                    min={0}
+                    onCommit={setSpeedMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={speedMax} onChange={(e) => setSpeedMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={speedMax}
+                    step={0.01}
+                    min={0}
+                    onCommit={setSpeedMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={speedStep} onChange={(e) => setSpeedStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={speedStep}
+                    step={0.001}
+                    min={0.001}
+                    onCommit={(next) => setSpeedStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1186,11 +1209,34 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={opacityMin} onChange={(e) => setOpacityMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={opacityMin}
+                    step={0.01}
+                    min={0}
+                    max={1}
+                    onCommit={setOpacityMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={opacityMax} onChange={(e) => setOpacityMax(parseFloat(e.target.value) || 1)} />
+                  <BufferedNumberInput
+                    value={opacityMax}
+                    step={0.01}
+                    min={0}
+                    max={1}
+                    onCommit={setOpacityMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={opacityStep} onChange={(e) => setOpacityStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={opacityStep}
+                    step={0.001}
+                    min={0.001}
+                    onCommit={(next) => setOpacityStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1220,15 +1266,15 @@ const GlobalControls = ({
                 value={layers.length}
                 onChange={(e) => setLayerCount(e.target.value)}
               />
-              <input
-                type="number"
+              <BufferedNumberInput
+                value={layers.length}
                 min={layersMin}
                 max={layersMax}
                 step={layersStep}
-                value={layers.length}
-                onChange={(e) => setLayerCount(e.target.value)}
-                onBlur={(e) => setLayerCount(e.target.value)}
-                style={{ width: '100%', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                onCommit={setLayerCount}
+                className="compact-number"
+                style={{ width: '5.5rem', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                inputMode="numeric"
               />
             </div>
             {showGlobalMidi && (
@@ -1243,11 +1289,35 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={1} value={layersMin} onChange={(e) => setLayersMin(parseInt(e.target.value, 10) || 1)} />
+                  <BufferedNumberInput
+                    value={layersMin}
+                    step={1}
+                    min={1}
+                    onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={1} value={layersMax} onChange={(e) => setLayersMax(parseInt(e.target.value, 10) || 1)} />
+                  <BufferedNumberInput
+                    value={layersMax}
+                    step={1}
+                    min={layersMin}
+                    onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={1} value={layersStep} onChange={(e) => setLayersStep(parseInt(e.target.value, 10) || 1)} />
+                  <BufferedNumberInput
+                    value={layersStep}
+                    step={1}
+                    min={1}
+                    onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
                 </div>
               </div>
             )}
@@ -1312,11 +1382,30 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationPositionMin} onChange={(e) => setVariationPositionMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationPositionMin}
+                    step={0.01}
+                    onCommit={setVariationPositionMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationPositionMax} onChange={(e) => setVariationPositionMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationPositionMax}
+                    step={0.01}
+                    onCommit={setVariationPositionMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationPositionStep} onChange={(e) => setVariationPositionStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationPositionStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationPositionStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1346,11 +1435,30 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationShapeMin} onChange={(e) => setVariationShapeMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationShapeMin}
+                    step={0.01}
+                    onCommit={setVariationShapeMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationShapeMax} onChange={(e) => setVariationShapeMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationShapeMax}
+                    step={0.01}
+                    onCommit={setVariationShapeMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationShapeStep} onChange={(e) => setVariationShapeStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationShapeStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationShapeStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1386,11 +1494,30 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationAnimMin} onChange={(e) => setVariationAnimMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationAnimMin}
+                    step={0.01}
+                    onCommit={setVariationAnimMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationAnimMax} onChange={(e) => setVariationAnimMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationAnimMax}
+                    step={0.01}
+                    onCommit={setVariationAnimMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationAnimStep} onChange={(e) => setVariationAnimStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationAnimStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationAnimStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1434,11 +1561,30 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationColorMin} onChange={(e) => setVariationColorMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationColorMin}
+                    step={0.01}
+                    onCommit={setVariationColorMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationColorMax} onChange={(e) => setVariationColorMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationColorMax}
+                    step={0.01}
+                    onCommit={setVariationColorMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationColorStep} onChange={(e) => setVariationColorStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationColorStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationColorStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1474,12 +1620,31 @@ const GlobalControls = ({
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationScaleMin} onChange={(e) => setVariationScaleMin(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationScaleMin}
+                    step={0.01}
+                    onCommit={setVariationScaleMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationScaleMax} onChange={(e) => setVariationScaleMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationScaleMax}
+                    step={0.01}
+                    onCommit={setVariationScaleMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationScaleStep} onChange={(e) => setVariationScaleStep(parseFloat(e.target.value) || 0.01)} />
-                </div>
+                  <BufferedNumberInput
+                    value={variationScaleStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationScaleStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  </div>
               </div>
             )}
           </div>
