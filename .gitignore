@@ -1,3 +1,5 @@
+
+
 # Logs
 logs
 *.log
@@ -32,6 +34,9 @@ dist-ssr
 
 # But allow example files
 !.env.example
+<<<<<<< HEAD
 
 node_modules/
 .coveralls.yml
+=======
+>>>>>>> 902d87229cbc71fdd0813042964c10ddae502390

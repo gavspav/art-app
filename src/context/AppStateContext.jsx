@@ -85,6 +85,109 @@ export const AppStateProvider = ({ children }) => {
     setQuickPreset(null);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof WebSocket === 'undefined') {
+      return undefined;
+    }
+
+    let socket = null;
+    let active = true;
+    let retryTimer = null;
+
+    const applySnapshot = (payload) => {
+      if (!payload || typeof payload.version !== 'number' || !payload.state) {
+        return;
+      }
+      try {
+        storeRef.current.loadSnapshot(payload, { resetHistory: true });
+        syncFromStore();
+      } catch (error) {
+        console.warn('[AppState] Failed to apply MCP snapshot', error);
+      }
+    };
+
+    const resolveUrl = () => {
+      const envUrl = import.meta?.env?.VITE_MCP_WS_URL;
+      if (typeof envUrl === 'string' && envUrl.length > 0) {
+        return envUrl;
+      }
+      const host = import.meta?.env?.VITE_MCP_WS_HOST || window.location.hostname || '127.0.0.1';
+      const rawPort = import.meta?.env?.VITE_MCP_WS_PORT;
+      const port = typeof rawPort === 'string' && rawPort.length > 0 ? rawPort : '3211';
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      return `${protocol}://${host}:${port}`;
+    };
+
+    const scheduleReconnect = () => {
+      if (!active) {
+        return;
+      }
+      if (retryTimer) {
+        return;
+      }
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, 1500);
+    };
+
+    const connect = () => {
+      let url;
+      try {
+        url = resolveUrl();
+      } catch (error) {
+        console.warn('[AppState] Failed to resolve MCP WS URL', error);
+        scheduleReconnect();
+        return;
+      }
+
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        console.warn('[AppState] Failed to open MCP WS', error);
+        scheduleReconnect();
+        return;
+      }
+
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed?.type === 'snapshot') {
+            applySnapshot(parsed.payload);
+          }
+        } catch (error) {
+          console.warn('[AppState] Failed to parse MCP message', error);
+        }
+      };
+
+      socket.onclose = () => {
+        if (active) {
+          scheduleReconnect();
+        }
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      active = false;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+      if (socket) {
+        try {
+          socket.close();
+        } catch {
+          /* noop */
+        }
+      }
+    };
+  }, [syncFromStore]);
+
   // Preset slots state (16 slots), persisted to localStorage
   const [presetSlots, setPresetSlots] = useState(() => {
     try {

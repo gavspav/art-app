@@ -75,12 +75,31 @@ export class AppService {
 
   private readonly makeLayerId: () => string;
 
+  private snapshotListener?: (snapshot: { version: number; state: AppState }) => void;
+
   constructor() {
     this.makeLayerId = createLayerIdFactory();
     const initial = createInitialAppState();
     this.store = new StateStore({ initialState: initial, makeLayerId: this.makeLayerId });
   }
 
+  setSnapshotListener(listener: (snapshot: { version: number; state: AppState }) => void) {
+    this.snapshotListener = listener;
+  }
+
+  private emitSnapshot(snapshot: { version: number; state: AppState }) {
+    try {
+      this.snapshotListener?.(snapshot);
+    } catch (error) {
+      console.warn('[AppService] Snapshot listener threw error', error);
+    }
+  }
+
+  applySnapshot(snapshot: { version: number; state: AppState }) {
+    const result = this.store.loadSnapshot(snapshot);
+    this.emitSnapshot(result);
+    return result;
+  }
   private assertVersion(expected: number | undefined) {
     if (typeof expected === 'number' && expected !== this.store.getVersion()) {
       throw new ToolError('version_conflict', 'State version mismatch', {
@@ -128,6 +147,7 @@ export class AppService {
     this.assertVersion(payload.expectedVersion);
     const normalized = normalizeImportedAppState(payload.state as Partial<AppState>, this.makeLayerId);
     const result = this.store.replaceState(normalized, { tool: 'set_state' });
+    this.emitSnapshot(result);
     return { version: result.version };
   }
 
@@ -152,6 +172,7 @@ export class AppService {
       layers[index] = normalized;
       return { ...state, layers };
     }, { tool: 'set_layer', argsHash: `${payload.layerId ?? payload.layerIndex}` });
+    this.emitSnapshot(snapshot);
 
     return {
       version: snapshot.version,
@@ -174,6 +195,7 @@ export class AppService {
       }
       return { ...state, layers: assignLayerIds(layers, this.makeLayerId) };
     }, { tool: 'add_layer' });
+    this.emitSnapshot(snapshot);
 
     return {
       version: snapshot.version,
@@ -190,6 +212,7 @@ export class AppService {
       const layers = state.layers.filter((_, idx) => idx !== index);
       return { ...state, layers };
     }, { tool: 'delete_layer' });
+    this.emitSnapshot(snapshot);
 
     return {
       version: snapshot.version,
@@ -218,6 +241,7 @@ export class AppService {
       }
       return next;
     }, { tool: 'randomize', note: payload.scope });
+    this.emitSnapshot(snapshot);
 
     return {
       version: snapshot.version,
@@ -231,6 +255,7 @@ export class AppService {
       ...state,
       isFrozen: typeof payload.value === 'boolean' ? payload.value : !state.isFrozen,
     }), { tool: 'toggle_freeze' });
+    this.emitSnapshot(snapshot);
 
     return {
       version: snapshot.version,
@@ -251,6 +276,7 @@ export class AppService {
     this.assertVersion(payload.expectedVersion);
     const imported = importSnapshot(payload.snapshot, { makeLayerId: this.makeLayerId });
     const result = this.store.replaceState(imported.state, { tool: 'import_state' });
+    this.emitSnapshot(result);
     return {
       version: result.version,
     };
@@ -261,6 +287,7 @@ export class AppService {
     this.assertVersion(payload.expectedVersion);
     try {
       const result = this.store.undo({ tool: 'undo' });
+      this.emitSnapshot(result);
       return {
         version: result.version,
         state: result.state,
@@ -278,6 +305,7 @@ export class AppService {
     this.assertVersion(payload.expectedVersion);
     try {
       const result = this.store.redo({ tool: 'redo' });
+      this.emitSnapshot(result);
       return {
         version: result.version,
         state: result.state,

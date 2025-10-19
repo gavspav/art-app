@@ -281,6 +281,22 @@ export class StateStore {
     this.redoStack.length = 0;
   }
 
+  loadSnapshot(
+    snapshot: { version: number; state: AppState },
+    options: { resetHistory?: boolean } = {},
+  ) {
+    const normalized = normalizeImportedAppState(snapshot.state, this.makeLayerId);
+    this.current = deepClone(normalized);
+    const incomingVersion = Number.isFinite(snapshot.version)
+      ? Math.max(1, Math.floor(snapshot.version))
+      : this.version;
+    this.version = incomingVersion;
+    if (options.resetHistory !== false) {
+      this.clearHistory();
+    }
+    return this.snapshot();
+  }
+
   private pushUndo(metadata?: StateHistoryMeta) {
     this.undoStack.push({
       version: this.version,
