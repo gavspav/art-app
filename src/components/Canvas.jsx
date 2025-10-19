@@ -815,8 +815,18 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
     const draggingKindRef = useRef(null); // 'node' | 'mid' | null
+    const gestureRef = useRef(null);
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
+
+    const clearDragState = () => {
+        draggingNodeIndexRef.current = null;
+        draggingMidIndexRef.current = null;
+        draggingCenterRef.current = false;
+        draggingOrbitCenterRef.current = false;
+        draggingKindRef.current = null;
+        gestureRef.current = null;
+    };
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
 
@@ -1654,7 +1664,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (e.metaKey || e.ctrlKey || e.shiftKey) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const layer = layers[selectedLayerIndex];
+
+        clearDragState();
+
+        const layerIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[layerIndex];
         if (!layer) return;
         const geometry = getLayerGeometry(layer, canvas);
         if (!geometry) return;
@@ -1673,6 +1687,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             spanY,
         } = geometry;
 
+        const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
         const hitRadius = 10;
 
@@ -1689,13 +1704,17 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingMidIndexRef.current = null;
                 draggingCenterRef.current = false;
                 draggingKindRef.current = 'orbitCenter';
+                gestureRef.current = { layerId, layerIndex, type: 'orbitCenter' };
                 return;
             }
         }
 
-        if (!Array.isArray(layer.nodes)) return;
+        if (!Array.isArray(layer.nodes)) {
+            gestureRef.current = null;
+            return;
+        }
         // Prefer deformed points for hit-testing so handles remain clickable under noise
-        const rendered = renderedPointsRef.current.get(selectedLayerIndex);
+        const rendered = renderedPointsRef.current.get(layerIndex);
         let idx = -1;
         if (Array.isArray(rendered) && rendered.length === layer.nodes.length) {
             idx = rendered.findIndex(p => ((p.x - pos.x) ** 2 + (p.y - pos.y) ** 2) <= hitRadius * hitRadius);
@@ -1717,6 +1736,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
+            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx };
             return;
         }
         // Try midpoints next
@@ -1741,6 +1761,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'mid';
+            gestureRef.current = { layerId, layerIndex, type: 'mid', midIndex: midIdx };
             return;
         }
         // Try center cross (use centroid to match the drawn crosshair position)
@@ -1759,8 +1780,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingMidIndexRef.current = null;
                 draggingOrbitCenterRef.current = false;
                 draggingKindRef.current = null;
+                gestureRef.current = { layerId, layerIndex, type: 'center' };
+                return;
             }
         }
+
+        gestureRef.current = null;
     };
 
     const onMouseMove = (e) => {
