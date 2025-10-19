@@ -53,6 +53,8 @@ export const AppStateProvider = ({ children }) => {
   }, []);
 
   const storeRef = useRef(new StateStore({ initialState: createStateFromDefaults() }));
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
   const [{ appState, version }, setSnapshot] = useState(() => {
     const snap = storeRef.current.snapshot();
     return { appState: snap.state, version: snap.version };
@@ -62,6 +64,22 @@ export const AppStateProvider = ({ children }) => {
     const snap = storeRef.current.snapshot();
     setSnapshot({ appState: snap.state, version: snap.version });
   }, []);
+
+  const applyExternalSnapshot = useCallback((snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') {
+      return;
+    }
+    const { version, state } = snapshot;
+    if (typeof version !== 'number' || !state || typeof state !== 'object') {
+      return;
+    }
+    const currentVersion = storeRef.current.getVersion();
+    if (version < currentVersion) {
+      return;
+    }
+    storeRef.current.applyExternalSnapshot({ version, state });
+    syncFromStore();
+  }, [syncFromStore]);
 
   // RAM preset slot stored in-memory only
   const [quickPreset, setQuickPreset] = useState(null);
@@ -84,6 +102,101 @@ export const AppStateProvider = ({ children }) => {
   const clearQuickPresetSnapshot = useCallback(() => {
     setQuickPreset(null);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    let disposed = false;
+    function resolveUrl() {
+      const envUrl = import.meta?.env?.VITE_MCP_WS_URL;
+      if (envUrl) {
+        return envUrl;
+      }
+      const port = import.meta?.env?.VITE_MCP_WS_PORT ?? 5175;
+      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+      const hostname = window.location.hostname || 'localhost';
+      return `${protocol}://${hostname}:${port}`;
+    }
+    function scheduleReconnect() {
+      if (disposed) {
+        return;
+      }
+      if (reconnectTimerRef.current) {
+        return;
+      }
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, 1000);
+    }
+    function handleMessage(data) {
+      if (!data) {
+        return;
+      }
+      if (data.type === 'snapshot' && data.payload) {
+        applyExternalSnapshot(data.payload);
+      }
+    }
+    function connect() {
+      if (disposed) {
+        return;
+      }
+      let socket;
+      try {
+        socket = new WebSocket(resolveUrl());
+      } catch (error) {
+        scheduleReconnect();
+        return;
+      }
+      wsRef.current = socket;
+      socket.onmessage = (event) => {
+        const deliver = (text) => {
+          try {
+            const parsed = JSON.parse(text);
+            handleMessage(parsed);
+          } catch (err) {
+            console.warn('[AppState] Failed to parse MCP snapshot', err);
+          }
+        };
+        if (typeof event.data === 'string') {
+          deliver(event.data);
+        } else if (event.data instanceof Blob) {
+          event.data.text().then(deliver).catch(() => {});
+        }
+      };
+      socket.onopen = () => {
+        reconnectTimerRef.current = null;
+      };
+      socket.onerror = () => {
+        socket.close();
+      };
+      socket.onclose = () => {
+        if (wsRef.current === socket) {
+          wsRef.current = null;
+        }
+        if (!disposed) {
+          scheduleReconnect();
+        }
+      };
+    }
+    connect();
+    return () => {
+      disposed = true;
+      if (wsRef.current) {
+        try {
+          wsRef.current.close();
+        } catch (error) {
+          console.warn('[AppState] Failed to close MCP WebSocket', error);
+        }
+        wsRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+  }, [applyExternalSnapshot]);
 
   // Preset slots state (16 slots), persisted to localStorage
   const [presetSlots, setPresetSlots] = useState(() => {

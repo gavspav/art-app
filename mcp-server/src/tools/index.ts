@@ -285,7 +285,7 @@ const TOOL_DEFINITIONS = [
   },
 ];
 
-const appService = new AppService();
+export const appService = new AppService();
 
 const serialize = (value: unknown) => JSON.stringify(value, null, 2);
 

@@ -218,6 +218,14 @@ export class StateStore {
     };
   }
 
+  applyExternalSnapshot(snapshot: { version: number; state: AppState }) {
+    this.current = normalizeImportedAppState(snapshot.state, this.makeLayerId);
+    this.version = snapshot.version;
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    return this.snapshot();
+  }
+
   getState(): AppState {
     return deepClone(this.current);
   }
