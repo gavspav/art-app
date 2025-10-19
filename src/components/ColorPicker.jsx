@@ -1,42 +1,123 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ColorPickerPopover from './common/ColorPickerPopover.jsx';
+
+const FALLBACK_COLOR = '#FFFFFF';
 
 const ColorPicker = ({ label, colors, onChange, layerId }) => {
+  const containerRef = useRef(null);
+  const [activeIndex, setActiveIndex] = useState(null);
 
-    const handleColorChange = (index, newColor) => {
-        const newColors = [...colors];
-        newColors[index] = newColor;
-        onChange(newColors);
+  const handleColorChange = useCallback((index, nextColor) => {
+    const next = [...colors];
+    next[index] = nextColor;
+    onChange(next);
+  }, [colors, onChange]);
+
+  const addColor = useCallback(() => {
+    const base = colors.length ? colors[colors.length - 1] : FALLBACK_COLOR;
+    const next = [...colors, base];
+    onChange(next);
+    setActiveIndex(next.length - 1);
+  }, [colors, onChange]);
+
+  const removeColor = useCallback((index) => {
+    const next = colors.filter((_, i) => i !== index);
+    onChange(next);
+    setActiveIndex((prev) => {
+      if (prev === null) return prev;
+      if (prev === index) return null;
+      if (prev > index) return prev - 1;
+      return prev;
+    });
+  }, [colors, onChange]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!containerRef.current) return;
+      if (!containerRef.current.contains(event.target)) {
+        setActiveIndex(null);
+      }
     };
-
-    const addColor = () => {
-        const newColors = [...colors, '#FFFFFF']; // Add white as default new color
-        onChange(newColors);
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
     };
+  }, []);
 
-    const removeColor = (index) => {
-        const newColors = colors.filter((_, i) => i !== index);
-        onChange(newColors);
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setActiveIndex(null);
+      }
     };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
-    return (
-        <div className="control-group color-picker-group">
-            <label>{label}</label>
-            <div className="color-inputs">
-                {colors.map((color, index) => (
-                    <div key={`${layerId || 'default'}-${index}-${color}`} className="color-input-wrapper">
-                        <input
-                            key={`input-${layerId || 'default'}-${index}`}
-                            type="color"
-                            value={color}
-                            onChange={(e) => handleColorChange(index, e.target.value)}
-                        />
-                        <button onClick={() => removeColor(index)} className="remove-color-btn">-</button>
-                    </div>
-                ))}
-                <button onClick={addColor} className="add-color-btn">+</button>
-            </div>
+  useEffect(() => {
+    if (activeIndex === null) return;
+    if (activeIndex >= colors.length) {
+      setActiveIndex(null);
+    }
+  }, [activeIndex, colors.length]);
+
+  const activeColor = (typeof activeIndex === 'number' && activeIndex >= 0 && activeIndex < colors.length)
+    ? colors[activeIndex]
+    : null;
+
+  return (
+    <div
+      className="control-group"
+      ref={containerRef}
+      style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}
+    >
+      <label style={{ fontWeight: 600 }}>{label}</label>
+      <div className="color-picker__swatches">
+        {colors.map((color, index) => (
+          <div
+            key={`${layerId || 'default'}-${index}`}
+            style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}
+          >
+            <button
+              type="button"
+              onClick={() => setActiveIndex((prev) => (prev === index ? null : index))}
+              className={`color-picker__swatch-btn${activeIndex === index ? ' active' : ''}`}
+              style={{ background: color }}
+              title={`Edit colour ${index + 1}`}
+            />
+            <button
+              type="button"
+              onClick={() => removeColor(index)}
+              className="color-picker__remove-btn"
+              title="Remove colour"
+              disabled={colors.length <= 1}
+            >
+              −
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addColor}
+          className="color-picker__add-btn"
+          title="Add colour"
+        >
+          +
+        </button>
+      </div>
+      {activeColor && (
+        <div className="color-popover-container">
+          <ColorPickerPopover
+            color={activeColor}
+            onChange={(next) => handleColorChange(activeIndex, next)}
+            onClose={() => setActiveIndex(null)}
+          />
         </div>
-    );
+      )}
+    </div>
+  );
 };
 
 export default ColorPicker;
