@@ -485,18 +485,63 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 
 // --- Toroidal Wrapping Helpers ---
 // Estimate half-extents of the drawn content for a layer in pixels
-export const estimateLayerHalfExtents = (layer, canvas) => {
+const buildExtentResult = (rx, ry, extra = {}) => {
+    const safeRX = Math.max(0, Number(rx) || 0);
+    const safeRY = Math.max(0, Number(ry) || 0);
+    const extentsX = extra.extentsX || { pos: safeRX, neg: safeRX };
+    const extentsY = extra.extentsY || { pos: safeRY, neg: safeRY };
+    return { rx: safeRX, ry: safeRY, extentsX, extentsY };
+};
+
+export const estimateLayerHalfExtents = (layer, canvas, opts = {}) => {
     try {
-        const { refSize: minWH } = getLayerCanvasMapping(canvas, layer);
+        const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+        const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: minWH } = getLayerCanvasMapping(canvas, layer);
         const scale = Number(layer?.position?.scale ?? 1);
+        const { x = 0.5, y = 0.5 } = layer?.position || {};
+        const offsetXPx = (Number(layer?.xOffset) || 0) * canvasWidth;
+        const offsetYPx = (Number(layer?.yOffset) || 0) * canvasHeight;
+        const centerX = ax + x * spanX + offsetXPx;
+        const centerY = ay + y * spanY + offsetYPx;
         if (layer?.image?.src) {
             const cache = imageCache.get(layer.image.src);
             const img = cache?.img;
             const iw = (img?.naturalWidth || img?.width || 0) * scale;
             const ih = (img?.naturalHeight || img?.height || 0) * scale;
-            return { rx: iw / 2, ry: ih / 2 };
+            return buildExtentResult(iw / 2, ih / 2);
         }
-        // Shape: mirror radius computation from drawShape (fully relative)
+
+        const points = Array.isArray(opts?.renderedPoints) ? opts.renderedPoints : null;
+        if (points && points.length >= 3) {
+            let maxPosX = 0, maxNegX = 0;
+            let maxPosY = 0, maxNegY = 0;
+            for (const p of points) {
+                const px = Number(p?.x);
+                const py = Number(p?.y);
+                if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+                const dx = px - centerX;
+                const dy = py - centerY;
+                if (dx >= 0) {
+                    if (dx > maxPosX) maxPosX = dx;
+                } else {
+                    if (-dx > maxNegX) maxNegX = -dx;
+                }
+                if (dy >= 0) {
+                    if (dy > maxPosY) maxPosY = dy;
+                } else {
+                    if (-dy > maxNegY) maxNegY = -dy;
+                }
+            }
+            const rx = Math.max(maxPosX, maxNegX);
+            const ry = Math.max(maxPosY, maxNegY);
+            if (Number.isFinite(rx) && Number.isFinite(ry)) {
+                return buildExtentResult(rx, ry, {
+                    extentsX: { pos: maxPosX, neg: maxNegX },
+                    extentsY: { pos: maxPosY, neg: maxNegY },
+                });
+            }
+        }
+
         const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
         const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -506,14 +551,14 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
         const radiusX = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusX + bump);
         const radiusY = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusY + bump);
-        return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
+        return buildExtentResult(radiusX, radiusY);
     } catch {
-        return { rx: 0, ry: 0 };
+        return buildExtentResult(0, 0);
     }
 };
 
 // Draw a layer with toroidal wrapping for 'drift' movement
-const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
+const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => {
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const w = canvasWidth;
     const h = canvasHeight;
@@ -530,15 +575,21 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
     const offsetYPx = (Number(layer.yOffset) || 0) * canvasHeight;
     const cx = ax + x * spanX + offsetXPx;
     const cy = ay + y * spanY + offsetYPx;
-    const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
+    const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: opts?.renderedPoints });
+    const rx = extentInfo.rx;
+    const ry = extentInfo.ry;
+    const posX = extentInfo.extentsX?.pos ?? rx;
+    const negX = extentInfo.extentsX?.neg ?? rx;
+    const posY = extentInfo.extentsY?.pos ?? ry;
+    const negY = extentInfo.extentsY?.neg ?? ry;
 
     // Determine which neighbor offsets are needed
     const offsetsX = [0];
     const offsetsY = [0];
-    if (cx - rx < 0) offsetsX.push(w);      // needs +W copy
-    if (cx + rx > w) offsetsX.push(-w);     // needs -W copy
-    if (cy - ry < 0) offsetsY.push(h);      // needs +H copy
-    if (cy + ry > h) offsetsY.push(-h);     // needs -H copy
+    if (cx - negX < 0) offsetsX.push(w);      // needs +W copy
+    if (cx + posX > w) offsetsX.push(-w);     // needs -W copy
+    if (cy - negY < 0) offsetsY.push(h);      // needs +H copy
+    if (cy + posY > h) offsetsY.push(-h);     // needs -H copy
 
     for (let oy of offsetsY) {
         for (let ox of offsetsX) {
@@ -1163,13 +1214,20 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : timeNow;
-            layers.forEach((layer) => {
+            layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
+                let renderedPoints = null;
+                if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
+                    renderedPointsRef.current.set(index, renderedPoints);
+                } else {
+                    renderedPointsRef.current.delete(index);
+                }
                 if (layer.image && layer.image.src) {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow), [], { renderedPoints });
                 }
             });
             // Do not return; continue to draw overlays (debug grid, node handles)
@@ -1266,16 +1324,19 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const layerChange = layerChanges.get(index);
 
             if (forceFullPass || layerChange?.hasChanged) {
+                let renderedPoints = null;
                 if (layer.image && layer.image.src) {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
-                        renderedPointsRef.current.set(index, pts);
+                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+                        renderedPointsRef.current.set(index, renderedPoints);
+                    } else {
+                        renderedPointsRef.current.delete(index);
                     }
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass), [], { renderedPoints });
                 }
             }
         });
