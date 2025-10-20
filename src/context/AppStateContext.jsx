@@ -3,6 +3,8 @@ import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
 
 const SEED_MIN = 1;
 const SEED_MAX = 2147483646;
+const INTERACTION_WINDOW_MS = 2500;
+const IGNORED_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'CapsLock']);
 const generateSeed = () => Math.floor(Math.random() * (SEED_MAX - SEED_MIN + 1)) + SEED_MIN;
 
 // Create the context
@@ -106,6 +108,66 @@ export const AppStateProvider = ({ children }) => {
   // RAM preset slot stored in-memory only
   const [quickPreset, setQuickPreset] = useState(null);
 
+  // Autosave tracking
+  const [isDirty, setIsDirty] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState(Date.now());
+  const dirtyGuardRef = useRef(0);
+  const lastInteractionRef = useRef(0);
+
+  const markDirty = useCallback(() => {
+    if (dirtyGuardRef.current > 0) return;
+    const now = Date.now();
+    const last = lastInteractionRef.current;
+    if (!last || (now - last) > INTERACTION_WINDOW_MS) return;
+    setIsDirty(true);
+  }, []);
+
+  const runWithoutDirty = useCallback((fn) => {
+    dirtyGuardRef.current += 1;
+    try {
+      if (typeof fn === 'function') {
+        return fn();
+      }
+      return undefined;
+    } finally {
+      dirtyGuardRef.current = Math.max(0, dirtyGuardRef.current - 1);
+    }
+  }, []);
+
+  const noteUserInteraction = useCallback(() => {
+    lastInteractionRef.current = Date.now();
+    dirtyGuardRef.current = Math.max(0, dirtyGuardRef.current - 1);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return () => {};
+
+    const handlePointer = () => { noteUserInteraction(); };
+    const handleWheel = () => { noteUserInteraction(); };
+    const handleKey = (event) => {
+      if (!event || typeof event.key !== 'string') {
+        noteUserInteraction();
+        return;
+      }
+      if (IGNORED_KEYS.has(event.key)) return;
+      noteUserInteraction();
+    };
+
+    const passiveOpts = { passive: true };
+
+    window.addEventListener('pointerdown', handlePointer, passiveOpts);
+    window.addEventListener('pointerup', handlePointer, passiveOpts);
+    window.addEventListener('wheel', handleWheel, passiveOpts);
+    window.addEventListener('keydown', handleKey, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointer, passiveOpts);
+      window.removeEventListener('pointerup', handlePointer, passiveOpts);
+      window.removeEventListener('wheel', handleWheel, passiveOpts);
+      window.removeEventListener('keydown', handleKey, true);
+    };
+  }, [noteUserInteraction]);
+
   const setQuickPresetSnapshot = useCallback((snapshot) => {
     if (!snapshot || typeof snapshot !== 'object') {
       setQuickPreset(null);
@@ -179,11 +241,13 @@ export const AppStateProvider = ({ children }) => {
       ...prev,
       isFrozen: (typeof value === 'function') ? value(prev.isFrozen) : value,
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setBackgroundColor = useCallback((value) => {
     setAppState(prev => ({ ...prev, backgroundColor: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setBackgroundImage = useCallback((value) => {
     // value can be partial update or full object
@@ -193,19 +257,23 @@ export const AppStateProvider = ({ children }) => {
         ? value(prev.backgroundImage)
         : { ...prev.backgroundImage, ...(value || {}) }
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setGlobalBlendMode = useCallback((value) => {
     setAppState(prev => ({ ...prev, globalBlendMode: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setGlobalSeed = useCallback((value) => {
     setAppState(prev => ({ ...prev, globalSeed: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setGlobalSpeedMultiplier = useCallback((value) => {
     setAppState(prev => ({ ...prev, globalSpeedMultiplier: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Important: support functional updates correctly to avoid stale state reappearing.
   // If an updater function is provided, call it with prev.layers inside setAppState.
@@ -215,50 +283,60 @@ export const AppStateProvider = ({ children }) => {
     } else {
       setAppState(prev => ({ ...prev, layers: assignIds(value) }));
     }
-  }, [assignIds]);
+    markDirty();
+  }, [assignIds, markDirty]);
 
   const setSelectedLayerIndex = useCallback((value) => {
     setAppState(prev => ({ ...prev, selectedLayerIndex: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setIsOverlayVisible = useCallback((value) => {
     setAppState(prev => ({
       ...prev,
       isOverlayVisible: (typeof value === 'function') ? value(prev.isOverlayVisible) : value,
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setIsNodeEditMode = useCallback((value) => {
     setAppState(prev => ({ ...prev, isNodeEditMode: value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Toggle Classic Mode (original CodePen-like aesthetics)
   const setClassicMode = useCallback((value) => {
     setAppState(prev => ({ ...prev, classicMode: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Toggle Z-Ignore (disable Z movement)
   const setZIgnore = useCallback((value) => {
     setAppState(prev => ({ ...prev, zIgnore: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Global toggles for color randomization behavior
   const setRandomizePalette = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizePalette: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setRandomizeNumColors = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setColorFadeWhileFrozen = useCallback((value) => {
     setAppState(prev => ({ ...prev, colorFadeWhileFrozen: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setParameterTargetMode = useCallback((mode) => {
     const normalized = (typeof mode === 'string' && mode.toLowerCase() === 'global') ? 'global' : 'individual';
     setAppState(prev => ({ ...prev, parameterTargetMode: normalized }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setShowLayerOutlines = useCallback((value) => {
     setAppState(prev => ({
@@ -267,39 +345,48 @@ export const AppStateProvider = ({ children }) => {
         ? !!value(prev.showLayerOutlines)
         : !!value,
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setSyncLayerColorsToFirst = useCallback((value) => {
     setAppState(prev => ({ ...prev, syncLayerColorsToFirst: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const setApplyVariationInstantly = useCallback((value) => {
     setAppState(prev => ({ ...prev, applyVariationInstantly: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Morph setters
   const setMorphEnabled = useCallback((value) => {
     setAppState(prev => ({ ...prev, morphEnabled: !!value }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setMorphRoute = useCallback((value) => {
     setAppState(prev => ({ ...prev, morphRoute: Array.isArray(value) ? value.slice(0, 16) : prev.morphRoute }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setMorphDurationPerLeg = useCallback((value) => {
     const v = parseFloat(value);
     setAppState(prev => ({ ...prev, morphDurationPerLeg: Number.isFinite(v) ? Math.max(0.2, Math.min(120, v)) : prev.morphDurationPerLeg }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setMorphEasing = useCallback((value) => {
     const allowed = ['linear'];
     setAppState(prev => ({ ...prev, morphEasing: allowed.includes(value) ? value : prev.morphEasing }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setMorphLoopMode = useCallback((value) => {
     const allowed = ['loop','pingpong'];
     setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setMorphMode = useCallback((value) => {
     const allowed = ['tween','fade'];
     setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
@@ -375,29 +462,32 @@ export const AppStateProvider = ({ children }) => {
         if (layerOut.nodes && (!Array.isArray(layerOut.nodes) || layerOut.nodes.length < 3)) layerOut.nodes = null;
         return layerOut;
       };
-
-      setAppState(prevState => ({
-        ...prevState,
-        ...newState,
-        syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
-          ? newState.syncLayerColorsToFirst
-          : !!prevState.syncLayerColorsToFirst,
-        backgroundImage: {
-          src: null,
-          opacity: 1,
-          fit: 'cover',
-          enabled: false,
-          ...(newState.backgroundImage || {})
-        },
-        // Ensure layers have proper structure
-        layers: Array.isArray(newState.layers) && newState.layers.length > 0
-          ? newState.layers.map(normalizeLayer)
-          : prevState.layers.map(normalizeLayer)
-      }));
+      runWithoutDirty(() => {
+        setAppState(prevState => ({
+          ...prevState,
+          ...newState,
+          syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
+            ? newState.syncLayerColorsToFirst
+            : !!prevState.syncLayerColorsToFirst,
+          backgroundImage: {
+            src: null,
+            opacity: 1,
+            fit: 'cover',
+            enabled: false,
+            ...(newState.backgroundImage || {})
+          },
+          // Ensure layers have proper structure
+          layers: Array.isArray(newState.layers) && newState.layers.length > 0
+            ? newState.layers.map(normalizeLayer)
+            : prevState.layers.map(normalizeLayer)
+        }));
+      });
+      setIsDirty(false);
+      setLastSavedAt(Date.now());
       return true;
     }
     return false;
-  }, [makeLayerId]);
+  }, [makeLayerId, runWithoutDirty, setIsDirty, setLastSavedAt]);
 
   // Selection helpers
   const toggleLayerSelection = useCallback((layerId) => {
@@ -406,45 +496,54 @@ export const AppStateProvider = ({ children }) => {
       if (set.has(layerId)) set.delete(layerId); else set.add(layerId);
       return { ...prev, selectedLayerIds: Array.from(set) };
     });
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const clearSelection = useCallback(() => {
     setAppState(prev => ({ ...prev, selectedLayerIds: [] }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Groups CRUD
   const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
     const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`;
     setAppState(prev => ({ ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }] }));
+    markDirty();
     return id;
-  }, []);
+  }, [markDirty]);
   const renameGroup = useCallback((groupId, name) => {
     setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, name } : g) }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const setGroupColor = useCallback((groupId, color) => {
     setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, color } : g) }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const addMembersToGroup = useCallback((groupId, ids = []) => {
     setAppState(prev => ({
       ...prev,
       layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: Array.from(new Set([...(g.memberIds || []), ...ids])) } : g)
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const removeMembersFromGroup = useCallback((groupId, ids = []) => {
     const remove = new Set(ids);
     setAppState(prev => ({
       ...prev,
       layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: (g.memberIds || []).filter(id => !remove.has(id)) } : g)
     }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const deleteGroup = useCallback((groupId) => {
     setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId) }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Edit target
   const setEditTarget = useCallback((target) => {
     // target: { type: 'single'|'selection'|'group', groupId? }
     setAppState(prev => ({ ...prev, editTarget: target && target.type ? target : { type: 'single' } }));
-  }, []);
+    markDirty();
+  }, [markDirty]);
   const getActiveTargetLayerIds = useCallback(() => {
     const state = appState;
     if (state.editTarget?.type === 'selection') return state.selectedLayerIds || [];
@@ -481,7 +580,8 @@ export const AppStateProvider = ({ children }) => {
       showLayerOutlines: false,
       syncLayerColorsToFirst: false,
     });
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const value = {
     // Current state
@@ -489,6 +589,12 @@ export const AppStateProvider = ({ children }) => {
     quickPreset,
     setQuickPresetSnapshot,
     clearQuickPresetSnapshot,
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
+    markDirty,
+    noteUserInteraction,
     // Presets API
     presetSlots,
     setPresetSlots,
@@ -543,6 +649,7 @@ export const AppStateProvider = ({ children }) => {
     getCurrentAppState,
     loadAppState,
     resetAppState,
+    runWithoutDirty,
   };
 
   return (

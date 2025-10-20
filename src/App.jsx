@@ -13,6 +13,7 @@ import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
+import { useAutosave } from './hooks/useAutosave.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
@@ -90,6 +91,10 @@ const MainApp = () => {
     setQuickPresetSnapshot,
     getCurrentAppState,
     loadAppState,
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
   } = appStateCtx;
 
   // MIDI context
@@ -762,6 +767,16 @@ const MainApp = () => {
     setBackgroundColor,
     setGlobalBlendMode,
     setGlobalSpeedMultiplier,
+  });
+
+  useAutosave({
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
+    getCurrentAppState,
+    parameters,
+    isFrozen,
   });
 
   const randomizeCurrentLayer = useCallback((randomizePaletteFlag = false) => {

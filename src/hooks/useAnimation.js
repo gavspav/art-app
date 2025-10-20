@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useAppState } from '../context/AppStateContext.jsx';
 
 // Pure function to calculate new movement angle after boundary collision
 const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
@@ -138,6 +139,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
 
 export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false) => {
     const animationFrameId = useRef(null);
+    const { runWithoutDirty, noteUserInteraction } = useAppState() || {};
 
     const animate = useCallback(() => {
         if (isFrozen) {
@@ -145,12 +147,22 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
             return;
         }
 
-        setLayers(prevLayers =>
+        const applyUpdate = () => setLayers(prevLayers =>
             prevLayers.map(layer => updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore))
         );
 
+        if (typeof runWithoutDirty === 'function') {
+            runWithoutDirty(applyUpdate);
+        } else {
+            applyUpdate();
+        }
+
+        if (typeof noteUserInteraction === 'function') {
+            noteUserInteraction();
+        }
+
         animationFrameId.current = requestAnimationFrame(animate);
-    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore]);
+    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore, runWithoutDirty, noteUserInteraction]);
 
     useEffect(() => {
         // Start loop only when not frozen

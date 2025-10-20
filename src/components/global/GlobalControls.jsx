@@ -6,9 +6,13 @@ import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
+import AutosaveRecovery from './AutosaveRecovery.jsx';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
+const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
+const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
+const AUTOSAVE_SLOT_COUNT = 3;
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
@@ -125,8 +129,165 @@ const GlobalControls = ({
     applyVariationInstantly,
     setApplyVariationInstantly,
   } = useAppState() || {};
-  const { loadFullConfiguration } = useParameters() || {};
+  const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
+
+  // Autosave recovery state
+  const [showAutosaveRecovery, setShowAutosaveRecovery] = useState(false);
+  const [autosaveSlots, setAutosaveSlots] = useState([]);
+  const [autosaveMessage, setAutosaveMessage] = useState('');
+  const [autosaveError, setAutosaveError] = useState('');
+
+  const refreshAutosaveSlots = useCallback(() => {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveSlots([]);
+      setAutosaveError('Autosave storage is unavailable in this environment.');
+      return;
+    }
+    try {
+      const metaRaw = window.localStorage.getItem(AUTOSAVE_META_KEY);
+      const meta = metaRaw ? JSON.parse(metaRaw) : {};
+      const slotsMeta = Array.isArray(meta?.slots) ? meta.slots : [];
+      const map = new Map();
+
+      const ensureSlotEntry = (key, timestamp) => {
+        if (!key) return;
+        if (!map.has(key)) {
+          map.set(key, { key, timestamp: timestamp || null, hasData: false });
+        } else if (timestamp && !map.get(key).timestamp) {
+          map.set(key, { ...map.get(key), timestamp });
+        }
+      };
+
+      slotsMeta.forEach((slot, idx) => {
+        const key = slot?.key || `${AUTOSAVE_SLOT_PREFIX}${idx}`;
+        ensureSlotEntry(key, slot?.timestamp || null);
+      });
+
+      for (let i = 0; i < AUTOSAVE_SLOT_COUNT; i += 1) {
+        const key = `${AUTOSAVE_SLOT_PREFIX}${i}`;
+        ensureSlotEntry(key, null);
+      }
+
+      const entries = Array.from(map.values()).map((entry) => {
+        let timestamp = entry.timestamp;
+        let hasData = false;
+        try {
+          const raw = window.localStorage.getItem(entry.key);
+          if (raw) {
+            hasData = true;
+            if (!timestamp) {
+              const payload = JSON.parse(raw);
+              if (payload?.savedAt) {
+                timestamp = payload.savedAt;
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('[Autosave] Failed to inspect slot', entry.key, error);
+        }
+        return { key: entry.key, timestamp, hasData };
+      }).filter((entry) => entry.hasData);
+
+      entries.sort((a, b) => {
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tb - ta;
+      });
+
+      setAutosaveSlots(entries);
+      if (!entries.length) {
+        setAutosaveMessage('');
+      }
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to load autosave metadata', error);
+      setAutosaveSlots([]);
+      setAutosaveError('Failed to read autosave metadata.');
+    }
+  }, []);
+
+  const handleRestoreAutosave = useCallback((slotKey) => {
+    if (!slotKey) return;
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveError('Autosave storage is unavailable.');
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(slotKey);
+      if (!raw) {
+        setAutosaveError('Selected autosave could not be found.');
+        refreshAutosaveSlots();
+        return;
+      }
+      const data = JSON.parse(raw);
+      if (data?.parameters && applyParametersSnapshot) {
+        applyParametersSnapshot(data.parameters);
+      }
+      if (data?.appState && loadAppState) {
+        loadAppState(data.appState);
+      }
+      setAutosaveMessage('Autosave restored successfully.');
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to restore autosave', slotKey, error);
+      setAutosaveError('Failed to restore autosave. Check console for details.');
+    }
+  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots]);
+
+  const handleClearAutosaves = useCallback(() => {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveError('Autosave storage is unavailable.');
+      return;
+    }
+    if (!window.confirm('Clear all autosave snapshots? This cannot be undone.')) {
+      return;
+    }
+    try {
+      for (let i = 0; i < AUTOSAVE_SLOT_COUNT; i += 1) {
+        window.localStorage.removeItem(`${AUTOSAVE_SLOT_PREFIX}${i}`);
+      }
+      window.localStorage.removeItem(AUTOSAVE_META_KEY);
+      setAutosaveSlots([]);
+      setAutosaveMessage('Autosaves cleared.');
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to clear autosaves', error);
+      setAutosaveError('Failed to clear autosaves.');
+    }
+  }, []);
+
+  const handleRefreshAutosaves = useCallback(() => {
+    setAutosaveMessage('');
+    refreshAutosaveSlots();
+  }, [refreshAutosaveSlots]);
+
+  const handleToggleAutosaveRecovery = useCallback(() => {
+    setAutosaveMessage('');
+    setAutosaveError('');
+    setShowAutosaveRecovery((prev) => {
+      const next = !prev;
+      if (!prev && !next) {
+        return next;
+      }
+      if (!prev && next) {
+        refreshAutosaveSlots();
+      }
+      return next;
+    });
+  }, [refreshAutosaveSlots]);
+
+  const handleCloseAutosaveRecovery = useCallback(() => {
+    setShowAutosaveRecovery(false);
+    setAutosaveMessage('');
+    setAutosaveError('');
+  }, []);
+
+  useEffect(() => {
+    if (showAutosaveRecovery) {
+      refreshAutosaveSlots();
+    }
+  }, [showAutosaveRecovery, refreshAutosaveSlots]);
 
   const getExportMeta = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -893,6 +1054,14 @@ const GlobalControls = ({
         >
           📂
         </button>
+        <button
+          className="icon-btn sm"
+          onClick={(e) => { e.stopPropagation(); handleToggleAutosaveRecovery(); }}
+          title="Autosave recovery"
+          aria-label="Autosave recovery"
+        >
+          🛟
+        </button>
         {showGlobalMidi && (
           <>
             <button
@@ -927,6 +1096,17 @@ const GlobalControls = ({
           setBackgroundColor={setBackgroundColor}
           setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
           showGlobalMidi={showGlobalMidi}
+        />
+      )}
+      {showAutosaveRecovery && (
+        <AutosaveRecovery
+          slots={autosaveSlots}
+          onRestore={handleRestoreAutosave}
+          onClearAll={handleClearAutosaves}
+          onRefresh={handleRefreshAutosaves}
+          onClose={handleCloseAutosaveRecovery}
+          message={autosaveMessage}
+          error={autosaveError}
         />
       )}
       <div className="control-group" style={{ margin: 0 }}>
