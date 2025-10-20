@@ -23,15 +23,21 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>3</kbd><span>Layer Animation tab</span></div>
           <div><kbd>4</kbd><span>Layer Colour tab</span></div>
           <div><kbd>5</kbd><span>Presets tab</span></div>
+          <div><kbd>6</kbd><span>Groups tab</span></div>
           <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
           <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
           <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
+          <div><kbd>R</kbd><span>Randomize all</span></div>
           <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
           <div><kbd>Shift</kbd> + <kbd>A</kbd><span>Recall RAM preset</span></div>
           <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
           <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
+          <div><kbd>N</kbd><span>Toggle node edit mode</span></div>
+          <div><kbd>Z</kbd><span>Toggle Z-Scale ignore</span></div>
           <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
           <div><kbd>Delete</kbd><span>Delete selected layer (Node Edit mode)</span></div>
+          <div><kbd>[</kbd><span>Select previous layer</span></div>
+          <div><kbd>]</kbd><span>Select next layer</span></div>
           <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
           <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
           <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
