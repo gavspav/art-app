@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ColorPickerPopover from './common/ColorPickerPopover.jsx';
 
 const FALLBACK_COLOR = '#FFFFFF';
@@ -7,29 +7,45 @@ const ColorPicker = ({ label, colors, onChange, layerId }) => {
   const containerRef = useRef(null);
   const [activeIndex, setActiveIndex] = useState(null);
 
+  const safeColors = useMemo(() => (Array.isArray(colors) ? colors : []), [colors]);
+
+  useEffect(() => {
+    setActiveIndex((prev) => {
+      if (prev === null) return prev;
+      const list = safeColors;
+      if (!Array.isArray(list) || list.length === 0) return null;
+      if (prev < 0 || prev >= list.length) return Math.max(0, list.length - 1);
+      if (list[prev] !== colors?.[prev]) {
+        const idx = Math.min(prev, list.length - 1);
+        return idx;
+      }
+      return prev;
+    });
+  }, [colors, safeColors]);
+
   const handleColorChange = useCallback((index, nextColor) => {
-    const next = [...colors];
+    const next = [...safeColors];
     next[index] = nextColor;
     onChange(next);
   }, [colors, onChange]);
 
   const addColor = useCallback(() => {
-    const base = colors.length ? colors[colors.length - 1] : FALLBACK_COLOR;
-    const next = [...colors, base];
+    const base = safeColors.length ? safeColors[safeColors.length - 1] : FALLBACK_COLOR;
+    const next = [...safeColors, base];
     onChange(next);
     setActiveIndex(next.length - 1);
-  }, [colors, onChange]);
+  }, [safeColors, onChange]);
 
   const removeColor = useCallback((index) => {
-    const next = colors.filter((_, i) => i !== index);
+    const next = safeColors.filter((_, i) => i !== index);
     onChange(next);
     setActiveIndex((prev) => {
       if (prev === null) return prev;
       if (prev === index) return null;
-      if (prev > index) return prev - 1;
+      if (prev > index) return Math.max(0, prev - 1);
       return prev;
     });
-  }, [colors, onChange]);
+  }, [onChange, safeColors]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -75,7 +91,7 @@ const ColorPicker = ({ label, colors, onChange, layerId }) => {
     >
       <label style={{ fontWeight: 600 }}>{label}</label>
       <div className="color-picker__swatches">
-        {colors.map((color, index) => (
+        {safeColors.map((color, index) => (
           <div
             key={`${layerId || 'default'}-${index}`}
             style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem' }}
@@ -92,7 +108,7 @@ const ColorPicker = ({ label, colors, onChange, layerId }) => {
               onClick={() => removeColor(index)}
               className="color-picker__remove-btn"
               title="Remove colour"
-              disabled={colors.length <= 1}
+              disabled={safeColors.length <= 1}
             >
               −
             </button>
