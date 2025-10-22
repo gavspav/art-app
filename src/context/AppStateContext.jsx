@@ -77,7 +77,7 @@ export const AppStateProvider = ({ children }) => {
     isNodeEditMode: false,
     classicMode: false,
     // Z-axis movement ignore (disable all Z scaling movement)
-    zIgnore: false,
+    zIgnore: true,
     // Global randomization toggles for palette and color count
     randomizePalette: true,
     randomizeNumColors: true,
@@ -573,6 +573,7 @@ export const AppStateProvider = ({ children }) => {
       isOverlayVisible: true,
       isNodeEditMode: false,
       classicMode: false,
+      zIgnore: true,
       randomizePalette: true,
       randomizeNumColors: true,
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',

@@ -124,6 +124,7 @@ const BottomPanel = ({
       return Number.isFinite(v) ? Math.max(160, Math.min(600, v)) : 260;
     } catch { return 260; }
   });
+  const [autosaveToggleToken, setAutosaveToggleToken] = useState(0);
   const isResizingRef = useRef(false);
   const [panelWidthVW, setPanelWidthVW] = useState(() => {
     try {
@@ -419,6 +420,7 @@ const BottomPanel = ({
           <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
             <GlobalControls
               key={`glob-${parameterTargetMode}`}
+              autosaveToggleToken={autosaveToggleToken}
               backgroundColor={backgroundColor}
               setBackgroundColor={setBackgroundColor}
               backgroundImage={backgroundImage}
@@ -445,8 +447,6 @@ const BottomPanel = ({
               setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
               setParameterTargetMode={setParameterTargetMode}
-              onQuickSave={onQuickSave}
-              onQuickLoad={onQuickLoad}
               midiSupported={midiSupported}
               beginLearn={beginLearn}
               clearMapping={clearMapping}
@@ -591,6 +591,52 @@ const BottomPanel = ({
               ⬇️
             </button>
           </div>
+        </div>
+
+        {/* Global quick actions toolbar (visible across tabs) */}
+        <div className="global-toolbar">
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof onQuickSave !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              typeof onQuickSave === 'function' && onQuickSave();
+            }}
+            title="Save configuration"
+            aria-label="Save configuration"
+          >
+            💾
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof onQuickLoad !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              typeof onQuickLoad === 'function' && onQuickLoad();
+            }}
+            title="Load configuration"
+            aria-label="Load configuration"
+          >
+            📂
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              setActiveTab('global');
+              setAutosaveToggleToken((token) => token + 1);
+            }}
+            title="Autosave recovery"
+            aria-label="Autosave recovery"
+          >
+            🛟
+          </button>
         </div>
 
         {/* Tab content area */}

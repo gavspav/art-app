@@ -276,7 +276,8 @@
   font-size: 0.9rem;
 }
 
-.parameter-card input[type="number"] {
+.parameter-card input[type="number"],
+.parameter-card input.settings-number-input {
   width: 60px;
   background-color: #222;
   color: #eee;

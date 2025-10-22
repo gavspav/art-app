@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import ColorPicker from './ColorPicker';
+import BufferedNumberInput from './common/BufferedNumberInput.jsx';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
@@ -427,12 +428,15 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     updateParameter(id, 'isRandomizable', !!e.target.checked);
   };
 
-  const onMetaChange = (field) => (e) => {
-    let v = e.target.value;
-    if (['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'].includes(field)) {
-      v = parseFloat(v);
+  const onMetaChange = (field) => (input) => {
+    let nextValue = input;
+    if (input && typeof input === 'object' && 'target' in input) {
+      nextValue = input.target.value;
+      if (['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'].includes(field)) {
+        nextValue = parseFloat(nextValue);
+      }
     }
-    updateParameter(id, field, v);
+    updateParameter(id, field, nextValue);
   };
 
   // Determine visibility but do not return yet to preserve hook order
@@ -545,15 +549,50 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         {type === 'slider' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
             <label>Min</label>
-            <input type="number" value={min} onChange={onMetaChange('min')} />
+            <BufferedNumberInput
+              value={min}
+              step={step}
+              onCommit={onMetaChange('min')}
+              className="dc-settings-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
             <label>Max</label>
-            <input type="number" value={max} onChange={onMetaChange('max')} />
+            <BufferedNumberInput
+              value={max}
+              step={step}
+              onCommit={onMetaChange('max')}
+              className="dc-settings-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
             <label>Step</label>
-            <input type="number" value={step} step="0.001" onChange={onMetaChange('step')} />
+            <BufferedNumberInput
+              value={step}
+              onCommit={onMetaChange('step')}
+              className="dc-settings-number"
+              inputMode="decimal"
+              precision={3}
+              style={{ width: '4.5rem' }}
+            />
             <label>Rand Min</label>
-            <input type="number" value={Number.isFinite(param.randomMin) ? param.randomMin : min} onChange={onMetaChange('randomMin')} />
+            <BufferedNumberInput
+              value={Number.isFinite(param.randomMin) ? param.randomMin : min}
+              step={step}
+              onCommit={onMetaChange('randomMin')}
+              className="dc-settings-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
             <label>Rand Max</label>
-            <input type="number" value={Number.isFinite(param.randomMax) ? param.randomMax : max} onChange={onMetaChange('randomMax')} />
+            <BufferedNumberInput
+              value={Number.isFinite(param.randomMax) ? param.randomMax : max}
+              step={step}
+              onCommit={onMetaChange('randomMax')}
+              className="dc-settings-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
           </div>
         ) : (
           <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
@@ -1164,28 +1203,26 @@ const Controls = forwardRef(({
               <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input
-                    type="number"
-                    step={1}
+                  <BufferedNumberInput
+                    value={Number.isFinite(rotateMin) ? rotateMin : -180}
                     min={-360}
                     max={360}
-                    value={Number.isFinite(rotateMin) ? rotateMin : -180}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setRotateMin(Number.isFinite(v) ? v : -180);
-                    }}
+                    step={1}
+                    onCommit={(next) => setRotateMin(Number.isFinite(next) ? next : -180)}
+                    className="compact-input"
+                    inputMode="numeric"
+                    style={{ width: '4.5rem' }}
                   />
                   <label className="compact-label">Max</label>
-                  <input
-                    type="number"
-                    step={1}
+                  <BufferedNumberInput
+                    value={Number.isFinite(rotateMax) ? rotateMax : 180}
                     min={-360}
                     max={360}
-                    value={Number.isFinite(rotateMax) ? rotateMax : 180}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setRotateMax(Number.isFinite(v) ? v : 180);
-                    }}
+                    step={1}
+                    onCommit={(next) => setRotateMax(Number.isFinite(next) ? next : 180)}
+                    className="compact-input"
+                    inputMode="numeric"
+                    style={{ width: '4.5rem' }}
                   />
                 </div>
                 <div className="compact-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
@@ -1223,8 +1260,8 @@ const Controls = forwardRef(({
     applyTargetedUpdate(() => ({ colors: [...arr], numColors: n, selectedColor: 0 }));
   };
 
-  const handleLayerNumColorsChange = (e) => {
-    let n = parseInt(e.target.value, 10);
+  const handleLayerNumColorsChange = (rawValue) => {
+    let n = Math.round(Number(rawValue));
     if (!Number.isFinite(n) || n < 1) n = 1;
     applyTargetedUpdate((layer) => {
       const base = Array.isArray(layer?.colors) ? layer.colors : [];
@@ -1249,13 +1286,14 @@ const Controls = forwardRef(({
         {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
 
         <label>Number of colours:</label>
-        <input
+        <BufferedNumberInput
           key={`numColors-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-          type="number"
           min={1}
           step={1}
           value={Math.max(1, Number.isFinite(currentLayer?.numColors) ? currentLayer.numColors : (Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 1))}
-          onChange={handleLayerNumColorsChange}
+          onCommit={handleLayerNumColorsChange}
+          className="compact-input"
+          inputMode="numeric"
           style={{ width: '5rem' }}
         />
 
@@ -1353,20 +1391,35 @@ const Controls = forwardRef(({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
               <label className="compact-label">Min</label>
-              <input
-                type="number"
+              <BufferedNumberInput
                 min={1}
                 max={colorCountMax || 8}
+                step={1}
                 value={Math.max(1, Number(colorCountMin || 1))}
-                onChange={(e) => setColorCountMin && setColorCountMin(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                onCommit={(next) => {
+                  if (!setColorCountMin) return;
+                  const safe = Math.max(1, Math.round(Number(next) || 1));
+                  setColorCountMin(safe);
+                }}
+                className="compact-input"
+                inputMode="numeric"
+                style={{ width: '4.5rem' }}
               />
               <label className="compact-label">Max</label>
-              <input
-                type="number"
+              <BufferedNumberInput
                 min={colorCountMin || 1}
                 max={32}
+                step={1}
                 value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
-                onChange={(e) => setColorCountMax && setColorCountMax(Math.max(Number(colorCountMin || 1), parseInt(e.target.value || '8', 10)))}
+                onCommit={(next) => {
+                  if (!setColorCountMax) return;
+                  const floor = Number(colorCountMin || 1);
+                  const safe = Math.max(floor, Math.round(Number(next) || floor));
+                  setColorCountMax(safe);
+                }}
+                className="compact-input"
+                inputMode="numeric"
+                style={{ width: '4.5rem' }}
               />
             </div>
           </div>

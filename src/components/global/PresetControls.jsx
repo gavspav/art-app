@@ -3,6 +3,7 @@ import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { usePresetMorph } from '../../hooks/usePresetMorph.js';
+import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 
 /**
  * PresetControls
@@ -345,7 +346,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
           </label>
           <label className="compact-label" title="Seconds per leg">
             Duration
-            <input type="number" step={0.1} min={0.2} max={120} value={Number(morphDurationPerLeg || 5)} onChange={(e) => setMorphDurationPerLeg && setMorphDurationPerLeg(e.target.value)} className="compact-input" />
+            <BufferedNumberInput
+              value={Number.isFinite(morphDurationPerLeg) ? morphDurationPerLeg : 5}
+              min={0.2}
+              max={120}
+              step={0.1}
+              onCommit={(next) => setMorphDurationPerLeg?.(next)}
+              className="compact-input"
+              inputMode="decimal"
+            />
           </label>
           <label className="compact-label" title="Easing">
             Easing

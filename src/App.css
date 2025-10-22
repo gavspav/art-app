@@ -517,6 +517,16 @@ input[type="checkbox"] {
   background: rgba(255,255,255,0.14);
 }
 
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.08);
+}
+
+.icon-btn:disabled:hover {
+  background: rgba(255,255,255,0.08);
+}
+
 /* Small icon button for compact header rows */
 .icon-btn.sm {
   width: 28px;

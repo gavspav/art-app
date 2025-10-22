@@ -69,9 +69,7 @@ const GlobalControls = ({
   handleRandomizeAll,
   // UI options
   hidePresets = false,
-  // Quick save/load handlers (injected from App)
-  onQuickSave,
-  onQuickLoad,
+  autosaveToggleToken = 0,
 }) => {
   const layerSeedNonceRef = useRef(0);
   const generateLayerSeed = useCallback(() => {
@@ -288,6 +286,14 @@ const GlobalControls = ({
       refreshAutosaveSlots();
     }
   }, [showAutosaveRecovery, refreshAutosaveSlots]);
+
+  const autosaveSignalRef = useRef(autosaveToggleToken);
+  useEffect(() => {
+    if (autosaveToggleToken !== autosaveSignalRef.current) {
+      autosaveSignalRef.current = autosaveToggleToken;
+      handleToggleAutosaveRecovery();
+    }
+  }, [autosaveToggleToken, handleToggleAutosaveRecovery]);
 
   const getExportMeta = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -766,7 +772,15 @@ const GlobalControls = ({
           </div>
           <label className="compact-label" title="Seconds per leg">
             Duration
-            <input type="number" step={0.1} min={0.2} max={120} value={Number(morphDurationPerLeg || 5)} onChange={(e) => setMorphDurationPerLeg && setMorphDurationPerLeg(e.target.value)} className="compact-input" />
+            <BufferedNumberInput
+              value={Number.isFinite(morphDurationPerLeg) ? morphDurationPerLeg : 5}
+              min={0.2}
+              max={120}
+              step={0.1}
+              onCommit={(next) => setMorphDurationPerLeg?.(next)}
+              className="compact-input"
+              inputMode="decimal"
+            />
           </label>
           <label className="compact-label" title="Easing">
             Easing
@@ -1037,31 +1051,6 @@ const GlobalControls = ({
             inputMode="numeric"
           />
         </div>
-        {/* Quick Save/Load configuration */}
-        <button
-          className="icon-btn sm"
-          onClick={(e) => { e.stopPropagation(); typeof onQuickSave === 'function' && onQuickSave(); }}
-          title="Save configuration"
-          aria-label="Save configuration"
-        >
-          💾
-        </button>
-        <button
-          className="icon-btn sm"
-          onClick={(e) => { e.stopPropagation(); typeof onQuickLoad === 'function' && onQuickLoad(); }}
-          title="Load configuration"
-          aria-label="Load configuration"
-        >
-          📂
-        </button>
-        <button
-          className="icon-btn sm"
-          onClick={(e) => { e.stopPropagation(); handleToggleAutosaveRecovery(); }}
-          title="Autosave recovery"
-          aria-label="Autosave recovery"
-        >
-          🛟
-        </button>
         {showGlobalMidi && (
           <>
             <button

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { useAppState } from '../context/AppStateContext.jsx';
+import BufferedNumberInput from '../components/common/BufferedNumberInput.jsx';
 import './Settings.css';
 
 const Settings = () => {
@@ -298,27 +299,38 @@ const Settings = () => {
               <div key={param.id} className="parameter-card">
                 <h3>{param.label}</h3>
                 <label>Default:
-                  <input 
-                    type="number" 
-                    value={param.defaultValue} 
-                    onChange={(e) => handleParamChange(param.id, 'defaultValue', parseFloat(e.target.value))}
+                  <BufferedNumberInput
+                    value={param.defaultValue}
+                    min={Number.isFinite(param.min) ? param.min : Number.NEGATIVE_INFINITY}
+                    max={Number.isFinite(param.max) ? param.max : Number.POSITIVE_INFINITY}
+                    step={Number.isFinite(param.step) ? param.step : undefined}
+                    precision={Number.isFinite(param.step) ? undefined : 3}
+                    onCommit={(next) => handleParamChange(param.id, 'defaultValue', next)}
+                    className="settings-number-input"
+                    inputMode="decimal"
                   />
                 </label>
                 {param.min !== undefined && (
                   <label>Min:
-                    <input 
-                      type="number" 
-                      value={param.min} 
-                      onChange={(e) => handleParamChange(param.id, 'min', parseFloat(e.target.value))}
+                    <BufferedNumberInput
+                      value={param.min}
+                      step={Number.isFinite(param.step) ? param.step : undefined}
+                      precision={Number.isFinite(param.step) ? undefined : 3}
+                      onCommit={(next) => handleParamChange(param.id, 'min', next)}
+                      className="settings-number-input"
+                      inputMode="decimal"
                     />
                   </label>
                 )}
                 {param.max !== undefined && (
                   <label>Max:
-                    <input 
-                      type="number" 
-                      value={param.max} 
-                      onChange={(e) => handleParamChange(param.id, 'max', parseFloat(e.target.value))}
+                    <BufferedNumberInput
+                      value={param.max}
+                      step={Number.isFinite(param.step) ? param.step : undefined}
+                      precision={Number.isFinite(param.step) ? undefined : 3}
+                      onCommit={(next) => handleParamChange(param.id, 'max', next)}
+                      className="settings-number-input"
+                      inputMode="decimal"
                     />
                   </label>
                 )}

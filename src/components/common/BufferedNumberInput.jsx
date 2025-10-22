@@ -41,13 +41,22 @@ export default function BufferedNumberInput({
   min = Number.NEGATIVE_INFINITY,
   max = Number.POSITIVE_INFINITY,
   step,
+  precision: precisionOverride,
   placeholder = '',
   className,
   style,
   disabled = false,
   inputMode = 'decimal',
+  // Allow consumers to pass through any other valid input props (name, id, aria-* etc)
+  ...rest
 }) {
-  const precision = useMemo(() => resolvePrecision(step), [step]);
+  const { onChange: _ignoredOnChange, ...passthrough } = rest;
+  const precision = useMemo(() => {
+    if (Number.isInteger(precisionOverride) && precisionOverride >= 0) {
+      return precisionOverride;
+    }
+    return resolvePrecision(step);
+  }, [precisionOverride, step]);
   const [isActive, setIsActive] = useState(false);
   const [draft, setDraft] = useState(() => formatValue(value, precision));
   useEffect(() => {
@@ -141,6 +150,7 @@ export default function BufferedNumberInput({
       disabled={disabled}
       inputMode={inputMode}
       aria-disabled={disabled}
+      {...passthrough}
     />
   );
 }
