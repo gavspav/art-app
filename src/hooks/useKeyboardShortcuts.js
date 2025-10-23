@@ -17,6 +17,7 @@ export function useKeyboardShortcuts({
   hotkeyRef,
   setParameterTargetMode,
   setShowLayerOutlines,
+  setIsolateMode,
   deleteLayer,
   saveQuickPresetToMemory,
   recallQuickPresetFromMemory,
@@ -44,6 +45,16 @@ export function useKeyboardShortcuts({
         const cur = (hotkeyRef?.current?.parameterTargetMode === 'global') ? 'global' : 'individual';
         const next = cur === 'global' ? 'individual' : 'global';
         setParameterTargetMode?.(next);
+        return;
+      }
+
+      if (key === 'i') {
+        e.preventDefault();
+        const cur = !!hotkeyRef?.current?.isolateMode;
+        try {
+          console.debug('[useKeyboardShortcuts] Toggling isolate mode via hotkey', { previous: cur, next: !cur });
+        } catch { /* noop */ }
+        setIsolateMode?.(!cur);
         return;
       }
 
@@ -156,6 +167,7 @@ export function useKeyboardShortcuts({
     hotkeyRef,
     setParameterTargetMode,
     setShowLayerOutlines,
+    setIsolateMode,
     deleteLayer,
     saveQuickPresetToMemory,
     recallQuickPresetFromMemory,

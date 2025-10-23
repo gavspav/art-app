@@ -836,15 +836,65 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, colorFadeWhileFrozen = true, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
+const Canvas = forwardRef(({
+    layers,
+    backgroundColor,
+    globalSeed,
+    globalBlendMode,
+    isNodeEditMode,
+    isFrozen = false,
+    colorFadeWhileFrozen = true,
+    selectedLayerIndex,
+    setLayers,
+    setSelectedLayerIndex,
+    classicMode = false,
+    isolateMode = false,
+    getActiveTargetLayerIds: getActiveTargetLayerIdsProp,
+}, ref) => {
     const {
         toggleLayerSelection,
         selectedLayerIds: selectedLayerIdsCtx,
         clearSelection,
         setEditTarget,
-        getActiveTargetLayerIds,
+        getActiveTargetLayerIds: getActiveTargetLayerIdsCtx,
         showLayerOutlines,
     } = useAppState() || {};
+
+    const getActiveTargetLayerIdsLatest = useMemo(() => {
+        if (typeof getActiveTargetLayerIdsProp === 'function') return getActiveTargetLayerIdsProp;
+        if (typeof getActiveTargetLayerIdsCtx === 'function') return getActiveTargetLayerIdsCtx;
+        return null;
+    }, [getActiveTargetLayerIdsProp, getActiveTargetLayerIdsCtx]);
+
+    const isolateIdSet = useMemo(() => {
+        if (!isolateMode) return null;
+        let ids = [];
+        if (typeof getActiveTargetLayerIdsLatest === 'function') {
+            try {
+                const got = getActiveTargetLayerIdsLatest();
+                if (Array.isArray(got)) ids = got;
+            } catch {
+                ids = [];
+            }
+        }
+        if (!Array.isArray(ids) || ids.length === 0) {
+            const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+            const fallback = layers[idx];
+            if (fallback?.id) {
+                ids = [fallback.id];
+            }
+        }
+        if (!Array.isArray(ids) || ids.length === 0) return new Set();
+        const set = new Set();
+        ids.forEach(id => { if (id) set.add(id); });
+        return set;
+    }, [isolateMode, getActiveTargetLayerIdsLatest, layers, selectedLayerIndex]);
+
+    const isLayerVisible = useCallback((layer) => {
+        if (!isolateMode) return true;
+        if (!isolateIdSet || isolateIdSet.size === 0) return true;
+        return isolateIdSet.has(layer?.id);
+    }, [isolateMode, isolateIdSet]);
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
     // Align wall-time colour fade with accumulated animation time to avoid jumps when freezing/unfreezing
@@ -1216,6 +1266,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 : timeNow;
             layers.forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
+                if (!isLayerVisible(layer)) {
+                    renderedPointsRef.current.delete(index);
+                    return;
+                }
                 let renderedPoints = null;
                 if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
                     renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
@@ -1320,6 +1374,10 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 return;
             }
             if (!layer.visible) return;
+            if (!isLayerVisible(layer)) {
+                renderedPointsRef.current.delete(index);
+                return;
+            }
 
             const layerChange = layerChanges.get(index);
 
@@ -1352,8 +1410,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (Array.isArray(selectedLayerIdsCtx)) {
                     selectedLayerIdsCtx.forEach(id => { if (id) highlightIds.add(id); });
                 }
-                if (typeof getActiveTargetLayerIds === 'function') {
-                    const targetIdsList = getActiveTargetLayerIds() || [];
+                if (typeof getActiveTargetLayerIdsLatest === 'function') {
+                    const targetIdsList = getActiveTargetLayerIdsLatest() || [];
                     targetIdsList.forEach(id => { if (id) highlightIds.add(id); });
                 }
                 if (Array.isArray(layers) && layers.length > 0) {
@@ -1382,6 +1440,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         if (!info) return;
                         const { layer, index } = info;
                         if (!layer || !layer.visible) return;
+                        if (!isLayerVisible(layer)) return;
                         const path = buildLayerHitPath(layer, canvas, {
                             renderedPoints: renderedPointsRef.current.get(index),
                             globalSeed,
@@ -1557,15 +1616,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         canvasSize.pixelRatio,
         layers,
         selectedLayerIdsCtx,
-        getActiveTargetLayerIds,
+        getActiveTargetLayerIdsProp,
+        getActiveTargetLayerIdsCtx,
+        isolateMode,
+        isolateIdSet,
+        isLayerVisible,
         showLayerOutlines,
     ]);
-
-    useEffect(() => {
-        if (ref) {
-            ref.current = localCanvasRef.current;
-        }
-    }, [ref]);
 
     // Initialize nodes when entering node edit mode if missing
     useEffect(() => {

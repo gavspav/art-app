@@ -90,6 +90,7 @@ export const AppStateProvider = ({ children }) => {
     parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
     // Selection outline visibility (disabled by default)
     showLayerOutlines: false,
+    isolateMode: false,
 
     // Multi-select and Layer Groups
     selectedLayerIds: [], // array of layer.id
@@ -348,6 +349,14 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
+  const setIsolateMode = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      isolateMode: (typeof value === 'function') ? !!value(prev.isolateMode) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
   const setSyncLayerColorsToFirst = useCallback((value) => {
     setAppState(prev => ({ ...prev, syncLayerColorsToFirst: !!value }));
     markDirty();
@@ -579,6 +588,7 @@ export const AppStateProvider = ({ children }) => {
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
       colorFadeWhileFrozen: true,
       showLayerOutlines: false,
+      isolateMode: false,
       syncLayerColorsToFirst: false,
     });
     markDirty();
@@ -625,6 +635,7 @@ export const AppStateProvider = ({ children }) => {
     setApplyVariationInstantly,
     setParameterTargetMode,
     setShowLayerOutlines,
+    setIsolateMode,
 
     // Morph setters
     setMorphEnabled,

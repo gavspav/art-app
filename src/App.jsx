@@ -82,6 +82,8 @@ const MainApp = () => {
     // Global: fade while frozen
     colorFadeWhileFrozen, setColorFadeWhileFrozen,
     showLayerOutlines, setShowLayerOutlines,
+    isolateMode, setIsolateMode,
+    getActiveTargetLayerIds,
     clearSelection,
     setEditTarget,
     // Group and selection state
@@ -259,7 +261,7 @@ const MainApp = () => {
   // Keyboard Shortcuts overlay
   const [showShortcuts, setShowShortcuts] = useState(false);
   // Keep latest values accessible to hotkeys without re-binding listeners
-  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false });
+  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false, isolateMode: false });
   useEffect(() => {
     hotkeyRef.current = {
       selectedIndex: Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1))),
@@ -269,8 +271,9 @@ const MainApp = () => {
       zIgnore: !!zIgnore,
       parameterTargetMode,
       showLayerOutlines: !!showLayerOutlines,
+      isolateMode: !!isolateMode,
     };
-  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore, parameterTargetMode, showLayerOutlines]);
+  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore, parameterTargetMode, showLayerOutlines, isolateMode]);
 
   const layersRef = useRef(layers);
   useEffect(() => {
@@ -872,6 +875,7 @@ const MainApp = () => {
     clearSelection,
     setParameterTargetMode,
     setShowLayerOutlines,
+    setIsolateMode,
     deleteLayer,
     saveQuickPresetToMemory: handleRamPresetSave,
     recallQuickPresetFromMemory: handleRamPresetRecall,
@@ -1037,6 +1041,7 @@ const MainApp = () => {
                 <div><kbd>6</kbd><span>Groups tab</span></div>
                 <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
                 <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
+                <div><kbd>I</kbd><span>Toggle isolate mode</span></div>
                 <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
                 <div><kbd>R</kbd><span>Randomize all</span></div>
                 <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
@@ -1122,6 +1127,8 @@ const MainApp = () => {
             setLayers={setLayers}
             setSelectedLayerIndex={setSelectedLayerIndex}
             classicMode={classicMode}
+            isolateMode={isolateMode}
+            getActiveTargetLayerIds={getActiveTargetLayerIds}
           />
           
           {/* Import Adjust Panel (multi-file SVG import) */}
