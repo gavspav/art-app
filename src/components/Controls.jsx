@@ -488,7 +488,31 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       return;
     }
 
-    applyUpdateToTargets({ [id]: newValue });
+    // Special handling for movementStyle to convert between coordinate systems
+    if (id === 'movementStyle') {
+      applyUpdateToTargets((layer) => {
+        const oldStyle = layer.movementStyle || 'bounce';
+        const newStyle = newValue;
+        
+        // If switching between coordinate system types, we need to track this for canvas conversion
+        const oldUsesFullCanvas = oldStyle === 'drift' || oldStyle === 'bounce';
+        const newUsesFullCanvas = newStyle === 'drift' || newStyle === 'bounce';
+        
+        if (oldUsesFullCanvas !== newUsesFullCanvas) {
+          // Mark that coordinate system changed so canvas can convert position
+          return {
+            ...layer,
+            movementStyle: newStyle,
+            _previousMovementStyle: oldStyle,
+            _coordinateSystemChanged: true
+          };
+        }
+        
+        return { ...layer, movementStyle: newStyle };
+      });
+    } else {
+      applyUpdateToTargets({ [id]: newValue });
+    }
   };
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata

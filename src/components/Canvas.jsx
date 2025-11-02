@@ -66,6 +66,71 @@ const getLayerCanvasMapping = (canvas, layer) => {
     return { spanX, spanY, offsetX, offsetY, refSize };
 };
 
+// Helper to convert position between coordinate systems when movementStyle changes
+const convertPositionBetweenCoordinateSystems = (layer, canvas, oldMovementStyle) => {
+    if (!canvas || !layer?.position || oldMovementStyle === layer.movementStyle) {
+        return layer;
+    }
+
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const art = getArtboardMapping(canvas);
+    const { size: artSize, offsetX: artOffsetX, offsetY: artOffsetY } = art;
+
+    const hasCanvasMetrics = Number.isFinite(canvasWidth) && Number.isFinite(canvasHeight) && canvasWidth > 0 && canvasHeight > 0;
+    const hasArtboardMetrics = Number.isFinite(artSize) && artSize > 0 && Number.isFinite(artOffsetX) && Number.isFinite(artOffsetY);
+
+    if (!hasCanvasMetrics) {
+        return layer;
+    }
+
+    const oldUsesFullCanvas = oldMovementStyle === 'drift' || oldMovementStyle === 'bounce';
+    const newUsesFullCanvas = layer.movementStyle === 'drift' || layer.movementStyle === 'bounce';
+
+    // If both use the same coordinate system, no conversion needed
+    if (oldUsesFullCanvas === newUsesFullCanvas) {
+        return layer;
+    }
+
+    const { x = 0.5, y = 0.5 } = layer.position;
+
+    // Convert from old coordinate system to new one
+    let newX = x;
+    let newY = y;
+
+    if (oldUsesFullCanvas && !newUsesFullCanvas) {
+        if (!hasArtboardMetrics) {
+            return layer;
+        }
+        // Converting from full canvas to artboard
+        // Old: (0,0) to (canvasWidth, canvasHeight)
+        // New: (art.offsetX, art.offsetY) to (art.offsetX + art.size, art.offsetY + art.size)
+        newX = (x * canvasWidth - artOffsetX) / artSize;
+        newY = (y * canvasHeight - artOffsetY) / artSize;
+    } else if (!oldUsesFullCanvas && newUsesFullCanvas) {
+        if (!hasArtboardMetrics) {
+            return layer;
+        }
+        // Converting from artboard to full canvas
+        // Old: (art.offsetX, art.offsetY) to (art.offsetX + art.size, art.offsetY + art.size)
+        // New: (0,0) to (canvasWidth, canvasHeight)
+        newX = (artOffsetX + x * artSize) / canvasWidth;
+        newY = (artOffsetY + y * artSize) / canvasHeight;
+    }
+
+    // Clamp to valid range
+    newX = Math.max(0, Math.min(1, newX));
+    newY = Math.max(0, Math.min(1, newY));
+
+    return {
+        ...layer,
+        position: {
+            ...layer.position,
+            x: newX,
+            y: newY
+        }
+    };
+};
+
 const getLayerGeometry = (layer, canvas) => {
     if (!layer || !canvas) return null;
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
@@ -933,6 +998,48 @@ const Canvas = forwardRef(({
 
     // Cache of last rendered edge-points per layer index
     const renderedPointsRef = useRef(new Map()); // Map<number, Array<{x,y}>>
+
+    useEffect(() => {
+        const canvasEl = localCanvasRef.current;
+        if (!canvasEl) return;
+
+        const flagged = [];
+        layers.forEach((layer, index) => {
+            if (layer?._coordinateSystemChanged) {
+                flagged.push({ index, oldStyle: layer._previousMovementStyle });
+            }
+        });
+
+        if (!flagged.length) return;
+
+        const oldStyleByIndex = new Map(flagged.map(({ index, oldStyle }) => [index, oldStyle]));
+
+        setLayers(prev => {
+            let mutated = false;
+            const next = prev.map((layer, index) => {
+                if (!layer?._coordinateSystemChanged) {
+                    return layer;
+                }
+
+                const oldStyle = oldStyleByIndex.has(index)
+                    ? oldStyleByIndex.get(index)
+                    : layer._previousMovementStyle;
+
+                const converted = convertPositionBetweenCoordinateSystems(layer, canvasEl, oldStyle || 'bounce');
+                let baseLayer = (converted === layer) ? { ...layer } : { ...converted };
+
+                if (baseLayer.position) {
+                    baseLayer = { ...baseLayer, position: { ...baseLayer.position } };
+                }
+
+                const { _coordinateSystemChanged: _ignoreFlag, _previousMovementStyle: _ignorePrev, ...cleanedLayer } = baseLayer;
+                mutated = mutated || cleanedLayer !== prev[index];
+                return cleanedLayer;
+            });
+
+            return mutated ? next : prev;
+        });
+    }, [layers, setLayers, canvasSize]);
 
     // Helper utilities for node-edit history
     const cloneNodes = (nodes = []) => (Array.isArray(nodes) ? nodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : []);
