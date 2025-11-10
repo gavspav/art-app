@@ -549,6 +549,95 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 };
 
 // --- Toroidal Wrapping Helpers ---
+const ZERO_WRAP_OFFSET = { ox: 0, oy: 0 };
+
+const applyWrapToPoints = (points, wrap) => {
+    if (!Array.isArray(points) || points.length === 0 || !wrap || (wrap.ox === 0 && wrap.oy === 0)) {
+        return points;
+    }
+    return points.map(p => ({ x: p.x + wrap.ox, y: p.y + wrap.oy }));
+};
+
+const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCenterY) => {
+    if (!layer || layer?.movementStyle !== 'drift' || !canvas) return ZERO_WRAP_OFFSET;
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    if (!(canvasWidth > 0) || !(canvasHeight > 0)) return ZERO_WRAP_OFFSET;
+
+    const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: basePoints });
+    const negX = extentInfo.extentsX?.neg ?? extentInfo.rx;
+    const posX = extentInfo.extentsX?.pos ?? extentInfo.rx;
+    const negY = extentInfo.extentsY?.neg ?? extentInfo.ry;
+    const posY = extentInfo.extentsY?.pos ?? extentInfo.ry;
+
+    const offsetsX = [0];
+    const offsetsY = [0];
+    if ((baseCenterX - negX) < 0) offsetsX.push(canvasWidth);
+    if ((baseCenterX + posX) > canvasWidth) offsetsX.push(-canvasWidth);
+    if ((baseCenterY - negY) < 0) offsetsY.push(canvasHeight);
+    if ((baseCenterY + posY) > canvasHeight) offsetsY.push(-canvasHeight);
+
+    const combos = [];
+    offsetsY.forEach(oy => {
+        offsetsX.forEach(ox => {
+            if (!combos.some(c => c.ox === ox && c.oy === oy)) {
+                combos.push({ ox, oy });
+            }
+        });
+    });
+
+    const hasPoints = Array.isArray(basePoints) && basePoints.length > 0;
+    if (hasPoints) {
+        for (const combo of combos) {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (const p of basePoints) {
+                const px = p.x + combo.ox;
+                const py = p.y + combo.oy;
+                if (px < minX) minX = px;
+                if (px > maxX) maxX = px;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+            }
+            if (maxX >= 0 && minX <= canvasWidth && maxY >= 0 && minY <= canvasHeight) {
+                return combo;
+            }
+        }
+    }
+
+    for (const combo of combos) {
+        const cx = baseCenterX + combo.ox;
+        const cy = baseCenterY + combo.oy;
+        if (cx >= 0 && cx <= canvasWidth && cy >= 0 && cy <= canvasHeight) {
+            return combo;
+        }
+    }
+
+    return ZERO_WRAP_OFFSET;
+};
+
+const buildBaseNodePoints = (layer, geometry, renderedPoints) => {
+    if (!layer || !geometry || !Array.isArray(layer.nodes) || layer.nodes.length === 0) {
+        return [];
+    }
+    if (Array.isArray(renderedPoints) && renderedPoints.length === layer.nodes.length) {
+        return renderedPoints;
+    }
+    const {
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        sinR,
+        cosR,
+    } = geometry;
+    return layer.nodes.map((n) => ({
+        x: centerX + (n.x * cosR - n.y * sinR) * radiusX,
+        y: centerY + (n.x * sinR + n.y * cosR) * radiusY,
+    }));
+};
+
 // Estimate half-extents of the drawn content for a layer in pixels
 const buildExtentResult = (rx, ry, extra = {}) => {
     const safeRX = Math.max(0, Number(rx) || 0);
@@ -829,16 +918,41 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
     const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
     const rb = Number(layer?.radiusBump ?? 0);
-    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
-        const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
+    const safeScale = Math.max(0, scale);
+    const baseRadiusX = Math.max(0, rfX) * minWH * safeScale;
+    const baseRadiusY = Math.max(0, rfY) * minWH * safeScale;
+    const bump = rb * (minWH * 0.02) * safeScale;
+    const radiusX = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusY + bump);
 
     const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
     const rotRad = (rotDeg * Math.PI) / 180;
     const sinR = Math.sin(rotRad);
     const cosR = Math.cos(rotRad);
+    const geometry = { centerX, centerY, radiusX, radiusY, sinR, cosR };
+
+    let nodePoints = null;
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        if (Array.isArray(renderedPoints) && renderedPoints.length >= 3) {
+            nodePoints = renderedPoints;
+        } else {
+            const computed = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+            if (Array.isArray(computed) && computed.length >= 3) {
+                nodePoints = computed;
+            }
+        }
+    }
+
+    let basePoints = null;
+    if (Array.isArray(nodePoints) && nodePoints.length >= 3) {
+        basePoints = nodePoints;
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        basePoints = buildBaseNodePoints(layer, geometry, renderedPoints);
+    }
+
+    const wrapOffset = resolveDriftWrapOffset(layer, canvas, basePoints, geometry.centerX, geometry.centerY);
+    const wrapOx = wrapOffset.ox;
+    const wrapOy = wrapOffset.oy;
 
     const writePolygon = (pts) => {
         if (!Array.isArray(pts) || pts.length < 3) return;
@@ -859,8 +973,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
                 const tx = sx * cosR - sy * sinR;
                 const ty = sx * sinR + sy * cosR;
                 return {
-                    x: centerX + tx,
-                    y: centerY + ty,
+                    x: centerX + wrapOx + tx,
+                    y: centerY + wrapOy + ty,
                 };
             });
             writePolygon(pts);
@@ -869,17 +983,18 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     }
 
     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-        const pts = Array.isArray(renderedPoints) && renderedPoints.length >= 3
-            ? renderedPoints
-            : computeDeformedNodePoints(layer, canvas, globalSeed, time);
-        writePolygon(pts);
+        let pts = nodePoints;
+        if (!Array.isArray(pts) || pts.length < 3) {
+            pts = buildBaseNodePoints(layer, geometry, renderedPoints);
+        }
+        writePolygon(applyWrapToPoints(pts, wrapOffset));
         return path;
     }
 
     const sides = Number(layer?.numSides);
     const count = Number.isFinite(sides) ? Math.max(3, Math.floor(sides)) : 0;
     if (!count) {
-        path.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
+        path.ellipse(centerX + wrapOx, centerY + wrapOy, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
         path.closePath();
         return path;
     }
@@ -892,8 +1007,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
         const tx = sx * cosR - sy * sinR;
         const ty = sx * sinR + sy * cosR;
         pts.push({
-            x: centerX + tx,
-            y: centerY + ty,
+            x: centerX + wrapOx + tx,
+            y: centerY + wrapOy + ty,
         });
     }
     writePolygon(pts);
@@ -1601,28 +1716,21 @@ const Canvas = forwardRef(({
                 const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * width;
                 const offsetYPx = (Number(sel.yOffset) || 0) * height;
-                const layerCX = ax + x * spanX + offsetXPx;
-                const layerCY = ay + y * spanY + offsetYPx;
-                // Prefer cached, last-rendered deformed points for exact alignment
-                let points = renderedPointsRef.current.get(clampedIndex);
-                if (!Array.isArray(points) || points.length !== sel.nodes.length) {
-                    // Fallback: rotated base-node positions
-                    const minWH = artSize;
-                    const rfBase = Number(sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4);
-                    const rfX = Number.isFinite(sel.radiusFactorX) ? Number(sel.radiusFactorX) : rfBase;
-                    const rfY = Number.isFinite(sel.radiusFactorY) ? Number(sel.radiusFactorY) : rfBase;
-                    const rb = Number(sel.radiusBump ?? 0);
-                    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-                    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-                    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-                    const radiusX = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
-                    const radiusY = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
-                    const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-                    const rotRad = (rotDeg * Math.PI) / 180;
-                    const sinR = Math.sin(rotRad);
-                    const cosR = Math.cos(rotRad);
-                    points = sel.nodes.map(n => ({ x: layerCX + (n.x * cosR - n.y * sinR) * radiusX, y: layerCY + (n.x * sinR + n.y * cosR) * radiusY }));
-                }
+                const geometry = {
+                    centerX: ax + x * spanX + offsetXPx,
+                    centerY: ay + y * spanY + offsetYPx,
+                    radiusX: sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, (Number(sel.radiusFactorX ?? sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4)) * artSize * Math.max(0, scale) + (Number(sel.radiusBump ?? 0) * (artSize * 0.02) * Math.max(0, scale))),
+                    radiusY: sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, (Number(sel.radiusFactorY ?? sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4)) * artSize * Math.max(0, scale) + (Number(sel.radiusBump ?? 0) * (artSize * 0.02) * Math.max(0, scale))),
+                    sinR: Math.sin(((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360 - 180) * Math.PI / 180),
+                    cosR: Math.cos(((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360 - 180) * Math.PI / 180),
+                };
+                let basePoints = buildBaseNodePoints(sel, geometry, renderedPointsRef.current.get(clampedIndex));
+                const baseCenterX = geometry.centerX;
+                const baseCenterY = geometry.centerY;
+                const wrapOffset = resolveDriftWrapOffset(sel, canvas, basePoints, baseCenterX, baseCenterY);
+                const layerCX = baseCenterX + wrapOffset.ox;
+                const layerCY = baseCenterY + wrapOffset.oy;
+                const points = applyWrapToPoints(basePoints, wrapOffset);
                 ctx.save();
                 // Vertex handles (base positions with rotation)
                 ctx.fillStyle = '#ffffff';
@@ -1678,8 +1786,11 @@ const Canvas = forwardRef(({
                 const offsetYPx = (Number(sel.yOffset) || 0) * height;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
-                const ox = ax + ocx * spanX + offsetXPx;
-                const oy = ay + ocy * spanY + offsetYPx;
+                const baseCenterX = ax + (Number(sel?.position?.x) ?? 0.5) * spanX + offsetXPx;
+                const baseCenterY = ay + (Number(sel?.position?.y) ?? 0.5) * spanY + offsetYPx;
+                const wrapOffset = resolveDriftWrapOffset(sel, canvas, renderedPointsRef.current.get(clampedIndex), baseCenterX, baseCenterY);
+                const ox = ax + ocx * spanX + offsetXPx + wrapOffset.ox;
+                const oy = ay + ocy * spanY + offsetYPx + wrapOffset.oy;
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(ox, oy, 6, 0, Math.PI * 2);
@@ -1915,13 +2026,16 @@ const Canvas = forwardRef(({
         const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
         const hitRadius = 10;
+        const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
+        const wrapOx = wrapOffset.ox;
+        const wrapOy = wrapOffset.oy;
 
         // Orbit center handle can be dragged regardless of node presence
         {
             const ocxNorm = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
             const ocyNorm = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
-            const ox = artOffsetX + ocxNorm * spanX + offsetXPx;
-            const oy = artOffsetY + ocyNorm * spanY + offsetYPx;
+            const ox = artOffsetX + ocxNorm * spanX + offsetXPx + wrapOx;
+            const oy = artOffsetY + ocyNorm * spanY + offsetYPx + wrapOy;
             const dx = ox - pos.x; const dy = oy - pos.y;
             if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
                 draggingOrbitCenterRef.current = true;
@@ -1942,14 +2056,18 @@ const Canvas = forwardRef(({
         const rendered = renderedPointsRef.current.get(layerIndex);
         let idx = -1;
         if (Array.isArray(rendered) && rendered.length === layer.nodes.length) {
-            idx = rendered.findIndex(p => ((p.x - pos.x) ** 2 + (p.y - pos.y) ** 2) <= hitRadius * hitRadius);
+            idx = rendered.findIndex(p => {
+                const px = p.x + wrapOx;
+                const py = p.y + wrapOy;
+                return ((px - pos.x) ** 2 + (py - pos.y) ** 2) <= hitRadius * hitRadius;
+            });
         }
         if (idx === -1) {
             idx = layer.nodes.findIndex(n => {
                 const rx = n.x * cosR - n.y * sinR;
                 const ry = n.x * sinR + n.y * cosR;
-                const px = centerX + rx * radiusX;
-                const py = centerY + ry * radiusY;
+                const px = centerX + wrapOx + rx * radiusX;
+                const py = centerY + wrapOy + ry * radiusY;
                 const dx = px - pos.x;
                 const dy = py - pos.y;
                 return (dx * dx + dy * dy) <= hitRadius * hitRadius;
@@ -1966,11 +2084,11 @@ const Canvas = forwardRef(({
         }
         // Try midpoints next
         const pts = (Array.isArray(rendered) && rendered.length === layer.nodes.length)
-            ? rendered
+            ? rendered.map(p => ({ x: p.x + wrapOx, y: p.y + wrapOy }))
             : layer.nodes.map(n => {
                 const rx = n.x * cosR - n.y * sinR;
                 const ry = n.x * sinR + n.y * cosR;
-                return { x: centerX + rx * radiusX, y: centerY + ry * radiusY };
+                return { x: centerX + wrapOx + rx * radiusX, y: centerY + wrapOy + ry * radiusY };
             });
         const midIdx = pts.findIndex((_, i) => {
             const a = pts[i];
@@ -1991,7 +2109,7 @@ const Canvas = forwardRef(({
         }
         // Try center cross (use centroid to match the drawn crosshair position)
         {
-            let cx = centerX, cy = centerY;
+            let cx = centerX + wrapOx, cy = centerY + wrapOy;
             if (pts.length >= 3) {
                 let sx = 0, sy = 0;
                 for (let i = 0; i < pts.length; i++) { sx += pts[i].x; sy += pts[i].y; }
@@ -2043,6 +2161,11 @@ const Canvas = forwardRef(({
         } = geometry;
 
         const pos = getMousePos(e);
+        const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
+        const wrapOx = wrapOffset.ox;
+        const wrapOy = wrapOffset.oy;
+        const posBaseX = pos.x - wrapOx;
+        const posBaseY = pos.y - wrapOy;
         const normX = spanX > 0 ? (pos.x - artOffsetX - offsetXPx) / spanX : 0.5;
         const normY = spanY > 0 ? (pos.y - artOffsetY - offsetYPx) / spanY : 0.5;
 
@@ -2065,8 +2188,8 @@ const Canvas = forwardRef(({
             )));
         } else if (idx != null) {
             // Convert dragged canvas position back to unrotated local node coords
-            const lx = (pos.x - centerX) / radiusX;
-            const ly = (pos.y - centerY) / radiusY;
+            const lx = (posBaseX - centerX) / radiusX;
+            const ly = (posBaseY - centerY) / radiusY;
             const nx = lx * cosR + ly * sinR;
             const ny = -lx * sinR + ly * cosR;
             setLayers(prev => prev.map((l, i) => {
@@ -2093,10 +2216,10 @@ const Canvas = forwardRef(({
                 const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
                 const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
                 const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
-                const ax = centerX + arx * radiusX;
-                const ay = centerY + ary * radiusY;
-                const bx = centerX + brx * radiusX;
-                const by = centerY + bry * radiusY;
+                const ax = centerX + wrapOx + arx * radiusX;
+                const ay = centerY + wrapOy + ary * radiusY;
+                const bx = centerX + wrapOx + brx * radiusX;
+                const by = centerY + wrapOy + bry * radiusY;
                 const mx = (ax + bx) / 2;
                 const my = (ay + by) / 2;
                 // Convert movement delta back into unrotated local space
