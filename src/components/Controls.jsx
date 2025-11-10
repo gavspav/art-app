@@ -712,7 +712,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               value={min}
               step={step}
               onCommit={onMetaChange('min')}
-              className="dc-settings-number"
+              className="compact-number"
               inputMode="decimal"
               style={{ width: '4.5rem' }}
             />
@@ -721,7 +721,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               value={max}
               step={step}
               onCommit={onMetaChange('max')}
-              className="dc-settings-number"
+              className="compact-number"
               inputMode="decimal"
               style={{ width: '4.5rem' }}
             />
@@ -729,7 +729,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             <BufferedNumberInput
               value={step}
               onCommit={onMetaChange('step')}
-              className="dc-settings-number"
+              className="compact-number"
               inputMode="decimal"
               precision={3}
               style={{ width: '4.5rem' }}
@@ -739,7 +739,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               value={Number.isFinite(param.randomMin) ? param.randomMin : min}
               step={step}
               onCommit={onMetaChange('randomMin')}
-              className="dc-settings-number"
+              className="compact-number"
               inputMode="decimal"
               style={{ width: '4.5rem' }}
             />
@@ -748,7 +748,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               value={Number.isFinite(param.randomMax) ? param.randomMax : max}
               step={step}
               onCommit={onMetaChange('randomMax')}
-              className="dc-settings-number"
+              className="compact-number"
               inputMode="decimal"
               style={{ width: '4.5rem' }}
             />
@@ -1395,7 +1395,7 @@ const Controls = forwardRef(({
                     max={360}
                     step={1}
                     onCommit={(next) => setRotateMin(Number.isFinite(next) ? next : -180)}
-                    className="compact-input"
+                    className="compact-number"
                     inputMode="numeric"
                     style={{ width: '4.5rem' }}
                   />
@@ -1406,7 +1406,7 @@ const Controls = forwardRef(({
                     max={360}
                     step={1}
                     onCommit={(next) => setRotateMax(Number.isFinite(next) ? next : 180)}
-                    className="compact-input"
+                    className="compact-number"
                     inputMode="numeric"
                     style={{ width: '4.5rem' }}
                   />
@@ -1478,7 +1478,7 @@ const Controls = forwardRef(({
           step={1}
           value={Math.max(1, Number.isFinite(currentLayer?.numColors) ? currentLayer.numColors : (Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 1))}
           onCommit={handleLayerNumColorsChange}
-          className="compact-input"
+          className="compact-number"
           inputMode="numeric"
           style={{ width: '5rem' }}
         />
@@ -1587,7 +1587,7 @@ const Controls = forwardRef(({
                   const safe = Math.max(1, Math.round(Number(next) || 1));
                   setColorCountMin(safe);
                 }}
-                className="compact-input"
+                className="compact-number"
                 inputMode="numeric"
                 style={{ width: '4.5rem' }}
               />
@@ -1603,7 +1603,7 @@ const Controls = forwardRef(({
                   const safe = Math.max(floor, Math.round(Number(next) || floor));
                   setColorCountMax(safe);
                 }}
-                className="compact-input"
+                className="compact-number"
                 inputMode="numeric"
                 style={{ width: '4.5rem' }}
               />
