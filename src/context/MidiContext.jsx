@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { PARAMETERS } from '../config/parameters.js';
 
 const MidiContext = createContext(null);
 
@@ -6,6 +7,49 @@ export const useMidi = () => useContext(MidiContext);
 
 const LS_MIDI_MAPPINGS = 'artapp-midi-mappings';
 const LS_MIDI_SELECTED = 'artapp-midi-selected-input';
+
+const DEFAULT_MIDI_CHANNEL = 1;
+
+const buildDefaultMidiMappings = () => {
+  const mapping = {};
+  let cc = 1;
+
+  const assign = (paramId) => {
+    if (!paramId || mapping[paramId]) return;
+    mapping[paramId] = { type: 'cc', channel: DEFAULT_MIDI_CHANNEL, number: cc };
+    cc += 1;
+  };
+
+  const specialOrder = [
+    'backgroundColorR',
+    'backgroundColorG',
+    'backgroundColorB',
+    'globalSpeedMultiplier',
+    'globalOpacity',
+    'layersCount',
+    'variationPosition',
+    'variationShape',
+    'variationAnim',
+    'variationColor',
+    'variationScale',
+  ];
+
+  specialOrder.forEach(assign);
+
+  const sliderParamIds = PARAMETERS
+    .filter((param) => param?.type === 'slider')
+    .map((param) => param?.id)
+    .filter(Boolean);
+
+  sliderParamIds.forEach(assign);
+
+  const extraParams = ['globalPaletteIndex', 'globalBlendMode', 'randomizeAll', 'variation'];
+  extraParams.forEach(assign);
+
+  return mapping;
+};
+
+const DEFAULT_MIDI_MAPPINGS = buildDefaultMidiMappings();
 
 // Helper to build a stable descriptor string for a mapping
 const mappingLabel = (m) => {
@@ -24,7 +68,7 @@ export const MidiProvider = ({ children }) => {
     try { return localStorage.getItem(LS_MIDI_SELECTED) || ''; } catch { return ''; }
   });
 
-  const [mappings, setMappings] = useState(() => {
+  const [storedMappings, setStoredMappings] = useState(() => {
     try {
       const saved = localStorage.getItem(LS_MIDI_MAPPINGS);
       return saved ? JSON.parse(saved) : {};
@@ -53,26 +97,75 @@ export const MidiProvider = ({ children }) => {
     };
   }, []);
 
-  const persist = useCallback((next) => {
-    setMappings(next);
-    try { localStorage.setItem(LS_MIDI_MAPPINGS, JSON.stringify(next)); } catch { /* noop */ }
+  const persist = useCallback((updater) => {
+    setStoredMappings((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem(LS_MIDI_MAPPINGS, JSON.stringify(next));
+      } catch { /* noop */ }
+      return next;
+    });
   }, []);
+
+  const effectiveMappings = useMemo(() => {
+    const merged = { ...DEFAULT_MIDI_MAPPINGS };
+    Object.entries(storedMappings || {}).forEach(([paramId, mapping]) => {
+      if (mapping === null) {
+        delete merged[paramId];
+      } else if (mapping && typeof mapping === 'object') {
+        merged[paramId] = mapping;
+      } else {
+        delete merged[paramId];
+      }
+    });
+    return merged;
+  }, [storedMappings]);
 
   const setMapping = useCallback((paramId, mapping) => {
     if (!paramId) return;
-    persist({ ...mappings, [paramId]: mapping });
-  }, [mappings, persist]);
+    persist((prev) => {
+      const next = { ...prev };
+      const defaultMapping = DEFAULT_MIDI_MAPPINGS[paramId];
+      if (mapping === null) {
+        next[paramId] = null;
+        return next;
+      }
+      if (!mapping) {
+        delete next[paramId];
+        return next;
+      }
+
+      const normalizedChannel = Number.isFinite(mapping.channel) ? mapping.channel : DEFAULT_MIDI_CHANNEL;
+      const isDefault = !!defaultMapping
+        && mapping.type === defaultMapping.type
+        && normalizedChannel === defaultMapping.channel
+        && mapping.number === defaultMapping.number;
+
+      if (isDefault) {
+        delete next[paramId];
+      } else {
+        next[paramId] = { ...mapping, channel: normalizedChannel };
+      }
+      return next;
+    });
+  }, [persist]);
 
   const clearMapping = useCallback((paramId) => {
     if (!paramId) return;
-    const next = { ...mappings };
-    delete next[paramId];
-    persist(next);
-  }, [mappings, persist]);
+    persist((prev) => {
+      const next = { ...prev };
+      if (DEFAULT_MIDI_MAPPINGS[paramId]) {
+        next[paramId] = null;
+      } else {
+        delete next[paramId];
+      }
+      return next;
+    });
+  }, [persist]);
 
   const setMappingsFromExternal = useCallback((obj) => {
     if (obj && typeof obj === 'object') {
-      persist(obj);
+      persist({ ...obj });
     }
   }, [persist]);
 
@@ -144,7 +237,7 @@ export const MidiProvider = ({ children }) => {
     // Learn mode: bind first incoming message
     if (learnParamId) {
       const mapping = { type: msg.type, channel: msg.channel, number: msg.number };
-      persist({ ...mappings, [learnParamId]: mapping });
+      setMapping(learnParamId, mapping);
       setLearnParamId(null);
       return;
     }
@@ -153,7 +246,7 @@ export const MidiProvider = ({ children }) => {
     const value01 = Math.max(0, Math.min(1, (msg.value ?? 0) / 127));
 
     // Build reverse index lazily per message (paramId -> mapping) filtered by match
-    for (const [paramId, m] of Object.entries(mappings)) {
+    for (const [paramId, m] of Object.entries(effectiveMappings)) {
       if (!m) continue;
       const same = (m.type === msg.type) &&
                    (!m.channel || m.channel === msg.channel) &&
@@ -168,7 +261,7 @@ export const MidiProvider = ({ children }) => {
         triggerHandlers(secretParam, value01, msg);
       }
     }
-  }, [SECRET_CC_PARAMS, learnParamId, mappings, persist, triggerHandlers]);
+  }, [SECRET_CC_PARAMS, effectiveMappings, learnParamId, setMapping, triggerHandlers]);
 
   // Attach listener to selected input
   useEffect(() => {
@@ -190,7 +283,7 @@ export const MidiProvider = ({ children }) => {
     inputs,
     selectedInputId,
     setSelectedInputId,
-    mappings,
+    mappings: effectiveMappings,
     setMapping,
     clearMapping,
     setMappingsFromExternal,
@@ -198,7 +291,7 @@ export const MidiProvider = ({ children }) => {
     learnParamId,
     registerParamHandler,
     mappingLabel,
-  }), [beginLearn, clearMapping, inputs, learnParamId, mappings, registerParamHandler, selectedInputId, setMapping, setMappingsFromExternal, supported]);
+  }), [beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, registerParamHandler, selectedInputId, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>
