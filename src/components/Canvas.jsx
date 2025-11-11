@@ -1269,7 +1269,12 @@ const Canvas = forwardRef(({
             }
 
             canvas.dataset.pixelRatio = String(dpr);
-            setCanvasSize({ width: displayWidth, height: displayHeight, pixelRatio: dpr });
+            setCanvasSize(prev => {
+                if (prev.width === displayWidth && prev.height === displayHeight && prev.pixelRatio === dpr) {
+                    return prev;
+                }
+                return { width: displayWidth, height: displayHeight, pixelRatio: dpr };
+            });
 
             if (typeof window !== 'undefined') {
                 window.__artapp_canvasMeta = {
