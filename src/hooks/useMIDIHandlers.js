@@ -93,6 +93,16 @@ export function useMIDIHandlers({
     };
   }, [registerParamHandler, setLayers]);
 
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('variationScale', ({ value01 }) => {
+      const v = Math.max(0, Math.min(1, value01));
+      const mapped = +((-3) + v * 6).toFixed(2);
+      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationScale: mapped } : l)));
+    });
+    return unregister;
+  }, [registerParamHandler, setLayers]);
+
   // Global Blend Mode (dropdown over blendModes)
   useEffect(() => {
     if (!registerParamHandler) return;
