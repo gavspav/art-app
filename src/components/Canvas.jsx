@@ -548,12 +548,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.restore();
 };
 
-// --- Toroidal Wrapping Helpers ---
 const ZERO_WRAP_OFFSET = { ox: 0, oy: 0 };
 
 const applyWrapToPoints = (points, wrap) => {
     if (!Array.isArray(points) || points.length === 0 || !wrap || (wrap.ox === 0 && wrap.oy === 0)) {
-        return points;
+        return points || [];
     }
     return points.map(p => ({ x: p.x + wrap.ox, y: p.y + wrap.oy }));
 };
@@ -615,6 +614,27 @@ const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCent
     }
 
     return ZERO_WRAP_OFFSET;
+};
+
+// Back-compat wrapper used by legacy hit-testing logic (takes fewer args)
+const getDriftWrapOffset = (layer, canvas, options = {}) => {
+    if (!layer || layer?.movementStyle !== 'drift' || !canvas) return ZERO_WRAP_OFFSET;
+    const { basePoints = null, baseCenterX = null, baseCenterY = null } = options || {};
+    let points = basePoints;
+    let centerX = baseCenterX;
+    let centerY = baseCenterY;
+
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+        const geometry = getLayerGeometry(layer, canvas);
+        if (!geometry) return ZERO_WRAP_OFFSET;
+        centerX = geometry.centerX;
+        centerY = geometry.centerY;
+        if (!Array.isArray(points)) {
+            points = buildBaseNodePoints(layer, geometry, null);
+        }
+    }
+
+    return resolveDriftWrapOffset(layer, canvas, points, centerX, centerY);
 };
 
 const buildBaseNodePoints = (layer, geometry, renderedPoints) => {
