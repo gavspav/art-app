@@ -2127,7 +2127,7 @@ const Canvas = forwardRef(({
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
                 draggingOrbitCenterRef.current = false;
-                draggingKindRef.current = null;
+                draggingKindRef.current = 'center';
                 gestureRef.current = { layerId, layerIndex, type: 'center' };
                 return;
             }
@@ -2249,7 +2249,7 @@ const Canvas = forwardRef(({
 
     const onMouseUp = (e) => {
         const canvas = localCanvasRef.current;
-        const wasDragging = draggingKindRef.current != null;
+        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
 
         if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
