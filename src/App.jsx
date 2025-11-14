@@ -520,37 +520,75 @@ const MainApp = () => {
       const text = await file.text();
       const data = JSON.parse(text);
       // Apply MIDI mappings immediately if present
-      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch { /* noop */ }
-      // Save imported JSON into localStorage under a unique name, then load via existing loaders
+      try {
+        if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
+      } catch { /* noop */ }
+
+      // Build a unique name for this import
       const base = file.name.replace(/\.json$/i, '') || 'imported';
       const existing = new Set(getSavedConfigList());
       let name = base;
       let i = 1;
       while (existing.has(name)) { name = `${base}-${i++}`; }
-      const key = `artapp-config-${name}`;
-      localStorage.setItem(key, JSON.stringify(data));
-      // update list
-      const list = getSavedConfigList();
-      if (!list.includes(name)) {
-        localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+
+      // Try to persist to localStorage, but treat quota errors as non-fatal
+      let persistedName = null;
+      try {
+        const key = `artapp-config-${name}`;
+        localStorage.setItem(key, JSON.stringify(data));
+        const list = getSavedConfigList();
+        if (!list.includes(name)) {
+          localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+        }
+        persistedName = name;
+      } catch (storageError) {
+        // QuotaExceededError or similar: log and continue without saving to localStorage
+        console.warn('[Import] Failed to persist config to localStorage; proceeding without saving', storageError);
       }
+
       const loadState = window.confirm('Load app state if available?');
-      const res = loadState ? loadFullConfiguration(name) : loadParameters(name);
+      let res = null;
+
+      if (persistedName) {
+        // Normal path: use existing loaders
+        res = loadState ? loadFullConfiguration(persistedName) : loadParameters(persistedName);
+        if (res?.success && loadState && res.appState && typeof loadAppState === 'function') {
+          loadAppState(res.appState);
+        }
+      } else {
+        // Fallback path: apply directly from the imported JSON without persisting
+        if (loadState) {
+          if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
+            try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
+          }
+          if (data?.appState && typeof loadAppState === 'function') {
+            try { loadAppState(data.appState); } catch { /* noop */ }
+          }
+        } else if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
+          try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
+        }
+
+        // Synthesize minimal result object so exportMeta can still be propagated
+        res = { success: true, exportMeta: data?.exportMeta, appState: data?.appState };
+      }
+
       if (res?.exportMeta && typeof window !== 'undefined') {
         window.__artapp_lastImportMeta = res.exportMeta;
       }
-      if (res?.success && loadState && res.appState) {
-        loadAppState(res.appState);
+
+      if (persistedName) {
+        alert(`Imported '${persistedName}'`);
+      } else {
+        alert('Imported (local save skipped: storage is full)');
       }
-      alert(`Imported '${name}'`);
-  } catch (err) {
+    } catch (err) {
       console.warn('Failed to import JSON', err);
       alert('Failed to import JSON');
     } finally {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  }, [getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();

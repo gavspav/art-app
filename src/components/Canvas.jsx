@@ -1117,6 +1117,9 @@ const Canvas = forwardRef(({
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
     const draggingKindRef = useRef(null); // 'node' | 'mid' | null
     const gestureRef = useRef(null);
+    const dragStartOffsetRef = useRef({ normX: 0, normY: 0 }); // offset from layer center when drag starts
+    const pendingDragUpdateRef = useRef(null); // batched drag update
+    const dragUpdateRafRef = useRef(null); // RAF handle for batched updates
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
 
@@ -1127,6 +1130,12 @@ const Canvas = forwardRef(({
         draggingOrbitCenterRef.current = false;
         draggingKindRef.current = null;
         gestureRef.current = null;
+        dragStartOffsetRef.current = { normX: 0, normY: 0 };
+        pendingDragUpdateRef.current = null;
+        if (dragUpdateRafRef.current) {
+            cancelAnimationFrame(dragUpdateRafRef.current);
+            dragUpdateRafRef.current = null;
+        }
     };
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
@@ -2149,6 +2158,18 @@ const Canvas = forwardRef(({
                 draggingOrbitCenterRef.current = false;
                 draggingKindRef.current = 'center';
                 gestureRef.current = { layerId, layerIndex, type: 'center' };
+                // Store initial offset: where the mouse is relative to the actual layer center
+                const currentPosX = layer.position?.x ?? 0.5;
+                const currentPosY = layer.position?.y ?? 0.5;
+                const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
+                const posBaseX = pos.x - wrapOffset.ox;
+                const posBaseY = pos.y - wrapOffset.oy;
+                const clickNormX = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
+                const clickNormY = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
+                dragStartOffsetRef.current = {
+                    normX: clickNormX - currentPosX,
+                    normY: clickNormY - currentPosY,
+                };
                 return;
             }
         }
@@ -2191,79 +2212,306 @@ const Canvas = forwardRef(({
         const wrapOy = wrapOffset.oy;
         const posBaseX = pos.x - wrapOx;
         const posBaseY = pos.y - wrapOy;
-        const normX = spanX > 0 ? (pos.x - artOffsetX - offsetXPx) / spanX : 0.5;
-        const normY = spanY > 0 ? (pos.y - artOffsetY - offsetYPx) / spanY : 0.5;
+        // Use base (unwrapped) canvas coordinates when converting back to normalized space
+        // so that dragging the wrapped center crosshair does not introduce a 1.0 offset.
+        const normXBase = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
+        const normYBase = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
 
         if (draggingOrbit) {
-            const nx = Math.max(0, Math.min(1, normX));
-            const ny = Math.max(0, Math.min(1, normY));
-            setLayers(prev => prev.map((l, i) => (
-                i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
-            )));
+            const nx = Math.max(0, Math.min(1, normXBase));
+            const ny = Math.max(0, Math.min(1, normYBase));
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'orbit', selIndex, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => (
+                    i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
+                )));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (draggingCenter) {
-            const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
-            const minXNorm = spanX > 0 ? (0 - artOffsetX - offsetXPx) / spanX : 0;
-            const maxXNorm = spanX > 0 ? (canvasWidth - artOffsetX - offsetXPx) / spanX : 1;
-            const minYNorm = spanY > 0 ? (0 - artOffsetY - offsetYPx) / spanY : 0;
-            const maxYNorm = spanY > 0 ? (canvasHeight - artOffsetY - offsetYPx) / spanY : 1;
-            const nx = Math.max(minXNorm, Math.min(maxXNorm, normX));
-            const ny = Math.max(minYNorm, Math.min(maxYNorm, normY));
-            setLayers(prev => prev.map((l, i) => (
-                i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
-            )));
+            // Apply the initial offset so the shape doesn't jump to align its center with the cursor
+            const targetX = normXBase - dragStartOffsetRef.current.normX;
+            const targetY = normYBase - dragStartOffsetRef.current.normY;
+            
+            // For drift layers, allow positions outside 0-1 range (they wrap toroidally)
+            // For other movement styles, clamp to canvas bounds
+            let nx = targetX;
+            let ny = targetY;
+            if (layer.movementStyle !== 'drift') {
+                const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+                const minXNorm = spanX > 0 ? (0 - artOffsetX - offsetXPx) / spanX : 0;
+                const maxXNorm = spanX > 0 ? (canvasWidth - artOffsetX - offsetXPx) / spanX : 1;
+                const minYNorm = spanY > 0 ? (0 - artOffsetY - offsetYPx) / spanY : 0;
+                const maxYNorm = spanY > 0 ? (canvasHeight - artOffsetY - offsetYPx) / spanY : 1;
+                nx = Math.max(minXNorm, Math.min(maxXNorm, targetX));
+                ny = Math.max(minYNorm, Math.min(maxYNorm, targetY));
+            }
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'center', selIndex, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => (
+                    i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
+                )));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (idx != null) {
             // Convert dragged canvas position back to unrotated local node coords
             const lx = (posBaseX - centerX) / radiusX;
             const ly = (posBaseY - centerY) / radiusY;
             const nx = lx * cosR + ly * sinR;
             const ny = -lx * sinR + ly * cosR;
-            setLayers(prev => prev.map((l, i) => {
-                if (i !== selIndex) return l;
-                const nodes = [...(l.nodes || [])];
-                nodes[idx] = { x: nx, y: ny };
-                // Update cache first N entries accordingly
-                const cache = nodesCacheRef.current.get(selIndex);
-                if (Array.isArray(cache) && cache.length >= nodes.length) {
-                    cache[idx] = { x: nx, y: ny };
-                }
-                return { ...l, nodes, syncNodesToNumSides: false };
-            }));
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'node', selIndex, idx, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => {
+                    if (i !== selIndex) return l;
+                    const nodes = [...(l.nodes || [])];
+                    nodes[idx] = { x: nx, y: ny };
+                    const cache = nodesCacheRef.current.get(selIndex);
+                    if (Array.isArray(cache) && cache.length >= nodes.length) {
+                        cache[idx] = { x: nx, y: ny };
+                    }
+                    return { ...l, nodes, syncNodesToNumSides: false };
+                }));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (mid != null) {
-            setLayers(prev => prev.map((l, i) => {
-                if (i !== selIndex) return l;
-                const nodes = [...(l.nodes || [])];
-                const N = nodes.length;
-                const aIdx = mid;
-                const bIdx = (mid + 1) % N;
-                // current midpoint in canvas space
-                // compute current endpoints with rotation
-                const arx = nodes[aIdx].x * cosR - nodes[aIdx].y * sinR;
-                const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
-                const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
-                const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
-                const ax = centerX + wrapOx + arx * radiusX;
-                const ay = centerY + wrapOy + ary * radiusY;
-                const bx = centerX + wrapOx + brx * radiusX;
-                const by = centerY + wrapOy + bry * radiusY;
-                const mx = (ax + bx) / 2;
-                const my = (ay + by) / 2;
-                // Convert movement delta back into unrotated local space
-                const dxCanvas = pos.x - mx;
-                const dyCanvas = pos.y - my;
-                const dLocalX = (dxCanvas / radiusX);
-                const dLocalY = (dyCanvas / radiusY);
-                // inverse rotate delta
-                const invDx = dLocalX * cosR + dLocalY * sinR;
-                const invDy = -dLocalX * sinR + dLocalY * cosR;
-                nodes[aIdx] = { x: nodes[aIdx].x + invDx, y: nodes[aIdx].y + invDy };
-                nodes[bIdx] = { x: nodes[bIdx].x + invDx, y: nodes[bIdx].y + invDy };
-                const cache = nodesCacheRef.current.get(selIndex);
-                if (Array.isArray(cache) && cache.length >= nodes.length) {
-                    cache[aIdx] = { ...nodes[aIdx] };
-                    cache[bIdx] = { ...nodes[bIdx] };
-                }
-                return { ...l, nodes, syncNodesToNumSides: false };
-            }));
+            // Calculate the delta for midpoint drag
+            const nodes = [...(layer.nodes || [])];
+            const N = nodes.length;
+            const aIdx = mid;
+            const bIdx = (mid + 1) % N;
+            const arx = nodes[aIdx].x * cosR - nodes[aIdx].y * sinR;
+            const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
+            const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
+            const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
+            const ax = centerX + wrapOx + arx * radiusX;
+            const ay = centerY + wrapOy + ary * radiusY;
+            const bx = centerX + wrapOx + brx * radiusX;
+            const by = centerY + wrapOy + bry * radiusY;
+            const mx = (ax + bx) / 2;
+            const my = (ay + by) / 2;
+            const dxCanvas = pos.x - mx;
+            const dyCanvas = pos.y - my;
+            const dLocalX = (dxCanvas / radiusX);
+            const dLocalY = (dyCanvas / radiusY);
+            const invDx = dLocalX * cosR + dLocalY * sinR;
+            const invDy = -dLocalX * sinR + dLocalY * cosR;
+            
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { 
+                type: 'midDrag', 
+                selIndex, 
+                mid, 
+                invDx, 
+                invDy 
+            };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => {
+                    if (i !== selIndex) return l;
+                    const nodes = [...(l.nodes || [])];
+                    const N = nodes.length;
+                    const aIdx = mid;
+                    const bIdx = (mid + 1) % N;
+                    nodes[aIdx] = { x: nodes[aIdx].x + invDx, y: nodes[aIdx].y + invDy };
+                    nodes[bIdx] = { x: nodes[bIdx].x + invDx, y: nodes[bIdx].y + invDy };
+                    const cache = nodesCacheRef.current.get(selIndex);
+                    if (Array.isArray(cache) && cache.length >= nodes.length) {
+                        cache[aIdx] = { ...nodes[aIdx] };
+                        cache[bIdx] = { ...nodes[bIdx] };
+                    }
+                    return { ...l, nodes, syncNodesToNumSides: false };
+                }));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    } else if (update.type === 'midDrag') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const N = nodes.length;
+                            const aIdx = update.mid;
+                            const bIdx = (update.mid + 1) % N;
+                            nodes[aIdx] = { x: nodes[aIdx].x + update.invDx, y: nodes[aIdx].y + update.invDy };
+                            nodes[bIdx] = { x: nodes[bIdx].x + update.invDx, y: nodes[bIdx].y + update.invDy };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[aIdx] = { ...nodes[aIdx] };
+                                cache[bIdx] = { ...nodes[bIdx] };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    }
+                });
+            }
         }
     };
 
