@@ -1023,6 +1023,81 @@ function applySubpathStyleFallbacks(styles, count, palette = []) {
   };
 }
 
+function simplifyClosedPoints(points, minPoints = 6, maxPoints = 64, tolerance = 0.03) {
+  const src = Array.isArray(points) ? points : [];
+  const n = src.length;
+  const safeMin = Math.max(3, Math.floor(minPoints || 0));
+  const safeMax = Math.max(safeMin, Math.floor(maxPoints || safeMin));
+  if (n <= safeMin) return src.slice();
+
+  const distPointToSegment = (p, a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const denom = dx * dx + dy * dy;
+    if (!(denom > 0)) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / denom;
+    const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = a.x + clamped * dx;
+    const py = a.y + clamped * dy;
+    return Math.hypot(p.x - px, p.y - py);
+  };
+
+  const keep = new Array(n).fill(false);
+  keep[0] = true;
+  keep[n - 1] = true;
+  const tol = Math.max(0, Number(tolerance) || 0);
+  const stack = [[0, n - 1]];
+
+  while (stack.length) {
+    const seg = stack.pop();
+    const start = seg[0];
+    const end = seg[1];
+    if (end <= start + 1) continue;
+    const a = src[start];
+    const b = src[end];
+    let index = -1;
+    let maxDist = 0;
+    for (let i = start + 1; i < end; i++) {
+      const d = distPointToSegment(src[i], a, b);
+      if (d > maxDist) {
+        maxDist = d;
+        index = i;
+      }
+    }
+    if (index >= 0 && maxDist > tol) {
+      keep[index] = true;
+      stack.push([start, index], [index, end]);
+    }
+  }
+
+  const simplified = [];
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) simplified.push(src[i]);
+  }
+
+  if (simplified.length < safeMin) {
+    const result = [];
+    const step = n / safeMin;
+    for (let i = 0; i < safeMin; i++) {
+      const idx = Math.floor(i * step) % n;
+      result.push(src[idx]);
+    }
+    return result;
+  }
+
+  if (simplified.length > safeMax) {
+    const result = [];
+    const step = simplified.length / safeMax;
+    for (let i = 0; i < safeMax; i++) {
+      const idx = Math.floor(i * step);
+      result.push(simplified[idx]);
+    }
+    return result;
+  }
+
+  return simplified;
+}
+
 /**
  * Create a layer configuration from parsed SVG
  */
@@ -1039,16 +1114,43 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
   const finalPalette = (Array.isArray(paletteWithFallbacks) && paletteWithFallbacks.length)
     ? paletteWithFallbacks
     : (palette.length ? palette : []);
-  
+
+  // Detect a "simple" SVG that can be treated as a standard node-based layer:
+  // exactly one subpath with at least 3 points.
+  const isSimpleSVG =
+    subpathCount === 1 &&
+    Array.isArray(subpaths[0]) &&
+    subpaths[0].length >= 3;
+
+  // Decide how to map geometry into the layer model based on simplicity.
+  let layerNodes = null;
+  let layerSubpaths = null;
+  let layerSubpathStyles = null;
+  let layerSubpathGroups = null;
+  let numSides = 0;
+
+  if (isSimpleSVG) {
+    const baseNodes = Array.isArray(subpaths[0]) ? subpaths[0] : [];
+    layerNodes = simplifyClosedPoints(baseNodes, 6, 64, 0.03);
+    numSides = Array.isArray(layerNodes) ? layerNodes.length : 0;
+  } else {
+    // Complex: keep existing rich SVG behavior with subpaths and styles.
+    layerNodes = subpaths ? null : nodes;
+    layerSubpaths = Array.isArray(subpaths) && subpaths.length ? subpaths : null;
+    layerSubpathStyles = resolvedSubpathStyles;
+    layerSubpathGroups = Array.isArray(subpathGroups) && subpathGroups.length ? subpathGroups : null;
+    numSides = Array.isArray(nodes) ? nodes.length : 0;
+  }
+
   const layer = {
     ...DEFAULT_LAYER,
     ...options,
     name: fileName.replace(/\.[^/.]+$/, ''),
     layerType: 'shape',
-    nodes: subpaths ? null : nodes,  // Use subpaths if multiple paths
-    subpaths: subpaths,
-    subpathStyles: resolvedSubpathStyles,
-    subpathGroups: Array.isArray(subpathGroups) && subpathGroups.length ? subpathGroups : null,
+    nodes: layerNodes,
+    subpaths: layerSubpaths,
+    subpathStyles: layerSubpathStyles,
+    subpathGroups: layerSubpathGroups,
     syncNodesToNumSides: false,
     viewBoxMapped: false,
     
@@ -1056,7 +1158,7 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
     curviness: 0,
     noiseAmount: 0,
     wobble: 0,
-    numSides: nodes.length,
+    numSides,
     
     // Position and scale
     position: {
