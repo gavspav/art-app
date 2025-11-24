@@ -1248,21 +1248,27 @@ export async function importSVGFiles(files, options = {}) {
     });
 
     if (allShareViewBox && allHaveBoundingBox) {
-      // Use the shared viewBox as the reference coordinate system so that
-      // margins and relative positions inside the original SVG document are
-      // preserved, rather than cropping to the union of visible shapes.
-      const globalMinX = firstViewBox.minX;
-      const globalMinY = firstViewBox.minY;
-      const globalWidth = firstViewBox.width;
-      const globalHeight = firstViewBox.height;
-      const globalMaxX = globalMinX + globalWidth;
-      const globalMaxY = globalMinY + globalHeight;
+      let globalMinX = Infinity;
+      let globalMinY = Infinity;
+      let globalMaxX = -Infinity;
+      let globalMaxY = -Infinity;
+
+      parsed.forEach(item => {
+        const bbox = item.svgData.metadata.boundingBox;
+        if (bbox.minX < globalMinX) globalMinX = bbox.minX;
+        if (bbox.minY < globalMinY) globalMinY = bbox.minY;
+        if (bbox.maxX > globalMaxX) globalMaxX = bbox.maxX;
+        if (bbox.maxY > globalMaxY) globalMaxY = bbox.maxY;
+      });
+
+      const globalWidth = globalMaxX - globalMinX;
+      const globalHeight = globalMaxY - globalMinY;
       const maxDim = Math.max(globalWidth, globalHeight);
 
       if (maxDim > 0 && Number.isFinite(maxDim)) {
         const globalHalf = maxDim / 2;
-        const globalCenterX = globalMinX + globalWidth / 2;
-        const globalCenterY = globalMinY + globalHeight / 2;
+        const globalCenterX = (globalMinX + globalMaxX) / 2;
+        const globalCenterY = (globalMinY + globalMaxY) / 2;
 
         const rfBaseRaw = Number.isFinite(DEFAULT_LAYER?.radiusFactor)
           ? Number(DEFAULT_LAYER.radiusFactor)
