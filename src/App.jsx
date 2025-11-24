@@ -608,7 +608,8 @@ const MainApp = () => {
       // Use enhanced SVG import
       const { layers: newLayers, errors } = await importSVGFiles(fileList, {
         targetScale: 0.4,  // Sensible default scale (40% of canvas)
-        distributePositions: fileList.length > 1,  // Auto-distribute multiple files
+        // Preserve original relative positions for multi-file imports
+        distributePositions: false,
         applyAnimation: false,  // Let user apply animation after import
         extractColors: true  // Extract and apply colors from SVG
       });
