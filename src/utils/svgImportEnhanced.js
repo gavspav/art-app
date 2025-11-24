@@ -1201,6 +1201,8 @@ export async function importSVGFiles(files, options = {}) {
   const layers = [];
   const errors = [];
   
+  const parsed = [];
+  
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     
@@ -1211,33 +1213,136 @@ export async function importSVGFiles(files, options = {}) {
         centerOnCanvas: files.length === 1,  // Only center if single file
         extractColors
       });
-      
-      // Adjust position for multiple files
-      if (files.length > 1 && distributePositions) {
-        // Distribute in a grid or circle
-        const angle = (i / files.length) * Math.PI * 2;
-        const radius = 0.3;
-        svgData.transform.position = {
-          x: 0.5 + Math.cos(angle) * radius,
-          y: 0.5 + Math.sin(angle) * radius
-        };
-      }
-      
-      const layerOptions = {
-        opacity: 100,
-        movementStyle: applyAnimation ? animationStyle : 'still',
-        movementSpeed: applyAnimation ? animationSpeed : 0,
-        scaleSpeed: applyAnimation ? 0.05 : 0
-      };
-      
-      const layer = createLayerFromSVG(svgData, file.name, layerOptions);
-      layers.push(layer);
-      
+
+      parsed.push({ file, svgData, index: i });
     } catch (error) {
       console.error(`Error importing ${file.name}:`, error);
       errors.push({ file: file.name, error: error.message });
     }
   }
+
+  // If we have multiple SVGs that all share the same viewBox and the caller
+  // requested no distribution, map them into a shared composite layout using
+  // a common bounding box so relative positions are preserved while each
+  // layer remains independently controllable.
+  let sharedViewBoxLayoutApplied = false;
+
+  if (parsed.length > 1 && !distributePositions) {
+    const firstViewBox = parsed[0]?.svgData?.viewBox || null;
+    const allShareViewBox = !!firstViewBox && parsed.every(item => {
+      const vb = item?.svgData?.viewBox;
+      return vb &&
+        vb.minX === firstViewBox.minX &&
+        vb.minY === firstViewBox.minY &&
+        vb.width === firstViewBox.width &&
+        vb.height === firstViewBox.height;
+    });
+
+    const allHaveBoundingBox = parsed.every(item => {
+      const bbox = item?.svgData?.metadata?.boundingBox;
+      return bbox &&
+        Number.isFinite(bbox.minX) &&
+        Number.isFinite(bbox.minY) &&
+        Number.isFinite(bbox.maxX) &&
+        Number.isFinite(bbox.maxY);
+    });
+
+    if (allShareViewBox && allHaveBoundingBox) {
+      let globalMinX = Infinity;
+      let globalMinY = Infinity;
+      let globalMaxX = -Infinity;
+      let globalMaxY = -Infinity;
+
+      parsed.forEach(item => {
+        const bbox = item.svgData.metadata.boundingBox;
+        if (bbox.minX < globalMinX) globalMinX = bbox.minX;
+        if (bbox.minY < globalMinY) globalMinY = bbox.minY;
+        if (bbox.maxX > globalMaxX) globalMaxX = bbox.maxX;
+        if (bbox.maxY > globalMaxY) globalMaxY = bbox.maxY;
+      });
+
+      const globalWidth = globalMaxX - globalMinX;
+      const globalHeight = globalMaxY - globalMinY;
+      const maxDim = Math.max(globalWidth, globalHeight);
+
+      if (maxDim > 0 && Number.isFinite(maxDim)) {
+        const globalHalf = maxDim / 2;
+        const globalCenterX = (globalMinX + globalMaxX) / 2;
+        const globalCenterY = (globalMinY + globalMaxY) / 2;
+
+        const rfBaseRaw = Number.isFinite(DEFAULT_LAYER?.radiusFactor)
+          ? Number(DEFAULT_LAYER.radiusFactor)
+          : Number(DEFAULT_LAYER?.baseRadiusFactor) || 0.4;
+        const rfBase = rfBaseRaw > 0 ? rfBaseRaw : 0.4;
+        const safeTargetScale = Math.max(0.01, Math.min(1.5, Number(targetScale) || 0.3));
+        const margin = 0.02;
+
+        parsed.forEach(item => {
+          const bbox = item.svgData.metadata.boundingBox;
+          const width = bbox.width;
+          const height = bbox.height;
+          const halfSize = Math.max(width, height) / 2 || 1;
+          const cx = bbox.centerX;
+          const cy = bbox.centerY;
+
+          let posX = 0.5 + ((cx - globalCenterX) / globalHalf) * safeTargetScale;
+          let posY = 0.5 + ((cy - globalCenterY) / globalHalf) * safeTargetScale;
+
+          posX = Math.max(margin, Math.min(1 - margin, Number.isFinite(posX) ? posX : 0.5));
+          posY = Math.max(margin, Math.min(1 - margin, Number.isFinite(posY) ? posY : 0.5));
+
+          const rawScale = (safeTargetScale / globalHalf) * (halfSize / rfBase);
+          const safeScale = (Number.isFinite(rawScale) && rawScale > 0) ? rawScale : safeTargetScale;
+
+          const existingTransform = item.svgData.transform || {};
+          const existingPosition = existingTransform.position || {};
+
+          item.svgData.transform = {
+            ...existingTransform,
+            position: {
+              ...existingPosition,
+              x: posX,
+              y: posY,
+            },
+            scale: safeScale,
+          };
+        });
+
+        sharedViewBoxLayoutApplied = true;
+      }
+    }
+  }
+
+  // Now create layers in original file order, applying either the shared-viewBox
+  // layout (when active) or the legacy distribution behaviour.
+  parsed.sort((a, b) => a.index - b.index).forEach((entry, i) => {
+    const { file, svgData } = entry;
+
+    if (parsed.length > 1 && distributePositions && !sharedViewBoxLayoutApplied) {
+      const angle = (i / parsed.length) * Math.PI * 2;
+      const radius = 0.3;
+      const existingTransform = svgData.transform || {};
+      const existingPosition = existingTransform.position || {};
+      svgData.transform = {
+        ...existingTransform,
+        position: {
+          ...existingPosition,
+          x: 0.5 + Math.cos(angle) * radius,
+          y: 0.5 + Math.sin(angle) * radius,
+        },
+      };
+    }
+
+    const layerOptions = {
+      opacity: 100,
+      movementStyle: applyAnimation ? animationStyle : 'still',
+      movementSpeed: applyAnimation ? animationSpeed : 0,
+      scaleSpeed: applyAnimation ? 0.05 : 0
+    };
+
+    const layer = createLayerFromSVG(svgData, file.name, layerOptions);
+    layers.push(layer);
+  });
   
   return { layers, errors };
 }
