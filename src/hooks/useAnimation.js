@@ -150,14 +150,18 @@ const applyBPMModulations = (layer, bpmContext) => {
     
     // Quick check: are there any mappings for this layer?
     const prefix = `layer:${layerKey}:`;
-    const hasLayerMappings = Object.keys(mappings).some(k => k.startsWith(prefix) && mappings[k]?.enabled);
-    if (!hasLayerMappings) return layer;
+    const enabledMappings = Object.keys(mappings).filter(k => k.startsWith(prefix) && mappings[k]?.enabled);
+    if (enabledMappings.length === 0) return layer;
+    
+    // Debug: log when we have enabled mappings (uncomment to debug)
+    // console.log('[BPM] Applying modulations for', layerKey, 'mappings:', enabledMappings);
     
     let modifiedLayer = { ...layer };
     
     // Helper to calculate BPM value for a parameter
     const getBPMValue = (paramId) => {
-        const mapping = mappings[`layer:${layerKey}:${paramId}`];
+        const fullKey = `layer:${layerKey}:${paramId}`;
+        const mapping = mappings[fullKey];
         if (!mapping || !mapping.enabled) return null;
         
         const { speed, loopMode, range } = mapping;
@@ -201,8 +205,11 @@ const applyBPMModulations = (layer, bpmContext) => {
 
 // Apply Audio modulations to a layer
 const applyAudioModulations = (layer, audioContext) => {
-    const { mappings, features } = audioContext;
-    if (!features) return layer;
+    const { mappings, getFeatures } = audioContext;
+    if (!getFeatures) return layer;
+    
+    // Get current features from ref (doesn't trigger re-renders)
+    const features = getFeatures();
     
     const layerKey = layer.name || 'Layer';
     let modifiedLayer = { ...layer };
@@ -268,9 +275,10 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         const applyUpdate = () => setLayers(prevLayers =>
             prevLayers.map(layer => {
                 // Update layer animation with global speed multiplier
-                // NOTE: BPM and Audio modulations are NOT applied here to avoid
-                // causing React re-renders on every frame. Instead, they should
-                // be applied during canvas rendering.
+                // Note: BPM and Audio modulations for layer parameters are disabled
+                // because they cause "Maximum update depth exceeded" errors.
+                // The animation loop modifies layer state, which triggers React re-renders.
+                // Use Global tab parameters for BPM/Audio sync instead.
                 return updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
             })
         );

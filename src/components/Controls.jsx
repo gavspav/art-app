@@ -174,22 +174,25 @@ const MidiRotationStatus = ({ paramId }) => {
 };
 
 // Audio control row - compact version for layer parameters
-const AudioRotationStatus = ({ paramId }) => {
+const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
   
   if (!audio) return null;
   
-  const { mappings, setMapping, AUDIO_BANDS, DEFAULT_RANGE } = audio;
+  const { mappings, setMapping, AUDIO_BANDS } = audio;
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
   
+  // Use parameter's min/max as default output range
+  const defaultRange = { inputMin: 0, inputMax: 1, outputMin: min, outputMax: max };
+  
   const handleBandChange = (band) => {
     if (band === 'none') {
-      setMapping(paramId, { band: 'none', range: DEFAULT_RANGE });
+      setMapping(paramId, { band: 'none', range: defaultRange });
     } else {
-      setMapping(paramId, { band, range: mapping?.range || DEFAULT_RANGE });
+      setMapping(paramId, { band, range: mapping?.range || defaultRange });
       // Clear MIDI and BPM (mutual exclusivity)
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
@@ -216,7 +219,7 @@ const AudioRotationStatus = ({ paramId }) => {
 };
 
 // BPM control row - compact version for layer parameters
-const BPMRotationStatus = ({ paramId }) => {
+const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
   const midi = useMidi();
@@ -229,11 +232,14 @@ const BPMRotationStatus = ({ paramId }) => {
   const currentSpeed = mapping?.speed || 1;
   const currentLoopMode = mapping?.loopMode || 'forward';
   
+  // Use parameter's min/max as default output range
+  const defaultRange = { outputMin: min, outputMax: max };
+  
   const handleToggle = () => {
     if (isEnabled) {
-      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || defaultRange });
     } else {
-      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || defaultRange });
       // Clear MIDI and Audio (mutual exclusivity)
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
@@ -241,11 +247,11 @@ const BPMRotationStatus = ({ paramId }) => {
   };
   
   const handleSpeedChange = (speed) => {
-    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: mapping?.range || defaultRange });
   };
   
   const handleLoopModeChange = (loopMode) => {
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: mapping?.range || defaultRange });
   };
   
   return (
@@ -957,7 +963,11 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         )}
         {/* Audio and BPM modulation for layer parameters is currently disabled
             because it causes performance issues (re-renders on every frame).
+            The animation loop modifies layer state, which triggers React re-renders,
+            leading to "Maximum update depth exceeded" errors.
             Use Global tab parameters for BPM/Audio sync instead. */}
+        {/* {showAudio && <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />} */}
+        {/* {showBPM && <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />} */}
       </div>
     );
   };
