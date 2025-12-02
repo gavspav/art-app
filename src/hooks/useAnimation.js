@@ -275,10 +275,9 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         const applyUpdate = () => setLayers(prevLayers =>
             prevLayers.map(layer => {
                 // Update layer animation with global speed multiplier
-                // Note: BPM and Audio modulations for layer parameters are disabled
-                // because they cause "Maximum update depth exceeded" errors.
-                // The animation loop modifies layer state, which triggers React re-renders.
-                // Use Global tab parameters for BPM/Audio sync instead.
+                // Note: BPM and Audio modulations for layer parameters are now handled
+                // via the handler registration pattern (like MIDI) in useBPMLayerHandlers.
+                // This avoids the infinite re-render loop by using throttled dispatch.
                 return updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
             })
         );

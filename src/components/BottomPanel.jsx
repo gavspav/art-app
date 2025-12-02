@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMidi } from '../context/MidiContext.jsx';
+import { useBPM } from '../context/BPMContext.jsx';
 import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
 import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
@@ -8,6 +9,68 @@ import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
 import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
+
+// Compact beat indicator that shows BPM state with a pulsing circle
+const BeatIndicator = () => {
+  const bpm = useBPM();
+  const [phase, setPhase] = useState(0);
+  const rafRef = useRef(null);
+  
+  const isPlaying = bpm?.isPlaying;
+  const getClockState = bpm?.getClockState;
+  const togglePlay = bpm?.togglePlay;
+  
+  useEffect(() => {
+    if (!isPlaying || typeof getClockState !== 'function') {
+      setPhase(0);
+      return;
+    }
+    
+    const tick = () => {
+      const clock = getClockState();
+      if (clock) {
+        setPhase(clock.beatPhase ?? 0);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying, getClockState]);
+  
+  // Pulse effect: scale from 0.6 to 1.0 based on beat phase
+  const scale = isPlaying ? 0.6 + (1 - phase) * 0.4 : 0.6;
+  const opacity = isPlaying ? 0.7 + (1 - phase) * 0.3 : 0.4;
+  
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={(e) => {
+        e.stopPropagation();
+        togglePlay?.();
+      }}
+      title={isPlaying ? "BPM Playing (B to pause)" : "BPM Paused (B to play)"}
+      aria-label={isPlaying ? "Pause BPM" : "Play BPM"}
+      style={{ padding: '4px' }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          backgroundColor: isPlaying ? '#4ade80' : '#666',
+          transform: `scale(${scale})`,
+          opacity,
+          transition: isPlaying ? 'none' : 'all 0.2s',
+        }}
+      />
+    </button>
+  );
+};
 
 const PANEL_STATE_KEY = 'artapp-bottom-panel-state';
 const PANEL_LOCK_KEY = 'artapp-bottom-panel-locked';
@@ -699,6 +762,7 @@ const BottomPanel = ({
           >
             🛟
           </button>
+          <BeatIndicator />
         </div>
 
         {/* Tab content area */}

@@ -161,12 +161,13 @@ export const BPMProvider = ({ children }) => {
     if (!paramId) return;
     persistMappings((prev) => {
       const next = { ...prev };
-      if (mapping === null || (mapping && mapping.enabled === false)) {
-        // Disable mapping
+      const existingMapping = prev[paramId] || {};
+      if (mapping === null) {
+        // Clear mapping entirely
         next[paramId] = { enabled: false, speed: 1, loopMode: 'forward', range: DEFAULT_RANGE };
       } else if (mapping && typeof mapping === 'object') {
-        // Validate and store
-        const range = mapping.range || DEFAULT_RANGE;
+        // Validate and store - preserve existing range if not provided
+        const range = mapping.range || existingMapping.range || DEFAULT_RANGE;
         next[paramId] = {
           enabled: mapping.enabled !== false,
           speed: BEAT_SPEEDS.find(s => s.value === mapping.speed)?.value || 1,
@@ -203,37 +204,84 @@ export const BPMProvider = ({ children }) => {
     return effectiveMappings[paramId] || null;
   }, [effectiveMappings]);
 
-  // Dispatch BPM values to registered handlers (only when playing and handlers exist)
+  // Dispatch BPM values to registered handlers using requestAnimationFrame (throttled)
+  // This avoids the infinite re-render loop caused by having clock.currentBeat in deps
+  const lastValuesRef = useRef({});
+  const effectiveMappingsRef = useRef(effectiveMappings);
+  effectiveMappingsRef.current = effectiveMappings;
+  
+  // Store clock in a ref so dispatch can read fresh values without re-running useEffect
+  const clockRef = useRef(clock);
+  clockRef.current = clock;
+  
   useEffect(() => {
     if (!clock.isPlaying) return;
-
-    const handlers = handlersRef.current;
-    if (handlers.size === 0) return;
-
-    handlers.forEach((handlerSet, paramId) => {
-      const mapping = effectiveMappings[paramId];
-      if (!mapping || !mapping.enabled) return;
-
-      const { speed, loopMode, range } = mapping;
+    
+    let frameId = null;
+    let lastDispatchTime = 0;
+    const THROTTLE_MS = 50; // Dispatch at most 20 times per second
+    
+    const dispatch = () => {
+      const now = performance.now();
+      if (now - lastDispatchTime < THROTTLE_MS) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
+      lastDispatchTime = now;
       
-      // Calculate phase within the cycle (0-1)
-      const cycleBeats = speed;
-      const totalBeats = clock.currentBeat + clock.beatPhase;
-      const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
+      const handlers = handlersRef.current;
+      if (handlers.size === 0) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
       
-      // Apply loop mode interpolation
-      const normalizedPhase = interpolate(cyclePhase, loopMode);
+      const mappings = effectiveMappingsRef.current;
+      // Read fresh clock values from ref
+      const currentClock = clockRef.current;
+      const currentBeat = currentClock?.currentBeat ?? 0;
+      const beatPhase = currentClock?.beatPhase ?? 0;
       
-      // Map to output range
-      const value01 = range.outputMin + normalizedPhase * (range.outputMax - range.outputMin);
-
-      handlerSet.forEach(fn => {
-        try {
-          fn({ value01, phase: cyclePhase, beat: clock.currentBeat });
-        } catch { /* noop */ }
+      handlers.forEach((handlerSet, paramId) => {
+        const mapping = mappings[paramId];
+        if (!mapping || !mapping.enabled) return;
+        
+        const { speed, loopMode, range } = mapping;
+        
+        // Calculate phase within the cycle (0-1)
+        const cycleBeats = speed;
+        const totalBeats = currentBeat + beatPhase;
+        const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
+        
+        // Apply loop mode interpolation
+        const normalizedPhase = interpolate(cyclePhase, loopMode);
+        
+        // Map to output range
+        const rangeSpan = range.outputMax - range.outputMin;
+        const mappedValue = range.outputMin + normalizedPhase * rangeSpan;
+        
+        // Only dispatch if value changed significantly (avoid redundant React updates)
+        // Use relative threshold based on range span (0.1% of range or 0.001, whichever is larger)
+        const lastValue = lastValuesRef.current[paramId];
+        const threshold = Math.max(0.001, Math.abs(rangeSpan) * 0.001);
+        if (lastValue !== undefined && Math.abs(mappedValue - lastValue) < threshold) return;
+        lastValuesRef.current[paramId] = mappedValue;
+        
+        handlerSet.forEach(fn => {
+          try {
+            fn({ value01: mappedValue, phase: cyclePhase, beat: currentBeat });
+          } catch { /* noop */ }
+        });
       });
-    });
-  }, [clock.isPlaying, clock.currentBeat, clock.beatPhase, effectiveMappings]);
+      
+      frameId = requestAnimationFrame(dispatch);
+    };
+    
+    frameId = requestAnimationFrame(dispatch);
+    
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [clock.isPlaying]); // Only depend on isPlaying, not currentBeat/beatPhase!
 
   // Set BPM
   const setBPMValue = useCallback((newBPM) => {
@@ -241,11 +289,8 @@ export const BPMProvider = ({ children }) => {
     setSettings(prev => ({ ...prev, bpm: newBPM }));
   }, [clock]);
 
-  // Use a ref to store frequently-changing clock state to avoid re-renders
-  const clockRef = useRef(clock);
-  clockRef.current = clock;
-  
   // Stable getters that read from ref (don't cause re-renders)
+  // clockRef is already declared above for the dispatch loop
   const getClockState = useCallback(() => clockRef.current, []);
   
   // Stable value that only changes when mappings/settings change (not on every beat)

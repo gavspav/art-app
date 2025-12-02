@@ -244,8 +244,6 @@ const BPMSection = ({ showBeatCounter = false }) => {
   const {
     bpm: currentBPM,
     isPlaying,
-    currentBeat,
-    beatPhase,
     setBPM,
     togglePlay,
     reset,
@@ -298,12 +296,6 @@ const BPMSection = ({ showBeatCounter = false }) => {
           Tap
         </button>
         
-        {/* Only show beat counter when BPM Learn is enabled */}
-        {showBeatCounter && isPlaying && (
-          <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-            Beat: {Math.floor(currentBeat)} ({(beatPhase * 100).toFixed(0)}%)
-          </span>
-        )}
       </div>
 
       <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>

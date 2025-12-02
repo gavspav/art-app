@@ -21,6 +21,7 @@ export function useKeyboardShortcuts({
   deleteLayer,
   saveQuickPresetToMemory,
   recallQuickPresetFromMemory,
+  toggleBPM,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -109,6 +110,13 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      // B -> Toggle BPM play/pause
+      if (key === 'b') {
+        e.preventDefault();
+        toggleBPM?.();
+        return;
+      }
+
       if (key === 'delete' || key === 'backspace') {
         const nodeMode = !!hotkeyRef?.current?.nodeEditMode;
         const len = Number(hotkeyRef?.current?.layersLen) || 0;
@@ -171,5 +179,6 @@ export function useKeyboardShortcuts({
     deleteLayer,
     saveQuickPresetToMemory,
     recallQuickPresetFromMemory,
+    toggleBPM,
   ]);
 }

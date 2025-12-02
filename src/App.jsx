@@ -14,6 +14,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
 import { useAudioHandlers } from './hooks/useAudioHandlers.js';
 import { useBPMHandlers } from './hooks/useBPMHandlers.js';
+import { useBPMLayerHandlers } from './hooks/useBPMLayerHandlers.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
@@ -439,28 +440,28 @@ const MainApp = () => {
     }
   }, []);
 
-  // Clamp selection and expose currentLayer for Controls
+  // Clamp selection and expose currentLayer for Controls (use throttled UI snapshot)
   // When a group is selected, show the first layer in that group
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
   const currentLayer = useMemo(() => {
-    if (!Array.isArray(layers) || layers.length === 0) return DEFAULT_LAYER;
-    
-    // If a group is selected, find the first layer in that group
+    const layerSource = (Array.isArray(uiLayers) && uiLayers.length > 0)
+      ? uiLayers
+      : layers;
+    if (!Array.isArray(layerSource) || layerSource.length === 0) return DEFAULT_LAYER;
+
+    // If a group is selected, find the first layer in that group (match by id from snapshot)
     if (editTarget?.type === 'group' && editTarget.groupId) {
       const group = (layerGroups || []).find(g => g.id === editTarget.groupId);
       if (group && Array.isArray(group.memberIds) && group.memberIds.length > 0) {
         const firstLayerId = group.memberIds[0];
-        const firstLayer = layers.find(l => l?.id === firstLayerId);
+        const firstLayer = layerSource.find(l => l?.id === firstLayerId);
         if (firstLayer) return firstLayer;
       }
     }
-    
-    // If a selection is active, show the first selected layer
-    // (This is handled by editTarget, but we'll use selectedLayerIndex as fallback)
-    
+
     // Default: use the selected layer index
-    return layers[clampedSelectedIndex] || layers[0];
-  }, [layers, clampedSelectedIndex, editTarget, layerGroups]);
+    return layerSource[clampedSelectedIndex] || layerSource[0];
+  }, [uiLayers, layers, clampedSelectedIndex, editTarget, layerGroups]);
 
   const getExportMeta = useCallback(() => {
     const handle = canvasRef.current;
@@ -976,6 +977,7 @@ const MainApp = () => {
     deleteLayer,
     saveQuickPresetToMemory: handleRamPresetSave,
     recallQuickPresetFromMemory: handleRamPresetRecall,
+    toggleBPM: bpmForAnimation?.togglePlay,
   });
 
   // MIDI helper refs and handlers integration
@@ -1047,6 +1049,13 @@ const MainApp = () => {
     rndAllPrevRef: bpmRndAllPrevRef,
     handleRandomizeAll,
     clampedSelectedIndex: selectedIdxForMidi,
+  });
+
+  // Register BPM handlers for individual layer parameters (like MIDI does)
+  useBPMLayerHandlers({
+    registerBPMHandler,
+    setLayers,
+    layers,
   });
 
   // randomizeScene provided by hook

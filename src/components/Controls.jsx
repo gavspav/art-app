@@ -235,11 +235,25 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   // Use parameter's min/max as default output range
   const defaultRange = { outputMin: min, outputMax: max };
   
+  // Auto-fix stale mappings that have wrong range values
+  useEffect(() => {
+    if (mapping?.enabled && mapping?.range) {
+      const storedMin = mapping.range.outputMin;
+      const storedMax = mapping.range.outputMax;
+      // If stored range doesn't match parameter's actual range, update it
+      if (storedMin !== min || storedMax !== max) {
+        setMapping(paramId, { ...mapping, range: { outputMin: min, outputMax: max } });
+      }
+    }
+  }, [paramId, min, max, mapping, setMapping]);
+  
   const handleToggle = () => {
+    // Always use defaultRange when toggling to ensure correct min/max
+    const rangeToUse = defaultRange;
     if (isEnabled) {
-      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || defaultRange });
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse });
     } else {
-      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || defaultRange });
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse });
       // Clear MIDI and Audio (mutual exclusivity)
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
@@ -247,11 +261,13 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   };
   
   const handleSpeedChange = (speed) => {
-    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: mapping?.range || defaultRange });
+    // Always use defaultRange to ensure correct min/max for this parameter
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange });
   };
   
   const handleLoopModeChange = (loopMode) => {
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: mapping?.range || defaultRange });
+    // Always use defaultRange to ensure correct min/max for this parameter
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange });
   };
   
   return (
@@ -961,13 +977,10 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             </div>
           </div>
         )}
-        {/* Audio and BPM modulation for layer parameters is currently disabled
-            because it causes performance issues (re-renders on every frame).
-            The animation loop modifies layer state, which triggers React re-renders,
-            leading to "Maximum update depth exceeded" errors.
-            Use Global tab parameters for BPM/Audio sync instead. */}
-        {/* {showAudio && <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />} */}
-        {/* {showBPM && <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />} */}
+        {/* Audio and BPM controls for layer parameters */}
+        {/* Note: These now use the handler registration pattern (like MIDI) with throttled dispatch */}
+        {showAudio && <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />}
+        {showBPM && <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />}
       </div>
     );
   };
