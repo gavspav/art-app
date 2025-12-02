@@ -53,6 +53,8 @@ const BottomPanel = ({
   setShowGlobalMidi,
   showGlobalAudio,
   setShowGlobalAudio,
+  showGlobalBPM,
+  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -439,6 +441,8 @@ const BottomPanel = ({
               setShowGlobalMidi={setShowGlobalMidi}
               showGlobalAudio={showGlobalAudio}
               setShowGlobalAudio={setShowGlobalAudio}
+              showGlobalBPM={showGlobalBPM}
+              setShowGlobalBPM={setShowGlobalBPM}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -498,6 +502,8 @@ const BottomPanel = ({
               baseNumColors={baseNumColors}
               isNodeEditMode={isNodeEditMode}
               showMidi={showGlobalMidi}
+              showAudio={showGlobalAudio}
+              showBPM={showGlobalBPM}
               setIsNodeEditMode={setIsNodeEditMode}
               classicMode={classicMode}
               setClassicMode={setClassicMode}

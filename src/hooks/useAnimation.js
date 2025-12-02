@@ -137,9 +137,127 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
     };
 };
 
-export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false) => {
+// Apply BPM modulations to a layer
+const applyBPMModulations = (layer, bpmContext) => {
+    const { mappings, getClockState, isPlaying } = bpmContext;
+    if (!mappings || !getClockState || !isPlaying) return layer;
+    
+    // Get current clock state from ref (doesn't trigger re-renders)
+    const clockState = getClockState();
+    const { currentBeat, beatPhase } = clockState;
+    
+    const layerKey = layer.name || 'Layer';
+    
+    // Quick check: are there any mappings for this layer?
+    const prefix = `layer:${layerKey}:`;
+    const hasLayerMappings = Object.keys(mappings).some(k => k.startsWith(prefix) && mappings[k]?.enabled);
+    if (!hasLayerMappings) return layer;
+    
+    let modifiedLayer = { ...layer };
+    
+    // Helper to calculate BPM value for a parameter
+    const getBPMValue = (paramId) => {
+        const mapping = mappings[`layer:${layerKey}:${paramId}`];
+        if (!mapping || !mapping.enabled) return null;
+        
+        const { speed, loopMode, range } = mapping;
+        const cycleBeats = speed;
+        const totalBeats = currentBeat + beatPhase;
+        const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
+        
+        // Apply loop mode (forward, reverse, pingpong, oneshot)
+        let normalizedPhase = cyclePhase;
+        if (loopMode === 'reverse') {
+            normalizedPhase = 1 - cyclePhase;
+        } else if (loopMode === 'pingpong') {
+            normalizedPhase = cyclePhase < 0.5 ? cyclePhase * 2 : (1 - cyclePhase) * 2;
+        } else if (loopMode === 'oneshot') {
+            normalizedPhase = Math.min(1, cyclePhase);
+        }
+        
+        return range.outputMin + normalizedPhase * (range.outputMax - range.outputMin);
+    };
+    
+    // Apply to scale
+    const scaleValue = getBPMValue('scale');
+    if (scaleValue !== null && modifiedLayer.position) {
+        modifiedLayer = {
+            ...modifiedLayer,
+            position: { ...modifiedLayer.position, scale: scaleValue }
+        };
+    }
+    
+    // Apply to other numeric parameters
+    const params = ['numSides', 'radiusFactor', 'radiusX', 'radiusY', 'movementSpeed', 'curviness', 'orbitRadiusX', 'orbitRadiusY'];
+    params.forEach(param => {
+        const value = getBPMValue(param);
+        if (value !== null) {
+            modifiedLayer = { ...modifiedLayer, [param]: value };
+        }
+    });
+    
+    return modifiedLayer;
+};
+
+// Apply Audio modulations to a layer
+const applyAudioModulations = (layer, audioContext) => {
+    const { mappings, features } = audioContext;
+    if (!features) return layer;
+    
+    const layerKey = layer.name || 'Layer';
+    let modifiedLayer = { ...layer };
+    
+    // Helper to get audio value for a parameter
+    const getAudioValue = (paramId) => {
+        const mapping = mappings[`layer:${layerKey}:${paramId}`];
+        if (!mapping || mapping.band === 'none') return null;
+        
+        const { band, range } = mapping;
+        let audioLevel = 0;
+        
+        switch (band) {
+            case 'rms': audioLevel = features.rms || 0; break;
+            case 'bass': audioLevel = features.bass || 0; break;
+            case 'mids': audioLevel = features.mids || 0; break;
+            case 'highs': audioLevel = features.highs || 0; break;
+            default: return null;
+        }
+        
+        // Map audio level (0-1) to output range
+        const { inputMin = 0, inputMax = 1, outputMin, outputMax } = range;
+        const normalizedInput = Math.max(0, Math.min(1, (audioLevel - inputMin) / (inputMax - inputMin)));
+        return outputMin + normalizedInput * (outputMax - outputMin);
+    };
+    
+    // Apply to scale
+    const scaleValue = getAudioValue('scale');
+    if (scaleValue !== null && modifiedLayer.position) {
+        modifiedLayer = {
+            ...modifiedLayer,
+            position: { ...modifiedLayer.position, scale: scaleValue }
+        };
+    }
+    
+    // Apply to other numeric parameters
+    const params = ['numSides', 'radiusFactor', 'radiusX', 'radiusY', 'movementSpeed', 'curviness', 'orbitRadiusX', 'orbitRadiusY'];
+    params.forEach(param => {
+        const value = getAudioValue(param);
+        if (value !== null) {
+            modifiedLayer = { ...modifiedLayer, [param]: value };
+        }
+    });
+    
+    return modifiedLayer;
+};
+
+export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, bpmContext = null, audioContext = null) => {
     const animationFrameId = useRef(null);
+    const bpmRef = useRef(bpmContext);
+    const audioRef = useRef(audioContext);
     const { runWithoutDirty, noteUserInteraction } = useAppState() || {};
+
+    useEffect(() => { bpmRef.current = bpmContext; }, [bpmContext]);
+    useEffect(() => { audioRef.current = audioContext; }, [audioContext]);
 
     const animate = useCallback(() => {
         if (isFrozen) {
@@ -150,6 +268,9 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         const applyUpdate = () => setLayers(prevLayers =>
             prevLayers.map(layer => {
                 // Update layer animation with global speed multiplier
+                // NOTE: BPM and Audio modulations are NOT applied here to avoid
+                // causing React re-renders on every frame. Instead, they should
+                // be applied during canvas rendering.
                 return updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
             })
         );

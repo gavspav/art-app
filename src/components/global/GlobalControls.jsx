@@ -3,6 +3,7 @@ import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
+import { useBPM } from '../../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
@@ -227,9 +228,91 @@ const AudioReactiveSection = () => {
   );
 };
 
+// BPM/Beat Sync Section Component - Master BPM controls
+const BPMSection = ({ showBeatCounter = false }) => {
+  const bpm = useBPM();
+
+  if (!bpm) {
+    return null;
+  }
+
+  const {
+    bpm: currentBPM,
+    isPlaying,
+    currentBeat,
+    beatPhase,
+    setBPM,
+    togglePlay,
+    reset,
+    tap,
+  } = bpm;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>♪ BPM / Beat Sync</span>
+      </div>
+
+      {/* BPM and controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <span className="compact-label" style={{ fontSize: '0.75rem' }}>BPM:</span>
+          <input
+            type="number"
+            min="20"
+            max="300"
+            step="1"
+            value={currentBPM}
+            onChange={(e) => setBPM(parseFloat(e.target.value))}
+            style={{ width: '4rem', fontSize: '0.75rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+          />
+        </div>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={togglePlay}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={reset}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+        >
+          ⏹ Reset
+        </button>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={tap}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+          title="Tap tempo - tap 2-4 times to set BPM"
+        >
+          Tap
+        </button>
+        
+        {/* Only show beat counter when BPM Learn is enabled */}
+        {showBeatCounter && isPlaying && (
+          <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+            Beat: {Math.floor(currentBeat)} ({(beatPhase * 100).toFixed(0)}%)
+          </span>
+        )}
+      </div>
+
+      <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
+        Map parameters to beats using the BPM checkbox on each control (when "BPM Learn" is enabled above).
+      </div>
+    </div>
+  );
+};
+
 // Audio control row component - shown per parameter when showGlobalAudio is true
 const AudioControlRow = ({ paramId, label }) => {
   const audio = useAudioReactive();
+  const bpm = useBPM();
+  const midi = useMidi();
   const [showRange, setShowRange] = useState(false);
   
   if (!audio) return null;
@@ -255,7 +338,12 @@ const AudioControlRow = ({ paramId, label }) => {
     if (band === 'none') {
       setMapping(paramId, { band: 'none', range: DEFAULT_RANGE });
     } else {
+      // Enable Audio and disable MIDI/BPM for this parameter (mutual exclusivity)
       setMapping(paramId, { band, range: currentRange });
+      // Clear MIDI mapping
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      // Clear BPM mapping
+      if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
     }
     if (isLearning) cancelLearn();
   };
@@ -355,6 +443,140 @@ const AudioControlRow = ({ paramId, label }) => {
   );
 };
 
+// BPM control row component - shown per parameter when showGlobalBPM is true
+const BPMControlRow = ({ paramId }) => {
+  const bpm = useBPM();
+  const audio = useAudioReactive();
+  const midi = useMidi();
+  const [showSettings, setShowSettings] = useState(false);
+  
+  if (!bpm) return null;
+  
+  const { 
+    isPlaying,
+    mappings, 
+    setMapping, 
+    clearMapping,
+    BEAT_SPEEDS,
+    LOOP_MODES,
+    DEFAULT_RANGE,
+  } = bpm;
+  
+  const mapping = mappings?.[paramId];
+  const isEnabled = mapping?.enabled || false;
+  const currentSpeed = mapping?.speed || 1;
+  const currentLoopMode = mapping?.loopMode || 'forward';
+  const currentRange = mapping?.range || DEFAULT_RANGE;
+  
+  const handleToggle = () => {
+    if (isEnabled) {
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange });
+    } else {
+      // Enable BPM and disable MIDI/Audio for this parameter (mutual exclusivity)
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange });
+      // Clear MIDI mapping
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      // Clear Audio mapping
+      if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  const handleSpeedChange = (speed) => {
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: currentRange });
+  };
+  
+  const handleLoopModeChange = (loopMode) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: currentRange });
+  };
+  
+  const handleRangeChange = (update) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: { ...currentRange, ...update } });
+  };
+  
+  return (
+    <div style={{ marginTop: '0.25rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
+        <input
+          type="checkbox"
+          checked={isEnabled}
+          onChange={handleToggle}
+          style={{ cursor: 'pointer' }}
+        />
+        {isEnabled && (
+          <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
+              value={currentSpeed}
+              onChange={(e) => handleSpeedChange(e.target.value)}
+            >
+              {BEAT_SPEEDS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+              value={currentLoopMode}
+              onChange={(e) => handleLoopModeChange(e.target.value)}
+            >
+              {LOOP_MODES.map(mode => (
+                <option key={mode} value={mode}>
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => setShowSettings(s => !s)}
+              title="Edit range"
+            >
+              Range
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => clearMapping(paramId)}
+              title="Clear BPM mapping"
+            >
+              Clear
+            </button>
+          </>
+        )}
+        {isPlaying && isEnabled && (
+          <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>♪</span>
+        )}
+      </div>
+      
+      {/* Range editor */}
+      {showSettings && isEnabled && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>Out:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMin}
+              onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMax}
+              onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
   // State and actions
@@ -372,6 +594,8 @@ const GlobalControls = ({
   setShowGlobalMidi,
   showGlobalAudio,
   setShowGlobalAudio,
+  showGlobalBPM,
+  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -1554,6 +1778,9 @@ const GlobalControls = ({
           <label className="compact-label" title="Show/Hide Audio controls in this section">
             <input type="checkbox" checked={!!showGlobalAudio} onChange={(e) => setShowGlobalAudio(!!e.target.checked)} /> Audio Learn
           </label>
+          <label className="compact-label" title="Show/Hide BPM controls in this section">
+            <input type="checkbox" checked={!!showGlobalBPM} onChange={(e) => setShowGlobalBPM(!!e.target.checked)} /> BPM Learn
+          </label>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1579,6 +1806,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="globalSpeedMultiplier" />}
+            {showGlobalBPM && <BPMControlRow paramId="globalSpeedMultiplier" />}
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1690,6 +1918,9 @@ const GlobalControls = ({
           {/* Audio Reactive Section */}
           <AudioReactiveSection />
 
+          {/* BPM/Beat Sync Section */}
+          <BPMSection showBeatCounter={showGlobalBPM} />
+
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Global Opacity</span>
@@ -1725,6 +1956,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="globalOpacity" />}
+            {showGlobalBPM && <BPMControlRow paramId="globalOpacity" />}
             {showOpacitySettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1806,6 +2038,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="layersCount" />}
+            {showGlobalBPM && <BPMControlRow paramId="layersCount" />}
             {showLayersSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1908,6 +2141,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="variationPosition" />}
+            {showGlobalBPM && <BPMControlRow paramId="variationPosition" />}
             {showVariationPositionSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1970,6 +2204,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="variationShape" />}
+            {showGlobalBPM && <BPMControlRow paramId="variationShape" />}
             {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2038,6 +2273,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="variationAnim" />}
+            {showGlobalBPM && <BPMControlRow paramId="variationAnim" />}
             {showVariationAnimSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2106,6 +2342,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="variationColor" />}
+            {showGlobalBPM && <BPMControlRow paramId="variationColor" />}
             {showVariationColorSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2174,6 +2411,7 @@ const GlobalControls = ({
               </div>
             )}
             {showGlobalAudio && <AudioControlRow paramId="variationScale" />}
+            {showGlobalBPM && <BPMControlRow paramId="variationScale" />}
             {showVariationScaleSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2229,6 +2467,7 @@ const areGlobalPropsEqual = (prev, next) => {
     prev.classicMode === next.classicMode &&
     prev.showGlobalMidi === next.showGlobalMidi &&
     prev.showGlobalAudio === next.showGlobalAudio &&
+    prev.showGlobalBPM === next.showGlobalBPM &&
     prev.globalSeed === next.globalSeed &&
     prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
     prev.globalBlendMode === next.globalBlendMode &&

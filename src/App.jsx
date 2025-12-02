@@ -3,6 +3,7 @@ import { ParameterProvider, useParameters } from './context/ParameterContext.jsx
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
 import { AudioProvider, useAudioReactive } from './context/AudioContext.jsx';
+import { BPMProvider, useBPM } from './context/BPMContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -12,6 +13,7 @@ import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
 import { useAudioHandlers } from './hooks/useAudioHandlers.js';
+import { useBPMHandlers } from './hooks/useBPMHandlers.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
@@ -114,9 +116,10 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
-  // Global MIDI/Audio learn UI visibility
+  // Global MIDI/Audio/BPM learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   const [showGlobalAudio, setShowGlobalAudio] = useState(false);
+  const [showGlobalBPM, setShowGlobalBPM] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
@@ -340,11 +343,16 @@ const MainApp = () => {
     applyImportAdjust,
   } = useImportAdjust({ setLayers });
 
-  // Start animation loop (position, bounce/drift, z-scale)
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
-
   // Audio reactive context (for useAudioHandlers)
   const audioReactive = useAudioReactive();
+  
+  // BPM context (declared later, will be passed to useAnimation after it's defined)
+  // For now, get it early to pass to animation loop
+  const bpmForAnimation = useBPM();
+
+  // Start animation loop (position, bounce/drift, z-scale)
+  // Pass BPM and Audio contexts so modulations are applied in the animation loop
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, bpmForAnimation, audioReactive);
 
   // Config save/load from contexts
   const {
@@ -974,6 +982,29 @@ const MainApp = () => {
     clampedSelectedIndex: selectedIdxForMidi,
   });
 
+  // Centralize all BPM handlers (mirrors MIDI/Audio pattern)
+  const bpmContext = useBPM();
+  const bpmRndAllPrevRef = useRef(0);
+  const { registerBPMHandler } = bpmContext || {};
+  useBPMHandlers({
+    registerBPMHandler,
+    setGlobalSpeedMultiplier,
+    setGlobalBlendMode,
+    blendModes,
+    layers,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    palettes,
+    sampleColorsEven,
+    backgroundColor,
+    setBackgroundColor,
+    rndAllPrevRef: bpmRndAllPrevRef,
+    handleRandomizeAll,
+    clampedSelectedIndex: selectedIdxForMidi,
+  });
+
   // randomizeScene provided by hook
 
   useEffect(() => {
@@ -1248,6 +1279,8 @@ const MainApp = () => {
             setShowGlobalMidi={setShowGlobalMidi}
             showGlobalAudio={showGlobalAudio}
             setShowGlobalAudio={setShowGlobalAudio}
+            showGlobalBPM={showGlobalBPM}
+            setShowGlobalBPM={setShowGlobalBPM}
             globalSeed={globalSeed}
             setGlobalSeed={setGlobalSeed}
             globalSpeedMultiplier={globalSpeedMultiplier}
@@ -1311,7 +1344,9 @@ const App = () => (
     <ParameterProvider>
       <MidiProvider>
         <AudioProvider>
-          <MainApp />
+          <BPMProvider>
+            <MainApp />
+          </BPMProvider>
         </AudioProvider>
       </MidiProvider>
     </ParameterProvider>

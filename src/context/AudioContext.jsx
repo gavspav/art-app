@@ -39,7 +39,7 @@ const DEFAULT_AUDIO_SETTINGS = {
 // Default audio mappings for common parameters
 // { [paramId]: { band: 'rms'|'bass'|'mids'|'highs'|'none', range: {...} } }
 const DEFAULT_AUDIO_MAPPINGS = {
-  globalSpeedMultiplier: { band: 'rms', range: { inputMin: 0, inputMax: 1, outputMin: 1.0, outputMax: 3.0 } },
+  globalSpeedMultiplier: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 1.0, outputMax: 3.0 } },
   globalOpacity: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 0.3, outputMax: 1.0 } },
   layersCount: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 1, outputMax: 20 } },
 };

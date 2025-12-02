@@ -7,6 +7,8 @@ import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
 import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
+import { useAudioReactive } from '../context/AudioContext.jsx';
+import { useBPM } from '../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
@@ -171,6 +173,120 @@ const MidiRotationStatus = ({ paramId }) => {
   );
 };
 
+// Audio control row - compact version for layer parameters
+const AudioRotationStatus = ({ paramId }) => {
+  const audio = useAudioReactive();
+  const bpm = useBPM();
+  const midi = useMidi();
+  
+  if (!audio) return null;
+  
+  const { mappings, setMapping, AUDIO_BANDS, DEFAULT_RANGE } = audio;
+  const mapping = mappings?.[paramId];
+  const currentBand = mapping?.band || 'none';
+  
+  const handleBandChange = (band) => {
+    if (band === 'none') {
+      setMapping(paramId, { band: 'none', range: DEFAULT_RANGE });
+    } else {
+      setMapping(paramId, { band, range: mapping?.range || DEFAULT_RANGE });
+      // Clear MIDI and BPM (mutual exclusivity)
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  return (
+    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
+      <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
+      <select
+        className="compact-select"
+        style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+        value={currentBand}
+        onChange={(e) => handleBandChange(e.target.value)}
+      >
+        {AUDIO_BANDS.map(b => (
+          <option key={b} value={b}>
+            {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+};
+
+// BPM control row - compact version for layer parameters
+const BPMRotationStatus = ({ paramId }) => {
+  const bpm = useBPM();
+  const audio = useAudioReactive();
+  const midi = useMidi();
+  
+  if (!bpm) return null;
+  
+  const { mappings, setMapping, BEAT_SPEEDS, LOOP_MODES } = bpm;
+  const mapping = mappings?.[paramId];
+  const isEnabled = mapping?.enabled || false;
+  const currentSpeed = mapping?.speed || 1;
+  const currentLoopMode = mapping?.loopMode || 'forward';
+  
+  const handleToggle = () => {
+    if (isEnabled) {
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+    } else {
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+      // Clear MIDI and Audio (mutual exclusivity)
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  const handleSpeedChange = (speed) => {
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+  };
+  
+  const handleLoopModeChange = (loopMode) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: mapping?.range || { outputMin: 0, outputMax: 1 } });
+  };
+  
+  return (
+    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
+      <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
+      <input
+        type="checkbox"
+        checked={isEnabled}
+        onChange={handleToggle}
+        style={{ cursor: 'pointer' }}
+      />
+      {isEnabled && (
+        <>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
+            value={currentSpeed}
+            onChange={(e) => handleSpeedChange(e.target.value)}
+          >
+            {BEAT_SPEEDS.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+            value={currentLoopMode}
+            onChange={(e) => handleLoopModeChange(e.target.value)}
+          >
+            {LOOP_MODES.map(mode => (
+              <option key={mode} value={mode}>
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+    </div>
+  );
+};
+
 // MIDI colour block that applies to the active target scope (individual or global)
 const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
   const {
@@ -324,7 +440,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, showMidi, showAudio, showBPM }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -337,6 +453,10 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     learnParamId,
     supported: midiSupported,
   } = useMidi() || {};
+  
+  // Note: Audio and BPM modulation is now handled in the animation loop (useAnimation.js)
+  // to prevent excessive re-renders. Handlers are not registered here.
+  // The AudioRotationStatus and BPMRotationStatus components use their own hooks internally.
 
   // Guard against undefined currentLayer during initial mounts
   let value = currentLayer?.[id];
@@ -659,6 +779,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     return () => { if (typeof unsub === 'function') unsub(); };
   }, [applyUpdateToTargets, id, max, min, options, registerParamHandler, step, type]);
 
+  // BPM and Audio modulation is handled in the animation loop (useAnimation.js)
+  // No handlers registered here to prevent excessive re-renders
+
   // Now short-circuit render if hidden, after hooks are declared
   if (hidden) return null;
 
@@ -773,37 +896,42 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             Include in Randomize All
           </label>
         </div>
-        <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-              <strong>MIDI</strong>
-              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
-                {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
+        {showMidi && (
+          <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                <strong>MIDI</strong>
+                <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                  {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
+                  {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  className="btn-compact-secondary"
+                  onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
+                  disabled={!midiSupported}
+                  title="Click, then move a MIDI control to map"
+                >
+                  Learn
+                </button>
+                <button
+                  type="button"
+                  className="btn-compact-secondary"
+                  onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
+                  disabled={!midiSupported || !midiMappings?.[id]}
+                  title="Clear MIDI mapping for this parameter"
+                >
+                  Clear
+                </button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.4rem' }}>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
-                disabled={!midiSupported}
-                title="Click, then move a MIDI control to map"
-              >
-                Learn
-              </button>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
-                disabled={!midiSupported || !midiMappings?.[id]}
-                title="Clear MIDI mapping for this parameter"
-              >
-                Clear
-              </button>
-            </div>
           </div>
-        </div>
+        )}
+        {/* Audio and BPM modulation for layer parameters is currently disabled
+            because it causes performance issues (re-renders on every frame).
+            Use Global tab parameters for BPM/Audio sync instead. */}
       </div>
     );
   };
@@ -898,6 +1026,8 @@ const Controls = forwardRef(({
   setLayers,
   isNodeEditMode,
   showMidi,
+  showAudio,
+  showBPM,
   setIsNodeEditMode,
   randomizePalette,
   setRandomizePalette,
@@ -1260,6 +1390,9 @@ const Controls = forwardRef(({
                   buildTargetSet={buildTargetSet}
                   targetMode={targetMode}
                   editTarget={editTarget}
+                  showMidi={showMidi}
+                  showAudio={showAudio}
+                  showBPM={showBPM}
                 />
               </div>
             ))}
@@ -1329,6 +1462,9 @@ const Controls = forwardRef(({
               setLayers={setLayers}
               buildTargetSet={buildTargetSet}
               targetMode={targetMode}
+              showMidi={showMidi}
+              showAudio={showAudio}
+              showBPM={showBPM}
             />
           </div>
         ))}
@@ -1428,7 +1564,11 @@ const Controls = forwardRef(({
               const layerKey = (currentLayer?.name || 'Layer').toString();
               const paramId = `layer:${layerKey}:rotation`;
               return (
-                <MidiRotationStatus paramId={paramId} />
+                <>
+                  {showMidi && <MidiRotationStatus paramId={paramId} />}
+                  {showAudio && <AudioRotationStatus paramId={paramId} />}
+                  {showBPM && <BPMRotationStatus paramId={paramId} />}
+                </>
               );
             })()}
           </div>
