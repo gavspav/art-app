@@ -51,6 +51,8 @@ const BottomPanel = ({
   setZIgnore,
   showGlobalMidi,
   setShowGlobalMidi,
+  showGlobalAudio,
+  setShowGlobalAudio,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -435,6 +437,8 @@ const BottomPanel = ({
               setZIgnore={setZIgnore}
               showGlobalMidi={showGlobalMidi}
               setShowGlobalMidi={setShowGlobalMidi}
+              showGlobalAudio={showGlobalAudio}
+              setShowGlobalAudio={setShowGlobalAudio}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}

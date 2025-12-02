@@ -2,6 +2,7 @@ import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
+import { useAudioReactive } from '../../context/AudioContext.jsx';
 import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
@@ -13,6 +14,346 @@ const GLOBAL_SEED_MAX = 2147483646;
 const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
+
+// Range mapping editor sub-component
+const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange }) => {
+  const [expanded, setExpanded] = useState(false);
+  const bands = ['rms', 'bass', 'mids', 'highs'];
+  
+  return (
+    <div style={{ marginBottom: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+      <div 
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <span className="compact-label" style={{ fontSize: '0.75rem' }}>{label}</span>
+        <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{expanded ? '▼' : '▶'}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: '0.25rem', paddingLeft: '0.25rem' }}>
+          {/* Band selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>Band:</span>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', flex: 1 }}
+              value={band}
+              onChange={(e) => onBandChange(e.target.value)}
+            >
+              {bands.map(b => <option key={b} value={b}>{b.toUpperCase()}</option>)}
+            </select>
+          </div>
+          {/* Input range (audio level threshold) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>In:</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={range.inputMin}
+              onChange={(e) => onRangeChange({ inputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={range.inputMax}
+              onChange={(e) => onRangeChange({ inputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+          {/* Output range (parameter value) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>Out:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={range.outputMin}
+              onChange={(e) => onRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.1"
+              value={range.outputMax}
+              onChange={(e) => onRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Audio Reactive Section Component - Global audio settings only
+// Per-parameter audio mappings are shown alongside MIDI controls on each parameter
+const AudioReactiveSection = () => {
+  const audio = useAudioReactive();
+  const [showSettings, setShowSettings] = useState(false);
+
+  if (!audio) {
+    return null;
+  }
+
+  const {
+    isActive,
+    error,
+    features,
+    settings,
+    availableDevices,
+    currentDeviceId,
+    toggleAudio,
+    setSensitivity,
+    setSmoothing,
+    setDeviceId,
+  } = audio;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>🎵 Audio Input</span>
+        <button
+          type="button"
+          className="icon-btn sm"
+          title="Audio settings"
+          aria-label="Audio settings"
+          onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }}
+        >⚙</button>
+      </div>
+
+      {/* Enable/Disable toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={() => toggleAudio()}
+          />
+          {settings.enabled ? (isActive ? 'Listening' : 'Starting...') : 'Enable Audio'}
+        </label>
+        {error && <span style={{ color: '#ff6b6b', fontSize: '0.75rem' }}>{error}</span>}
+      </div>
+
+      {/* Device selector (shown when enabled) */}
+      {settings.enabled && (
+        <div style={{ marginTop: '0.25rem' }}>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.75rem', width: '100%' }}
+            value={currentDeviceId || ''}
+            onChange={(e) => setDeviceId(e.target.value || null)}
+          >
+            <option value="">Default Input Device</option>
+            {availableDevices.map(device => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Device ${device.deviceId.slice(0, 8)}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Audio level meters */}
+      {isActive && (
+        <div style={{ marginTop: '0.5rem', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.5rem', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Level</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.rms * 100}%`, background: '#4fc3f7', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Bass</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.bass * 100}%`, background: '#ff6b6b', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Mids</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.mids * 100}%`, background: '#ffd93d', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Highs</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.highs * 100}%`, background: '#6bcb77', transition: 'width 0.05s' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+          {/* Sensitivity slider */}
+          <div style={{ marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Sensitivity</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.sensitivity.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0}
+              max={3}
+              step={0.05}
+              value={settings.sensitivity}
+              onChange={(e) => setSensitivity(parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* Smoothing slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Smoothing</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.smoothing.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={settings.smoothing}
+              onChange={(e) => setSmoothing(parseFloat(e.target.value))}
+            />
+          </div>
+
+          <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
+            Map audio to parameters using the Audio dropdown on each control (when "Audio Learn" is enabled above).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Audio control row component - shown per parameter when showGlobalAudio is true
+const AudioControlRow = ({ paramId, label }) => {
+  const audio = useAudioReactive();
+  const [showRange, setShowRange] = useState(false);
+  
+  if (!audio) return null;
+  
+  const { 
+    isActive, 
+    mappings, 
+    setMapping, 
+    clearMapping,
+    learnParamId,
+    beginLearn,
+    cancelLearn,
+    AUDIO_BANDS,
+    DEFAULT_RANGE,
+  } = audio;
+  
+  const mapping = mappings?.[paramId];
+  const currentBand = mapping?.band || 'none';
+  const currentRange = mapping?.range || DEFAULT_RANGE;
+  const isLearning = learnParamId === paramId;
+  
+  const handleBandChange = (band) => {
+    if (band === 'none') {
+      setMapping(paramId, { band: 'none', range: DEFAULT_RANGE });
+    } else {
+      setMapping(paramId, { band, range: currentRange });
+    }
+    if (isLearning) cancelLearn();
+  };
+  
+  const handleRangeChange = (update) => {
+    if (currentBand === 'none') return;
+    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update } });
+  };
+  
+  return (
+    <div style={{ marginTop: '0.25rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
+        <select
+          className="compact-select"
+          style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+          value={currentBand}
+          onChange={(e) => handleBandChange(e.target.value)}
+        >
+          {AUDIO_BANDS.map(b => (
+            <option key={b} value={b}>
+              {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+            </option>
+          ))}
+        </select>
+        {currentBand !== 'none' && (
+          <>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => setShowRange(r => !r)}
+              title="Edit range mapping"
+            >
+              Range
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => clearMapping(paramId)}
+              title="Clear audio mapping"
+            >
+              Clear
+            </button>
+          </>
+        )}
+        {isActive && currentBand !== 'none' && (
+          <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>●</span>
+        )}
+      </div>
+      
+      {/* Range editor */}
+      {showRange && currentBand !== 'none' && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>In:</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={currentRange.inputMin}
+              onChange={(e) => handleRangeChange({ inputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={currentRange.inputMax}
+              onChange={(e) => handleRangeChange({ inputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>Out:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMin}
+              onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMax}
+              onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
@@ -29,6 +370,8 @@ const GlobalControls = ({
   setClassicMode,
   showGlobalMidi,
   setShowGlobalMidi,
+  showGlobalAudio,
+  setShowGlobalAudio,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -1208,6 +1551,9 @@ const GlobalControls = ({
           <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
             <input type="checkbox" checked={!!showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} /> MIDI Learn
           </label>
+          <label className="compact-label" title="Show/Hide Audio controls in this section">
+            <input type="checkbox" checked={!!showGlobalAudio} onChange={(e) => setShowGlobalAudio(!!e.target.checked)} /> Audio Learn
+          </label>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1232,6 +1578,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="globalSpeedMultiplier" />}
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1340,6 +1687,9 @@ const GlobalControls = ({
             {/* No settings panel for MIDI Input (non-numeric) */}
           </div>
 
+          {/* Audio Reactive Section */}
+          <AudioReactiveSection />
+
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span className="compact-label">Global Opacity</span>
@@ -1374,6 +1724,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="globalOpacity" />}
             {showOpacitySettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1454,6 +1805,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="layersCount" />}
             {showLayersSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1555,6 +1907,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationPosition'); }} disabled={!midiSupported || !midiMappings?.variationPosition}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="variationPosition" />}
             {showVariationPositionSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1616,6 +1969,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationShape'); }} disabled={!midiSupported || !midiMappings?.variationShape}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="variationShape" />}
             {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1683,6 +2037,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationAnim'); }} disabled={!midiSupported || !midiMappings?.variationAnim}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="variationAnim" />}
             {showVariationAnimSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1750,6 +2105,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="variationColor" />}
             {showVariationColorSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1817,6 +2173,7 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationScale'); }} disabled={!midiSupported || !midiMappings?.variationScale}>Clear</button>
               </div>
             )}
+            {showGlobalAudio && <AudioControlRow paramId="variationScale" />}
             {showVariationScaleSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1871,6 +2228,7 @@ const areGlobalPropsEqual = (prev, next) => {
     prev.syncLayerColorsToFirst === next.syncLayerColorsToFirst &&
     prev.classicMode === next.classicMode &&
     prev.showGlobalMidi === next.showGlobalMidi &&
+    prev.showGlobalAudio === next.showGlobalAudio &&
     prev.globalSeed === next.globalSeed &&
     prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
     prev.globalBlendMode === next.globalBlendMode &&

@@ -148,7 +148,10 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         }
 
         const applyUpdate = () => setLayers(prevLayers =>
-            prevLayers.map(layer => updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore))
+            prevLayers.map(layer => {
+                // Update layer animation with global speed multiplier
+                return updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
+            })
         );
 
         if (typeof runWithoutDirty === 'function') {

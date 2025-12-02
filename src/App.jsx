@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
+import { AudioProvider, useAudioReactive } from './context/AudioContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -10,6 +11,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
+import { useAudioHandlers } from './hooks/useAudioHandlers.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
@@ -112,8 +114,9 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
-  // Global MIDI learn UI visibility
+  // Global MIDI/Audio learn UI visibility
   const [showGlobalMidi, setShowGlobalMidi] = useState(false);
+  const [showGlobalAudio, setShowGlobalAudio] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
@@ -339,6 +342,9 @@ const MainApp = () => {
 
   // Start animation loop (position, bounce/drift, z-scale)
   useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
+
+  // Audio reactive context (for useAudioHandlers)
+  const audioReactive = useAudioReactive();
 
   // Config save/load from contexts
   const {
@@ -946,6 +952,28 @@ const MainApp = () => {
     layersCountParam,
   });
 
+  // Centralize all Audio handlers (mirrors MIDI pattern)
+  const audioRndAllPrevRef = useRef(0);
+  const { registerAudioHandler } = audioReactive || {};
+  useAudioHandlers({
+    registerAudioHandler,
+    setGlobalSpeedMultiplier,
+    setGlobalBlendMode,
+    blendModes,
+    layers,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    palettes,
+    sampleColorsEven,
+    backgroundColor,
+    setBackgroundColor,
+    rndAllPrevRef: audioRndAllPrevRef,
+    handleRandomizeAll,
+    clampedSelectedIndex: selectedIdxForMidi,
+  });
+
   // randomizeScene provided by hook
 
   useEffect(() => {
@@ -1218,6 +1246,8 @@ const MainApp = () => {
             setZIgnore={setZIgnore}
             showGlobalMidi={showGlobalMidi}
             setShowGlobalMidi={setShowGlobalMidi}
+            showGlobalAudio={showGlobalAudio}
+            setShowGlobalAudio={setShowGlobalAudio}
             globalSeed={globalSeed}
             setGlobalSeed={setGlobalSeed}
             globalSpeedMultiplier={globalSpeedMultiplier}
@@ -1280,7 +1310,9 @@ const App = () => (
   <AppStateProvider>
     <ParameterProvider>
       <MidiProvider>
-        <MainApp />
+        <AudioProvider>
+          <MainApp />
+        </AudioProvider>
       </MidiProvider>
     </ParameterProvider>
   </AppStateProvider>
