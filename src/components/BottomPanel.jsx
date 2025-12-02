@@ -7,6 +7,7 @@ import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
 import './BottomPanel.css';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 
 const PANEL_STATE_KEY = 'artapp-bottom-panel-state';
 const PANEL_LOCK_KEY = 'artapp-bottom-panel-locked';
@@ -94,6 +95,13 @@ const BottomPanel = ({
   setRandomizeNumColors,
   syncLayerColorsToFirst,
   setSyncLayerColorsToFirst,
+  selectedLayerIds,
+  toggleLayerSelection,
+  clearSelection,
+  layerGroups,
+  editTarget,
+  setEditTarget,
+  getActiveTargetLayerIds,
   colorCountMin,
   colorCountMax,
   setColorCountMin,
@@ -106,6 +114,24 @@ const BottomPanel = ({
   moveSelectedLayerUp,
   moveSelectedLayerDown,
   handleImportSVGClick,
+  // Morph props for GlobalControls
+  presetSlots,
+  getPresetSlot,
+  loadAppState,
+  morphEnabled,
+  morphRoute,
+  morphDurationPerLeg,
+  morphEasing,
+  morphLoopMode,
+  setMorphEnabled,
+  setMorphRoute,
+  setMorphDurationPerLeg,
+  setMorphEasing,
+  setMorphLoopMode,
+  morphMode,
+  setMorphMode,
+  applyVariationInstantly,
+  setApplyVariationInstantly,
 }) => {
   const initialLock = useMemo(() => readInitialLock(), []);
   const initialPanelState = useMemo(() => readInitialPanelState(initialLock), [initialLock]);
@@ -424,6 +450,7 @@ const BottomPanel = ({
           <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
             <GlobalControls
               key={`glob-${parameterTargetMode}`}
+              isActiveTab={activeTab === 'global'}
               autosaveToggleToken={autosaveToggleToken}
               backgroundColor={backgroundColor}
               setBackgroundColor={setBackgroundColor}
@@ -475,6 +502,24 @@ const BottomPanel = ({
               syncLayerColorsToFirst={syncLayerColorsToFirst}
               setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
               hidePresets
+              // Morph props
+              presetSlots={presetSlots}
+              getPresetSlot={getPresetSlot}
+              loadAppState={loadAppState}
+              morphEnabled={morphEnabled}
+              morphRoute={morphRoute}
+              morphDurationPerLeg={morphDurationPerLeg}
+              morphEasing={morphEasing}
+              morphLoopMode={morphLoopMode}
+              setMorphEnabled={setMorphEnabled}
+              setMorphRoute={setMorphRoute}
+              setMorphDurationPerLeg={setMorphDurationPerLeg}
+              setMorphEasing={setMorphEasing}
+              setMorphLoopMode={setMorphLoopMode}
+              morphMode={morphMode}
+              setMorphMode={setMorphMode}
+              applyVariationInstantly={applyVariationInstantly}
+              setApplyVariationInstantly={setApplyVariationInstantly}
             />
           </div>
         );
@@ -528,6 +573,13 @@ const BottomPanel = ({
               onMoveLayerDown={moveSelectedLayerDown}
               onImportSVG={handleImportSVGClick}
               parameterTargetMode={parameterTargetMode}
+              selectedLayerIds={selectedLayerIds}
+              toggleLayerSelection={toggleLayerSelection}
+              clearSelection={clearSelection}
+              layerGroups={layerGroups}
+              editTarget={editTarget}
+              setEditTarget={setEditTarget}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
             />
           </div>
         );
@@ -658,4 +710,136 @@ const BottomPanel = ({
   );
 };
 
-export default BottomPanel;
+// Helpers to avoid re-rendering the entire panel on every animation frame.
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ignoreTopLevel = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => { if (ignoreTopLevel.has(k)) keys.delete(k); });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection']);
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  posKeys.forEach(k => { if (ignorePos.has(k)) posKeys.delete(k); });
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+  const ignoreRotation = a.movementStyle === 'spin' || b.movementStyle === 'spin';
+  if (!ignoreRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
+};
+
+const areLayersEqualForUI = (prevLayers, nextLayers) => {
+  if (prevLayers === nextLayers) return true;
+  if (!Array.isArray(prevLayers) || !Array.isArray(nextLayers)) return false;
+  if (prevLayers.length !== nextLayers.length) return false;
+  for (let i = 0; i < prevLayers.length; i += 1) {
+    if (!isLayerEqualForUI(prevLayers[i], nextLayers[i])) return false;
+  }
+  return true;
+};
+
+const isArrayShallowEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!Object.is(a[i], b[i])) return false;
+  }
+  return true;
+};
+
+const areBottomPanelPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+  const fail = (reason) => {
+    if (debug) log(`[settings-debug] BottomPanel re-render: ${reason}`);
+    return false;
+  };
+
+  if (!areLayersEqualForUI(prev.layers, next.layers)) return fail('layers changed');
+  if (!isLayerEqualForUI(prev.currentLayer, next.currentLayer)) return fail('currentLayer changed');
+  if (!Object.is(prev.backgroundColor, next.backgroundColor)) return fail('backgroundColor changed');
+  if (!Object.is(prev.backgroundImage, next.backgroundImage)) return fail('backgroundImage changed');
+  if (!Object.is(prev.isFrozen, next.isFrozen)) return fail('isFrozen changed');
+  if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
+  if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
+  if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
+  if (!Object.is(prev.showGlobalMidi, next.showGlobalMidi)) return fail('showGlobalMidi changed');
+  if (!Object.is(prev.showGlobalAudio, next.showGlobalAudio)) return fail('showGlobalAudio changed');
+  if (!Object.is(prev.showGlobalBPM, next.showGlobalBPM)) return fail('showGlobalBPM changed');
+  if (!Object.is(prev.globalSeed, next.globalSeed)) return fail('globalSeed changed');
+  if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return fail('globalSpeedMultiplier changed');
+  if (!Object.is(prev.globalBlendMode, next.globalBlendMode)) return fail('globalBlendMode changed');
+  if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
+  if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
+  if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
+  if (!Object.is(prev.syncLayerColorsToFirst, next.syncLayerColorsToFirst)) return fail('syncLayerColorsToFirst changed');
+  if (!Object.is(prev.colorCountMin, next.colorCountMin)) return fail('colorCountMin changed');
+  if (!Object.is(prev.colorCountMax, next.colorCountMax)) return fail('colorCountMax changed');
+  if (!Object.is(prev.selectedLayerIndex, next.selectedLayerIndex)) return fail('selectedLayerIndex changed');
+  if (!Object.is(prev.isNodeEditMode, next.isNodeEditMode)) return fail('isNodeEditMode changed');
+  if (!isArrayShallowEqual(prev.layerNames, next.layerNames)) return fail('layerNames changed');
+  if (!isArrayShallowEqual(prev.layerIds, next.layerIds)) return fail('layerIds changed');
+  if (!isArrayShallowEqual(prev.baseColors, next.baseColors)) return fail('baseColors changed');
+  if (!Object.is(prev.baseNumColors, next.baseNumColors)) return fail('baseNumColors changed');
+  if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
+  if (!isArrayShallowEqual(prev.layerGroups, next.layerGroups)) return fail('layerGroups changed');
+  if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
+
+  // Assume callbacks passed in are stable (useCallback); if any change, allow re-render.
+  const handlerKeys = [
+    'setBackgroundColor',
+    'setBackgroundImage',
+    'setIsFrozen',
+    'setColorFadeWhileFrozen',
+    'setClassicMode',
+    'setZIgnore',
+    'setShowGlobalMidi',
+    'setShowGlobalAudio',
+    'setShowGlobalBPM',
+    'setGlobalSeed',
+    'setGlobalSpeedMultiplier',
+    'setGlobalBlendMode',
+    'setParameterTargetMode',
+    'onQuickSave',
+    'onQuickLoad',
+    'sampleColorsEven',
+    'assignOneColorPerLayer',
+    'setLayers',
+    'buildVariedLayerFrom',
+    'setSelectedLayerIndex',
+    'handleRandomizeAll',
+    'updateCurrentLayer',
+    'randomizeCurrentLayer',
+    'randomizeAnimationForCurrentLayer',
+    'randomizeCurrentLayerColors',
+    'setIsNodeEditMode',
+    'setRandomizePalette',
+    'setRandomizeNumColors',
+    'setSyncLayerColorsToFirst',
+    'setColorCountMin',
+    'setColorCountMax',
+    'selectLayer',
+    'addNewLayer',
+    'deleteLayer',
+    'moveSelectedLayerUp',
+    'moveSelectedLayerDown',
+    'handleImportSVGClick',
+    'toggleLayerSelection',
+    'clearSelection',
+    'setEditTarget',
+    'getActiveTargetLayerIds',
+  ];
+  for (const key of handlerKeys) {
+    if (prev[key] !== next[key]) return fail(`${key} changed identity`);
+  }
+
+  return true;
+};
+
+export default React.memo(BottomPanel, areBottomPanelPropsEqual);

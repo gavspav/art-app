@@ -1122,6 +1122,7 @@ const Canvas = forwardRef(({
     const dragUpdateRafRef = useRef(null); // RAF handle for batched updates
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
+    const lastSlowRenderLogRef = useRef(0); // throttle repeated slow-render warnings
 
     const clearDragState = () => {
         draggingNodeIndexRef.current = null;
@@ -1841,7 +1842,15 @@ const Canvas = forwardRef(({
         const renderTime = renderEnd - renderStart;
 
         if (renderTime > 16) {
-            console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
+            // Avoid spamming the console every frame; log at most once every 2 seconds while slow
+            const now = performance.now();
+            if (now - lastSlowRenderLogRef.current > 2000) {
+                lastSlowRenderLogRef.current = now;
+                console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
+            }
+        } else if (lastSlowRenderLogRef.current !== 0 && renderTime < 12) {
+            // Reset throttle once things are comfortably fast again
+            lastSlowRenderLogRef.current = 0;
         }
 
         // Update trackers after a pass

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useRef, useMemo } from 'react';
 import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
 
 const SEED_MIN = 1;
@@ -105,6 +105,11 @@ export const AppStateProvider = ({ children }) => {
     morphLoopMode: 'loop', // 'loop' | 'pingpong'
     morphMode: 'tween', // 'tween' | 'fade'
   });
+  const appStateRef = useRef(appState);
+  useEffect(() => { appStateRef.current = appState; }, [appState]);
+
+  // Stable getter for layers - use this instead of context.layers to avoid re-renders
+  const getLayers = useCallback(() => appStateRef.current.layers, []);
 
   // RAM preset slot stored in-memory only
   const [quickPreset, setQuickPreset] = useState(null);
@@ -554,7 +559,8 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
   const getActiveTargetLayerIds = useCallback(() => {
-    const state = appState;
+    const state = appStateRef.current;
+    if (!state) return [];
     if (state.editTarget?.type === 'selection') return state.selectedLayerIds || [];
     if (state.editTarget?.type === 'group') {
       const g = (state.layerGroups || []).find(x => x.id === state.editTarget.groupId);
@@ -564,7 +570,7 @@ export const AppStateProvider = ({ children }) => {
     const idx = Math.max(0, Math.min(Number(state.selectedLayerIndex) || 0, Math.max(0, (state.layers || []).length - 1)));
     const l = (state.layers || [])[idx];
     return l && l.id ? [l.id] : [];
-  }, [appState]);
+  }, []);
 
   // Function to reset app state to defaults
   const resetAppState = useCallback(() => {
@@ -594,9 +600,13 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  const value = {
+  // Context value - we include appState but consumers should use React.memo
+  // with custom comparators to avoid re-rendering on every frame
+  const value = useMemo(() => ({
     // Current state
     ...appState,
+    // Also provide getLayers() for components that need stable access
+    getLayers,
     quickPreset,
     setQuickPresetSnapshot,
     clearQuickPresetSnapshot,
@@ -662,7 +672,64 @@ export const AppStateProvider = ({ children }) => {
     loadAppState,
     resetAppState,
     runWithoutDirty,
-  };
+  }), [
+    appState,
+    getLayers,
+    quickPreset,
+    setQuickPresetSnapshot,
+    clearQuickPresetSnapshot,
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
+    markDirty,
+    noteUserInteraction,
+    presetSlots,
+    setPresetSlots,
+    setPresetSlot,
+    clearPresetSlot,
+    getPresetSlot,
+    setIsFrozen,
+    setBackgroundColor,
+    setBackgroundImage,
+    setGlobalBlendMode,
+    setGlobalSeed,
+    setGlobalSpeedMultiplier,
+    setLayers,
+    setSelectedLayerIndex,
+    setIsOverlayVisible,
+    setIsNodeEditMode,
+    setClassicMode,
+    setZIgnore,
+    setRandomizePalette,
+    setRandomizeNumColors,
+    setColorFadeWhileFrozen,
+    setSyncLayerColorsToFirst,
+    setApplyVariationInstantly,
+    setParameterTargetMode,
+    setShowLayerOutlines,
+    setIsolateMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    setMorphMode,
+    toggleLayerSelection,
+    clearSelection,
+    createGroup,
+    renameGroup,
+    setGroupColor,
+    addMembersToGroup,
+    removeMembersFromGroup,
+    deleteGroup,
+    setEditTarget,
+    getActiveTargetLayerIds,
+    getCurrentAppState,
+    loadAppState,
+    resetAppState,
+    runWithoutDirty,
+  ]);
 
   return (
     <AppStateContext.Provider value={value}>

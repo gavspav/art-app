@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { useAppState } from '../../context/AppStateContext.jsx';
+// NOTE: useAppState removed to prevent context subscription causing re-renders on every frame
+// Morph-related values are now passed as props from BottomPanel
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
@@ -9,6 +10,7 @@ import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 import AutosaveRecovery from './AutosaveRecovery.jsx';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -105,7 +107,7 @@ const AudioReactiveSection = () => {
   const {
     isActive,
     error,
-    features,
+    getFeatures,
     settings,
     availableDevices,
     currentDeviceId,
@@ -114,6 +116,9 @@ const AudioReactiveSection = () => {
     setSmoothing,
     setDeviceId,
   } = audio;
+  
+  // Get current features (use getter to avoid context re-renders)
+  const features = getFeatures ? getFeatures() : { rms: 0, bass: 0, mids: 0, highs: 0 };
 
   return (
     <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
@@ -637,6 +642,24 @@ const GlobalControls = ({
   // UI options
   hidePresets = false,
   autosaveToggleToken = 0,
+  // Morph props (passed from BottomPanel to avoid useAppState subscription)
+  presetSlots,
+  getPresetSlot,
+  loadAppState,
+  morphEnabled,
+  morphRoute,
+  morphDurationPerLeg,
+  morphEasing,
+  morphLoopMode,
+  setMorphEnabled,
+  setMorphRoute,
+  setMorphDurationPerLeg,
+  setMorphEasing,
+  setMorphLoopMode,
+  morphMode,
+  setMorphMode,
+  applyVariationInstantly,
+  setApplyVariationInstantly,
 }) => {
   const layerSeedNonceRef = useRef(0);
   const generateLayerSeed = useCallback(() => {
@@ -673,27 +696,8 @@ const GlobalControls = ({
       }
     } catch { /* noop */ }
   }, [backgroundImage]);
-  // Presets: contexts
-  const {
-    presetSlots,
-    getPresetSlot,
-    loadAppState,
-    // Morph state
-    morphEnabled,
-    morphRoute,
-    morphDurationPerLeg,
-    morphEasing,
-    morphLoopMode,
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    morphMode,
-    setMorphMode,
-    applyVariationInstantly,
-    setApplyVariationInstantly,
-  } = useAppState() || {};
+  // Presets: these values are now passed as props to avoid useAppState() subscription
+  // which causes re-renders on every animation frame
   const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
 
@@ -2450,30 +2454,97 @@ const GlobalControls = ({
   );
 };
 
-const areGlobalPropsEqual = (prev, next) => {
-  const prevBGI = prev.backgroundImage || {};
-  const nextBGI = next.backgroundImage || {};
-  return (
-    prev.backgroundColor === next.backgroundColor &&
-    prev.getIsRnd === next.getIsRnd &&
-    prevBGI.enabled === nextBGI.enabled &&
-    prevBGI.src === nextBGI.src &&
-    prevBGI.opacity === nextBGI.opacity &&
-    prevBGI.fit === nextBGI.fit &&
-    prev.isFrozen === next.isFrozen &&
-    prev.zIgnore === next.zIgnore &&
-    prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
-    prev.syncLayerColorsToFirst === next.syncLayerColorsToFirst &&
-    prev.classicMode === next.classicMode &&
-    prev.showGlobalMidi === next.showGlobalMidi &&
-    prev.showGlobalAudio === next.showGlobalAudio &&
-    prev.showGlobalBPM === next.showGlobalBPM &&
-    prev.globalSeed === next.globalSeed &&
-    prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
-    prev.globalBlendMode === next.globalBlendMode &&
-    prev.midiInputId === next.midiInputId &&
-    prev.layers === next.layers
-  );
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ignoreTop = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => { if (ignoreTop.has(k)) keys.delete(k); });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection']);
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  posKeys.forEach(k => { if (ignorePos.has(k)) posKeys.delete(k); });
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+  const ignoreRotation = a.movementStyle === 'spin' || b.movementStyle === 'spin';
+  if (!ignoreRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
 };
 
-export default React.memo(GlobalControls, areGlobalPropsEqual);
+const areLayersEqualForUI = (prevLayers, nextLayers) => {
+  if (prevLayers === nextLayers) return true;
+  if (!Array.isArray(prevLayers) || !Array.isArray(nextLayers)) return false;
+  if (prevLayers.length !== nextLayers.length) return false;
+  for (let i = 0; i < prevLayers.length; i += 1) {
+    if (!isLayerEqualForUI(prevLayers[i], nextLayers[i])) return false;
+  }
+  return true;
+};
+
+// Simple render profiler for the Global tab (opt-in via window.__artapp_debugSettings = true)
+const useGlobalRenderDebug = (props) => {
+  const debug = isSettingsDebugEnabled();
+  const renderCountRef = useRef(0);
+  const lastMarkRef = useRef(0);
+  useEffect(() => {
+    if (!debug) return;
+    renderCountRef.current += 1;
+    const now = performance.now ? performance.now() : Date.now();
+    if (now - lastMarkRef.current > 1000) {
+      lastMarkRef.current = now;
+      const log = throttledSettingsDebugLog;
+      log(`[global-debug] render #${renderCountRef.current}`, {
+        layersLen: Array.isArray(props.layers) ? props.layers.length : 'n/a',
+        isFrozen: props.isFrozen,
+      });
+    }
+  });
+};
+
+const areGlobalPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+  const prevBGI = prev.backgroundImage || {};
+  const nextBGI = next.backgroundImage || {};
+  const diff = (reason) => {
+    if (debug) {
+      log(`[global-debug] re-render: ${reason}`);
+    }
+    return false;
+  };
+
+  // isActiveTab is only used for visibility, not for rendering content changes
+  // Do NOT force re-render just because the tab is active - that causes stutter
+
+  if (prev.backgroundColor !== next.backgroundColor) return diff('backgroundColor');
+  if (prev.getIsRnd !== next.getIsRnd) return diff('getIsRnd changed');
+  if (prevBGI.enabled !== nextBGI.enabled) return diff('backgroundImage.enabled');
+  if (prevBGI.src !== nextBGI.src) return diff('backgroundImage.src');
+  if (!Object.is(prevBGI.opacity, nextBGI.opacity)) return diff('backgroundImage.opacity');
+  if (prevBGI.fit !== nextBGI.fit) return diff('backgroundImage.fit');
+  if (prev.isFrozen !== next.isFrozen) return diff('isFrozen');
+  if (prev.zIgnore !== next.zIgnore) return diff('zIgnore');
+  if (prev.colorFadeWhileFrozen !== next.colorFadeWhileFrozen) return diff('colorFadeWhileFrozen');
+  if (prev.syncLayerColorsToFirst !== next.syncLayerColorsToFirst) return diff('syncLayerColorsToFirst');
+  if (prev.classicMode !== next.classicMode) return diff('classicMode');
+  if (prev.showGlobalMidi !== next.showGlobalMidi) return diff('showGlobalMidi');
+  if (prev.showGlobalAudio !== next.showGlobalAudio) return diff('showGlobalAudio');
+  if (prev.showGlobalBPM !== next.showGlobalBPM) return diff('showGlobalBPM');
+  if (!Object.is(prev.globalSeed, next.globalSeed)) return diff('globalSeed');
+  if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return diff('globalSpeedMultiplier');
+  if (prev.globalBlendMode !== next.globalBlendMode) return diff('globalBlendMode');
+  if (prev.midiInputId !== next.midiInputId) return diff('midiInputId');
+  if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
+
+  return true;
+};
+
+export default React.memo((props) => {
+  useGlobalRenderDebug(props);
+  return <GlobalControls {...props} />;
+}, areGlobalPropsEqual);

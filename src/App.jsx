@@ -93,6 +93,8 @@ const MainApp = () => {
     // Group and selection state
     editTarget,
     layerGroups,
+    selectedLayerIds,
+    toggleLayerSelection,
     quickPreset,
     setQuickPresetSnapshot,
     getCurrentAppState,
@@ -101,6 +103,23 @@ const MainApp = () => {
     setIsDirty,
     lastSavedAt,
     setLastSavedAt,
+    // Preset/morph state for GlobalControls
+    presetSlots,
+    getPresetSlot,
+    morphEnabled,
+    morphRoute,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    morphMode,
+    setMorphMode,
+    applyVariationInstantly,
+    setApplyVariationInstantly,
   } = appStateCtx;
 
   // MIDI context
@@ -285,6 +304,20 @@ const MainApp = () => {
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
+  // Throttled snapshot of layers for UI (avoid re-rendering Global tab every animation frame)
+  const [uiLayers, setUiLayers] = useState(layers);
+  const lastUiLayersUpdateRef = useRef(0);
+  useEffect(() => {
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (now - lastUiLayersUpdateRef.current > 120) {
+      lastUiLayersUpdateRef.current = now;
+      setUiLayers(layers);
+    }
+  }, [layers]);
+  const selectedLayerIndexRef = useRef(selectedLayerIndex);
+  useEffect(() => {
+    selectedLayerIndexRef.current = selectedLayerIndex;
+  }, [selectedLayerIndex]);
 
   // Suppress animation briefly during direct user edits to avoid state races
   const [, setSuppressAnimation] = useState(false);
@@ -383,6 +416,12 @@ const MainApp = () => {
 
   // No local popovers; inline checkboxes next to controls
 
+  // Keep frequently-changing data in refs so handlers stay stable
+  const parametersRef = useRef(parameters);
+  const midiMappingsRef = useRef(midiMappings);
+  useEffect(() => { parametersRef.current = parameters; }, [parameters]);
+  useEffect(() => { midiMappingsRef.current = midiMappings; }, [midiMappings]);
+
   // Download helper for exporting JSON
   const downloadJson = useCallback((filename, obj) => {
     try {
@@ -439,21 +478,24 @@ const MainApp = () => {
     };
   }, []);
 
+  const getCurrentAppStateRef = useRef(getCurrentAppState);
+  useEffect(() => { getCurrentAppStateRef.current = getCurrentAppState; }, [getCurrentAppState]);
+
   const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
     if (!baseName) return;
     const includeState = window.confirm('Include app state (layers, background, animation)?');
     const exportMeta = getExportMeta();
     const payload = {
-      parameters,
-      appState: includeState ? getCurrentAppState() : null,
-      midiMappings: midiMappings || {},
+      parameters: parametersRef.current,
+      appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
+      midiMappings: midiMappingsRef.current || {},
       savedAt: new Date().toISOString(),
       version: '2.0',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getCurrentAppState, getExportMeta, midiMappings, parameters]);
+  }, [downloadJson, getExportMeta]);
 
   const handleRamPresetSave = useCallback(() => {
     if (typeof setQuickPresetSnapshot !== 'function') return;
@@ -778,6 +820,8 @@ const MainApp = () => {
     moveSelectedLayerDown,
   } = useLayerManagement({
     layers,
+    layersRef,
+    selectedLayerIndexRef,
     setLayers,
     selectedLayerIndex,
     setSelectedLayerIndex,
@@ -1295,7 +1339,14 @@ const MainApp = () => {
             setParameterTargetMode={setParameterTargetMode}
             onQuickSave={handleQuickSave}
             onQuickLoad={handleQuickLoad}
-            layers={layers}
+            layers={uiLayers}
+            selectedLayerIds={selectedLayerIds}
+            toggleLayerSelection={toggleLayerSelection}
+            clearSelection={clearSelection}
+            layerGroups={layerGroups}
+            editTarget={editTarget}
+            setEditTarget={setEditTarget}
+            getActiveTargetLayerIds={getActiveTargetLayerIds}
             sampleColorsEven={sampleColorsEven}
             assignOneColorPerLayer={assignOneColorPerLayer}
             setLayers={setLayers}
@@ -1331,6 +1382,24 @@ const MainApp = () => {
             moveSelectedLayerUp={moveSelectedLayerUp}
             moveSelectedLayerDown={moveSelectedLayerDown}
             handleImportSVGClick={handleImportSVGClick}
+            // Morph props for GlobalControls
+            presetSlots={presetSlots}
+            getPresetSlot={getPresetSlot}
+            loadAppState={loadAppState}
+            morphEnabled={morphEnabled}
+            morphRoute={morphRoute}
+            morphDurationPerLeg={morphDurationPerLeg}
+            morphEasing={morphEasing}
+            morphLoopMode={morphLoopMode}
+            setMorphEnabled={setMorphEnabled}
+            setMorphRoute={setMorphRoute}
+            setMorphDurationPerLeg={setMorphDurationPerLeg}
+            setMorphEasing={setMorphEasing}
+            setMorphLoopMode={setMorphLoopMode}
+            morphMode={morphMode}
+            setMorphMode={setMorphMode}
+            applyVariationInstantly={applyVariationInstantly}
+            setApplyVariationInstantly={setApplyVariationInstantly}
           />
         )}
       </main>

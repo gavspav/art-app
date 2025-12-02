@@ -109,6 +109,10 @@ export const AudioProvider = ({ children }) => {
     deviceId: settings.deviceId,
   });
 
+  // Use a ref for features to avoid re-renders on every audio frame
+  const featuresRef = useRef(features);
+  featuresRef.current = features;
+
   // Persist settings
   useEffect(() => {
     try {
@@ -226,7 +230,8 @@ export const AudioProvider = ({ children }) => {
       const mapping = effectiveMappings[paramId];
       if (!mapping || mapping.band === 'none') return;
 
-      const bandValue = features[mapping.band] || 0;
+      const currentFeatures = featuresRef.current;
+      const bandValue = currentFeatures[mapping.band] || 0;
       const value01 = mapRange(bandValue, mapping.range);
 
       handlerSet.forEach(fn => {
@@ -235,7 +240,7 @@ export const AudioProvider = ({ children }) => {
         } catch { /* noop */ }
       });
     });
-  }, [isActive, settings.enabled, features, effectiveMappings]);
+  }, [isActive, settings.enabled, features, effectiveMappings]); // features still needed to trigger dispatch
 
   // Toggle audio on/off
   const toggleAudio = useCallback(() => {
@@ -267,16 +272,19 @@ export const AudioProvider = ({ children }) => {
     }
   }, [switchDevice]);
 
+  // Stable getter for features (doesn't cause re-renders)
+  const getFeatures = useCallback(() => featuresRef.current, []);
+
   // Get the audio level for a specific band
   const getBandValue = useCallback((band) => {
-    return features[band] || 0;
-  }, [features]);
+    return featuresRef.current[band] || 0;
+  }, []);
 
   const value = useMemo(() => ({
     // State
     isActive,
     error,
-    features,
+    getFeatures, // Use getter instead of features directly to avoid re-renders
     settings,
     mappings: effectiveMappings,
     availableDevices,
@@ -311,7 +319,7 @@ export const AudioProvider = ({ children }) => {
   }), [
     isActive,
     error,
-    features,
+    getFeatures,
     settings,
     effectiveMappings,
     availableDevices,

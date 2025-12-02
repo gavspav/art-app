@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
-import { useAppState } from '../context/AppStateContext.jsx';
 import ColorPicker from './ColorPicker';
 import BufferedNumberInput from './common/BufferedNumberInput.jsx';
 import { useParameters } from '../context/ParameterContext.jsx';
@@ -12,6 +11,7 @@ import { useBPM } from '../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -440,10 +440,36 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, showMidi, showAudio, showBPM }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, showMidi, showAudio, showBPM, debugSettingsEnabled }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
+  const settingsRenderCountRef = useRef(0);
+  const debugLog = useCallback((...args) => {
+    if (debugSettingsEnabled && typeof console !== 'undefined') {
+      console.debug(...args);
+    }
+  }, [debugSettingsEnabled]);
+
+  // Track settings open/close events for this control
+  useEffect(() => {
+    if (!debugSettingsEnabled) return;
+    settingsRenderCountRef.current = 0;
+    console.info(`[settings] ${id} ${showSettings ? 'opened' : 'closed'}`);
+  }, [debugSettingsEnabled, id, showSettings]);
+
+  // Track render count while settings panel is visible
+  useEffect(() => {
+    if (!debugSettingsEnabled || !showSettings) return;
+    settingsRenderCountRef.current += 1;
+    const count = settingsRenderCountRef.current;
+    if (count === 1 || count % 10 === 0) {
+      debugLog(`[settings] render #${count} for ${id}`, {
+        targetMode,
+        valueSnapshot: currentLayer?.[id],
+      });
+    }
+  }, [currentLayer, debugLog, id, showSettings, targetMode, debugSettingsEnabled]);
   const {
     mappings: midiMappings,
     registerParamHandler,
@@ -1025,6 +1051,14 @@ const Controls = forwardRef(({
   randomizeAnimationOnly,
   setLayers,
   isNodeEditMode,
+  layerGroups = [],
+  editTarget,
+  setEditTarget,
+  selectedLayerIds = [],
+  toggleLayerSelection,
+  clearSelection,
+  getActiveTargetLayerIds,
+  parameterTargetMode = 'individual',
   showMidi,
   showAudio,
   showBPM,
@@ -1051,17 +1085,6 @@ const Controls = forwardRef(({
   onMoveLayerDown,
 }, ref) => {
   const { parameters } = useParameters();
-  const {
-    layerGroups = [],
-    editTarget,
-    setEditTarget,
-    selectedLayerIds: selectedLayerIdsCtx = [],
-    toggleLayerSelection,
-    clearSelection,
-    getActiveTargetLayerIds,
-    layers: _layers = [],
-    parameterTargetMode: contextParameterTargetMode,
-  } = useAppState() || {};
 
   // Local UI state for delete picker
   const [showDeletePicker, setShowDeletePicker] = useState(false);
@@ -1087,8 +1110,8 @@ const Controls = forwardRef(({
     setDeleteIndex((idx) => Math.max(0, Math.min(max, Number.isFinite(idx) ? idx : 0)));
   }, [layerNames]);
 
-  const selectionCount = Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx.length : 0;
-  const targetMode = contextParameterTargetMode === 'global' ? 'global' : 'individual';
+  const selectionCount = Array.isArray(selectedLayerIds) ? selectedLayerIds.length : 0;
+  const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
   const layerOptions = useMemo(() => {
     const list = Array.isArray(layerNames) ? layerNames : [];
     return list.map((name, idx) => ({
@@ -1096,6 +1119,17 @@ const Controls = forwardRef(({
       label: `${idx + 1}. ${name || 'Layer'}`,
     }));
   }, [layerNames]);
+
+  // Optional console-based debug for settings panels.
+  const debugSettingsEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.__artapp_debugSettings === true) return true;
+    try {
+      return localStorage.getItem('artapp-debug-settings') === 'true';
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Format options for HoverDropdown component
   const dropdownOptions = useMemo(() => {
@@ -1367,11 +1401,11 @@ const Controls = forwardRef(({
       {/* Consolidated movement params into one compact card */}
       {!(currentLayer?.manualMidiPositionEnabled) && (
         <div className="control-card">
-          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600 }}>Animation</div>
-            <button
-              type="button"
-              className="icon-btn sm"
+            <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Animation</div>
+              <button
+                type="button"
+                className="icon-btn sm"
               title="Randomize animation for selected layer"
               aria-label="Randomize animation for selected layer"
               onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
@@ -1393,6 +1427,7 @@ const Controls = forwardRef(({
                   showMidi={showMidi}
                   showAudio={showAudio}
                   showBPM={showBPM}
+                  debugSettingsEnabled={debugSettingsEnabled}
                 />
               </div>
             ))}
@@ -1465,6 +1500,7 @@ const Controls = forwardRef(({
               showMidi={showMidi}
               showAudio={showAudio}
               showBPM={showBPM}
+              debugSettingsEnabled={debugSettingsEnabled}
             />
           </div>
         ))}
@@ -2053,4 +2089,106 @@ const Controls = forwardRef(({
   );
 });
 
-export default React.memo(Controls);
+// Prevent unnecessary re-renders while the animation loop mutates fast-moving
+// fields (position, rotation for spin, etc.). This keeps the heavy settings UI
+// from re-rendering every frame when the layer tab is visible.
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  const ignores = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const compareRotation = !(a.movementStyle === 'spin' || b.movementStyle === 'spin');
+
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => {
+    if (ignores.has(k)) keys.delete(k);
+    if (!compareRotation && k === 'rotation') keys.delete(k);
+  });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  ['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection'].forEach(k => posKeys.delete(k));
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+
+  if (compareRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
+};
+
+const isArrayShallowEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!Object.is(a[i], b[i])) return false;
+  }
+  return true;
+};
+
+const areControlsPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+
+  const fail = (reason) => {
+    if (debug) log(`[settings-debug] Controls re-render: ${reason}`);
+    return false;
+  };
+
+  if (!isLayerEqualForUI(prev.currentLayer, next.currentLayer)) return fail('currentLayer changed (or animation fields not ignored)');
+  if (!isArrayShallowEqual(prev.layerNames, next.layerNames)) return fail('layerNames changed');
+  if (!isArrayShallowEqual(prev.layerIds, next.layerIds)) return fail('layerIds changed');
+  if (!isArrayShallowEqual(prev.baseColors, next.baseColors)) return fail('baseColors changed');
+  if (!Object.is(prev.baseNumColors, next.baseNumColors)) return fail('baseNumColors changed');
+  if (!Object.is(prev.selectedLayerIndex, next.selectedLayerIndex)) return fail('selectedLayerIndex changed');
+  if (!Object.is(prev.isNodeEditMode, next.isNodeEditMode)) return fail('isNodeEditMode changed');
+  if (!isArrayShallowEqual(prev.layerGroups, next.layerGroups)) return fail('layerGroups changed');
+  if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
+  if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
+  if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
+  if (!Object.is(prev.showMidi, next.showMidi)) return fail('showMidi changed');
+  if (!Object.is(prev.showAudio, next.showAudio)) return fail('showAudio changed');
+  if (!Object.is(prev.showBPM, next.showBPM)) return fail('showBPM changed');
+  if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
+  if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
+  if (!Object.is(prev.colorCountMin, next.colorCountMin)) return fail('colorCountMin changed');
+  if (!Object.is(prev.colorCountMax, next.colorCountMax)) return fail('colorCountMax changed');
+
+  // Assume function/handler props are stable (useCallback); if any change, re-render.
+  const handlerKeys = [
+    'updateLayer',
+    'randomizeCurrentLayer',
+    'randomizeAnimationOnly',
+    'setLayers',
+    'setIsNodeEditMode',
+    'setRandomizePalette',
+    'setRandomizeNumColors',
+    'setColorCountMin',
+    'setColorCountMax',
+    'onRandomizeLayerColors',
+    'getIsRnd',
+    'setIsRnd',
+    'onSelectLayer',
+    'onAddLayer',
+    'onDeleteLayer',
+    'onImportSVG',
+    'onMoveLayerUp',
+    'onMoveLayerDown',
+    'toggleLayerSelection',
+    'clearSelection',
+    'setEditTarget',
+    'getActiveTargetLayerIds',
+  ];
+  for (const key of handlerKeys) {
+    if (prev[key] !== next[key]) return fail(`${key} changed identity`);
+  }
+  
+  if (debug) log('[settings-debug] Controls stable; render skipped');
+  return true;
+};
+
+export default React.memo(Controls, areControlsPropsEqual);

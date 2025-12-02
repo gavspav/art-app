@@ -1,10 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 
 // Encapsulates layer management operations and node initialization behavior
 export function useLayerManagement({
   layers,
+  layersRef,
   setLayers,
   selectedLayerIndex,
+  selectedLayerIndexRef,
   setSelectedLayerIndex,
   DEFAULT_LAYER,
   buildVariedLayerFrom,
@@ -13,7 +15,7 @@ export function useLayerManagement({
   suppressTimerRef,
 }) {
   // Update properties on the currently selected layer
-  const updateCurrentLayer = (newProps) => {
+  const updateCurrentLayer = useCallback((newProps) => {
     // Briefly pause animation ONLY for movement-related edits, so RAF doesn't fight position/velocity updates
     try {
       const movementKeys = ['movementAngle', 'movementSpeed', 'position', 'scaleMin', 'scaleMax', 'scaleSpeed'];
@@ -30,7 +32,8 @@ export function useLayerManagement({
 
     setLayers(prevLayers => {
       const updatedLayers = [...prevLayers];
-      const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, updatedLayers.length - 1)));
+      const selIdx = selectedLayerIndexRef?.current ?? selectedLayerIndex;
+      const idx = Math.max(0, Math.min(selIdx, Math.max(0, updatedLayers.length - 1)));
       const currentLayer = updatedLayers[idx];
       const updatedLayer = { ...currentLayer, ...newProps };
 
@@ -41,41 +44,44 @@ export function useLayerManagement({
         updatedLayer.vy = Math.sin(angleRad) * (updatedLayer.movementSpeed * 0.001) * 1.0;
       }
 
-      const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, updatedLayers.length - 1));
+      const clampedIndex = Math.max(0, Math.min(selIdx, updatedLayers.length - 1));
       updatedLayers[clampedIndex] = updatedLayer;
       return updatedLayers;
     });
-  };
+  }, [selectedLayerIndexRef, setLayers, setSuppressAnimation, suppressTimerRef]);
 
-  const addNewLayer = () => {
+  const addNewLayer = useCallback(() => {
+    const snapshot = layersRef?.current || layers || [];
     const baseVar = {
-      shape: (typeof layers?.[0]?.variationShape === 'number') ? layers[0].variationShape : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationShape),
-      anim: (typeof layers?.[0]?.variationAnim === 'number') ? layers[0].variationAnim : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationAnim),
-      color: (typeof layers?.[0]?.variationColor === 'number') ? layers[0].variationColor : (typeof layers?.[0]?.variation === 'number' ? layers[0].variation : DEFAULT_LAYER.variationColor),
+      shape: (typeof snapshot?.[0]?.variationShape === 'number') ? snapshot[0].variationShape : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationShape),
+      anim: (typeof snapshot?.[0]?.variationAnim === 'number') ? snapshot[0].variationAnim : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationAnim),
+      color: (typeof snapshot?.[0]?.variationColor === 'number') ? snapshot[0].variationColor : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationColor),
     };
-    const prev = layers[layers.length - 1] || DEFAULT_LAYER;
-    const nextLayer = buildVariedLayerFrom(prev, layers.length + 1, baseVar);
-    setLayers([...layers, nextLayer]);
-    setSelectedLayerIndex(layers.length);
-  };
+    const prev = snapshot[snapshot.length - 1] || DEFAULT_LAYER;
+    const nextLayer = buildVariedLayerFrom(prev, snapshot.length + 1, baseVar);
+    setLayers([...snapshot, nextLayer]);
+    setSelectedLayerIndex(snapshot.length);
+  }, [DEFAULT_LAYER, buildVariedLayerFrom, layersRef, setLayers, setSelectedLayerIndex]);
 
-  const deleteLayer = (index) => {
-    if (layers.length <= 1) return;
-    const newLayers = layers
+  const deleteLayer = useCallback((index) => {
+    const snapshot = layersRef?.current || layers || [];
+    if (snapshot.length <= 1) return;
+    const newLayers = snapshot
       .filter((_, i) => i !== index)
       .map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
     setLayers(newLayers);
-    if (selectedLayerIndex >= index) {
-      setSelectedLayerIndex(Math.max(0, selectedLayerIndex - 1));
+    const selIdx = selectedLayerIndexRef?.current ?? selectedLayerIndex;
+    if (selIdx >= index) {
+      setSelectedLayerIndex(Math.max(0, selIdx - 1));
     }
-  };
+  }, [layersRef, selectedLayerIndexRef, setLayers, setSelectedLayerIndex]);
 
-  const selectLayer = (index) => {
+  const selectLayer = useCallback((index) => {
     setSelectedLayerIndex(index);
-  };
+  }, [setSelectedLayerIndex]);
 
   // Reorder: move a layer from one index to another, updating selection
-  const moveLayer = (fromIdx, toIdx) => {
+  const moveLayer = useCallback((fromIdx, toIdx) => {
     setLayers(prev => {
       const n = prev.length;
       const from = Math.max(0, Math.min(n - 1, fromIdx));
@@ -86,18 +92,21 @@ export function useLayerManagement({
       next.splice(to, 0, item);
       return next;
     });
-    setSelectedLayerIndex(Math.max(0, Math.min(layers.length - 1, toIdx)));
-  };
+    const snapshot = layersRef?.current || layers || [];
+    setSelectedLayerIndex(Math.max(0, Math.min(Math.max(0, snapshot.length - 1), toIdx)));
+  }, [layersRef, setLayers, setSelectedLayerIndex]);
 
-  const moveSelectedLayerUp = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-    if (idx < layers.length - 1) moveLayer(idx, idx + 1);
-  };
+  const moveSelectedLayerUp = useCallback(() => {
+    const snapshot = layersRef?.current || layers || [];
+    const idx = Math.max(0, Math.min(selectedLayerIndexRef?.current ?? selectedLayerIndex, Math.max(0, snapshot.length - 1)));
+    if (idx < snapshot.length - 1) moveLayer(idx, idx + 1);
+  }, [layersRef, moveLayer, selectedLayerIndexRef]);
 
-  const moveSelectedLayerDown = () => {
-    const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
+  const moveSelectedLayerDown = useCallback(() => {
+    const snapshot = layersRef?.current || layers || [];
+    const idx = Math.max(0, Math.min(selectedLayerIndexRef?.current ?? selectedLayerIndex, Math.max(0, snapshot.length - 1)));
     if (idx > 0) moveLayer(idx, idx - 1);
-  };
+  }, [layersRef, moveLayer, selectedLayerIndexRef]);
 
   // Ensure selected layer has nodes in node-edit mode even after layer-count changes via slider
   useEffect(() => {
