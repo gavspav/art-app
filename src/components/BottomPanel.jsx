@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMidi } from '../context/MidiContext.jsx';
 import { useBPM } from '../context/BPMContext.jsx';
+import { useAudioReactive } from '../context/AudioContext.jsx';
 import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
 import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
@@ -23,7 +24,7 @@ const BeatIndicator = () => {
   useEffect(() => {
     if (!isPlaying || typeof getClockState !== 'function') {
       setPhase(0);
-      return;
+      return undefined;
     }
     
     const tick = () => {
@@ -33,7 +34,7 @@ const BeatIndicator = () => {
       }
       rafRef.current = requestAnimationFrame(tick);
     };
-    
+
     rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -52,8 +53,8 @@ const BeatIndicator = () => {
         e.stopPropagation();
         togglePlay?.();
       }}
-      title={isPlaying ? "BPM Playing (B to pause)" : "BPM Paused (B to play)"}
-      aria-label={isPlaying ? "Pause BPM" : "Play BPM"}
+      title={isPlaying ? 'BPM Playing (B to pause)' : 'BPM Paused (B to play)'}
+      aria-label={isPlaying ? 'Pause BPM' : 'Play BPM'}
       style={{ padding: '4px' }}
     >
       <span
@@ -68,6 +69,78 @@ const BeatIndicator = () => {
           transition: isPlaying ? 'none' : 'all 0.2s',
         }}
       />
+    </button>
+  );
+};
+
+// Speaker indicator for Audio on/off & activity
+const AudioIndicator = () => {
+  const audio = useAudioReactive();
+  const [level, setLevel] = useState(0);
+  const rafRef = useRef(null);
+
+  const enabled = !!audio?.settings?.enabled;
+  const isListening = enabled && !!audio?.isActive;
+  const getFeatures = audio?.getFeatures;
+  const toggleAudio = audio?.toggleAudio;
+
+  useEffect(() => {
+    if (!enabled || typeof getFeatures !== 'function') {
+      setLevel(0);
+      return undefined;
+    }
+
+    const tick = () => {
+      const features = getFeatures?.();
+      const rms = typeof features?.rms === 'number' ? features.rms : 0;
+      setLevel(rms);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [enabled, getFeatures]);
+
+  const pulseScale = enabled ? 0.9 + Math.min(0.4, level * 0.6) : 0.9;
+  const intensity = enabled ? Math.min(1, 0.35 + level * 2.2) : 0.45;
+  const glow = enabled
+    ? `0 0 ${6 + level * 16}px rgba(74, 222, 128, ${0.5 + level * 0.6})`
+    : '0 0 6px rgba(248, 113, 113, 0.4)';
+
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={(e) => {
+        e.stopPropagation();
+        toggleAudio?.(!enabled);
+      }}
+      title={enabled ? 'Audio enabled (A to toggle)' : 'Audio disabled (A to toggle)'}
+      aria-label={enabled ? 'Disable audio' : 'Enable audio'}
+      style={{ padding: '4px' }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '14px',
+          height: '14px',
+          lineHeight: '14px',
+          textAlign: 'center',
+          borderRadius: '4px',
+          color: enabled ? '#052e16' : '#fff',
+          background: enabled
+            ? `rgba(74, 222, 128, ${intensity})`
+            : `rgba(248, 113, 113, ${intensity})`,
+          boxShadow: glow,
+          transform: `scale(${pulseScale})`,
+          transition: 'background 0.1s ease-out, box-shadow 0.1s ease-out, transform 0.08s ease-out',
+        }}
+      >
+        🔊
+      </span>
+      {isListening && <span className="sr-only">Audio listening</span>}
     </button>
   );
 };
@@ -763,6 +836,7 @@ const BottomPanel = ({
             🛟
           </button>
           <BeatIndicator />
+          <AudioIndicator />
         </div>
 
         {/* Tab content area */}

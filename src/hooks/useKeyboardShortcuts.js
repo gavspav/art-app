@@ -22,6 +22,7 @@ export function useKeyboardShortcuts({
   saveQuickPresetToMemory,
   recallQuickPresetFromMemory,
   toggleBPM,
+  toggleAudio,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -117,6 +118,13 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      // A -> Toggle Audio on/off (non-shift)
+      if (key === 'a' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        toggleAudio?.();
+        return;
+      }
+
       if (key === 'delete' || key === 'backspace') {
         const nodeMode = !!hotkeyRef?.current?.nodeEditMode;
         const len = Number(hotkeyRef?.current?.layersLen) || 0;
@@ -180,5 +188,6 @@ export function useKeyboardShortcuts({
     saveQuickPresetToMemory,
     recallQuickPresetFromMemory,
     toggleBPM,
+    toggleAudio,
   ]);
 }

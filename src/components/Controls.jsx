@@ -188,11 +188,27 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   // Use parameter's min/max as default output range
   const defaultRange = { inputMin: 0, inputMax: 1, outputMin: min, outputMax: max };
   
+  // Auto-fix stale mappings that have wrong output range values
+  useEffect(() => {
+    if (mapping && mapping.band !== 'none' && mapping.range) {
+      const storedMin = mapping.range.outputMin;
+      const storedMax = mapping.range.outputMax;
+      // If stored output range doesn't match parameter's actual range, update it
+      if (storedMin !== min || storedMax !== max) {
+        setMapping(paramId, { 
+          ...mapping, 
+          range: { ...mapping.range, outputMin: min, outputMax: max } 
+        });
+      }
+    }
+  }, [paramId, min, max, mapping, setMapping]);
+  
   const handleBandChange = (band) => {
     if (band === 'none') {
       setMapping(paramId, { band: 'none', range: defaultRange });
     } else {
-      setMapping(paramId, { band, range: mapping?.range || defaultRange });
+      // Always use defaultRange to ensure correct output min/max
+      setMapping(paramId, { band, range: defaultRange });
       // Clear MIDI and BPM (mutual exclusivity)
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });

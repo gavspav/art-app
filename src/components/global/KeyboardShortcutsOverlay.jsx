@@ -26,6 +26,7 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>6</kbd><span>Groups tab</span></div>
           <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
           <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
+          <div><kbd>I</kbd><span>Toggle isolate mode</span></div>
           <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
           <div><kbd>R</kbd><span>Randomize all</span></div>
           <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
@@ -40,6 +41,8 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>]</kbd><span>Select next layer</span></div>
           <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
           <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
+          <div><kbd>B</kbd><span>Toggle BPM play/pause</span></div>
+          <div><kbd>A</kbd><span>Toggle audio reactive input</span></div>
           <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
           <div><kbd>Esc</kbd><span>Close dialogs/overlays</span></div>
         </div>

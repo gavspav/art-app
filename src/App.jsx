@@ -13,6 +13,7 @@ import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
 import { useAudioHandlers } from './hooks/useAudioHandlers.js';
+import { useAudioLayerHandlers } from './hooks/useAudioLayerHandlers.js';
 import { useBPMHandlers } from './hooks/useBPMHandlers.js';
 import { useBPMLayerHandlers } from './hooks/useBPMLayerHandlers.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
@@ -23,6 +24,7 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 
 import Canvas from './components/Canvas';
 import Controls from './components/Controls';
@@ -978,6 +980,7 @@ const MainApp = () => {
     saveQuickPresetToMemory: handleRamPresetSave,
     recallQuickPresetFromMemory: handleRamPresetRecall,
     toggleBPM: bpmForAnimation?.togglePlay,
+    toggleAudio: audioReactive?.toggleAudio,
   });
 
   // MIDI helper refs and handlers integration
@@ -1026,6 +1029,13 @@ const MainApp = () => {
     rndAllPrevRef: audioRndAllPrevRef,
     handleRandomizeAll,
     clampedSelectedIndex: selectedIdxForMidi,
+  });
+
+  // Register Audio handlers for individual layer parameters (like BPM does)
+  useAudioLayerHandlers({
+    registerAudioHandler,
+    setLayers,
+    layers,
   });
 
   // Centralize all BPM handlers (mirrors MIDI/Audio pattern)
@@ -1178,42 +1188,10 @@ const MainApp = () => {
   return (
     <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
-        {/* Keyboard Shortcuts Overlay */}
-        {showShortcuts && (
-          <div className="shortcuts-overlay" aria-live="polite" aria-modal="true" role="dialog">
-            <div className="shortcuts-card">
-              <div className="shortcuts-title">Keyboard Shortcuts</div>
-              <div className="shortcuts-grid">
-                <div><kbd>1</kbd><span>Global tab</span></div>
-                <div><kbd>2</kbd><span>Layer Shape tab</span></div>
-                <div><kbd>3</kbd><span>Layer Animation tab</span></div>
-                <div><kbd>4</kbd><span>Layer Colour tab</span></div>
-                <div><kbd>5</kbd><span>Presets tab</span></div>
-                <div><kbd>6</kbd><span>Groups tab</span></div>
-                <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
-                <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
-                <div><kbd>I</kbd><span>Toggle isolate mode</span></div>
-                <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
-                <div><kbd>R</kbd><span>Randomize all</span></div>
-                <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
-                <div><kbd>Shift</kbd> + <kbd>A</kbd><span>Recall RAM preset</span></div>
-                <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
-                <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
-                <div><kbd>N</kbd><span>Toggle node edit mode</span></div>
-                <div><kbd>Z</kbd><span>Toggle Z-Scale ignore</span></div>
-                <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
-                <div><kbd>Delete</kbd><span>Delete selected layer (Node Edit mode)</span></div>
-                <div><kbd>[</kbd><span>Select previous layer</span></div>
-                <div><kbd>]</kbd><span>Select next layer</span></div>
-                <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
-                <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
-                <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
-                <div><kbd>Esc</kbd><span>Close dialogs/overlays</span></div>
-              </div>
-              <div className="shortcuts-hint">Press Esc or K to close</div>
-            </div>
-          </div>
-        )}
+        <KeyboardShortcutsOverlay
+          visible={showShortcuts}
+          onClose={() => setShowShortcuts(false)}
+        />
         {/* Quick save/load buttons in top bar */}
         <div className="top-bar" style={{ 
           position: 'fixed', 
