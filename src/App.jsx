@@ -442,7 +442,7 @@ const MainApp = () => {
     }
   }, []);
 
-  // Clamp selection and expose currentLayer for Controls (use throttled UI snapshot)
+  // Clamps selection and expose currentLayer for Controls (use throttled UI snapshot)
   // When a group is selected, show the first layer in that group
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
   const currentLayer = useMemo(() => {
