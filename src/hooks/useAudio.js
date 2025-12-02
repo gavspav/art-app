@@ -10,12 +10,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
  * All values are smoothed for organic animation response.
  */
 
-const DEFAULT_SMOOTHING = 0.25; // 0..1, higher = more responsive
+const DEFAULT_SMOOTHING = 0.7; // 0..1, higher = more responsive
+const DEFAULT_RELEASE = 0.85; // 0..1, higher = slower falloff
 
 export const useAudio = ({
   enabled = false,
   sensitivity = 1.0,
   smoothing = DEFAULT_SMOOTHING,
+  release = DEFAULT_RELEASE,
   deviceId = null, // null = default device
 } = {}) => {
   // Audio state
@@ -89,13 +91,23 @@ export const useAudio = ({
 
     const raw = getAudioFeatures();
     const smooth = smoothRef.current;
-    const factor = smoothing;
 
-    // Apply smoothing
-    smooth.rms = factor * raw.rms + (1 - factor) * smooth.rms;
-    smooth.bass = factor * raw.bass + (1 - factor) * smooth.bass;
-    smooth.mids = factor * raw.mids + (1 - factor) * smooth.mids;
-    smooth.highs = factor * raw.highs + (1 - factor) * smooth.highs;
+    // Asymmetric smoothing: fast attack, slow release
+    // Use smoothing for attack (raw > smooth), release for decay (raw < smooth)
+    const applySmoothing = (rawVal, smoothVal) => {
+      if (rawVal > smoothVal) {
+        // Attack: use smoothing factor
+        return smoothing * rawVal + (1 - smoothing) * smoothVal;
+      } else {
+        // Release: use release factor (slower decay)
+        return release * smoothVal + (1 - release) * rawVal;
+      }
+    };
+
+    smooth.rms = applySmoothing(raw.rms, smooth.rms);
+    smooth.bass = applySmoothing(raw.bass, smooth.bass);
+    smooth.mids = applySmoothing(raw.mids, smooth.mids);
+    smooth.highs = applySmoothing(raw.highs, smooth.highs);
 
     // Apply sensitivity scaling
     const scaled = {
@@ -108,7 +120,7 @@ export const useAudio = ({
     setFeatures(scaled);
 
     rafIdRef.current = requestAnimationFrame(updateAudio);
-  }, [getAudioFeatures, smoothing, sensitivity]);
+  }, [getAudioFeatures, smoothing, release, sensitivity]);
 
   // Enumerate available audio input devices
   const refreshDevices = useCallback(async () => {

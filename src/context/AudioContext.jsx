@@ -32,7 +32,8 @@ const DEFAULT_RANGE = {
 const DEFAULT_AUDIO_SETTINGS = {
   enabled: false,
   sensitivity: 1.0,
-  smoothing: 0.25,
+  smoothing: 0.7, // Increased for slower, more flowing response
+  release: 0.85, // Falloff factor: values decay slower (0=instant, 1=never)
   deviceId: null, // null = default device
 };
 
@@ -106,6 +107,7 @@ export const AudioProvider = ({ children }) => {
     enabled: settings.enabled,
     sensitivity: settings.sensitivity,
     smoothing: settings.smoothing,
+    release: settings.release,
     deviceId: settings.deviceId,
   });
 
@@ -260,8 +262,14 @@ export const AudioProvider = ({ children }) => {
 
   // Set smoothing (0..1)
   const setSmoothing = useCallback((value) => {
-    const v = Math.max(0, Math.min(1, Number(value) || 0.25));
+    const v = Math.max(0, Math.min(1, Number(value) || 0.7));
     setSettings(prev => ({ ...prev, smoothing: v }));
+  }, []);
+
+  // Set release (0..1)
+  const setRelease = useCallback((value) => {
+    const v = Math.max(0, Math.min(1, Number(value) || 0.85));
+    setSettings(prev => ({ ...prev, release: v }));
   }, []);
 
   // Set device ID
@@ -296,6 +304,7 @@ export const AudioProvider = ({ children }) => {
     setAudioEnabled,
     setSensitivity,
     setSmoothing,
+    setRelease,
     setDeviceId,
     setMapping,
     clearMapping,
@@ -329,6 +338,7 @@ export const AudioProvider = ({ children }) => {
     setAudioEnabled,
     setSensitivity,
     setSmoothing,
+    setRelease,
     setDeviceId,
     setMapping,
     clearMapping,

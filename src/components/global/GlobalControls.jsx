@@ -114,6 +114,7 @@ const AudioReactiveSection = () => {
     toggleAudio,
     setSensitivity,
     setSmoothing,
+    setRelease,
     setDeviceId,
   } = audio;
   
@@ -208,9 +209,9 @@ const AudioReactiveSection = () => {
           </div>
 
           {/* Smoothing slider */}
-          <div>
+          <div style={{ marginBottom: '0.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-              <span className="compact-label">Smoothing</span>
+              <span className="compact-label">Smoothing (Attack)</span>
               <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.smoothing.toFixed(2)}</span>
             </div>
             <input
@@ -224,8 +225,25 @@ const AudioReactiveSection = () => {
             />
           </div>
 
+          {/* Release slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Release (Falloff)</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.release.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0.05}
+              max={0.98}
+              step={0.05}
+              value={settings.release}
+              onChange={(e) => setRelease(parseFloat(e.target.value))}
+            />
+          </div>
+
           <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
-            Map audio to parameters using the Audio dropdown on each control (when "Audio Learn" is enabled above).
+            Higher smoothing = faster response. Higher release = slower decay. Map audio to parameters using the Audio dropdown on each control.
           </div>
         </div>
       )}
