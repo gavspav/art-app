@@ -7,7 +7,6 @@ export function useKeyboardShortcuts({
   setIsFrozen,
   toggleFullscreen,
   handleRandomizeAll,
-  setShowGlobalMidi,
   setIsOverlayVisible,
   setIsNodeEditMode,
   setSelectedLayerIndex,
@@ -88,12 +87,6 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      // M -> Toggle MIDI Learn visibility (global controls section)
-      if (key === 'm') {
-        e.preventDefault();
-        setShowGlobalMidi?.(v => !v);
-        return;
-      }
 
       // N -> Toggle Node Edit mode
       if (key === 'n') {
@@ -173,7 +166,6 @@ export function useKeyboardShortcuts({
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
-    setShowGlobalMidi,
     setIsOverlayVisible,
     setIsNodeEditMode,
     setSelectedLayerIndex,

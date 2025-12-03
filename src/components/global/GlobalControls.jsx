@@ -620,11 +620,8 @@ const GlobalControls = ({
   classicMode,
   setClassicMode,
   showGlobalMidi,
-  setShowGlobalMidi,
   showGlobalAudio,
-  setShowGlobalAudio,
   showGlobalBPM,
-  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -1799,15 +1796,6 @@ const GlobalControls = ({
           </label>
           <label className="compact-label">
             <input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode
-          </label>
-          <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
-            <input type="checkbox" checked={!!showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} /> MIDI Learn
-          </label>
-          <label className="compact-label" title="Show/Hide Audio controls in this section">
-            <input type="checkbox" checked={!!showGlobalAudio} onChange={(e) => setShowGlobalAudio(!!e.target.checked)} /> Audio Learn
-          </label>
-          <label className="compact-label" title="Show/Hide BPM controls in this section">
-            <input type="checkbox" checked={!!showGlobalBPM} onChange={(e) => setShowGlobalBPM(!!e.target.checked)} /> BPM Learn
           </label>
 
           <div className="compact-field">

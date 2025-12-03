@@ -138,10 +138,10 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
-  // Global MIDI/Audio/BPM learn UI visibility
-  const [showGlobalMidi, setShowGlobalMidi] = useState(false);
-  const [showGlobalAudio, setShowGlobalAudio] = useState(false);
-  const [showGlobalBPM, setShowGlobalBPM] = useState(false);
+  // Global MIDI/Audio/BPM learn UI visibility - always enabled by default
+  const [showGlobalMidi] = useState(true);
+  const [showGlobalAudio] = useState(true);
+  const [showGlobalBPM] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
@@ -965,7 +965,6 @@ const MainApp = () => {
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
-    setShowGlobalMidi,
     setIsOverlayVisible,
     setIsNodeEditMode,
     setSelectedLayerIndex,
@@ -1307,11 +1306,8 @@ const MainApp = () => {
             zIgnore={zIgnore}
             setZIgnore={setZIgnore}
             showGlobalMidi={showGlobalMidi}
-            setShowGlobalMidi={setShowGlobalMidi}
             showGlobalAudio={showGlobalAudio}
-            setShowGlobalAudio={setShowGlobalAudio}
             showGlobalBPM={showGlobalBPM}
-            setShowGlobalBPM={setShowGlobalBPM}
             globalSeed={globalSeed}
             setGlobalSeed={setGlobalSeed}
             globalSpeedMultiplier={globalSpeedMultiplier}
