@@ -99,6 +99,7 @@ const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange })
 const AudioReactiveSection = () => {
   const audio = useAudioReactive();
   const [showSettings, setShowSettings] = useState(false);
+  const [features, setFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
 
   if (!audio) {
     return null;
@@ -118,8 +119,21 @@ const AudioReactiveSection = () => {
     setDeviceId,
   } = audio;
   
-  // Get current features (use getter to avoid context re-renders)
-  const features = getFeatures ? getFeatures() : { rms: 0, bass: 0, mids: 0, highs: 0 };
+  // Poll audio features for visual meters when active
+  useEffect(() => {
+    if (!isActive || !getFeatures) return;
+    
+    let rafId;
+    const updateMeters = () => {
+      setFeatures(getFeatures());
+      rafId = requestAnimationFrame(updateMeters);
+    };
+    
+    rafId = requestAnimationFrame(updateMeters);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [isActive, getFeatures]);
 
   return (
     <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
