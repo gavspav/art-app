@@ -12,6 +12,7 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
+import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from './common/BPMEnvelopeEditor.jsx';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -239,14 +240,16 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
   const midi = useMidi();
+  const [showEnvelope, setShowEnvelope] = useState(false);
   
   if (!bpm) return null;
   
-  const { mappings, setMapping, BEAT_SPEEDS, LOOP_MODES } = bpm;
+  const { mappings, setMapping, BEAT_SPEEDS, LOOP_MODES, beatsPerBar } = bpm;
   const mapping = mappings?.[paramId];
   const isEnabled = mapping?.enabled || false;
   const currentSpeed = mapping?.speed || 1;
   const currentLoopMode = mapping?.loopMode || 'forward';
+  const currentEnvelope = mapping?.envelope || DEFAULT_ENVELOPE;
   
   // Use parameter's min/max as default output range
   const defaultRange = { outputMin: min, outputMax: max };
@@ -267,9 +270,9 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
     // Always use defaultRange when toggling to ensure correct min/max
     const rangeToUse = defaultRange;
     if (isEnabled) {
-      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse });
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
     } else {
-      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse });
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
       // Clear MIDI and Audio (mutual exclusivity)
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
@@ -278,48 +281,75 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   
   const handleSpeedChange = (speed) => {
     // Always use defaultRange to ensure correct min/max for this parameter
-    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange });
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange, envelope: currentEnvelope });
   };
   
   const handleLoopModeChange = (loopMode) => {
     // Always use defaultRange to ensure correct min/max for this parameter
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange, envelope: currentEnvelope });
+  };
+  
+  const handleEnvelopeChange = (newEnvelope) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
   };
   
   return (
-    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
-      <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
-      <input
-        type="checkbox"
-        checked={isEnabled}
-        onChange={handleToggle}
-        style={{ cursor: 'pointer' }}
-      />
-      {isEnabled && (
-        <>
-          <select
-            className="compact-select"
-            style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
-            value={currentSpeed}
-            onChange={(e) => handleSpeedChange(e.target.value)}
-          >
-            {BEAT_SPEEDS.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-          <select
-            className="compact-select"
-            style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
-            value={currentLoopMode}
-            onChange={(e) => handleLoopModeChange(e.target.value)}
-          >
-            {LOOP_MODES.map(mode => (
-              <option key={mode} value={mode}>
-                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-              </option>
-            ))}
-          </select>
-        </>
+    <div style={{ marginTop: '0.35rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
+        <input
+          type="checkbox"
+          checked={isEnabled}
+          onChange={handleToggle}
+          style={{ cursor: 'pointer' }}
+        />
+        {isEnabled && (
+          <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
+              value={currentSpeed}
+              onChange={(e) => handleSpeedChange(e.target.value)}
+            >
+              {BEAT_SPEEDS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+              value={currentLoopMode}
+              onChange={(e) => handleLoopModeChange(e.target.value)}
+            >
+              {LOOP_MODES.map(mode => (
+                <option key={mode} value={mode}>
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px', background: showEnvelope ? 'rgba(79, 195, 247, 0.3)' : undefined }}
+              onClick={() => setShowEnvelope(s => !s)}
+              title="Edit envelope curve"
+            >
+              Env
+            </button>
+          </>
+        )}
+      </div>
+      {/* Envelope editor */}
+      {showEnvelope && isEnabled && (
+        <div style={{ marginTop: '0.35rem', marginLeft: '0.5rem' }}>
+          <BPMEnvelopeEditor
+            envelope={currentEnvelope}
+            onChange={handleEnvelopeChange}
+            beatsPerBar={beatsPerBar || 4}
+            width={160}
+            height={60}
+          />
+        </div>
       )}
     </div>
   );

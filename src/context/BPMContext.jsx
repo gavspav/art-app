@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useBPMClock } from '../hooks/useBPMClock.js';
+import { evaluateEnvelope, DEFAULT_ENVELOPE } from '../components/common/BPMEnvelopeEditor.jsx';
 
 /**
  * BPMContext - Global BPM/beat sync state provider
@@ -9,7 +10,7 @@ import { useBPMClock } from '../hooks/useBPMClock.js';
  * - Speed (duration in beats: 1/4, 1/2, 1, 2, 4, 8, 16, 32, 64)
  * - Loop mode (forward, reverse, pingpong, oneshot)
  * - Output range (min/max)
- * - Simple linear interpolation (Phase 1)
+ * - Envelope curve (custom node-based curves)
  */
 
 const BPMContext = createContext();
@@ -53,24 +54,37 @@ const DEFAULT_BPM_SETTINGS = {
 // { [paramId]: { enabled: bool, speed: number, loopMode: string, range: {...} } }
 const DEFAULT_BPM_MAPPINGS = {};
 
-// Linear interpolation with loop modes
-const interpolate = (phase, loopMode) => {
+// Interpolation with loop modes and optional envelope
+const interpolate = (phase, loopMode, envelope = null) => {
   // phase is 0-1 within the cycle
+  let adjustedPhase = phase;
+  
   switch (loopMode) {
     case 'forward':
-      return phase;
+      adjustedPhase = phase;
+      break;
     case 'reverse':
-      return 1 - phase;
+      adjustedPhase = 1 - phase;
+      break;
     case 'pingpong': {
       // 0->1->0 over full cycle
-      return phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+      adjustedPhase = phase < 0.5 ? phase * 2 : (1 - phase) * 2;
+      break;
     }
     case 'oneshot':
       // 0->1 then stay at 1
-      return Math.min(1, phase);
+      adjustedPhase = Math.min(1, phase);
+      break;
     default:
-      return phase;
+      adjustedPhase = phase;
   }
+  
+  // Apply envelope curve if provided
+  if (envelope && envelope.nodes && envelope.nodes.length >= 2) {
+    return evaluateEnvelope(envelope, adjustedPhase);
+  }
+  
+  return adjustedPhase;
 };
 
 export const BPMProvider = ({ children }) => {
@@ -245,15 +259,15 @@ export const BPMProvider = ({ children }) => {
         const mapping = mappings[paramId];
         if (!mapping || !mapping.enabled) return;
         
-        const { speed, loopMode, range } = mapping;
+        const { speed, loopMode, range, envelope } = mapping;
         
         // Calculate phase within the cycle (0-1)
         const cycleBeats = speed;
         const totalBeats = currentBeat + beatPhase;
         const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
         
-        // Apply loop mode interpolation
-        const normalizedPhase = interpolate(cyclePhase, loopMode);
+        // Apply loop mode interpolation and envelope curve
+        const normalizedPhase = interpolate(cyclePhase, loopMode, envelope);
         
         // Map to output range
         const rangeSpan = range.outputMax - range.outputMin;
@@ -367,6 +381,7 @@ export const BPMProvider = ({ children }) => {
     BEAT_SPEEDS,
     LOOP_MODES,
     DEFAULT_RANGE,
+    DEFAULT_ENVELOPE,
   }), [
     // Only include stable dependencies - NOT currentBeat/beatPhase (which change every frame)
     clock.bpm,

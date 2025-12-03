@@ -10,6 +10,7 @@ import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 import AutosaveRecovery from './AutosaveRecovery.jsx';
+import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
 
 const GLOBAL_SEED_MIN = 1;
@@ -580,6 +581,7 @@ const BPMControlRow = ({ paramId }) => {
   const audio = useAudioReactive();
   const midi = useMidi();
   const [showSettings, setShowSettings] = useState(false);
+  const [showEnvelope, setShowEnvelope] = useState(false);
   
   if (!bpm) return null;
   
@@ -591,6 +593,7 @@ const BPMControlRow = ({ paramId }) => {
     BEAT_SPEEDS,
     LOOP_MODES,
     DEFAULT_RANGE,
+    beatsPerBar,
   } = bpm;
   
   const mapping = mappings?.[paramId];
@@ -598,13 +601,14 @@ const BPMControlRow = ({ paramId }) => {
   const currentSpeed = mapping?.speed || 1;
   const currentLoopMode = mapping?.loopMode || 'forward';
   const currentRange = mapping?.range || DEFAULT_RANGE;
+  const currentEnvelope = mapping?.envelope || DEFAULT_ENVELOPE;
   
   const handleToggle = () => {
     if (isEnabled) {
-      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange });
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
     } else {
       // Enable BPM and disable MIDI/Audio for this parameter (mutual exclusivity)
-      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange });
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
       // Clear MIDI mapping
       if (midi?.clearMapping) midi.clearMapping(paramId);
       // Clear Audio mapping
@@ -613,20 +617,24 @@ const BPMControlRow = ({ paramId }) => {
   };
   
   const handleSpeedChange = (speed) => {
-    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: currentRange });
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
   };
   
   const handleLoopModeChange = (loopMode) => {
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: currentRange });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: currentRange, envelope: currentEnvelope });
   };
   
   const handleRangeChange = (update) => {
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: { ...currentRange, ...update } });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: { ...currentRange, ...update }, envelope: currentEnvelope });
+  };
+  
+  const handleEnvelopeChange = (newEnvelope) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: newEnvelope });
   };
   
   return (
     <div style={{ marginTop: '0.25rem' }}>
-      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
         <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
         <input
           type="checkbox"
@@ -668,6 +676,14 @@ const BPMControlRow = ({ paramId }) => {
             </button>
             <button
               className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px', background: showEnvelope ? 'rgba(79, 195, 247, 0.3)' : undefined }}
+              onClick={() => setShowEnvelope(s => !s)}
+              title="Edit envelope curve"
+            >
+              Env
+            </button>
+            <button
+              className="btn-compact-secondary"
               style={{ fontSize: '0.65rem', padding: '2px 4px' }}
               onClick={() => clearMapping(paramId)}
               title="Clear BPM mapping"
@@ -702,6 +718,22 @@ const BPMControlRow = ({ paramId }) => {
               style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
             />
           </div>
+        </div>
+      )}
+      
+      {/* Envelope editor */}
+      {showEnvelope && isEnabled && (
+        <div style={{ marginTop: '0.35rem', marginLeft: '0.5rem' }}>
+          <div style={{ fontSize: '0.65rem', opacity: 0.7, marginBottom: '0.25rem' }}>
+            Envelope (double-click to add nodes, right-click for presets)
+          </div>
+          <BPMEnvelopeEditor
+            envelope={currentEnvelope}
+            onChange={handleEnvelopeChange}
+            beatsPerBar={beatsPerBar || 4}
+            width={180}
+            height={70}
+          />
         </div>
       )}
     </div>
