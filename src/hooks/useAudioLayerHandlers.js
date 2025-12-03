@@ -1,5 +1,19 @@
 import { useEffect, useCallback } from 'react';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
+import { palettes } from '../constants/palettes';
+
+// Sample colors from a palette (same logic as Controls.jsx)
+const sampleColors = (src, count) => {
+  if (!Array.isArray(src) || src.length === 0) return ['#000000'];
+  if (count <= 0) return [src[0]];
+  if (count >= src.length) return [...src];
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor((i / count) * src.length);
+    result.push(src[idx]);
+  }
+  return result;
+};
 
 /**
  * Registers Audio handlers for layer parameters.
@@ -80,6 +94,7 @@ export function useAudioLayerHandlers({
       'scaleMax',
       'width',
       'height',
+      'colorFadeSpeed',
     ];
 
     layerKeys.forEach(layerKey => {
@@ -89,6 +104,23 @@ export function useAudioLayerHandlers({
           ...layer,
           position: { ...(layer?.position || {}), scale: value01 },
         }));
+      }));
+
+      // Palette index handler - cycles through palettes based on audio
+      const paletteId = `layer:${layerKey}:paletteIndex`;
+      unsubs.push(registerAudioHandler(paletteId, ({ value01 }) => {
+        const list = palettes || [];
+        if (!Array.isArray(list) || list.length === 0) return;
+        const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
+        const palette = list[idx];
+        applyUpdateToTargets(layerKey, (layer) => {
+          const count = Number.isFinite(layer?.numColors)
+            ? layer.numColors
+            : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (palette?.colors?.length ?? 1));
+          const src = Array.isArray(palette) ? palette : palette?.colors;
+          const nextColors = sampleColors(src || [], count);
+          return { ...layer, colors: [...nextColors], numColors: count, selectedColor: 0 };
+        });
       }));
 
       numericParams.forEach(param => {

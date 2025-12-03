@@ -1794,25 +1794,30 @@ const Controls = forwardRef(({
                 style={{ width: '4.5rem' }}
               />
             </div>
-            {/* Palette MIDI controls */}
+            {/* Palette MIDI/Audio/BPM controls */}
             {(() => {
               const layerKey = (currentLayer?.name || 'Layer').toString();
               const paramId = `layer:${layerKey}:paletteIndex`;
               return (
                 <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: '0.4rem' }}>
+                    <strong>Palette Control</strong>
+                  </div>
+                  {/* MIDI */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-                      <strong>Palette MIDI</strong>
-                      <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                        {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                        {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-                      </div>
+                    <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                      <span style={{ opacity: 0.7 }}>MIDI:</span> {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                      {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
                     </div>
                     <div style={{ display: 'flex', gap: '0.4rem' }}>
                       <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
                       <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
                     </div>
                   </div>
+                  {/* Audio */}
+                  <AudioRotationStatus paramId={paramId} min={0} max={1} />
+                  {/* BPM */}
+                  <BPMRotationStatus paramId={paramId} min={0} max={1} />
                 </div>
               );
             })()}
@@ -1878,6 +1883,17 @@ const Controls = forwardRef(({
                   <span style={{ minWidth: 48, textAlign: 'right', opacity: 0.85 }}>{Number(currentLayer?.colorFadeSpeed ?? 0.5).toFixed(2)}</span>
                 </div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
+                {/* Audio/BPM controls for colorFadeSpeed */}
+                {(() => {
+                  const layerKey = (currentLayer?.name || 'Layer').toString();
+                  const paramId = `layer:${layerKey}:colorFadeSpeed`;
+                  return (
+                    <>
+                      <AudioRotationStatus paramId={paramId} min={0} max={4} />
+                      <BPMRotationStatus paramId={paramId} min={0} max={4} />
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
