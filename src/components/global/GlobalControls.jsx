@@ -337,7 +337,7 @@ const BPMSection = ({ showBeatCounter = false }) => {
   );
 };
 
-// Audio control row component - shown per parameter when showGlobalAudio is true
+// Audio control row component - shown per parameter in settings panel
 const AudioControlRow = ({ paramId, label }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
@@ -472,7 +472,7 @@ const AudioControlRow = ({ paramId, label }) => {
   );
 };
 
-// BPM control row component - shown per parameter when showGlobalBPM is true
+// BPM control row component - shown per parameter in settings panel
 const BPMControlRow = ({ paramId }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
@@ -1931,7 +1931,7 @@ const GlobalControls = ({
           <AudioReactiveSection />
 
           {/* BPM/Beat Sync Section */}
-          <BPMSection showBeatCounter={showGlobalBPM} />
+          <BPMSection />
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -2540,9 +2540,6 @@ const areGlobalPropsEqual = (prev, next) => {
   if (prev.colorFadeWhileFrozen !== next.colorFadeWhileFrozen) return diff('colorFadeWhileFrozen');
   if (prev.syncLayerColorsToFirst !== next.syncLayerColorsToFirst) return diff('syncLayerColorsToFirst');
   if (prev.classicMode !== next.classicMode) return diff('classicMode');
-  if (prev.showGlobalMidi !== next.showGlobalMidi) return diff('showGlobalMidi');
-  if (prev.showGlobalAudio !== next.showGlobalAudio) return diff('showGlobalAudio');
-  if (prev.showGlobalBPM !== next.showGlobalBPM) return diff('showGlobalBPM');
   if (!Object.is(prev.globalSeed, next.globalSeed)) return diff('globalSeed');
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return diff('globalSpeedMultiplier');
   if (prev.globalBlendMode !== next.globalBlendMode) return diff('globalBlendMode');
