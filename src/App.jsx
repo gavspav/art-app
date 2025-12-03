@@ -377,10 +377,12 @@ const MainApp = () => {
 
   // Audio reactive context (for useAudioHandlers)
   const audioReactive = useAudioReactive();
+  const { getAudioSnapshot, applyAudioSnapshot } = audioReactive || {};
   
   // BPM context (declared later, will be passed to useAnimation after it's defined)
   // For now, get it early to pass to animation loop
   const bpmForAnimation = useBPM();
+  const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Pass BPM and Audio contexts so modulations are applied in the animation loop
@@ -489,12 +491,14 @@ const MainApp = () => {
       parameters: parametersRef.current,
       appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
       midiMappings: midiMappingsRef.current || {},
+      audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+      bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
       savedAt: new Date().toISOString(),
-      version: '2.0',
+      version: '2.1',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot]);
 
   const handleRamPresetSave = useCallback(() => {
     if (typeof setQuickPresetSnapshot !== 'function') return;
@@ -502,6 +506,8 @@ const MainApp = () => {
       const snapshot = {
         parameters: Array.isArray(parameters) ? parameters : [],
         appState: typeof getCurrentAppState === 'function' ? getCurrentAppState() : null,
+        audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+        bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
         exportMeta: getExportMeta(),
         savedAt: new Date().toISOString(),
       };
@@ -509,7 +515,7 @@ const MainApp = () => {
     } catch (error) {
       console.warn('[RAM Preset] Failed to capture snapshot', error);
     }
-  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot]);
+  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot]);
 
   const handleRamPresetRecall = useCallback(() => {
     if (!quickPreset) {
@@ -526,10 +532,18 @@ const MainApp = () => {
       if (quickPreset.exportMeta && typeof window !== 'undefined') {
         window.__artapp_lastImportMeta = quickPreset.exportMeta;
       }
+      // Apply audio config if present
+      if (quickPreset.audioConfig && applyAudioSnapshot) {
+        applyAudioSnapshot(quickPreset.audioConfig);
+      }
+      // Apply BPM config if present
+      if (quickPreset.bpmConfig && applyBPMSnapshot) {
+        applyBPMSnapshot(quickPreset.bpmConfig);
+      }
     } catch (error) {
       console.warn('[RAM Preset] Failed to recall snapshot', error);
     }
-  }, [applyParametersSnapshot, loadAppState, quickPreset]);
+  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -577,6 +591,16 @@ const MainApp = () => {
       // Apply MIDI mappings immediately if present
       try {
         if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
+      } catch { /* noop */ }
+
+      // Apply audio config if present
+      try {
+        if (data && data.audioConfig && applyAudioSnapshot) applyAudioSnapshot(data.audioConfig);
+      } catch { /* noop */ }
+
+      // Apply BPM config if present
+      try {
+        if (data && data.bpmConfig && applyBPMSnapshot) applyBPMSnapshot(data.bpmConfig);
       } catch { /* noop */ }
 
       // Build a unique name for this import
@@ -643,7 +667,7 @@ const MainApp = () => {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
@@ -876,6 +900,8 @@ const MainApp = () => {
     getCurrentAppState,
     parameters,
     isFrozen,
+    getAudioSnapshot,
+    getBPMSnapshot,
   });
 
   const randomizeCurrentLayer = useCallback((randomizePaletteFlag = false) => {

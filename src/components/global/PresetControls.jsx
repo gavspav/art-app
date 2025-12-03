@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
+import { useAudioReactive } from '../../context/AudioContext.jsx';
+import { useBPM } from '../../context/BPMContext.jsx';
 import { usePresetMorph } from '../../hooks/usePresetMorph.js';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 
@@ -36,6 +38,8 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
   } = useAppState() || {};
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
+  const { getAudioSnapshot, applyAudioSnapshot } = useAudioReactive() || {};
+  const { getBPMSnapshot, applyBPMSnapshot } = useBPM() || {};
 
   const getExportMeta = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -98,7 +102,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         parameters: slot.payload.parameters || [],
         appState: slot.payload.appState || null,
         savedAt: slot.payload.savedAt || new Date().toISOString(),
-        version: '2.0',
+        version: '2.1',
         exportMeta,
       };
       localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
@@ -130,6 +134,18 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
           if (typeof preservedMorph.mode !== 'undefined') setMorphMode?.(preservedMorph.mode);
         }
       }
+      // Apply audio config if present
+      try {
+        if (slot.payload.audioConfig && applyAudioSnapshot) {
+          applyAudioSnapshot(slot.payload.audioConfig);
+        }
+      } catch { /* noop */ }
+      // Apply BPM config if present
+      try {
+        if (slot.payload.bpmConfig && applyBPMSnapshot) {
+          applyBPMSnapshot(slot.payload.bpmConfig);
+        }
+      } catch { /* noop */ }
     } catch (e) {
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
@@ -150,6 +166,8 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphLoopMode,
     setMorphMode,
     setMorphRoute,
+    applyAudioSnapshot,
+    applyBPMSnapshot,
   ]);
 
   const handlePresetClick = useCallback(async (slotId, evt) => {
@@ -162,7 +180,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         const now = new Date().toISOString();
         const appStatePayload = typeof getCurrentAppState === 'function' ? getCurrentAppState() : null;
         const paramPayload = Array.isArray(parameters) ? parameters : [];
-        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '2.0', exportMeta: getExportMeta() };
+        const payload = {
+          parameters: paramPayload,
+          appState: appStatePayload,
+          audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+          bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+          savedAt: now,
+          version: '2.1',
+          exportMeta: getExportMeta(),
+        };
         setPresetSlot && setPresetSlot(slotId, (s) => ({ ...s, payload, savedAt: now }));
       } catch (e) {
         console.warn('[Presets] Failed to save to slot', slotId, e);
@@ -170,7 +196,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       return;
     }
     recallPreset(slotId);
-  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot]);
+  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot, getAudioSnapshot, getBPMSnapshot]);
 
   // MIDI: per-preset triggers. Each preset i (1..16) gets its own mapping id 'preset:i'
   useEffect(() => {

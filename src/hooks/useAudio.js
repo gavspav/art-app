@@ -32,13 +32,13 @@ const openDB = () => {
   });
 };
 
-const saveFileToIDB = async (file, wasPlaying = false) => {
+const saveFileToIDB = async (file, wasPlaying = false, playbackPosition = 0) => {
   try {
     const db = await openDB();
     const arrayBuffer = await file.arrayBuffer();
     const tx = db.transaction(DB_STORE, 'readwrite');
     const store = tx.objectStore(DB_STORE);
-    store.put({ name: file.name, type: file.type, data: arrayBuffer, wasPlaying }, 'current');
+    store.put({ name: file.name, type: file.type, data: arrayBuffer, wasPlaying, playbackPosition }, 'current');
     await new Promise((resolve, reject) => {
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
@@ -51,8 +51,8 @@ const saveFileToIDB = async (file, wasPlaying = false) => {
   }
 };
 
-// Update just the play state without re-saving the whole file
-const updatePlayStateInIDB = async (wasPlaying) => {
+// Update just the play state and position without re-saving the whole file
+const updatePlayStateInIDB = async (wasPlaying, playbackPosition = null) => {
   try {
     const db = await openDB();
     const tx = db.transaction(DB_STORE, 'readwrite');
@@ -64,6 +64,9 @@ const updatePlayStateInIDB = async (wasPlaying) => {
     });
     if (existing) {
       existing.wasPlaying = wasPlaying;
+      if (playbackPosition !== null) {
+        existing.playbackPosition = playbackPosition;
+      }
       store.put(existing, 'current');
     }
     await new Promise((resolve, reject) => {
@@ -89,7 +92,7 @@ const loadFileFromIDB = async () => {
     db.close();
     if (result) {
       const file = new File([result.data], result.name, { type: result.type });
-      return { file, wasPlaying: !!result.wasPlaying };
+      return { file, wasPlaying: !!result.wasPlaying, playbackPosition: result.playbackPosition || 0 };
     }
     return null;
   } catch (err) {
@@ -478,15 +481,21 @@ export const useAudio = ({
     const stored = await loadFileFromIDB();
     if (stored) {
       const success = await loadAudioFile(stored.file, { persist: false });
-      // Auto-play if it was playing when disabled
-      if (success && stored.wasPlaying) {
+      if (success) {
         const audio = audioElementRef.current;
         if (audio) {
-          audio.play().then(() => {
-            setIsFilePlaying(true);
-          }).catch(err => {
-            console.warn('[useAudio] Auto-play failed (may need user interaction):', err);
-          });
+          // Restore playback position
+          if (stored.playbackPosition && audio.duration) {
+            audio.currentTime = stored.playbackPosition;
+          }
+          // Auto-play if it was playing when disabled
+          if (stored.wasPlaying) {
+            audio.play().then(() => {
+              setIsFilePlaying(true);
+            }).catch(err => {
+              console.warn('[useAudio] Auto-play failed (may need user interaction):', err);
+            });
+          }
         }
       }
       return success;
@@ -511,8 +520,8 @@ export const useAudio = ({
     } else {
       audio.pause();
       setIsFilePlaying(false);
-      // Save play state
-      updatePlayStateInIDB(false);
+      // Save play state and current position
+      updatePlayStateInIDB(false, audio.currentTime);
     }
   }, []);
 
@@ -573,13 +582,18 @@ export const useAudio = ({
       }
     } else if (!enabled && isActive) {
       if (isFileMode) {
+        // Save current position before disabling
+        const audio = audioElementRef.current;
+        if (audio) {
+          updatePlayStateInIDB(isFilePlaying, audio.currentTime);
+        }
         // Don't clear storage when just disabling - preserve the file
         stopFilePlayback(false);
       } else {
         stopAudio();
       }
     }
-  }, [enabled, isActive, isFileMode, hasStoredFile, currentDeviceId, initAudio, stopAudio, stopFilePlayback, restoreFileFromStorage]);
+  }, [enabled, isActive, isFileMode, isFilePlaying, hasStoredFile, currentDeviceId, initAudio, stopAudio, stopFilePlayback, restoreFileFromStorage]);
 
   // Cleanup on unmount
   useEffect(() => {

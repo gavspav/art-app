@@ -820,6 +820,8 @@ const GlobalControls = ({
   // which causes re-renders on every animation frame
   const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
+  const { applyAudioSnapshot } = useAudioReactive() || {};
+  const { applyBPMSnapshot } = useBPM() || {};
 
   // Autosave recovery state
   const [showAutosaveRecovery, setShowAutosaveRecovery] = useState(false);
@@ -916,13 +918,21 @@ const GlobalControls = ({
       if (data?.appState && loadAppState) {
         loadAppState(data.appState);
       }
+      // Restore audio config if present
+      if (data?.audioConfig && applyAudioSnapshot) {
+        applyAudioSnapshot(data.audioConfig);
+      }
+      // Restore BPM config if present
+      if (data?.bpmConfig && applyBPMSnapshot) {
+        applyBPMSnapshot(data.bpmConfig);
+      }
       setAutosaveMessage('Autosave restored successfully.');
       setAutosaveError('');
     } catch (error) {
       console.warn('[Autosave] Failed to restore autosave', slotKey, error);
       setAutosaveError('Failed to restore autosave. Check console for details.');
     }
-  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots]);
+  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots, applyAudioSnapshot, applyBPMSnapshot]);
 
   const handleClearAutosaves = useCallback(() => {
     if (typeof window === 'undefined' || !window.localStorage) {

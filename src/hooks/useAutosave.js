@@ -73,6 +73,8 @@ export const useAutosave = ({
   getCurrentAppState,
   parameters,
   isFrozen,
+  getAudioSnapshot,
+  getBPMSnapshot,
 }) => {
   const latestRef = useRef({
     isDirty,
@@ -80,6 +82,8 @@ export const useAutosave = ({
     getCurrentAppState,
     parameters,
     isFrozen,
+    getAudioSnapshot,
+    getBPMSnapshot,
   });
 
   useEffect(() => {
@@ -89,8 +93,10 @@ export const useAutosave = ({
       getCurrentAppState,
       parameters,
       isFrozen,
+      getAudioSnapshot,
+      getBPMSnapshot,
     };
-  }, [isDirty, lastSavedAt, getCurrentAppState, parameters, isFrozen]);
+  }, [isDirty, lastSavedAt, getCurrentAppState, parameters, isFrozen, getAudioSnapshot, getBPMSnapshot]);
 
   useEffect(() => {
     if (!hasStorage()) return () => {};
@@ -102,6 +108,8 @@ export const useAutosave = ({
         getCurrentAppState: snapshotFn,
         parameters: params,
         isFrozen: frozen,
+        getAudioSnapshot: audioSnapshotFn,
+        getBPMSnapshot: bpmSnapshotFn,
       } = latestRef.current;
 
       if (!dirty) return;
@@ -114,8 +122,10 @@ export const useAutosave = ({
         const snapshot = {
           parameters: Array.isArray(params) ? params : [],
           appState: snapshotFn(),
+          audioConfig: typeof audioSnapshotFn === 'function' ? audioSnapshotFn() : null,
+          bpmConfig: typeof bpmSnapshotFn === 'function' ? bpmSnapshotFn() : null,
           savedAt: new Date().toISOString(),
-          version: '2.0',
+          version: '2.1',
         };
 
         const meta = readMeta();

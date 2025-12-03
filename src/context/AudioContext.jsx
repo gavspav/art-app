@@ -303,6 +303,43 @@ export const AudioProvider = ({ children }) => {
     return featuresRef.current[band] || 0;
   }, []);
 
+  // Get a snapshot of audio settings and mappings for export/preset save
+  const getAudioSnapshot = useCallback(() => ({
+    settings: {
+      // Don't include 'enabled' - that's runtime state, not config
+      sensitivity: settings.sensitivity,
+      smoothing: settings.smoothing,
+      release: settings.release,
+      // Don't include deviceId - that's machine-specific
+    },
+    mappings: { ...storedMappings },
+  }), [settings, storedMappings]);
+
+  // Apply a snapshot of audio settings and mappings from import/preset recall
+  const applyAudioSnapshot = useCallback((snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    
+    // Apply settings (merge with current, don't overwrite enabled/deviceId)
+    if (snapshot.settings && typeof snapshot.settings === 'object') {
+      setSettings(prev => ({
+        ...prev,
+        sensitivity: snapshot.settings.sensitivity ?? prev.sensitivity,
+        smoothing: snapshot.settings.smoothing ?? prev.smoothing,
+        release: snapshot.settings.release ?? prev.release,
+      }));
+    }
+    
+    // Apply mappings
+    if (snapshot.mappings && typeof snapshot.mappings === 'object') {
+      setMappingsFromExternal(snapshot.mappings);
+    }
+  }, [setMappingsFromExternal]);
+
+  // Clear all audio mappings
+  const clearAllMappings = useCallback(() => {
+    setMappingsFromExternal({});
+  }, [setMappingsFromExternal]);
+
   const value = useMemo(() => ({
     // State
     isActive,
@@ -347,6 +384,11 @@ export const AudioProvider = ({ children }) => {
     seekFile,
     stopFilePlayback,
 
+    // Snapshot for export/import
+    getAudioSnapshot,
+    applyAudioSnapshot,
+    clearAllMappings,
+
     // Helpers
     audioMappingLabel,
     AUDIO_BANDS,
@@ -387,6 +429,9 @@ export const AudioProvider = ({ children }) => {
     toggleFilePlayback,
     seekFile,
     stopFilePlayback,
+    getAudioSnapshot,
+    applyAudioSnapshot,
+    clearAllMappings,
   ]);
 
   return (

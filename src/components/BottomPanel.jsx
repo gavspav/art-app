@@ -154,6 +154,55 @@ const AudioLEDMeter = () => {
   );
 };
 
+// Clear all audio and BPM mappings button
+const ClearMappingsButton = () => {
+  const audio = useAudioReactive();
+  const bpm = useBPM();
+  
+  const audioMappings = audio?.mappings || {};
+  const bpmMappings = bpm?.mappings || {};
+  const clearAudioMappings = audio?.clearAllMappings;
+  const clearBPMMappings = bpm?.clearAllMappings;
+  
+  // Count total mappings
+  const audioCount = Object.keys(audioMappings).length;
+  const bpmCount = Object.keys(bpmMappings).length;
+  const totalCount = audioCount + bpmCount;
+  
+  const handleClear = (e) => {
+    e.stopPropagation();
+    if (totalCount === 0) return;
+    if (!window.confirm(`Clear all ${totalCount} audio/BPM mappings?`)) return;
+    clearAudioMappings?.();
+    clearBPMMappings?.();
+  };
+  
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={handleClear}
+      disabled={totalCount === 0}
+      title={totalCount > 0 ? `Clear ${totalCount} audio/BPM mappings` : 'No mappings to clear'}
+      aria-label="Clear all audio and BPM mappings"
+      style={{ padding: '4px', opacity: totalCount > 0 ? 1 : 0.4 }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '14px',
+          height: '14px',
+          lineHeight: '14px',
+          textAlign: 'center',
+          fontSize: '12px',
+        }}
+      >
+        🧹
+      </span>
+    </button>
+  );
+};
+
 // Speaker indicator for Audio on/off & activity
 const AudioIndicator = () => {
   const audio = useAudioReactive();
@@ -903,6 +952,7 @@ const BottomPanel = ({
           <BeatIndicator />
           <AudioIndicator />
           <AudioLEDMeter />
+          <ClearMappingsButton />
         </div>
 
         {/* Tab content area */}

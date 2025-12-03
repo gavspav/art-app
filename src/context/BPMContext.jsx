@@ -292,6 +292,41 @@ export const BPMProvider = ({ children }) => {
   // Stable getters that read from ref (don't cause re-renders)
   // clockRef is already declared above for the dispatch loop
   const getClockState = useCallback(() => clockRef.current, []);
+
+  // Get a snapshot of BPM settings and mappings for export/preset save
+  const getBPMSnapshot = useCallback(() => ({
+    settings: {
+      bpm: settings.bpm,
+      beatsPerBar: settings.beatsPerBar,
+      // Don't include 'isPlaying' - that's runtime state
+    },
+    mappings: { ...storedMappings },
+  }), [settings, storedMappings]);
+
+  // Apply a snapshot of BPM settings and mappings from import/preset recall
+  const applyBPMSnapshot = useCallback((snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    
+    // Apply settings
+    if (snapshot.settings && typeof snapshot.settings === 'object') {
+      if (typeof snapshot.settings.bpm === 'number') {
+        setBPMValue(snapshot.settings.bpm);
+      }
+      if (typeof snapshot.settings.beatsPerBar === 'number') {
+        setSettings(prev => ({ ...prev, beatsPerBar: snapshot.settings.beatsPerBar }));
+      }
+    }
+    
+    // Apply mappings
+    if (snapshot.mappings && typeof snapshot.mappings === 'object') {
+      setMappingsFromExternal(snapshot.mappings);
+    }
+  }, [setBPMValue, setMappingsFromExternal]);
+
+  // Clear all BPM mappings
+  const clearAllMappings = useCallback(() => {
+    setMappingsFromExternal({});
+  }, [setMappingsFromExternal]);
   
   // Stable value that only changes when mappings/settings change (not on every beat)
   // IMPORTANT: Do NOT include currentBeat or beatPhase here - they change every frame!
@@ -323,6 +358,11 @@ export const BPMProvider = ({ children }) => {
     getMapping,
     registerBPMHandler,
     
+    // Snapshot for export/import
+    getBPMSnapshot,
+    applyBPMSnapshot,
+    clearAllMappings,
+
     // Helpers
     BEAT_SPEEDS,
     LOOP_MODES,
@@ -347,6 +387,9 @@ export const BPMProvider = ({ children }) => {
     getMapping,
     registerBPMHandler,
     getClockState,
+    getBPMSnapshot,
+    applyBPMSnapshot,
+    clearAllMappings,
   ]);
 
   return (
