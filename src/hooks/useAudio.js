@@ -32,13 +32,13 @@ const openDB = () => {
   });
 };
 
-const saveFileToIDB = async (file) => {
+const saveFileToIDB = async (file, wasPlaying = false) => {
   try {
     const db = await openDB();
     const arrayBuffer = await file.arrayBuffer();
     const tx = db.transaction(DB_STORE, 'readwrite');
     const store = tx.objectStore(DB_STORE);
-    store.put({ name: file.name, type: file.type, data: arrayBuffer }, 'current');
+    store.put({ name: file.name, type: file.type, data: arrayBuffer, wasPlaying }, 'current');
     await new Promise((resolve, reject) => {
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
@@ -48,6 +48,31 @@ const saveFileToIDB = async (file) => {
   } catch (err) {
     console.warn('[useAudio] Failed to save file to IndexedDB:', err);
     return false;
+  }
+};
+
+// Update just the play state without re-saving the whole file
+const updatePlayStateInIDB = async (wasPlaying) => {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    const store = tx.objectStore(DB_STORE);
+    const request = store.get('current');
+    const existing = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    if (existing) {
+      existing.wasPlaying = wasPlaying;
+      store.put(existing, 'current');
+    }
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (err) {
+    console.warn('[useAudio] Failed to update play state in IndexedDB:', err);
   }
 };
 
@@ -63,7 +88,8 @@ const loadFileFromIDB = async () => {
     });
     db.close();
     if (result) {
-      return new File([result.data], result.name, { type: result.type });
+      const file = new File([result.data], result.name, { type: result.type });
+      return { file, wasPlaying: !!result.wasPlaying };
     }
     return null;
   } catch (err) {
@@ -449,9 +475,21 @@ export const useAudio = ({
   
   // Restore file from IndexedDB (called when audio is re-enabled)
   const restoreFileFromStorage = useCallback(async () => {
-    const file = await loadFileFromIDB();
-    if (file) {
-      return loadAudioFile(file, { persist: false });
+    const stored = await loadFileFromIDB();
+    if (stored) {
+      const success = await loadAudioFile(stored.file, { persist: false });
+      // Auto-play if it was playing when disabled
+      if (success && stored.wasPlaying) {
+        const audio = audioElementRef.current;
+        if (audio) {
+          audio.play().then(() => {
+            setIsFilePlaying(true);
+          }).catch(err => {
+            console.warn('[useAudio] Auto-play failed (may need user interaction):', err);
+          });
+        }
+      }
+      return success;
     }
     return false;
   }, [loadAudioFile]);
@@ -464,6 +502,8 @@ export const useAudio = ({
     if (audio.paused) {
       audio.play().then(() => {
         setIsFilePlaying(true);
+        // Save play state
+        updatePlayStateInIDB(true);
       }).catch(err => {
         console.error('[useAudio] Failed to play:', err);
         setError('Failed to play audio');
@@ -471,6 +511,8 @@ export const useAudio = ({
     } else {
       audio.pause();
       setIsFilePlaying(false);
+      // Save play state
+      updatePlayStateInIDB(false);
     }
   }, []);
 
@@ -515,8 +557,8 @@ export const useAudio = ({
   
   // Check for stored file on mount
   useEffect(() => {
-    loadFileFromIDB().then(file => {
-      setHasStoredFile(!!file);
+    loadFileFromIDB().then(stored => {
+      setHasStoredFile(!!stored);
     });
   }, []);
 
