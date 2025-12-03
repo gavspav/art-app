@@ -113,7 +113,11 @@ export const AudioProvider = ({ children }) => {
 
   // Use a ref for features to avoid re-renders on every audio frame
   const featuresRef = useRef(features);
-  featuresRef.current = features;
+  
+  // Update the ref whenever features change (useEffect ensures this runs after render)
+  useEffect(() => {
+    featuresRef.current = features;
+  }, [features]);
 
   // Persist settings
   useEffect(() => {
