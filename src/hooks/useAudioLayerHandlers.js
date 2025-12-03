@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
+import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 
 /**
  * Registers Audio handlers for layer parameters.
@@ -6,24 +7,52 @@ import { useEffect } from 'react';
  * 
  * The AudioContext dispatches values when audio is active,
  * allowing parameters to react to audio input.
+ * 
+ * Now respects parameterTargetMode (global vs individual) like MIDI does.
  */
 export function useAudioLayerHandlers({
   registerAudioHandler,
   setLayers,
   layers,
+  parameterTargetMode = 'individual',
+  getActiveTargetLayerIds,
 }) {
   // Build a signature of layer names so we only re-register when structure changes
   const layerSignature = Array.isArray(layers)
     ? layers.map((layer, index) => (layer?.name || `Layer ${index + 1}`)).join('|')
     : '';
 
-  const updateLayerByName = (layerName, updater) => {
-    setLayers?.(prev => prev.map((layer, index) => {
-      const key = (layer?.name || `Layer ${index + 1}`).toString();
-      if (key !== layerName) return layer;
-      return updater(layer);
-    }));
-  };
+  // Build a target set based on current target mode
+  const buildTargetSet = useCallback((options = {}) => {
+    const mode = options.mode || 'targeted';
+    const layerIds = Array.isArray(layers) ? layers.map(l => l?.id).filter(Boolean) : [];
+    if (mode === 'all') {
+      return new Set(layerIds);
+    }
+    if (typeof getActiveTargetLayerIds !== 'function') return new Set();
+    const ids = getActiveTargetLayerIds();
+    return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
+  }, [getActiveTargetLayerIds, layers]);
+
+  // Apply update respecting target mode (like MIDI's applyUpdateToTargets)
+  const applyUpdateToTargets = useCallback((layerName, updater) => {
+    // Find the layer that triggered this (by name)
+    const triggerLayer = layers?.find((l, i) => (l?.name || `Layer ${i + 1}`) === layerName);
+    
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer: triggerLayer,
+      buildTargetSet,
+      targetMode: parameterTargetMode,
+    });
+
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => updater(layer),
+      }));
+    }
+  }, [buildTargetSet, layers, parameterTargetMode, setLayers]);
 
   useEffect(() => {
     if (!registerAudioHandler || !setLayers || !layerSignature) return;
@@ -56,7 +85,7 @@ export function useAudioLayerHandlers({
     layerKeys.forEach(layerKey => {
       const scaleId = `layer:${layerKey}:scale`;
       unsubs.push(registerAudioHandler(scaleId, ({ value01 }) => {
-        updateLayerByName(layerKey, (layer) => ({
+        applyUpdateToTargets(layerKey, (layer) => ({
           ...layer,
           position: { ...(layer?.position || {}), scale: value01 },
         }));
@@ -65,7 +94,7 @@ export function useAudioLayerHandlers({
       numericParams.forEach(param => {
         const paramId = `layer:${layerKey}:${param}`;
         unsubs.push(registerAudioHandler(paramId, ({ value01 }) => {
-          updateLayerByName(layerKey, (layer) => ({
+          applyUpdateToTargets(layerKey, (layer) => ({
             ...layer,
             [param]: value01,
           }));
@@ -76,5 +105,5 @@ export function useAudioLayerHandlers({
     return () => {
       unsubs.forEach(u => { if (typeof u === 'function') u(); });
     };
-  }, [registerAudioHandler, setLayers, layerSignature]);
+  }, [registerAudioHandler, setLayers, layerSignature, applyUpdateToTargets]);
 }

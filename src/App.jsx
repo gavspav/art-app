@@ -1027,10 +1027,13 @@ const MainApp = () => {
   });
 
   // Register Audio handlers for individual layer parameters (like BPM does)
+  // Now respects parameterTargetMode like MIDI does
   useAudioLayerHandlers({
     registerAudioHandler,
     setLayers,
     layers,
+    parameterTargetMode,
+    getActiveTargetLayerIds,
   });
 
   // Centralize all BPM handlers (mirrors MIDI/Audio pattern)
@@ -1057,10 +1060,13 @@ const MainApp = () => {
   });
 
   // Register BPM handlers for individual layer parameters (like MIDI does)
+  // Now respects parameterTargetMode like MIDI does
   useBPMLayerHandlers({
     registerBPMHandler,
     setLayers,
     layers,
+    parameterTargetMode,
+    getActiveTargetLayerIds,
   });
 
   // randomizeScene provided by hook

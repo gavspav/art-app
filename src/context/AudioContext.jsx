@@ -103,6 +103,15 @@ export const AudioProvider = ({ children }) => {
     stopAudio,
     switchDevice,
     refreshDevices,
+    // File playback
+    isFileMode,
+    isFilePlaying,
+    fileInfo,
+    fileProgress,
+    loadAudioFile,
+    toggleFilePlayback,
+    seekFile,
+    stopFilePlayback,
   } = useAudio({
     enabled: settings.enabled,
     sensitivity: settings.sensitivity,
@@ -325,6 +334,16 @@ export const AudioProvider = ({ children }) => {
     stopAudio,
     switchDevice,
 
+    // File playback
+    isFileMode,
+    isFilePlaying,
+    fileInfo,
+    fileProgress,
+    loadAudioFile,
+    toggleFilePlayback,
+    seekFile,
+    stopFilePlayback,
+
     // Helpers
     audioMappingLabel,
     AUDIO_BANDS,
@@ -356,6 +375,14 @@ export const AudioProvider = ({ children }) => {
     initMic,
     stopAudio,
     switchDevice,
+    isFileMode,
+    isFilePlaying,
+    fileInfo,
+    fileProgress,
+    loadAudioFile,
+    toggleFilePlayback,
+    seekFile,
+    stopFilePlayback,
   ]);
 
   return (

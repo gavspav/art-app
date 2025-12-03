@@ -114,7 +114,37 @@ const AudioReactiveSection = () => {
     setSmoothing = null,
     setRelease = null,
     setDeviceId = null,
+    // File playback
+    isFileMode = false,
+    isFilePlaying = false,
+    fileInfo = null,
+    fileProgress = 0,
+    loadAudioFile = null,
+    toggleFilePlayback = null,
+    seekFile = null,
+    stopFilePlayback = null,
   } = audio || {};
+  
+  // File input ref
+  const fileInputRef = useRef(null);
+  
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (file && loadAudioFile) {
+      await loadAudioFile(file);
+    }
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const formatTime = (seconds) => {
+    if (!seconds || !Number.isFinite(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
   
   // Poll audio features for visual meters when active
   // This hook must be called unconditionally (before any early returns)
@@ -164,8 +194,8 @@ const AudioReactiveSection = () => {
         {error && <span style={{ color: '#ff6b6b', fontSize: '0.75rem' }}>{error}</span>}
       </div>
 
-      {/* Device selector (shown when enabled) */}
-      {settings.enabled && (
+      {/* Device selector (shown when enabled and not in file mode) */}
+      {settings.enabled && !isFileMode && (
         <div style={{ marginTop: '0.25rem' }}>
           <select
             className="compact-select"
@@ -180,6 +210,72 @@ const AudioReactiveSection = () => {
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {/* File playback controls */}
+      {isFileMode && fileInfo && (
+        <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>🎵</span>
+            <span style={{ fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {fileInfo.name}
+            </span>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+              onClick={stopFilePlayback}
+              title="Close file and return to mic input"
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.8rem', padding: '4px 8px', minWidth: '2rem' }}
+              onClick={toggleFilePlayback}
+              title={isFilePlaying ? 'Pause' : 'Play'}
+            >
+              {isFilePlaying ? '⏸' : '▶'}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={fileProgress}
+              onChange={(e) => seekFile(parseFloat(e.target.value))}
+              style={{ flex: 1, height: 4 }}
+              className="compact-range"
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, minWidth: '3rem', textAlign: 'right' }}>
+              {formatTime(fileProgress * fileInfo.duration)} / {formatTime(fileInfo.duration)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Load file button (shown when enabled) */}
+      {settings.enabled && (
+        <div style={{ marginTop: '0.25rem' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ fontSize: '0.75rem', width: '100%' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isFileMode ? '🎵 Load Different File' : '📁 Play from File'}
+          </button>
         </div>
       )}
 

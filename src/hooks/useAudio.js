@@ -31,6 +31,12 @@ export const useAudio = ({
     mids: 0,
     highs: 0,
   });
+  
+  // File playback state
+  const [isFileMode, setIsFileMode] = useState(false);
+  const [isFilePlaying, setIsFilePlaying] = useState(false);
+  const [fileInfo, setFileInfo] = useState(null); // { name, duration }
+  const [fileProgress, setFileProgress] = useState(0); // 0-1
 
   // Refs for Web Audio objects
   const audioCtxRef = useRef(null);
@@ -41,6 +47,10 @@ export const useAudio = ({
   const timeDataRef = useRef(null);
   const smoothRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0 });
   const rafIdRef = useRef(null);
+  
+  // File playback refs
+  const audioElementRef = useRef(null);
+  const fileSourceRef = useRef(null);
   
   // Refs for settings to avoid stale closures in RAF loop
   const smoothingRef = useRef(smoothing);
@@ -266,14 +276,158 @@ export const useAudio = ({
     // Will be restarted by the enabled effect if enabled
   }, [stopAudio]);
 
+  // Load and play audio from file
+  const loadAudioFile = useCallback(async (file) => {
+    try {
+      setError(null);
+      
+      // Stop any existing audio
+      stopAudio();
+      
+      // Create audio context
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) {
+        throw new Error('Web Audio API not supported');
+      }
+
+      const audioCtx = new AudioContext();
+      audioCtxRef.current = audioCtx;
+
+      // Resume context if suspended
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+
+      // Create analyser
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.3;
+      analyserRef.current = analyser;
+
+      // Create data arrays
+      freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
+      timeDataRef.current = new Uint8Array(analyser.fftSize);
+
+      // Create audio element for file playback
+      const audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      audioElementRef.current = audio;
+
+      // Create object URL for the file
+      const url = URL.createObjectURL(file);
+      audio.src = url;
+
+      // Wait for metadata to load
+      await new Promise((resolve, reject) => {
+        audio.onloadedmetadata = resolve;
+        audio.onerror = () => reject(new Error('Failed to load audio file'));
+      });
+
+      // Create media element source and connect to analyser
+      const source = audioCtx.createMediaElementSource(audio);
+      source.connect(analyser);
+      analyser.connect(audioCtx.destination); // Connect to speakers for playback
+      fileSourceRef.current = source;
+
+      // Set file info
+      setFileInfo({
+        name: file.name,
+        duration: audio.duration,
+      });
+
+      // Track progress
+      audio.ontimeupdate = () => {
+        if (audio.duration > 0) {
+          setFileProgress(audio.currentTime / audio.duration);
+        }
+      };
+
+      // Handle end of playback
+      audio.onended = () => {
+        setIsFilePlaying(false);
+        setFileProgress(0);
+        audio.currentTime = 0;
+      };
+
+      setIsFileMode(true);
+      setIsActive(true);
+
+      // Start update loop
+      rafIdRef.current = requestAnimationFrame(updateAudio);
+
+      return true;
+    } catch (err) {
+      console.error('[useAudio] Failed to load audio file:', err);
+      setError(err.message || 'Failed to load audio file');
+      setIsActive(false);
+      setIsFileMode(false);
+      return false;
+    }
+  }, [stopAudio, updateAudio]);
+
+  // Play/pause file
+  const toggleFilePlayback = useCallback(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      audio.play().then(() => {
+        setIsFilePlaying(true);
+      }).catch(err => {
+        console.error('[useAudio] Failed to play:', err);
+        setError('Failed to play audio');
+      });
+    } else {
+      audio.pause();
+      setIsFilePlaying(false);
+    }
+  }, []);
+
+  // Seek in file
+  const seekFile = useCallback((progress) => {
+    const audio = audioElementRef.current;
+    if (!audio || !audio.duration) return;
+    audio.currentTime = progress * audio.duration;
+    setFileProgress(progress);
+  }, []);
+
+  // Stop file playback and switch back to mic mode
+  const stopFilePlayback = useCallback(() => {
+    const audio = audioElementRef.current;
+    if (audio) {
+      audio.pause();
+      audio.src = '';
+      audioElementRef.current = null;
+    }
+    
+    if (fileSourceRef.current) {
+      try {
+        fileSourceRef.current.disconnect();
+      } catch { /* noop */ }
+      fileSourceRef.current = null;
+    }
+
+    setIsFileMode(false);
+    setIsFilePlaying(false);
+    setFileInfo(null);
+    setFileProgress(0);
+    
+    // Stop the rest of audio
+    stopAudio();
+  }, [stopAudio]);
+
   // Handle enabled state changes
   useEffect(() => {
-    if (enabled && !isActive) {
+    if (enabled && !isActive && !isFileMode) {
       initAudio(currentDeviceId);
     } else if (!enabled && isActive) {
-      stopAudio();
+      if (isFileMode) {
+        stopFilePlayback();
+      } else {
+        stopAudio();
+      }
     }
-  }, [enabled, isActive, currentDeviceId, initAudio, stopAudio]);
+  }, [enabled, isActive, isFileMode, currentDeviceId, initAudio, stopAudio, stopFilePlayback]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -298,6 +452,15 @@ export const useAudio = ({
     stopAudio,
     switchDevice,
     refreshDevices,
+    // File playback
+    isFileMode,
+    isFilePlaying,
+    fileInfo,
+    fileProgress,
+    loadAudioFile,
+    toggleFilePlayback,
+    seekFile,
+    stopFilePlayback,
   };
 };
 
