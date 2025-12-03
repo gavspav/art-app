@@ -19,6 +19,7 @@ export const AUDIO_BANDS = ['none', 'rms', 'bass', 'mids', 'highs'];
 // LocalStorage keys
 const LS_AUDIO_MAPPINGS = 'artapp-audio-mappings';
 const LS_AUDIO_SETTINGS = 'artapp-audio-settings';
+const LS_AUDIO_FILE = 'artapp-audio-file'; // Stores file mode preference
 
 // Default range mapping for a parameter
 const DEFAULT_RANGE = {
@@ -108,6 +109,7 @@ export const AudioProvider = ({ children }) => {
     isFilePlaying,
     fileInfo,
     fileProgress,
+    hasStoredFile,
     loadAudioFile,
     toggleFilePlayback,
     seekFile,
@@ -339,6 +341,7 @@ export const AudioProvider = ({ children }) => {
     isFilePlaying,
     fileInfo,
     fileProgress,
+    hasStoredFile,
     loadAudioFile,
     toggleFilePlayback,
     seekFile,
@@ -379,6 +382,7 @@ export const AudioProvider = ({ children }) => {
     isFilePlaying,
     fileInfo,
     fileProgress,
+    hasStoredFile,
     loadAudioFile,
     toggleFilePlayback,
     seekFile,

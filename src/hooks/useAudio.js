@@ -13,6 +13,81 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 const DEFAULT_SMOOTHING = 0.7; // 0..1, higher = more responsive
 const DEFAULT_RELEASE = 0.85; // 0..1, higher = slower falloff
 
+// IndexedDB helpers for persisting audio file
+const DB_NAME = 'artapp-audio';
+const DB_STORE = 'audioFile';
+const DB_VERSION = 1;
+
+const openDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(DB_STORE)) {
+        db.createObjectStore(DB_STORE);
+      }
+    };
+  });
+};
+
+const saveFileToIDB = async (file) => {
+  try {
+    const db = await openDB();
+    const arrayBuffer = await file.arrayBuffer();
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    const store = tx.objectStore(DB_STORE);
+    store.put({ name: file.name, type: file.type, data: arrayBuffer }, 'current');
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    return true;
+  } catch (err) {
+    console.warn('[useAudio] Failed to save file to IndexedDB:', err);
+    return false;
+  }
+};
+
+const loadFileFromIDB = async () => {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const store = tx.objectStore(DB_STORE);
+    const request = store.get('current');
+    const result = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    if (result) {
+      return new File([result.data], result.name, { type: result.type });
+    }
+    return null;
+  } catch (err) {
+    console.warn('[useAudio] Failed to load file from IndexedDB:', err);
+    return null;
+  }
+};
+
+const clearFileFromIDB = async () => {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    const store = tx.objectStore(DB_STORE);
+    store.delete('current');
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (err) {
+    console.warn('[useAudio] Failed to clear file from IndexedDB:', err);
+  }
+};
+
 export const useAudio = ({
   enabled = false,
   sensitivity = 1.0,
@@ -37,6 +112,7 @@ export const useAudio = ({
   const [isFilePlaying, setIsFilePlaying] = useState(false);
   const [fileInfo, setFileInfo] = useState(null); // { name, duration }
   const [fileProgress, setFileProgress] = useState(0); // 0-1
+  const [hasStoredFile, setHasStoredFile] = useState(false); // Track if we have a stored file
 
   // Refs for Web Audio objects
   const audioCtxRef = useRef(null);
@@ -276,8 +352,8 @@ export const useAudio = ({
     // Will be restarted by the enabled effect if enabled
   }, [stopAudio]);
 
-  // Load and play audio from file
-  const loadAudioFile = useCallback(async (file) => {
+  // Load and play audio from file (with optional persistence)
+  const loadAudioFile = useCallback(async (file, { persist = true } = {}) => {
     try {
       setError(null);
       
@@ -352,6 +428,12 @@ export const useAudio = ({
       setIsFileMode(true);
       setIsActive(true);
 
+      // Persist file to IndexedDB for restoration
+      if (persist) {
+        saveFileToIDB(file);
+        setHasStoredFile(true);
+      }
+
       // Start update loop
       rafIdRef.current = requestAnimationFrame(updateAudio);
 
@@ -364,6 +446,15 @@ export const useAudio = ({
       return false;
     }
   }, [stopAudio, updateAudio]);
+  
+  // Restore file from IndexedDB (called when audio is re-enabled)
+  const restoreFileFromStorage = useCallback(async () => {
+    const file = await loadFileFromIDB();
+    if (file) {
+      return loadAudioFile(file, { persist: false });
+    }
+    return false;
+  }, [loadAudioFile]);
 
   // Play/pause file
   const toggleFilePlayback = useCallback(() => {
@@ -392,7 +483,7 @@ export const useAudio = ({
   }, []);
 
   // Stop file playback and switch back to mic mode
-  const stopFilePlayback = useCallback(() => {
+  const stopFilePlayback = useCallback((clearStorage = true) => {
     const audio = audioElementRef.current;
     if (audio) {
       audio.pause();
@@ -412,22 +503,41 @@ export const useAudio = ({
     setFileInfo(null);
     setFileProgress(0);
     
+    // Clear from IndexedDB if requested (user explicitly closed the file)
+    if (clearStorage) {
+      clearFileFromIDB();
+      setHasStoredFile(false);
+    }
+    
     // Stop the rest of audio
     stopAudio();
   }, [stopAudio]);
+  
+  // Check for stored file on mount
+  useEffect(() => {
+    loadFileFromIDB().then(file => {
+      setHasStoredFile(!!file);
+    });
+  }, []);
 
   // Handle enabled state changes
   useEffect(() => {
     if (enabled && !isActive && !isFileMode) {
-      initAudio(currentDeviceId);
+      // Check if we have a stored file to restore
+      if (hasStoredFile) {
+        restoreFileFromStorage();
+      } else {
+        initAudio(currentDeviceId);
+      }
     } else if (!enabled && isActive) {
       if (isFileMode) {
-        stopFilePlayback();
+        // Don't clear storage when just disabling - preserve the file
+        stopFilePlayback(false);
       } else {
         stopAudio();
       }
     }
-  }, [enabled, isActive, isFileMode, currentDeviceId, initAudio, stopAudio, stopFilePlayback]);
+  }, [enabled, isActive, isFileMode, hasStoredFile, currentDeviceId, initAudio, stopAudio, stopFilePlayback, restoreFileFromStorage]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -457,6 +567,7 @@ export const useAudio = ({
     isFilePlaying,
     fileInfo,
     fileProgress,
+    hasStoredFile,
     loadAudioFile,
     toggleFilePlayback,
     seekFile,

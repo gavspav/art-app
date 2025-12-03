@@ -119,6 +119,7 @@ const AudioReactiveSection = () => {
     isFilePlaying = false,
     fileInfo = null,
     fileProgress = 0,
+    hasStoredFile = false,
     loadAudioFile = null,
     toggleFilePlayback = null,
     seekFile = null,
@@ -189,7 +190,9 @@ const AudioReactiveSection = () => {
             checked={settings.enabled}
             onChange={() => toggleAudio()}
           />
-          {settings.enabled ? (isActive ? 'Listening' : 'Starting...') : 'Enable Audio'}
+          {settings.enabled 
+            ? (isActive ? (isFileMode ? 'Playing File' : 'Listening') : 'Starting...') 
+            : (hasStoredFile ? 'Enable Audio (file saved)' : 'Enable Audio')}
         </label>
         {error && <span style={{ color: '#ff6b6b', fontSize: '0.75rem' }}>{error}</span>}
       </div>
