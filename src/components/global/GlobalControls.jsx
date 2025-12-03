@@ -619,6 +619,12 @@ const GlobalControls = ({
   setZIgnore,
   classicMode,
   setClassicMode,
+  showGlobalMidi,
+  setShowGlobalMidi,
+  showGlobalAudio,
+  setShowGlobalAudio,
+  showGlobalBPM,
+  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -679,9 +685,6 @@ const GlobalControls = ({
   applyVariationInstantly,
   setApplyVariationInstantly,
 }) => {
-  const showGlobalMidi = true;
-  const showGlobalAudio = true;
-  const showGlobalBPM = true;
   const layerSeedNonceRef = useRef(0);
   const generateLayerSeed = useCallback(() => {
     const MOD = 2147483646;

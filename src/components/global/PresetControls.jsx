@@ -12,7 +12,7 @@ import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
  * - Morph controls (enables, route, duration, easing, loop mode, algorithm)
  * - Internally runs the morph engine via usePresetMorph
  */
-export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier }) {
+export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier, showGlobalMidi }) {
   // Contexts
   const {
     presetSlots,
@@ -220,7 +220,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
               >
                 {slot.name || `P${slot.id}`}
               </button>
-              {midiSupported && (
+              {showGlobalMidi && midiSupported && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <button
                     className="btn-compact-secondary"

@@ -138,6 +138,10 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
+  // Global MIDI/Audio/BPM learn UI visibility
+  const [showGlobalMidi, setShowGlobalMidi] = useState(false);
+  const [showGlobalAudio, setShowGlobalAudio] = useState(false);
+  const [showGlobalBPM, setShowGlobalBPM] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
@@ -961,6 +965,7 @@ const MainApp = () => {
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
+    setShowGlobalMidi,
     setIsOverlayVisible,
     setIsNodeEditMode,
     setSelectedLayerIndex,
@@ -1293,6 +1298,28 @@ const MainApp = () => {
             setBackgroundColor={setBackgroundColor}
             backgroundImage={backgroundImage}
             setBackgroundImage={setBackgroundImage}
+            isFrozen={isFrozen}
+            setIsFrozen={setIsFrozen}
+            colorFadeWhileFrozen={colorFadeWhileFrozen}
+            setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+            classicMode={classicMode}
+            setClassicMode={setClassicMode}
+            zIgnore={zIgnore}
+            setZIgnore={setZIgnore}
+            showGlobalMidi={showGlobalMidi}
+            setShowGlobalMidi={setShowGlobalMidi}
+            showGlobalAudio={showGlobalAudio}
+            setShowGlobalAudio={setShowGlobalAudio}
+            showGlobalBPM={showGlobalBPM}
+            setShowGlobalBPM={setShowGlobalBPM}
+            globalSeed={globalSeed}
+            setGlobalSeed={setGlobalSeed}
+            globalSpeedMultiplier={globalSpeedMultiplier}
+            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+            getIsRnd={getIsRnd}
+            setIsRnd={setIsRnd}
+            palettes={palettes}
+            blendModes={blendModes}
             globalBlendMode={globalBlendMode}
             setGlobalBlendMode={setGlobalBlendMode}
             parameterTargetMode={parameterTargetMode}
