@@ -101,31 +101,30 @@ const AudioReactiveSection = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [features, setFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
 
-  if (!audio) {
-    return null;
-  }
-
+  // Destructure with defaults to avoid conditional hook issues
   const {
-    isActive,
-    error,
-    getFeatures,
-    settings,
-    availableDevices,
-    currentDeviceId,
-    toggleAudio,
-    setSensitivity,
-    setSmoothing,
-    setRelease,
-    setDeviceId,
-  } = audio;
+    isActive = false,
+    error = null,
+    getFeatures = null,
+    settings = { enabled: false, sensitivity: 1, smoothing: 0.7, release: 0.85 },
+    availableDevices = [],
+    currentDeviceId = null,
+    toggleAudio = null,
+    setSensitivity = null,
+    setSmoothing = null,
+    setRelease = null,
+    setDeviceId = null,
+  } = audio || {};
   
   // Poll audio features for visual meters when active
+  // This hook must be called unconditionally (before any early returns)
   useEffect(() => {
     if (!isActive || !getFeatures) return;
     
     let rafId;
     const updateMeters = () => {
-      setFeatures(getFeatures());
+      const f = getFeatures();
+      setFeatures(f);
       rafId = requestAnimationFrame(updateMeters);
     };
     
@@ -134,6 +133,10 @@ const AudioReactiveSection = () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, [isActive, getFeatures]);
+
+  if (!audio) {
+    return null;
+  }
 
   return (
     <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
@@ -1889,12 +1892,14 @@ const GlobalControls = ({
             </select>
             {showPaletteSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                   <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                   {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
                 </div>
+                <AudioControlRow paramId="globalPaletteIndex" />
+                <BPMControlRow paramId="globalPaletteIndex" />
               </div>
             )}
           </div>
@@ -1918,12 +1923,14 @@ const GlobalControls = ({
             </select>
             {showBlendModeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                   <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                   {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
                 </div>
+                <AudioControlRow paramId="globalBlendMode" />
+                <BPMControlRow paramId="globalBlendMode" />
               </div>
             )}
           </div>
