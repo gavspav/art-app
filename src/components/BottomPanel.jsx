@@ -186,12 +186,6 @@ const BottomPanel = ({
   setClassicMode,
   zIgnore,
   setZIgnore,
-  showGlobalMidi,
-  setShowGlobalMidi,
-  showGlobalAudio,
-  setShowGlobalAudio,
-  showGlobalBPM,
-  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -576,7 +570,6 @@ const BottomPanel = ({
               setLayers={setLayers}
               setBackgroundColor={setBackgroundColor}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              showGlobalMidi={showGlobalMidi}
             />
           </div>
         );
@@ -600,12 +593,6 @@ const BottomPanel = ({
               setClassicMode={setClassicMode}
               zIgnore={zIgnore}
               setZIgnore={setZIgnore}
-              showGlobalMidi={showGlobalMidi}
-              setShowGlobalMidi={setShowGlobalMidi}
-              showGlobalAudio={showGlobalAudio}
-              setShowGlobalAudio={setShowGlobalAudio}
-              showGlobalBPM={showGlobalBPM}
-              setShowGlobalBPM={setShowGlobalBPM}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -682,9 +669,9 @@ const BottomPanel = ({
               baseColors={baseColors}
               baseNumColors={baseNumColors}
               isNodeEditMode={isNodeEditMode}
-              showMidi={showGlobalMidi}
-              showAudio={showGlobalAudio}
-              showBPM={showGlobalBPM}
+              showMidi
+              showAudio
+              showBPM
               setIsNodeEditMode={setIsNodeEditMode}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
