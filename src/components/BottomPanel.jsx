@@ -73,6 +73,87 @@ const BeatIndicator = () => {
   );
 };
 
+// LED bar meter for audio bands (bass, mids, highs)
+const AudioLEDMeter = () => {
+  const audio = useAudioReactive();
+  const [bands, setBands] = useState({ bass: 0, mids: 0, highs: 0 });
+  const rafRef = useRef(null);
+
+  const enabled = !!audio?.settings?.enabled;
+  const getFeatures = audio?.getFeatures;
+
+  useEffect(() => {
+    if (!enabled || typeof getFeatures !== 'function') {
+      setBands({ bass: 0, mids: 0, highs: 0 });
+      return undefined;
+    }
+
+    const tick = () => {
+      const features = getFeatures?.();
+      setBands({
+        bass: typeof features?.bass === 'number' ? features.bass : 0,
+        mids: typeof features?.mids === 'number' ? features.mids : 0,
+        highs: typeof features?.highs === 'number' ? features.highs : 0,
+      });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [enabled, getFeatures]);
+
+  if (!enabled) return null;
+
+  // Each bar is 3 segments (low, mid, high intensity)
+  const renderBar = (value, color) => {
+    const segments = 4;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: '1px', height: '14px' }}>
+        {Array.from({ length: segments }, (_, i) => {
+          const threshold = (i + 1) / segments;
+          const isLit = value >= threshold * 0.8;
+          const isTop = i === segments - 1;
+          return (
+            <div
+              key={i}
+              style={{
+                width: '4px',
+                flex: 1,
+                borderRadius: '1px',
+                background: isLit
+                  ? isTop ? '#ef4444' : color
+                  : 'rgba(255,255,255,0.15)',
+                boxShadow: isLit ? `0 0 3px ${isTop ? '#ef4444' : color}` : 'none',
+                transition: 'background 0.05s, box-shadow 0.05s',
+              }}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '2px',
+        padding: '2px 4px',
+        borderRadius: '4px',
+        background: 'rgba(0,0,0,0.3)',
+      }}
+      title="Bass | Mids | Highs"
+    >
+      {renderBar(bands.bass, '#ff6b6b')}
+      {renderBar(bands.mids, '#ffd93d')}
+      {renderBar(bands.highs, '#6bcb77')}
+    </div>
+  );
+};
+
 // Speaker indicator for Audio on/off & activity
 const AudioIndicator = () => {
   const audio = useAudioReactive();
@@ -821,6 +902,7 @@ const BottomPanel = ({
           </button>
           <BeatIndicator />
           <AudioIndicator />
+          <AudioLEDMeter />
         </div>
 
         {/* Tab content area */}
