@@ -619,9 +619,6 @@ const GlobalControls = ({
   setZIgnore,
   classicMode,
   setClassicMode,
-  showGlobalMidi,
-  showGlobalAudio,
-  showGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -1643,7 +1640,7 @@ const GlobalControls = ({
             inputMode="numeric"
           />
         </div>
-        {showGlobalMidi && (
+        {(
           <>
             <button
               className="btn-compact-secondary"
@@ -1676,7 +1673,6 @@ const GlobalControls = ({
           setLayers={setLayers}
           setBackgroundColor={setBackgroundColor}
           setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-          showGlobalMidi={showGlobalMidi}
         />
       )}
       {showAutosaveRecovery && (
@@ -1712,7 +1708,7 @@ const GlobalControls = ({
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>Background</span>
-            <BackgroundColorPicker compact inline hideLabel showMidi={showGlobalMidi} color={backgroundColor} onChange={setBackgroundColor} />
+            <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
             <label className="compact-label" title="Enable background image">
               <input
                 type="checkbox"
@@ -1813,7 +1809,7 @@ const GlobalControls = ({
               </label>
             </div>
             <input className="compact-range" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1821,8 +1817,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="globalSpeedMultiplier" />}
-            {showGlobalBPM && <BPMControlRow paramId="globalSpeedMultiplier" />}
+            {<AudioControlRow paramId="globalSpeedMultiplier" />}
+            {<BPMControlRow paramId="globalSpeedMultiplier" />}
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -1884,7 +1880,7 @@ const GlobalControls = ({
                 <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
               ))}
             </select>
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1905,7 +1901,7 @@ const GlobalControls = ({
             <select className="compact-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
               {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
             </select>
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1963,7 +1959,7 @@ const GlobalControls = ({
                 setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1971,8 +1967,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="globalOpacity" />}
-            {showGlobalBPM && <BPMControlRow paramId="globalOpacity" />}
+            {<AudioControlRow paramId="globalOpacity" />}
+            {<BPMControlRow paramId="globalOpacity" />}
             {showOpacitySettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2045,7 +2041,7 @@ const GlobalControls = ({
                 inputMode="numeric"
               />
             </div>
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2053,8 +2049,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="layersCount" />}
-            {showGlobalBPM && <BPMControlRow paramId="layersCount" />}
+            {<AudioControlRow paramId="layersCount" />}
+            {<BPMControlRow paramId="layersCount" />}
             {showLayersSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2148,7 +2144,7 @@ const GlobalControls = ({
                 applyVariationValue('variationPosition', v);
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationPosition ? (mappingLabel ? mappingLabel(midiMappings.variationPosition) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'variationPosition' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2156,8 +2152,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationPosition'); }} disabled={!midiSupported || !midiMappings?.variationPosition}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="variationPosition" />}
-            {showGlobalBPM && <BPMControlRow paramId="variationPosition" />}
+            {<AudioControlRow paramId="variationPosition" />}
+            {<BPMControlRow paramId="variationPosition" />}
             {showVariationPositionSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2211,7 +2207,7 @@ const GlobalControls = ({
                 applyVariationValue('variationShape', v);
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationShape ? (mappingLabel ? mappingLabel(midiMappings.variationShape) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'variationShape' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2219,8 +2215,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationShape'); }} disabled={!midiSupported || !midiMappings?.variationShape}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="variationShape" />}
-            {showGlobalBPM && <BPMControlRow paramId="variationShape" />}
+            {<AudioControlRow paramId="variationShape" />}
+            {<BPMControlRow paramId="variationShape" />}
             {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2280,7 +2276,7 @@ const GlobalControls = ({
                 applyVariationValue('variationAnim', v);
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationAnim ? (mappingLabel ? mappingLabel(midiMappings.variationAnim) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'variationAnim' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2288,8 +2284,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationAnim'); }} disabled={!midiSupported || !midiMappings?.variationAnim}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="variationAnim" />}
-            {showGlobalBPM && <BPMControlRow paramId="variationAnim" />}
+            {<AudioControlRow paramId="variationAnim" />}
+            {<BPMControlRow paramId="variationAnim" />}
             {showVariationAnimSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2349,7 +2345,7 @@ const GlobalControls = ({
                 applyVariationValue('variationColor', v);
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'variationColor' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2357,8 +2353,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="variationColor" />}
-            {showGlobalBPM && <BPMControlRow paramId="variationColor" />}
+            {<AudioControlRow paramId="variationColor" />}
+            {<BPMControlRow paramId="variationColor" />}
             {showVariationColorSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
@@ -2418,7 +2414,7 @@ const GlobalControls = ({
                 applyVariationValue('variationScale', v);
               }}
             />
-            {showGlobalMidi && (
+            {(
               <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
                 <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationScale ? (mappingLabel ? mappingLabel(midiMappings.variationScale) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                 {learnParamId === 'variationScale' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -2426,8 +2422,8 @@ const GlobalControls = ({
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationScale'); }} disabled={!midiSupported || !midiMappings?.variationScale}>Clear</button>
               </div>
             )}
-            {showGlobalAudio && <AudioControlRow paramId="variationScale" />}
-            {showGlobalBPM && <BPMControlRow paramId="variationScale" />}
+            {<AudioControlRow paramId="variationScale" />}
+            {<BPMControlRow paramId="variationScale" />}
             {showVariationScaleSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>

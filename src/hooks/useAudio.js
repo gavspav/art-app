@@ -41,6 +41,14 @@ export const useAudio = ({
   const timeDataRef = useRef(null);
   const smoothRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0 });
   const rafIdRef = useRef(null);
+  
+  // Refs for settings to avoid stale closures in RAF loop
+  const smoothingRef = useRef(smoothing);
+  const releaseRef = useRef(release);
+  const sensitivityRef = useRef(sensitivity);
+  smoothingRef.current = smoothing;
+  releaseRef.current = release;
+  sensitivityRef.current = sensitivity;
 
   // Extract audio features from analyser
   const getAudioFeatures = useCallback(() => {
@@ -86,21 +94,25 @@ export const useAudio = ({
   }, []);
 
   // Update loop - runs on animation frame when active
+  // Uses refs for settings to avoid stale closures
   const updateAudio = useCallback(() => {
     if (!analyserRef.current) return;
 
     const raw = getAudioFeatures();
     const smooth = smoothRef.current;
+    const currentSmoothing = smoothingRef.current;
+    const currentRelease = releaseRef.current;
+    const currentSensitivity = sensitivityRef.current;
 
     // Asymmetric smoothing: fast attack, slow release
     // Use smoothing for attack (raw > smooth), release for decay (raw < smooth)
     const applySmoothing = (rawVal, smoothVal) => {
       if (rawVal > smoothVal) {
         // Attack: use smoothing factor
-        return smoothing * rawVal + (1 - smoothing) * smoothVal;
+        return currentSmoothing * rawVal + (1 - currentSmoothing) * smoothVal;
       } else {
         // Release: use release factor (slower decay)
-        return release * smoothVal + (1 - release) * rawVal;
+        return currentRelease * smoothVal + (1 - currentRelease) * rawVal;
       }
     };
 
@@ -111,16 +123,16 @@ export const useAudio = ({
 
     // Apply sensitivity scaling
     const scaled = {
-      rms: Math.min(1, smooth.rms * sensitivity),
-      bass: Math.min(1, smooth.bass * sensitivity),
-      mids: Math.min(1, smooth.mids * sensitivity),
-      highs: Math.min(1, smooth.highs * sensitivity),
+      rms: Math.min(1, smooth.rms * currentSensitivity),
+      bass: Math.min(1, smooth.bass * currentSensitivity),
+      mids: Math.min(1, smooth.mids * currentSensitivity),
+      highs: Math.min(1, smooth.highs * currentSensitivity),
     };
 
     setFeatures(scaled);
 
     rafIdRef.current = requestAnimationFrame(updateAudio);
-  }, [getAudioFeatures, smoothing, release, sensitivity]);
+  }, [getAudioFeatures]); // Only depends on getAudioFeatures, settings read from refs
 
   // Enumerate available audio input devices
   const refreshDevices = useCallback(async () => {

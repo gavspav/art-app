@@ -186,12 +186,6 @@ const BottomPanel = ({
   setClassicMode,
   zIgnore,
   setZIgnore,
-  showGlobalMidi,
-  setShowGlobalMidi,
-  showGlobalAudio,
-  setShowGlobalAudio,
-  showGlobalBPM,
-  setShowGlobalBPM,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -576,7 +570,6 @@ const BottomPanel = ({
               setLayers={setLayers}
               setBackgroundColor={setBackgroundColor}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              showGlobalMidi={showGlobalMidi}
             />
           </div>
         );
@@ -600,12 +593,6 @@ const BottomPanel = ({
               setClassicMode={setClassicMode}
               zIgnore={zIgnore}
               setZIgnore={setZIgnore}
-              showGlobalMidi={showGlobalMidi}
-              setShowGlobalMidi={setShowGlobalMidi}
-              showGlobalAudio={showGlobalAudio}
-              setShowGlobalAudio={setShowGlobalAudio}
-              showGlobalBPM={showGlobalBPM}
-              setShowGlobalBPM={setShowGlobalBPM}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -682,9 +669,6 @@ const BottomPanel = ({
               baseColors={baseColors}
               baseNumColors={baseNumColors}
               isNodeEditMode={isNodeEditMode}
-              showMidi={showGlobalMidi}
-              showAudio={showGlobalAudio}
-              showBPM={showGlobalBPM}
               setIsNodeEditMode={setIsNodeEditMode}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
@@ -907,9 +891,6 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
   if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
   if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
-  if (!Object.is(prev.showGlobalMidi, next.showGlobalMidi)) return fail('showGlobalMidi changed');
-  if (!Object.is(prev.showGlobalAudio, next.showGlobalAudio)) return fail('showGlobalAudio changed');
-  if (!Object.is(prev.showGlobalBPM, next.showGlobalBPM)) return fail('showGlobalBPM changed');
   if (!Object.is(prev.globalSeed, next.globalSeed)) return fail('globalSeed changed');
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return fail('globalSpeedMultiplier changed');
   if (!Object.is(prev.globalBlendMode, next.globalBlendMode)) return fail('globalBlendMode changed');
@@ -937,9 +918,6 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setColorFadeWhileFrozen',
     'setClassicMode',
     'setZIgnore',
-    'setShowGlobalMidi',
-    'setShowGlobalAudio',
-    'setShowGlobalBPM',
     'setGlobalSeed',
     'setGlobalSpeedMultiplier',
     'setGlobalBlendMode',

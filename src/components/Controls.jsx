@@ -478,7 +478,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, showMidi, showAudio, showBPM, debugSettingsEnabled }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, debugSettingsEnabled }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -960,43 +960,41 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             Include in Randomize All
           </label>
         </div>
-        {showMidi && (
-          <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
-                <strong>MIDI</strong>
-                <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                  {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
-                  {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <button
-                  type="button"
-                  className="btn-compact-secondary"
-                  onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
-                  disabled={!midiSupported}
-                  title="Click, then move a MIDI control to map"
-                >
-                  Learn
-                </button>
-                <button
-                  type="button"
-                  className="btn-compact-secondary"
-                  onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
-                  disabled={!midiSupported || !midiMappings?.[id]}
-                  title="Clear MIDI mapping for this parameter"
-                >
-                  Clear
-                </button>
+        {/* MIDI controls - always shown in settings panel */}
+        <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+              <strong>MIDI</strong>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[id] ? (mappingLabel ? mappingLabel(midiMappings[id]) : 'Mapped') : 'Not mapped')}
+                {learnParamId === id && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… move a control</span>}
               </div>
             </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(id); }}
+                disabled={!midiSupported}
+                title="Click, then move a MIDI control to map"
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
+                disabled={!midiSupported || !midiMappings?.[id]}
+                title="Clear MIDI mapping for this parameter"
+              >
+                Clear
+              </button>
+            </div>
           </div>
-        )}
-        {/* Audio and BPM controls for layer parameters */}
-        {/* Note: These now use the handler registration pattern (like MIDI) with throttled dispatch */}
-        {showAudio && <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />}
-        {showBPM && <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />}
+        </div>
+        {/* Audio and BPM controls - always shown in settings panel */}
+        <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
+        <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
       </div>
     );
   };
@@ -1098,9 +1096,6 @@ const Controls = forwardRef(({
   clearSelection,
   getActiveTargetLayerIds,
   parameterTargetMode = 'individual',
-  showMidi,
-  showAudio,
-  showBPM,
   setIsNodeEditMode,
   randomizePalette,
   setRandomizePalette,
@@ -1463,9 +1458,6 @@ const Controls = forwardRef(({
                   buildTargetSet={buildTargetSet}
                   targetMode={targetMode}
                   editTarget={editTarget}
-                  showMidi={showMidi}
-                  showAudio={showAudio}
-                  showBPM={showBPM}
                   debugSettingsEnabled={debugSettingsEnabled}
                 />
               </div>
@@ -1536,9 +1528,6 @@ const Controls = forwardRef(({
               setLayers={setLayers}
               buildTargetSet={buildTargetSet}
               targetMode={targetMode}
-              showMidi={showMidi}
-              showAudio={showAudio}
-              showBPM={showBPM}
               debugSettingsEnabled={debugSettingsEnabled}
             />
           </div>
@@ -1632,20 +1621,20 @@ const Controls = forwardRef(({
                     Include in Randomize All
                   </label>
                 </div>
+                {/* MIDI/Audio/BPM controls for Rotation - inside settings panel */}
+                {(() => {
+                  const layerKey = (currentLayer?.name || 'Layer').toString();
+                  const paramId = `layer:${layerKey}:rotation`;
+                  return (
+                    <>
+                      <MidiRotationStatus paramId={paramId} />
+                      <AudioRotationStatus paramId={paramId} />
+                      <BPMRotationStatus paramId={paramId} />
+                    </>
+                  );
+                })()}
               </div>
             )}
-            {/* MIDI Learn for Rotation */}
-            {(() => {
-              const layerKey = (currentLayer?.name || 'Layer').toString();
-              const paramId = `layer:${layerKey}:rotation`;
-              return (
-                <>
-                  {showMidi && <MidiRotationStatus paramId={paramId} />}
-                  {showAudio && <AudioRotationStatus paramId={paramId} />}
-                  {showBPM && <BPMRotationStatus paramId={paramId} />}
-                </>
-              );
-            })()}
           </div>
         )}
       </div>
@@ -1725,24 +1714,6 @@ const Controls = forwardRef(({
             <option key={idx} value={idx}>{p.name}</option>
           ))}
         </select>
-        {showMidi && (
-          <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-            {(() => {
-              const layerKey = (currentLayer?.name || 'Layer').toString();
-              const paramId = `layer:${layerKey}:paletteIndex`;
-              return (
-                <>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>
-                    MIDI: {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                  </span>
-                  {learnParamId === paramId && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
-                </>
-              );
-            })()}
-          </div>
-        )}
 
         {/* Colours header with settings and random icons */}
         <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
@@ -1823,6 +1794,28 @@ const Controls = forwardRef(({
                 style={{ width: '4.5rem' }}
               />
             </div>
+            {/* Palette MIDI controls */}
+            {(() => {
+              const layerKey = (currentLayer?.name || 'Layer').toString();
+              const paramId = `layer:${layerKey}:paletteIndex`;
+              return (
+                <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+                      <strong>Palette MIDI</strong>
+                      <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                        {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                        {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
+                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
           )}
           {/* Animate colours (fade between palette stops) */}
@@ -2032,34 +2025,6 @@ const Controls = forwardRef(({
           >
             🎲
           </button>
-          {showMidi && (
-            <>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeLayer'); }}
-                disabled={!midiSupported}
-                title="MIDI Learn: Randomize Current Layer"
-              >
-                Learn
-              </button>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeLayer'); }}
-                disabled={!midiSupported || !midiMappings?.randomizeLayer}
-                title="Clear MIDI for Randomize Current Layer"
-              >
-                Clear
-              </button>
-              {midiSupported && (
-                <span className="compact-label" style={{ opacity: 0.8 }}>
-                  {midiMappings?.randomizeLayer ? (mappingLabel ? mappingLabel(midiMappings.randomizeLayer) : 'Mapped') : 'Not mapped'}
-                  {learnParamId === 'randomizeLayer' && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-                </span>
-              )}
-            </>
-          )}
           </div>
         </div>
       </div>
@@ -2189,9 +2154,6 @@ const areControlsPropsEqual = (prev, next) => {
   if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
   if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
   if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
-  if (!Object.is(prev.showMidi, next.showMidi)) return fail('showMidi changed');
-  if (!Object.is(prev.showAudio, next.showAudio)) return fail('showAudio changed');
-  if (!Object.is(prev.showBPM, next.showBPM)) return fail('showBPM changed');
   if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
   if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
   if (!Object.is(prev.colorCountMin, next.colorCountMin)) return fail('colorCountMin changed');
