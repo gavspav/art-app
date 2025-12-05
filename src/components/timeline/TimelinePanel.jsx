@@ -85,7 +85,7 @@ const TimelinePanel = ({
     return Math.max(containerWidth - 200, lengthSeconds * pixelsPerSecond);
   }, [containerWidth, lengthSeconds, pixelsPerSecond]);
 
-  // Handle scroll sync between waveform and tracks
+  // Handle scroll to sync horizontal scroll between ruler, waveform, and tracks
   const handleScroll = useCallback((e) => {
     if (setScrollLeft) {
       setScrollLeft(e.target.scrollLeft);
@@ -211,6 +211,10 @@ const TimelinePanel = ({
 
   if (!visible) return null;
 
+  // Playhead X in timeline coordinates (no scroll), and screen X for overlays
+  const playheadXTimeline = positionSeconds * pixelsPerSecond;
+  const playheadXScreen = playheadXTimeline - scrollLeft;
+
   return (
     <div
       ref={containerRef}
@@ -249,20 +253,6 @@ const TimelinePanel = ({
         onClose={onClose}
       />
 
-      {/* Waveform display (if audio loaded) */}
-      {audio && (
-        <TimelineWaveform
-          audio={audio}
-          lengthSeconds={lengthSeconds}
-          positionSeconds={positionSeconds}
-          pixelsPerSecond={pixelsPerSecond}
-          scrollLeft={scrollLeft}
-          timelineWidth={timelineWidth}
-          onSeek={seekTo}
-          loop={loop}
-        />
-      )}
-
       {/* Tracks area */}
       <div
         ref={tracksContainerRef}
@@ -274,6 +264,27 @@ const TimelinePanel = ({
         }}
         onScroll={handleScroll}
       >
+        {/* Waveform row (acts like first track) */}
+        {audio && (
+          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)' }}>
+              Audio
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <TimelineWaveform
+                audio={audio}
+                lengthSeconds={lengthSeconds}
+                positionSeconds={positionSeconds}
+                pixelsPerSecond={pixelsPerSecond}
+                scrollLeft={scrollLeft}
+                timelineWidth={timelineWidth}
+                onSeek={seekTo}
+                loop={loop}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Time ruler */}
         <div
           className="timeline-ruler"
@@ -327,15 +338,6 @@ const TimelinePanel = ({
                   </g>
                 );
               })}
-              {/* Playhead */}
-              <line
-                x1={positionSeconds * pixelsPerSecond}
-                y1={0}
-                x2={positionSeconds * pixelsPerSecond}
-                y2={24}
-                stroke="#ff5722"
-                strokeWidth={2}
-              />
             </svg>
           </div>
         </div>
@@ -393,19 +395,20 @@ const TimelinePanel = ({
           </div>
         </div>
 
-        {/* Playhead line (spans all tracks) */}
+        {/* Single playhead overlay spanning waveform, ruler, tracks */}
         <div
           style={{
             position: 'absolute',
-            top: 24,
-            left: 200 + positionSeconds * pixelsPerSecond - scrollLeft,
+            top: 0,
+            left: 200 + playheadXScreen,
             width: 2,
-            height: 'calc(100% - 24px)',
+            height: '100%',
             background: '#ff5722',
             pointerEvents: 'none',
             zIndex: 5,
           }}
         />
+
       </div>
     </div>
   );

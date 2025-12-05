@@ -38,8 +38,8 @@ const TimelineCurveEditor = ({
   const keyframes = track?.keyframes || [];
   const trackColor = track?.color || '#4fc3f7';
 
-  // Padding
-  const padding = { top: 8, right: 8, bottom: 8, left: 8 };
+  // Padding (no left padding so time 0 aligns with ruler/waveform start)
+  const padding = { top: 8, right: 8, bottom: 8, left: 0 };
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
 
   // Measure container
@@ -250,7 +250,7 @@ const TimelineCurveEditor = ({
   }, [showCurveMenu]);
 
   // Playhead position (align with global line; account for left padding)
-  const playheadX = padding.left + positionSeconds * pixelsPerSecond - scrollLeft;
+  const playheadX = positionSeconds * pixelsPerSecond - scrollLeft;
 
   // Current value at playhead
   const currentValue = useMemo(() => {

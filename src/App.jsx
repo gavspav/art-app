@@ -1544,7 +1544,7 @@ const MainApp = () => {
                 borderRight: '1px solid rgba(255, 255, 255, 0.1)',
               }}
             >
-              <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
                 <BottomPanel
                 // GlobalControls props
                 backgroundColor={backgroundColor}

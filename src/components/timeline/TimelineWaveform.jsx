@@ -108,25 +108,7 @@ const TimelineWaveform = ({
     ctx.lineTo(width, centerY);
     ctx.stroke();
 
-    // Draw playhead
-    const playheadX = positionSeconds * pixelsPerSecond - scrollLeft;
-    if (playheadX >= 0 && playheadX <= width) {
-      ctx.strokeStyle = '#ff5722';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(playheadX, 0);
-      ctx.lineTo(playheadX, height);
-      ctx.stroke();
-
-      // Playhead handle
-      ctx.fillStyle = '#ff5722';
-      ctx.beginPath();
-      ctx.moveTo(playheadX - 6, 0);
-      ctx.lineTo(playheadX + 6, 0);
-      ctx.lineTo(playheadX, 8);
-      ctx.closePath();
-      ctx.fill();
-    }
+    // Playhead is drawn globally; omit here to avoid double lines
   }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, scrollLeft, loop, height]);
 
   // Handle click/drag to seek
