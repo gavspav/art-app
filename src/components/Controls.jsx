@@ -236,15 +236,47 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
 };
 
 // BPM control row - compact version for layer parameters
-const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
+const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
   const midi = useMidi();
-  const [showEnvelope, setShowEnvelope] = useState(false);
+  const [showEnvelope, setShowEnvelope] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = window.localStorage.getItem(`bpm-env-open-${paramId}`);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [playheadPosition, setPlayheadPosition] = useState(null);
   
   if (!bpm) return null;
   
-  const { mappings, setMapping, BEAT_SPEEDS, LOOP_MODES, beatsPerBar } = bpm;
+  const { mappings, setMapping, getPhaseForParam, isPlaying, BEAT_SPEEDS, LOOP_MODES, beatsPerBar } = bpm;
+  
+  // Poll for playhead position when envelope is shown and playing
+  useEffect(() => {
+    if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
+    
+    let frameId;
+    const updatePlayhead = () => {
+      const phase = getPhaseForParam(paramId);
+      setPlayheadPosition(phase);
+      frameId = requestAnimationFrame(updatePlayhead);
+    };
+    frameId = requestAnimationFrame(updatePlayhead);
+    
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  // Persist envelope open state so remounts don't auto-close it
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`bpm-env-open-${paramId}`, showEnvelope ? 'true' : 'false');
+    } catch { /* ignore */ }
+  }, [showEnvelope, paramId]);
   const mapping = mappings?.[paramId];
   const isEnabled = mapping?.enabled || false;
   const currentSpeed = mapping?.speed || 1;
@@ -290,6 +322,7 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   };
   
   const handleEnvelopeChange = (newEnvelope) => {
+    console.debug('[Controls] handleEnvelopeChange', { paramId, newEnvelope });
     setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
   };
   
@@ -341,19 +374,18 @@ const BPMRotationStatus = ({ paramId, min = 0, max = 1 }) => {
       </div>
       {/* Envelope editor */}
       {showEnvelope && isEnabled && (
-        <div style={{ marginTop: '0.35rem', marginLeft: '0.5rem' }}>
+        <div style={{ marginTop: '0.5rem' }}>
           <BPMEnvelopeEditor
             envelope={currentEnvelope}
             onChange={handleEnvelopeChange}
             beatsPerBar={beatsPerBar || 4}
-            width={160}
-            height={60}
+            playheadPosition={playheadPosition}
           />
         </div>
       )}
     </div>
   );
-};
+});
 
 // MIDI colour block that applies to the active target scope (individual or global)
 const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {

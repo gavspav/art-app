@@ -233,21 +233,53 @@ const BPMEnvelopeEditor = ({
   envelope = DEFAULT_ENVELOPE, 
   onChange, 
   beatsPerBar = 4,
-  width = 200,
-  height = 80,
+  width = '100%',
+  height = 140,
+  playheadPosition = null, // 0-1 value showing current position in envelope
 }) => {
+  const containerRef = useRef(null);
   const svgRef = useRef(null);
+  const [containerWidth, setContainerWidth] = useState(1);
+  
+  // Measure container width for responsive sizing
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const updateWidth = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width > 0) {
+        setContainerWidth(rect.width);
+      }
+    };
+    
+    updateWidth();
+    const resizeObserver = new ResizeObserver(updateWidth);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+  
+  // Use container width or explicit width
+  const effectiveWidth = typeof width === 'number' ? width : containerWidth;
   const [draggingNode, setDraggingNode] = useState(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const [showPresets, setShowPresets] = useState(false);
   
-  const nodes = envelope?.nodes || DEFAULT_ENVELOPE.nodes;
+  const [localEnvelope, setLocalEnvelope] = useState(envelope || DEFAULT_ENVELOPE);
+  // Keep local envelope in sync with external changes
+  useEffect(() => {
+    setLocalEnvelope(envelope || DEFAULT_ENVELOPE);
+  }, [envelope]);
+
+  const nodes = localEnvelope?.nodes || DEFAULT_ENVELOPE.nodes;
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [addNodeMode, setAddNodeMode] = useState(false);
   
-  // Padding for the editor
-  const padding = { top: 8, right: 8, bottom: 8, left: 8 };
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
+  // Padding for the editor - more space for labels
+  const padding = { top: 16, right: 16, bottom: 24, left: 16 };
+  const innerWidth = Math.max(1, effectiveWidth - padding.left - padding.right);
+  const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   
   // Convert node coordinates to SVG coordinates
   const nodeToSvg = useCallback((node) => ({
@@ -277,8 +309,60 @@ const BPMEnvelopeEditor = ({
     e.preventDefault();
     e.stopPropagation();
     
-    // Don't allow dragging first or last node's x position
+    console.debug('[Envelope] node mousedown', { index });
+    setSelectedNode(index);
     setDraggingNode(index);
+  };
+  
+  // Handle click on SVG background
+  const handleSvgClick = (e) => {
+    console.debug('[Envelope] svg click', { addNodeMode, target: e.target.tagName });
+    if (addNodeMode) {
+      addNodeAtPosition(e);
+    } else if (e.target === svgRef.current) {
+      setSelectedNode(null);
+    }
+  };
+  
+  // Delete selected node
+  const deleteSelectedNode = () => {
+    if (selectedNode === null) return;
+    if (selectedNode === 0 || selectedNode === nodes.length - 1) return;
+    if (nodes.length <= 2) return;
+    
+    const newNodes = nodes.filter((_, i) => i !== selectedNode);
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+    setSelectedNode(null);
+  };
+  
+  // Add node at click position (used when addNodeMode is true)
+  const addNodeAtPosition = (e) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    
+    const rect = svg.getBoundingClientRect();
+    const svgX = e.clientX - rect.left;
+    const svgY = e.clientY - rect.top;
+    const newPos = svgToNode(svgX, svgY);
+    
+    // Find where to insert the new node
+    let insertIndex = nodes.length;
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].x > newPos.x) {
+        insertIndex = i;
+        break;
+      }
+    }
+    
+    const newNodes = [...nodes];
+    newNodes.splice(insertIndex, 0, newPos);
+    console.debug('[Envelope] add node', { newPos, insertIndex, beforeCount: nodes.length, afterCount: newNodes.length });
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+    setAddNodeMode(false);
   };
   
   // Handle mouse move
@@ -311,8 +395,10 @@ const BPMEnvelopeEditor = ({
       newNodes[draggingNode] = { x: clampedX, y: newPos.y };
     }
     
-    onChange?.({ ...envelope, nodes: newNodes, preset: null });
-  }, [draggingNode, nodes, svgToNode, onChange, envelope]);
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+  }, [draggingNode, nodes, svgToNode, onChange, localEnvelope]);
   
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -335,6 +421,7 @@ const BPMEnvelopeEditor = ({
   const handleDoubleClick = (e) => {
     const svg = svgRef.current;
     if (!svg) return;
+    console.debug('[Envelope] svg double-click');
     
     const rect = svg.getBoundingClientRect();
     const svgX = e.clientX - rect.left;
@@ -352,9 +439,28 @@ const BPMEnvelopeEditor = ({
     
     const newNodes = [...nodes];
     newNodes.splice(insertIndex, 0, newPos);
-    onChange?.({ ...envelope, nodes: newNodes, preset: null });
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
   };
   
+  // Handle node double-click to delete
+  const handleNodeDoubleClick = (e, index) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.debug('[Envelope] node double-click', { index });
+    
+    // Don't delete first or last node
+    if (index === 0 || index === nodes.length - 1) return;
+    if (nodes.length <= 2) return;
+    
+    const newNodes = nodes.filter((_, i) => i !== index);
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+    setSelectedNode(null);
+  };
+
   // Handle right-click for context menu
   const handleContextMenu = (e) => {
     e.preventDefault();
@@ -362,39 +468,62 @@ const BPMEnvelopeEditor = ({
     setShowContextMenu(true);
   };
   
-  // Handle node right-click to delete
+  // Handle node right-click to show menu
   const handleNodeContextMenu = (e, index) => {
     e.preventDefault();
     e.stopPropagation();
     
-    // Don't delete first or last node
-    if (index === 0 || index === nodes.length - 1) return;
-    if (nodes.length <= 2) return;
-    
-    const newNodes = nodes.filter((_, i) => i !== index);
-    onChange?.({ ...envelope, nodes: newNodes, preset: null });
+    console.debug('[Envelope] node context menu', { index });
+    setSelectedNode(index);
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
   };
   
   // Apply preset
   const applyPreset = (presetKey) => {
+    console.debug('[Envelope] apply preset', { presetKey });
     const preset = ENVELOPE_PRESETS[presetKey];
     if (preset) {
-      onChange?.({ nodes: [...preset.nodes], preset: presetKey });
+      // Deep copy the nodes to prevent mutation of preset constant
+      const newNodes = preset.nodes.map(node => ({ ...node }));
+      const next = { nodes: newNodes, preset: presetKey };
+      console.debug('[Envelope] preset applied', { next, onChange: !!onChange });
+      setLocalEnvelope(next);
+      onChange?.(next);
     }
     setShowContextMenu(false);
     setShowPresets(false);
   };
   
-  // Close context menu on click outside
+  // Close context menu on click outside - use a longer delay to allow menu clicks to register
   useEffect(() => {
-    const handleClick = () => {
+    if (!showContextMenu && !showPresets) return;
+
+    const handleClick = (e) => {
+      // Check if click is inside menu or on preset button
+      const menu = e.target.closest('.bpm-context-menu');
+      const presetButton = e.target.closest('button');
+      const isPresetButton = presetButton && presetButton.textContent.includes('Presets');
+      
+      if (menu || isPresetButton) {
+        console.debug('[Envelope] click inside menu or preset button, keeping open');
+        return;
+      }
+      
+      console.debug('[Envelope] click outside menu, closing');
       setShowContextMenu(false);
       setShowPresets(false);
     };
-    if (showContextMenu || showPresets) {
-      window.addEventListener('click', handleClick);
-      return () => window.removeEventListener('click', handleClick);
-    }
+
+    // Delay adding listener to avoid immediate close
+    const timerId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClick);
+    }, 100);
+
+    return () => {
+      clearTimeout(timerId);
+      document.removeEventListener('mousedown', handleClick);
+    };
   }, [showContextMenu, showPresets]);
   
   // Beat division lines
@@ -419,32 +548,38 @@ const BPMEnvelopeEditor = ({
   }, [beatsPerBar, innerWidth, height, padding]);
   
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
       <svg
         ref={svgRef}
-        width={width}
+        width={effectiveWidth}
         height={height}
         style={{ 
-          background: 'rgba(0,0,0,0.3)', 
-          borderRadius: 4,
-          cursor: draggingNode !== null ? 'grabbing' : 'crosshair',
+          background: 'rgba(0,0,0,0.5)', 
+          borderRadius: 8,
+          cursor: addNodeMode ? 'copy' : (draggingNode !== null ? 'grabbing' : 'default'),
+          display: 'block',
+          border: addNodeMode ? '2px solid #4fc3f7' : '1px solid rgba(255,255,255,0.1)',
         }}
+        onClick={handleSvgClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       >
-        {/* Background grid */}
+        {/* Background grid - capture clicks */}
         <rect
           x={padding.left}
           y={padding.top}
           width={innerWidth}
           height={innerHeight}
-          fill="none"
+          fill="transparent"
           stroke="rgba(255,255,255,0.1)"
           strokeWidth="1"
+          style={{ pointerEvents: 'all' }}
         />
         
-        {/* Beat division lines */}
-        {beatLines}
+        {/* Beat division lines - ignore clicks */}
+        <g style={{ pointerEvents: 'none' }}>
+          {beatLines}
+        </g>
         
         {/* Beat labels */}
         {Array.from({ length: beatsPerBar }, (_, i) => (
@@ -460,7 +595,7 @@ const BPMEnvelopeEditor = ({
           </text>
         ))}
         
-        {/* Curve path */}
+        {/* Curve path - ignore clicks */}
         <path
           d={pathD}
           fill="none"
@@ -468,59 +603,143 @@ const BPMEnvelopeEditor = ({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
+          style={{ pointerEvents: 'none' }}
         />
         
-        {/* Filled area under curve */}
+        {/* Filled area under curve - ignore clicks */}
         <path
           d={`${pathD} L ${padding.left + innerWidth} ${height - padding.bottom} L ${padding.left} ${height - padding.bottom} Z`}
           fill="rgba(79, 195, 247, 0.15)"
+          style={{ pointerEvents: 'none' }}
         />
+
+        {/* Playhead indicator */}
+        {playheadPosition !== null && playheadPosition >= 0 && playheadPosition <= 1 && (
+          <>
+            <line
+              x1={padding.left + playheadPosition * innerWidth}
+              y1={padding.top}
+              x2={padding.left + playheadPosition * innerWidth}
+              y2={height - padding.bottom}
+              stroke="#ff5722"
+              strokeWidth="2"
+              strokeLinecap="round"
+              style={{ pointerEvents: 'none' }}
+            />
+            {/* Playhead dot on curve */}
+            <circle
+              cx={padding.left + playheadPosition * innerWidth}
+              cy={padding.top + (1 - evaluateEnvelope(envelope, playheadPosition)) * innerHeight}
+              r={5}
+              fill="#ff5722"
+              stroke="#fff"
+              strokeWidth="1.5"
+              style={{ pointerEvents: 'none' }}
+            />
+          </>
+        )}
         
-        {/* Nodes */}
+        {/* Nodes - larger hit areas */}
         {nodes.map((node, i) => {
           const pos = nodeToSvg(node);
           const isEndpoint = i === 0 || i === nodes.length - 1;
+          const isSelected = selectedNode === i;
           return (
-            <circle
-              key={i}
-              cx={pos.x}
-              cy={pos.y}
-              r={isEndpoint ? 5 : 4}
-              fill={isEndpoint ? '#4fc3f7' : '#fff'}
-              stroke={isEndpoint ? '#fff' : '#4fc3f7'}
-              strokeWidth="2"
-              style={{ cursor: 'grab' }}
-              onMouseDown={(e) => handleNodeMouseDown(e, i)}
-              onContextMenu={(e) => handleNodeContextMenu(e, i)}
-            />
+            <g key={i}>
+              {/* Invisible larger hit area */}
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={12}
+                fill="transparent"
+                style={{ cursor: 'grab', pointerEvents: 'all' }}
+                onMouseDown={(e) => handleNodeMouseDown(e, i)}
+                onContextMenu={(e) => handleNodeContextMenu(e, i)}
+                onDoubleClick={(e) => handleNodeDoubleClick(e, i)}
+              />
+              {/* Visible node */}
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={isSelected ? 7 : (isEndpoint ? 6 : 5)}
+                fill={isSelected ? '#ff5722' : (isEndpoint ? '#4fc3f7' : '#fff')}
+                stroke={isSelected ? '#fff' : (isEndpoint ? '#fff' : '#4fc3f7')}
+                strokeWidth="2"
+                style={{ cursor: 'grab', pointerEvents: 'none' }}
+              />
+            </g>
           );
         })}
       </svg>
       
-      {/* Preset button */}
-      <button
-        type="button"
-        className="btn-compact-secondary"
-        style={{ 
-          position: 'absolute', 
-          top: 4, 
-          right: 4, 
-          fontSize: '0.6rem', 
-          padding: '2px 4px',
-          opacity: 0.7,
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          setShowPresets(!showPresets);
-        }}
-        title="Envelope presets"
-      >
-        ▼
-      </button>
+      {/* Control buttons */}
+      <div style={{ 
+        position: 'absolute', 
+        top: 4, 
+        right: 4, 
+        display: 'flex',
+        gap: '4px',
+        zIndex: 10,
+      }}>
+        {/* Add node button */}
+        <button
+          type="button"
+          className="btn-compact-secondary"
+          style={{ 
+            fontSize: '0.7rem', 
+            padding: '3px 8px',
+            background: addNodeMode ? 'rgba(79, 195, 247, 0.6)' : 'rgba(255,255,255,0.15)',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setAddNodeMode(!addNodeMode);
+          }}
+          title="Click to enable, then click on curve to add node"
+        >
+          + Add
+        </button>
+        {/* Delete selected node button */}
+        {selectedNode !== null && selectedNode !== 0 && selectedNode !== nodes.length - 1 && (
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ 
+              fontSize: '0.7rem', 
+              padding: '3px 8px',
+              background: 'rgba(244, 67, 54, 0.6)',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteSelectedNode();
+            }}
+            title="Delete selected node"
+          >
+            Delete
+          </button>
+        )}
+        {/* Preset dropdown button */}
+        <button
+          type="button"
+          className="btn-compact-secondary"
+          style={{ 
+            fontSize: '0.7rem', 
+            padding: '3px 8px',
+            background: 'rgba(255,255,255,0.15)',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPresets(!showPresets);
+          }}
+          title="Envelope presets"
+        >
+          Presets ▼
+        </button>
+      </div>
       
       {/* Presets dropdown */}
       {showPresets && (
         <div
+          className="bpm-context-menu"
           style={{
             position: 'absolute',
             top: 20,
@@ -558,6 +777,7 @@ const BPMEnvelopeEditor = ({
       {/* Context menu */}
       {showContextMenu && (
         <div
+          className="bpm-context-menu"
           style={{
             position: 'fixed',
             left: contextMenuPos.x,
@@ -594,13 +814,33 @@ const BPMEnvelopeEditor = ({
           <div
             style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6, borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 4 }}
           >
-            Double-click to add node
+            Double-click to add/delete node
           </div>
           <div
             style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6 }}
           >
-            Right-click node to delete
+            Right-click for menu
           </div>
+          {selectedNode !== null && selectedNode !== 0 && selectedNode !== nodes.length - 1 && (
+             <div
+              style={{ 
+                padding: '4px 8px', 
+                fontSize: '0.7rem', 
+                cursor: 'pointer',
+                color: '#ff5722',
+                borderTop: '1px solid rgba(255,255,255,0.1)', 
+                marginTop: 4 
+              }}
+              onClick={() => {
+                deleteSelectedNode();
+                setShowContextMenu(false);
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'rgba(244, 67, 54, 0.2)'}
+              onMouseLeave={(e) => e.target.style.background = 'transparent'}
+            >
+              Delete Selected Node
+            </div>
+          )}
         </div>
       )}
     </div>

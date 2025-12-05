@@ -557,12 +557,21 @@ const AudioControlRow = ({ paramId, label }) => {
 };
 
 // BPM control row component - shown per parameter in settings panel
-const BPMControlRow = ({ paramId }) => {
+const BPMControlRow = React.memo(({ paramId }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
   const midi = useMidi();
   const [showSettings, setShowSettings] = useState(false);
-  const [showEnvelope, setShowEnvelope] = useState(false);
+  const [showEnvelope, setShowEnvelope] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = window.localStorage.getItem(`bpm-env-open-${paramId}`);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [playheadPosition, setPlayheadPosition] = useState(null);
   
   if (!bpm) return null;
   
@@ -571,11 +580,35 @@ const BPMControlRow = ({ paramId }) => {
     mappings, 
     setMapping, 
     clearMapping,
+    getPhaseForParam,
     BEAT_SPEEDS,
     LOOP_MODES,
     DEFAULT_RANGE,
     beatsPerBar,
   } = bpm;
+  
+  // Poll for playhead position when envelope is shown and playing
+  useEffect(() => {
+    if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
+    
+    let frameId;
+    const updatePlayhead = () => {
+      const phase = getPhaseForParam(paramId);
+      setPlayheadPosition(phase);
+      frameId = requestAnimationFrame(updatePlayhead);
+    };
+    frameId = requestAnimationFrame(updatePlayhead);
+    
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  // Persist envelope open state so remounts don't auto-close it
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`bpm-env-open-${paramId}`, showEnvelope ? 'true' : 'false');
+    } catch { /* ignore */ }
+  }, [showEnvelope, paramId]);
   
   const mapping = mappings?.[paramId];
   const isEnabled = mapping?.enabled || false;
@@ -610,6 +643,7 @@ const BPMControlRow = ({ paramId }) => {
   };
   
   const handleEnvelopeChange = (newEnvelope) => {
+    console.debug('[GlobalControls] handleEnvelopeChange', { paramId, newEnvelope });
     setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: newEnvelope });
   };
   
@@ -704,22 +738,18 @@ const BPMControlRow = ({ paramId }) => {
       
       {/* Envelope editor */}
       {showEnvelope && isEnabled && (
-        <div style={{ marginTop: '0.35rem', marginLeft: '0.5rem' }}>
-          <div style={{ fontSize: '0.65rem', opacity: 0.7, marginBottom: '0.25rem' }}>
-            Envelope (double-click to add nodes, right-click for presets)
-          </div>
+        <div style={{ marginTop: '0.5rem' }}>
           <BPMEnvelopeEditor
             envelope={currentEnvelope}
             onChange={handleEnvelopeChange}
             beatsPerBar={beatsPerBar || 4}
-            width={180}
-            height={70}
+            playheadPosition={playheadPosition}
           />
         </div>
       )}
     </div>
   );
-};
+});
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({

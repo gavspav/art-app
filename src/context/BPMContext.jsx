@@ -180,16 +180,18 @@ export const BPMProvider = ({ children }) => {
         // Clear mapping entirely
         next[paramId] = { enabled: false, speed: 1, loopMode: 'forward', range: DEFAULT_RANGE };
       } else if (mapping && typeof mapping === 'object') {
-        // Validate and store - preserve existing range if not provided
+        // Validate and store - preserve existing range and envelope if not provided
         const range = mapping.range || existingMapping.range || DEFAULT_RANGE;
+        const envelope = mapping.envelope || existingMapping.envelope || DEFAULT_ENVELOPE;
         next[paramId] = {
           enabled: mapping.enabled !== false,
-          speed: BEAT_SPEEDS.find(s => s.value === mapping.speed)?.value || 1,
-          loopMode: LOOP_MODES.includes(mapping.loopMode) ? mapping.loopMode : 'forward',
+          speed: BEAT_SPEEDS.find(s => s.value === mapping.speed)?.value || existingMapping.speed || 1,
+          loopMode: LOOP_MODES.includes(mapping.loopMode) ? mapping.loopMode : (existingMapping.loopMode || 'forward'),
           range: {
             outputMin: Number.isFinite(Number(range.outputMin)) ? Number(range.outputMin) : 0,
             outputMax: Number.isFinite(Number(range.outputMax)) ? Number(range.outputMax) : 1,
           },
+          envelope,
         };
       }
       return next;
@@ -227,6 +229,43 @@ export const BPMProvider = ({ children }) => {
   // Store clock in a ref so dispatch can read fresh values without re-running useEffect
   const clockRef = useRef(clock);
   clockRef.current = clock;
+
+  // Get current phase (0-1) for a parameter's envelope display
+  // This reads from the clock ref so it doesn't cause re-renders
+  const getPhaseForParam = useCallback((paramId) => {
+    const mapping = effectiveMappings[paramId];
+    if (!mapping || !mapping.enabled) return null;
+    
+    const currentClock = clockRef.current;
+    if (!currentClock) return null;
+    
+    const currentBeat = currentClock.currentBeat ?? 0;
+    const beatPhase = currentClock.beatPhase ?? 0;
+    const { speed, loopMode } = mapping;
+    
+    // Calculate phase within the cycle (0-1)
+    const cycleBeats = speed;
+    const totalBeats = currentBeat + beatPhase;
+    const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
+    
+    // Apply loop mode
+    let adjustedPhase = cyclePhase;
+    switch (loopMode) {
+      case 'reverse':
+        adjustedPhase = 1 - cyclePhase;
+        break;
+      case 'pingpong':
+        adjustedPhase = cyclePhase < 0.5 ? cyclePhase * 2 : (1 - cyclePhase) * 2;
+        break;
+      case 'oneshot':
+        adjustedPhase = Math.min(1, cyclePhase);
+        break;
+      default:
+        adjustedPhase = cyclePhase;
+    }
+    
+    return adjustedPhase;
+  }, [effectiveMappings]);
   
   useEffect(() => {
     if (!clock.isPlaying) return;
@@ -370,6 +409,7 @@ export const BPMProvider = ({ children }) => {
     clearMapping,
     setMappingsFromExternal,
     getMapping,
+    getPhaseForParam,
     registerBPMHandler,
     
     // Snapshot for export/import
@@ -400,6 +440,7 @@ export const BPMProvider = ({ children }) => {
     clearMapping,
     setMappingsFromExternal,
     getMapping,
+    getPhaseForParam,
     registerBPMHandler,
     getClockState,
     getBPMSnapshot,
