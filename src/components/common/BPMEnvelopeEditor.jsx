@@ -23,25 +23,72 @@ export const CURVE_TYPES = {
   stepEnd: { name: 'Step (End)', icon: '⌐' },
 };
 
-// Easing functions for curve interpolation
+// Cubic bezier evaluation - matches SVG C command exactly
+// Given control points P0=(0,0), P1=(cp1x,cp1y), P2=(cp2x,cp2y), P3=(1,1)
+// Returns y value for a given x (0-1)
+const evaluateCubicBezier = (t, cp1x, cp1y, cp2x, cp2y) => {
+  // Bezier curve parametric equations
+  const x = 3 * (1-t) * (1-t) * t * cp1x + 3 * (1-t) * t * t * cp2x + t * t * t;
+  const y = 3 * (1-t) * (1-t) * t * cp1y + 3 * (1-t) * t * t * cp2y + t * t * t;
+  return y;
+};
+
+// Find t parameter for a given x using Newton-Raphson iteration
+const findTForX = (targetX, cp1x, cp2x, iterations = 8) => {
+  let t = targetX; // Initial guess
+  for (let i = 0; i < iterations; i++) {
+    const x = 3 * (1-t) * (1-t) * t * cp1x + 3 * (1-t) * t * t * cp2x + t * t * t;
+    const dx = 3 * (1-t) * (1-t) * cp1x + 6 * (1-t) * t * (cp2x - cp1x) + 3 * t * t * (1 - cp2x);
+    if (Math.abs(dx) < 1e-6) break;
+    t = t - (x - targetX) / dx;
+    t = Math.max(0, Math.min(1, t));
+  }
+  return t;
+};
+
+// Evaluate cubic bezier y for a given x (0-1)
+const cubicBezierY = (x, cp1x, cp1y, cp2x, cp2y) => {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const t = findTForX(x, cp1x, cp2x);
+  return evaluateCubicBezier(t, cp1x, cp1y, cp2x, cp2y);
+};
+
+// Get bezier control points for curve type and tension
+// These MUST match the SVG path generation exactly
+const getBezierControlPoints = (curveType, tension = 0.5) => {
+  const cpOffset = 0.1 + tension * 0.8; // 0.1 to 0.9, matches SVG path generation
+  
+  switch (curveType) {
+    case 'easeIn':
+      // cp1 at (cpOffset, 0), cp2 at (1, 1)
+      return { cp1x: cpOffset, cp1y: 0, cp2x: 1, cp2y: 1 };
+    case 'easeOut':
+      // cp1 at (0, 1), cp2 at (1-cpOffset, 1)
+      return { cp1x: 0, cp1y: 0, cp2x: 1 - cpOffset, cp2y: 1 };
+    case 'easeInOut':
+      // cp1 at (cpOffset, 0), cp2 at (1-cpOffset, 1)
+      return { cp1x: cpOffset, cp1y: 0, cp2x: 1 - cpOffset, cp2y: 1 };
+    default:
+      return { cp1x: 0, cp1y: 0, cp2x: 1, cp2y: 1 }; // Linear
+  }
+};
+
+// Easing functions for curve interpolation - uses cubic bezier to match SVG
 // tension: 0 = very gentle, 0.5 = default, 1 = very steep
 const easingFunctions = {
   linear: (t, tension = 0.5) => t,
   easeIn: (t, tension = 0.5) => {
-    const exp = 1 + tension * 3; // 1 to 4
-    return Math.pow(t, exp);
+    const { cp1x, cp1y, cp2x, cp2y } = getBezierControlPoints('easeIn', tension);
+    return cubicBezierY(t, cp1x, cp1y, cp2x, cp2y);
   },
   easeOut: (t, tension = 0.5) => {
-    const exp = 1 + tension * 3; // 1 to 4
-    return 1 - Math.pow(1 - t, exp);
+    const { cp1x, cp1y, cp2x, cp2y } = getBezierControlPoints('easeOut', tension);
+    return cubicBezierY(t, cp1x, cp1y, cp2x, cp2y);
   },
   easeInOut: (t, tension = 0.5) => {
-    const exp = 1 + tension * 3; // 1 to 4
-    if (t < 0.5) {
-      return Math.pow(2, exp - 1) * Math.pow(t, exp);
-    } else {
-      return 1 - Math.pow(-2 * t + 2, exp) / 2;
-    }
+    const { cp1x, cp1y, cp2x, cp2y } = getBezierControlPoints('easeInOut', tension);
+    return cubicBezierY(t, cp1x, cp1y, cp2x, cp2y);
   },
   step: (t, tension = 0.5) => t < tension ? 0 : 1, // tension controls step position
   stepStart: (t) => t <= 0 ? 0 : 1,
