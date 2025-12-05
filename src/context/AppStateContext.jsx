@@ -4,6 +4,8 @@ import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
 const SEED_MIN = 1;
 const SEED_MAX = 2147483646;
 const INTERACTION_WINDOW_MS = 2500;
+// Hold-off duration: pause audio/BPM automation when user is actively adjusting controls
+const AUTOMATION_HOLDOFF_MS = 1500;
 const IGNORED_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'CapsLock']);
 const generateSeed = () => Math.floor(Math.random() * (SEED_MAX - SEED_MIN + 1)) + SEED_MIN;
 
@@ -145,11 +147,18 @@ export const AppStateProvider = ({ children }) => {
     dirtyGuardRef.current = Math.max(0, dirtyGuardRef.current - 1);
   }, []);
 
+  // Check if user is currently interacting (within hold-off window)
+  // Used by Audio/BPM contexts to pause automation during user input
+  const isUserInteracting = useCallback(() => {
+    const now = Date.now();
+    const last = lastInteractionRef.current;
+    return last > 0 && (now - last) < AUTOMATION_HOLDOFF_MS;
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return () => {};
 
     const handlePointer = () => { noteUserInteraction(); };
-    const handleWheel = () => { noteUserInteraction(); };
     const handleKey = (event) => {
       if (!event || typeof event.key !== 'string') {
         noteUserInteraction();
@@ -163,13 +172,11 @@ export const AppStateProvider = ({ children }) => {
 
     window.addEventListener('pointerdown', handlePointer, passiveOpts);
     window.addEventListener('pointerup', handlePointer, passiveOpts);
-    window.addEventListener('wheel', handleWheel, passiveOpts);
     window.addEventListener('keydown', handleKey, true);
 
     return () => {
       window.removeEventListener('pointerdown', handlePointer, passiveOpts);
       window.removeEventListener('pointerup', handlePointer, passiveOpts);
-      window.removeEventListener('wheel', handleWheel, passiveOpts);
       window.removeEventListener('keydown', handleKey, true);
     };
   }, [noteUserInteraction]);
@@ -616,7 +623,7 @@ export const AppStateProvider = ({ children }) => {
     setLastSavedAt,
     markDirty,
     noteUserInteraction,
-    // Presets API
+    isUserInteracting,
     presetSlots,
     setPresetSlots,
     setPresetSlot,

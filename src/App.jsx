@@ -16,6 +16,7 @@ import { useAudioHandlers } from './hooks/useAudioHandlers.js';
 import { useAudioLayerHandlers } from './hooks/useAudioLayerHandlers.js';
 import { useBPMHandlers } from './hooks/useBPMHandlers.js';
 import { useBPMLayerHandlers } from './hooks/useBPMLayerHandlers.js';
+import { useModulationStore } from './hooks/useModulationStore.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
@@ -379,14 +380,17 @@ const MainApp = () => {
   const audioReactive = useAudioReactive();
   const { getAudioSnapshot, applyAudioSnapshot } = audioReactive || {};
   
-  // BPM context (declared later, will be passed to useAnimation after it's defined)
-  // For now, get it early to pass to animation loop
+  // BPM context
   const bpmForAnimation = useBPM();
   const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
 
+  // Modulation store - centralizes Audio/BPM modulations so they can be applied
+  // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
+  const modulationStore = useModulationStore();
+
   // Start animation loop (position, bounce/drift, z-scale)
-  // Pass BPM and Audio contexts so modulations are applied in the animation loop
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, bpmForAnimation, audioReactive);
+  // Modulations are now read from the store and applied in a single pass
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore);
 
   // Config save/load from contexts
   const {
@@ -1052,14 +1056,13 @@ const MainApp = () => {
     clampedSelectedIndex: selectedIdxForMidi,
   });
 
-  // Register Audio handlers for individual layer parameters (like BPM does)
-  // Now respects parameterTargetMode like MIDI does
+  // Register Audio handlers for individual layer parameters
+  // NEW: Handlers write to modulation store instead of calling setLayers directly
   useAudioLayerHandlers({
     registerAudioHandler,
-    setLayers,
     layers,
+    modulationStore,
     parameterTargetMode,
-    getActiveTargetLayerIds,
   });
 
   // Centralize all BPM handlers (mirrors MIDI/Audio pattern)
@@ -1085,15 +1088,33 @@ const MainApp = () => {
     clampedSelectedIndex: selectedIdxForMidi,
   });
 
-  // Register BPM handlers for individual layer parameters (like MIDI does)
-  // Now respects parameterTargetMode like MIDI does
+  // Register BPM handlers for individual layer parameters
+  // NEW: Handlers write to modulation store instead of calling setLayers directly
   useBPMLayerHandlers({
     registerBPMHandler,
-    setLayers,
     layers,
+    modulationStore,
     parameterTargetMode,
-    getActiveTargetLayerIds,
   });
+
+  // When switching from global to individual mode, clear modulations for non-selected layers
+  const prevTargetModeRef = useRef(parameterTargetMode);
+  useEffect(() => {
+    const prevMode = prevTargetModeRef.current;
+    prevTargetModeRef.current = parameterTargetMode;
+    
+    if (prevMode === 'global' && parameterTargetMode === 'individual') {
+      // Get the currently selected layer's ID
+      const selectedLayer = layers[selectedLayerIndex];
+      const keepIds = selectedLayer?.id ? [selectedLayer.id] : [];
+      
+      // Clear modulations for all other layers
+      if (modulationStore?.clearModsExcept) {
+        modulationStore.clearModsExcept('audio', keepIds);
+        modulationStore.clearModsExcept('bpm', keepIds);
+      }
+    }
+  }, [parameterTargetMode, layers, selectedLayerIndex, modulationStore]);
 
   // randomizeScene provided by hook
 

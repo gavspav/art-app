@@ -1,5 +1,4 @@
-import { useEffect, useCallback } from 'react';
-import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
+import { useEffect } from 'react';
 import { palettes } from '../constants/palettes';
 
 // Sample colors from a palette (same logic as Controls.jsx)
@@ -17,119 +16,122 @@ const sampleColors = (src, count) => {
 
 /**
  * Registers Audio handlers for layer parameters.
- * Similar to useBPMLayerHandlers but for audio-reactive automation.
  * 
- * The AudioContext dispatches values when audio is active,
- * allowing parameters to react to audio input.
+ * NEW APPROACH: Instead of calling setLayers directly (which caused multiple
+ * React updates per frame and UI clogging), handlers now write to a modulation
+ * store. The animation loop reads from the store and applies all modulations
+ * in a single setLayers call per frame.
  * 
- * Now respects parameterTargetMode (global vs individual) like MIDI does.
+ * When parameterTargetMode is 'global', modulations are broadcast to ALL layers.
  */
 export function useAudioLayerHandlers({
   registerAudioHandler,
-  setLayers,
   layers,
+  modulationStore,
   parameterTargetMode = 'individual',
-  getActiveTargetLayerIds,
 }) {
-  // Build a signature of layer names so we only re-register when structure changes
+  // Build a signature of layer IDs and names so we only re-register when structure changes
   const layerSignature = Array.isArray(layers)
-    ? layers.map((layer, index) => (layer?.name || `Layer ${index + 1}`)).join('|')
+    ? layers.map((layer, index) => `${layer?.id || index}:${layer?.name || `Layer ${index + 1}`}`).join('|')
     : '';
 
-  // Build a target set based on current target mode
-  const buildTargetSet = useCallback((options = {}) => {
-    const mode = options.mode || 'targeted';
-    const layerIds = Array.isArray(layers) ? layers.map(l => l?.id).filter(Boolean) : [];
-    if (mode === 'all') {
-      return new Set(layerIds);
-    }
-    if (typeof getActiveTargetLayerIds !== 'function') return new Set();
-    const ids = getActiveTargetLayerIds();
-    return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
-  }, [getActiveTargetLayerIds, layers]);
-
-  // Apply update respecting target mode (like MIDI's applyUpdateToTargets)
-  const applyUpdateToTargets = useCallback((layerName, updater) => {
-    // Find the layer that triggered this (by name)
-    const triggerLayer = layers?.find((l, i) => (l?.name || `Layer ${i + 1}`) === layerName);
-    
-    const { effective: targets } = resolveLayerTargets({
-      currentLayer: triggerLayer,
-      buildTargetSet,
-      targetMode: parameterTargetMode,
-    });
-
-    if (typeof setLayers === 'function' && targets.size > 0) {
-      setLayers(prev => applyWithVary({
-        layers: prev,
-        targets,
-        updater: (layer) => updater(layer),
-      }));
-    }
-  }, [buildTargetSet, layers, parameterTargetMode, setLayers]);
-
   useEffect(() => {
-    if (!registerAudioHandler || !setLayers || !layerSignature) return;
+    if (!registerAudioHandler || !modulationStore || !layerSignature) return;
 
-    const layerKeys = layerSignature.split('|').filter(Boolean);
-    if (layerKeys.length === 0) return;
+    const { setMod } = modulationStore;
+    
+    // Parse layer signature to get id:name pairs
+    const layerEntries = layerSignature.split('|').filter(Boolean).map(entry => {
+      const [id, ...nameParts] = entry.split(':');
+      return { id, name: nameParts.join(':') };
+    });
+    if (layerEntries.length === 0) return;
 
     const unsubs = [];
 
     const numericParams = [
+      // Shape
       'numSides',
-      'radiusFactor',
-      'radiusX',
-      'radiusY',
-      'movementSpeed',
       'curviness',
+      'radiusFactor',
+      'radiusFactorX',
+      'radiusFactorY',
+      'xOffset',
+      'yOffset',
+      'rotation',
+      'width',
+      'height',
+      // Variation
+      'variationPosition',
+      'variationShape',
+      'variationAnim',
+      'variationColor',
+      'variationScale',
+      // Appearance
+      'opacity',
+      // Movement
       'wobble',
-      'orbitRadiusX',
-      'orbitRadiusY',
       'noiseAmount',
       'noiseScale',
-      'opacity',
+      'movementSpeed',
+      'movementAngle',
       'scaleSpeed',
       'scaleMin',
       'scaleMax',
-      'width',
-      'height',
+      'orbitRadiusX',
+      'orbitRadiusY',
+      // Advanced
+      'freq1',
+      'freq2',
+      'freq3',
+      // Color
       'colorFadeSpeed',
+      // Image Effects
+      'imageBlur',
+      'imageBrightness',
+      'imageContrast',
+      'imageHue',
+      'imageSaturation',
+      'imageDistortion',
     ];
 
-    layerKeys.forEach(layerKey => {
-      const scaleId = `layer:${layerKey}:scale`;
+    // Helper to apply modulation to target layers based on parameterTargetMode
+    const applyToTargets = (sourceLayerId, paramId, value) => {
+      if (parameterTargetMode === 'global') {
+        // Broadcast to ALL layers
+        layerEntries.forEach(({ id }) => {
+          setMod('audio', id, paramId, value);
+        });
+      } else {
+        // Apply only to the source layer
+        setMod('audio', sourceLayerId, paramId, value);
+      }
+    };
+
+    layerEntries.forEach(({ id: layerId, name: layerName }) => {
+      // Scale handler
+      const scaleId = `layer:${layerName}:scale`;
       unsubs.push(registerAudioHandler(scaleId, ({ value01 }) => {
-        applyUpdateToTargets(layerKey, (layer) => ({
-          ...layer,
-          position: { ...(layer?.position || {}), scale: value01 },
-        }));
+        applyToTargets(layerId, 'scale', value01);
       }));
 
       // Palette index handler - cycles through palettes based on audio
-      const paletteId = `layer:${layerKey}:paletteIndex`;
+      const paletteId = `layer:${layerName}:paletteIndex`;
       unsubs.push(registerAudioHandler(paletteId, ({ value01 }) => {
         const list = palettes || [];
         if (!Array.isArray(list) || list.length === 0) return;
         const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
         const palette = list[idx];
-        applyUpdateToTargets(layerKey, (layer) => {
-          const count = Number.isFinite(layer?.numColors)
-            ? layer.numColors
-            : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (palette?.colors?.length ?? 1));
-          const src = Array.isArray(palette) ? palette : palette?.colors;
-          const nextColors = sampleColors(src || [], count);
-          return { ...layer, colors: [...nextColors], numColors: count, selectedColor: 0 };
-        });
+        const src = Array.isArray(palette) ? palette : palette?.colors;
+        const nextColors = sampleColors(src || [], 5); // Default to 5 colors
+        applyToTargets(layerId, 'colors', nextColors);
       }));
 
+      // Numeric params
       numericParams.forEach(param => {
-        const paramId = `layer:${layerKey}:${param}`;
+        const paramId = `layer:${layerName}:${param}`;
         unsubs.push(registerAudioHandler(paramId, ({ value01 }) => {
-          applyUpdateToTargets(layerKey, (layer) => ({
-            ...layer,
-            [param]: value01,
-          }));
+          applyToTargets(layerId, param, value01);
         }));
       });
     });
@@ -137,5 +139,5 @@ export function useAudioLayerHandlers({
     return () => {
       unsubs.forEach(u => { if (typeof u === 'function') u(); });
     };
-  }, [registerAudioHandler, setLayers, layerSignature, applyUpdateToTargets]);
+  }, [registerAudioHandler, modulationStore, layerSignature, parameterTargetMode]);
 }

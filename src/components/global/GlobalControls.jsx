@@ -463,15 +463,18 @@ const AudioControlRow = ({ paramId, label }) => {
   
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
-  const currentRange = mapping?.range || DEFAULT_RANGE;
+  const fallbackRange = mapping?.range || DEFAULT_RANGE;
+  const currentRange = fallbackRange;
   const isLearning = learnParamId === paramId;
   
   const handleBandChange = (band) => {
     if (band === 'none') {
-      setMapping(paramId, { band: 'none', range: DEFAULT_RANGE });
+      // Preserve the last-used range so re-enabling keeps the same min/max
+      setMapping(paramId, { band: 'none', range: currentRange });
     } else {
       // Enable Audio and disable MIDI/BPM for this parameter (mutual exclusivity)
-      setMapping(paramId, { band, range: currentRange });
+      const nextRange = mapping?.range || DEFAULT_RANGE;
+      setMapping(paramId, { band, range: nextRange });
       // Clear MIDI mapping
       if (midi?.clearMapping) midi.clearMapping(paramId);
       // Clear BPM mapping
@@ -526,47 +529,25 @@ const AudioControlRow = ({ paramId, label }) => {
         )}
       </div>
       
-      {/* Range editor */}
+      {/* Range editor - simplified to just output min/max */}
       {showRange && currentBand !== 'none' && (
         <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
-            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>In:</span>
-            <input
-              type="number"
-              step="0.05"
-              min="0"
-              max="1"
-              value={currentRange.inputMin}
-              onChange={(e) => handleRangeChange({ inputMin: parseFloat(e.target.value) || 0 })}
-              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
-            />
-            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
-            <input
-              type="number"
-              step="0.05"
-              min="0"
-              max="1"
-              value={currentRange.inputMax}
-              onChange={(e) => handleRangeChange({ inputMax: parseFloat(e.target.value) || 1 })}
-              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
-            />
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>Out:</span>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Min:</span>
             <input
               type="number"
               step="0.1"
               value={currentRange.outputMin}
               onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
-              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
             />
-            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, marginLeft: '0.5rem' }}>Max:</span>
             <input
               type="number"
               step="0.1"
               value={currentRange.outputMax}
               onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
-              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
             />
           </div>
         </div>

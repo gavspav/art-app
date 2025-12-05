@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
+import { applyModulationsToLayer } from './useModulationStore.js';
 
 // Pure function to calculate new movement angle after boundary collision
 const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
@@ -257,14 +258,30 @@ const applyAudioModulations = (layer, audioContext) => {
     return modifiedLayer;
 };
 
-export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, bpmContext = null, audioContext = null) => {
+/**
+ * useAnimation - Main animation loop
+ * 
+ * NEW APPROACH: This is now the single place where setLayers is called per frame.
+ * Audio/BPM modulations are read from the modulation store (refs) and applied here,
+ * rather than having separate handlers call setLayers multiple times per frame.
+ * 
+ * @param {Function} setLayers - React state setter for layers
+ * @param {boolean} isFrozen - Whether animation is paused
+ * @param {number} globalSpeedMultiplier - Speed multiplier
+ * @param {boolean} zIgnore - Whether to ignore Z-axis movement
+ * @param {Object} modulationStore - The modulation store from useModulationStore()
+ */
+export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, modulationStore = null) => {
     const animationFrameId = useRef(null);
-    const bpmRef = useRef(bpmContext);
-    const audioRef = useRef(audioContext);
-    const { runWithoutDirty, noteUserInteraction } = useAppState() || {};
+    const { runWithoutDirty, isUserInteracting } = useAppState() || {};
+    
+    // Store modulation refs for access in animation loop
+    const modulationStoreRef = useRef(modulationStore);
+    useEffect(() => { modulationStoreRef.current = modulationStore; }, [modulationStore]);
 
-    useEffect(() => { bpmRef.current = bpmContext; }, [bpmContext]);
-    useEffect(() => { audioRef.current = audioContext; }, [audioContext]);
+    // Track user-interaction status in a ref so we can read it inside RAF loop
+    const isUserInteractingRef = useRef(isUserInteracting);
+    useEffect(() => { isUserInteractingRef.current = isUserInteracting; }, [isUserInteracting]);
 
     const animate = useCallback(() => {
         if (isFrozen) {
@@ -274,11 +291,25 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
 
         const applyUpdate = () => setLayers(prevLayers =>
             prevLayers.map(layer => {
-                // Update layer animation with global speed multiplier
-                // Note: BPM and Audio modulations for layer parameters are now handled
-                // via the handler registration pattern (like MIDI) in useBPMLayerHandlers.
-                // This avoids the infinite re-render loop by using throttled dispatch.
-                return updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
+                // 1. Update layer animation (movement, scale oscillation, etc.)
+                let updatedLayer = updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
+                
+                // 2. Apply Audio/BPM modulations from the store (single pass)
+                //    Skip while user is actively interacting with the UI so that
+                //    manual adjustments are not immediately overridden.
+                const store = modulationStoreRef.current;
+                const interacting = typeof isUserInteractingRef.current === 'function'
+                    ? isUserInteractingRef.current()
+                    : false;
+                if (!interacting && store && store.bpmModsRef && store.audioModsRef) {
+                    updatedLayer = applyModulationsToLayer(
+                        updatedLayer,
+                        store.bpmModsRef.current,
+                        store.audioModsRef.current
+                    );
+                }
+                
+                return updatedLayer;
             })
         );
 
@@ -288,12 +319,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
             applyUpdate();
         }
 
-        if (typeof noteUserInteraction === 'function') {
-            noteUserInteraction();
-        }
-
         animationFrameId.current = requestAnimationFrame(animate);
-    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore, runWithoutDirty, noteUserInteraction]);
+    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore, runWithoutDirty]);
 
     useEffect(() => {
         // Start loop only when not frozen

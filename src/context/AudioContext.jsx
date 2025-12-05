@@ -22,9 +22,9 @@ const LS_AUDIO_SETTINGS = 'artapp-audio-settings';
 const LS_AUDIO_FILE = 'artapp-audio-file'; // Stores file mode preference
 
 // Default range mapping for a parameter
+// Simplified: just outputMin/outputMax (the parameter value range)
+// inputMin/inputMax removed - sensitivity handles audio level scaling
 const DEFAULT_RANGE = {
-  inputMin: 0,
-  inputMax: 1,
   outputMin: 0,
   outputMax: 1,
 };
@@ -41,19 +41,16 @@ const DEFAULT_AUDIO_SETTINGS = {
 // Default audio mappings for common parameters
 // { [paramId]: { band: 'rms'|'bass'|'mids'|'highs'|'none', range: {...} } }
 const DEFAULT_AUDIO_MAPPINGS = {
-  globalSpeedMultiplier: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 1.0, outputMax: 3.0 } },
-  globalOpacity: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 0.3, outputMax: 1.0 } },
-  layersCount: { band: 'none', range: { inputMin: 0, inputMax: 1, outputMin: 1, outputMax: 20 } },
+  globalSpeedMultiplier: { band: 'none', range: { outputMin: 1.0, outputMax: 3.0 } },
+  globalOpacity: { band: 'none', range: { outputMin: 0.3, outputMax: 1.0 } },
+  layersCount: { band: 'none', range: { outputMin: 1, outputMax: 20 } },
 };
 
-// Map an input value through a range mapping
+// Map an input value (0-1) through a range mapping to output range
 export const mapRange = (value, range) => {
-  const { inputMin, inputMax, outputMin, outputMax } = range || DEFAULT_RANGE;
-  // Clamp input to input range
-  const clampedInput = Math.max(inputMin, Math.min(inputMax, value));
-  // Normalize to 0-1 within input range
-  const inputSpan = inputMax - inputMin;
-  const normalized = inputSpan > 0 ? (clampedInput - inputMin) / inputSpan : 0;
+  const { outputMin, outputMax } = range || DEFAULT_RANGE;
+  // Clamp input to 0-1
+  const normalized = Math.max(0, Math.min(1, value));
   // Map to output range
   return outputMin + normalized * (outputMax - outputMin);
 };
@@ -92,6 +89,9 @@ export const AudioProvider = ({ children }) => {
 
   // Param handlers: paramId -> Set<fn({ value01, band, raw })>
   const handlersRef = useRef(new Map());
+  
+  // Cache of last dispatched values per param (used for change detection)
+  const lastValuesRef = useRef({});
 
   // Use the audio hook with current settings
   const {
@@ -181,19 +181,22 @@ export const AudioProvider = ({ children }) => {
   // Set mapping for a parameter
   const setMapping = useCallback((paramId, mapping) => {
     if (!paramId) return;
+    // Clear the cached last value so the next dispatch will always fire
+    // This fixes the issue where toggling None → Level wouldn't trigger updates
+    delete lastValuesRef.current[paramId];
+    
     persistMappings((prev) => {
       const next = { ...prev };
       if (mapping === null || (mapping && mapping.band === 'none')) {
-        // Disable mapping
-        next[paramId] = { band: 'none', range: DEFAULT_RANGE };
+        // Disable mapping - preserve the range for when re-enabled
+        const existingRange = prev[paramId]?.range || mapping?.range || DEFAULT_RANGE;
+        next[paramId] = { band: 'none', range: existingRange };
       } else if (mapping && typeof mapping === 'object') {
-        // Validate and store
+        // Validate and store - simplified range (just output min/max)
         const range = mapping.range || DEFAULT_RANGE;
         next[paramId] = {
           band: AUDIO_BANDS.includes(mapping.band) ? mapping.band : 'none',
           range: {
-            inputMin: Math.max(0, Math.min(1, Number(range.inputMin) || 0)),
-            inputMax: Math.max(0, Math.min(1, Number(range.inputMax) || 1)),
             outputMin: Number.isFinite(Number(range.outputMin)) ? Number(range.outputMin) : 0,
             outputMax: Number.isFinite(Number(range.outputMax)) ? Number(range.outputMax) : 1,
           },
@@ -235,29 +238,73 @@ export const AudioProvider = ({ children }) => {
     return effectiveMappings[paramId] || null;
   }, [effectiveMappings]);
 
-  // Dispatch audio values to registered handlers
+  // Dispatch audio values to registered handlers using RAF with throttling
+  // This replaces the previous useEffect-on-features approach to:
+  // 1. Reduce dispatch frequency from ~60fps to ~20fps (matching BPM)
+  // 2. Pause dispatch when user is actively adjusting controls (hold-off)
+  // 3. Skip dispatch when values haven't changed significantly
+  const effectiveMappingsRef = useRef(effectiveMappings);
+  effectiveMappingsRef.current = effectiveMappings;
+
   useEffect(() => {
     if (!isActive || !settings.enabled) return;
 
-    // Dispatch to all registered handlers based on their mappings
-    const handlers = handlersRef.current;
-    if (handlers.size === 0) return;
+    let frameId = null;
+    let lastDispatchTime = 0;
+    const THROTTLE_MS = 50; // Dispatch at most 20 times per second (matching BPM)
 
-    handlers.forEach((handlerSet, paramId) => {
-      const mapping = effectiveMappings[paramId];
-      if (!mapping || mapping.band === 'none') return;
+    const dispatch = () => {
+      const now = performance.now();
 
+      // Throttle: skip if called too soon
+      if (now - lastDispatchTime < THROTTLE_MS) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
+      lastDispatchTime = now;
+
+      const handlers = handlersRef.current;
+      if (handlers.size === 0) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
+
+      const mappings = effectiveMappingsRef.current;
       const currentFeatures = featuresRef.current;
-      const bandValue = currentFeatures[mapping.band] || 0;
-      const value01 = mapRange(bandValue, mapping.range);
 
-      handlerSet.forEach(fn => {
-        try {
-          fn({ value01, band: mapping.band, raw: bandValue });
-        } catch { /* noop */ }
+      handlers.forEach((handlerSet, paramId) => {
+        const mapping = mappings[paramId];
+        if (!mapping || mapping.band === 'none') return;
+
+        const bandValue = currentFeatures[mapping.band] || 0;
+        // Map the raw 0-1 audio value through the output range
+        const mappedValue = mapRange(bandValue, mapping.range);
+
+        // Skip dispatch if value hasn't changed significantly
+        const lastValue = lastValuesRef.current[paramId];
+        const threshold = 0.005; // 0.5% change threshold
+        if (lastValue !== undefined && Math.abs(mappedValue - lastValue) < threshold) return;
+        lastValuesRef.current[paramId] = mappedValue;
+
+        // Send both the mapped value and raw 0-1 value
+        // - mappedValue: already scaled to outputMin→outputMax (use directly for most params)
+        // - raw: the raw 0-1 audio level (use for special cases like palette index)
+        handlerSet.forEach(fn => {
+          try {
+            fn({ value01: mappedValue, band: mapping.band, raw: bandValue });
+          } catch { /* noop */ }
+        });
       });
-    });
-  }, [isActive, settings.enabled, features, effectiveMappings]); // features still needed to trigger dispatch
+
+      frameId = requestAnimationFrame(dispatch);
+    };
+
+    frameId = requestAnimationFrame(dispatch);
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [isActive, settings.enabled]); // Remove 'features' from deps - read from ref instead
 
   // Toggle audio on/off
   const toggleAudio = useCallback(() => {

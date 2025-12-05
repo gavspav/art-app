@@ -6,6 +6,9 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
  * 
  * Mirrors the pattern from useMIDIHandlers.js but for audio input.
  * Each handler receives { value01, band, raw } when audio is active.
+ * 
+ * IMPORTANT: value01 is ALREADY mapped through the range (outputMin → outputMax),
+ * so handlers should use it directly without additional scaling.
  */
 export function useAudioHandlers({
   registerAudioHandler,
@@ -45,33 +48,33 @@ export function useAudioHandlers({
     return unregister;
   }, [registerAudioHandler, handleRandomizeAll, rndAllPrevRef]);
 
-  // Global Speed (0..5)
+  // Global Speed - value01 is already mapped to output range (e.g., 0.5 → 3.0)
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('globalSpeedMultiplier', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const scaled = +(v * 5).toFixed(2);
-      setGlobalSpeedMultiplier?.(scaled);
+      // value01 is already the final value from range mapping, just clamp to valid range
+      const clamped = Math.max(0, Math.min(5, value01));
+      setGlobalSpeedMultiplier?.(+clamped.toFixed(2));
     });
     return unregister;
   }, [registerAudioHandler, setGlobalSpeedMultiplier]);
 
-  // Global Opacity for all layers (0..1)
+  // Global Opacity for all layers - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('globalOpacity', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      setLayers?.(prev => prev.map(l => ({ ...l, opacity: v })));
+      const clamped = Math.max(0, Math.min(1, value01));
+      setLayers?.(prev => prev.map(l => ({ ...l, opacity: clamped })));
     });
     return unregister;
   }, [registerAudioHandler, setLayers]);
 
-  // Legacy Layer Variation (0..3) -> maps to all split variations on base layer [0]
+  // Legacy Layer Variation - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('variation', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const clamped = Math.max(0, Math.min(3, value01));
+      const mapped = +clamped.toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { 
         ...l, 
         variation: mapped, 
@@ -84,27 +87,23 @@ export function useAudioHandlers({
     return unregister;
   }, [registerAudioHandler, setLayers]);
 
-  // Split variations: variationPosition, variationShape, variationAnim, variationColor (0..3) on base layer [0]
+  // Split variations - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const u0 = registerAudioHandler('variationPosition', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: mapped } : l)));
     });
     const u1 = registerAudioHandler('variationShape', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: mapped } : l)));
     });
     const u2 = registerAudioHandler('variationAnim', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: mapped } : l)));
     });
     const u3 = registerAudioHandler('variationColor', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: mapped } : l)));
     });
     return () => {
@@ -115,34 +114,34 @@ export function useAudioHandlers({
     };
   }, [registerAudioHandler, setLayers]);
 
-  // variationScale (-3..3)
+  // variationScale - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('variationScale', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +((-3) + v * 6).toFixed(2);
+      const mapped = +Math.max(-3, Math.min(3, value01)).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationScale: mapped } : l)));
     });
     return unregister;
   }, [registerAudioHandler, setLayers]);
 
-  // Global Blend Mode (dropdown over blendModes)
+  // Global Blend Mode (dropdown over blendModes) - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalBlendMode', ({ value01 }) => {
+    const unregister = registerAudioHandler('globalBlendMode', ({ raw }) => {
       const opts = Array.isArray(blendModes) ? blendModes : [];
       if (!opts.length) return;
-      const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(value01 * opts.length)));
+      // Use raw 0-1 value for index-based selection
+      const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(raw * opts.length)));
       setGlobalBlendMode?.(opts[idx]);
     });
     return unregister;
   }, [registerAudioHandler, setGlobalBlendMode, blendModes]);
 
-  // Layers Count (1..20)
+  // Layers Count - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('layersCount', ({ value01 }) => {
-      const target = Math.max(1, Math.min(20, Math.round(1 + value01 * 19)));
+      const target = Math.max(1, Math.min(20, Math.round(value01)));
       setLayers?.(prev => {
         let next = prev;
         if (target > prev.length) {
@@ -174,13 +173,14 @@ export function useAudioHandlers({
     return unregister;
   }, [DEFAULT_LAYER, buildVariedLayerFrom, registerAudioHandler, setLayers, setSelectedLayerIndex]);
 
-  // Background Color (RGB)
+  // Background Color (RGB) - use raw 0-1 for color channel mapping
   useEffect(() => {
     if (!registerAudioHandler) return;
 
-    const setChannel = (channel) => ({ value01 }) => {
+    const setChannel = (channel) => ({ raw }) => {
       const cur = hexToRgb(backgroundColor || '#000000');
-      const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
+      // Use raw 0-1 value for color channel (0-255)
+      const v255 = Math.max(0, Math.min(255, Math.round(raw * 255)));
       const next = { ...cur, [channel]: v255 };
       setBackgroundColor?.(rgbToHex(next));
     };
@@ -195,13 +195,14 @@ export function useAudioHandlers({
     };
   }, [registerAudioHandler, backgroundColor, setBackgroundColor]);
 
-  // Global Palette Preset -> applies to currently selected layer
+  // Global Palette Preset -> applies to currently selected layer - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalPaletteIndex', ({ value01 }) => {
+    const unregister = registerAudioHandler('globalPaletteIndex', ({ raw }) => {
       const list = palettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
-      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
+      // Use raw 0-1 value for index-based selection
+      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(raw * list.length)));
       const pick = list[idx];
       const src = Array.isArray(pick) ? pick : (pick?.colors || []);
       setLayers?.(prev => {
@@ -217,7 +218,7 @@ export function useAudioHandlers({
     return unregister;
   }, [registerAudioHandler, clampedSelectedIndex, setLayers, palettes, sampleColorsEven]);
 
-  // Per-layer position handlers (X, Y, Z/scale)
+  // Per-layer position handlers (X, Y, Z/scale) - use raw 0-1 for position mapping
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unsubs = [];
@@ -230,37 +231,37 @@ export function useAudioHandlers({
       const idY = `layer:${layerKey}:posY`;
       const idZ = `layer:${layerKey}:posZ`;
 
-      // X
-      unsubs.push(registerAudioHandler(idX, ({ value01 }) => {
+      // X - use raw 0-1 value with layer's custom range
+      unsubs.push(registerAudioHandler(idX, ({ raw }) => {
         if (!layer?.manualAudioPositionEnabled) return;
         const r = layer?.audioPosRangeX || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
+        const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
         const v = clamp01(mapped);
         setLayers?.(prev => prev.map((l, i) => (
           i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
         )));
       }));
 
-      // Y
-      unsubs.push(registerAudioHandler(idY, ({ value01 }) => {
+      // Y - use raw 0-1 value with layer's custom range
+      unsubs.push(registerAudioHandler(idY, ({ raw }) => {
         if (!layer?.manualAudioPositionEnabled) return;
         const r = layer?.audioPosRangeY || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
+        const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
         const v = clamp01(mapped);
         setLayers?.(prev => prev.map((l, i) => (
           i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
         )));
       }));
 
-      // Z (scale)
-      unsubs.push(registerAudioHandler(idZ, ({ value01 }) => {
+      // Z (scale) - use raw 0-1 value with layer's custom range
+      unsubs.push(registerAudioHandler(idZ, ({ raw }) => {
         if (!layer?.manualAudioPositionEnabled) return;
         const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
         const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
         const r = layer?.audioPosRangeZ || { min: scaleMin, max: scaleMax };
         const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
         const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
-        const mapped = outMin + value01 * (outMax - outMin);
+        const mapped = outMin + raw * (outMax - outMin);
         const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
         setLayers?.(prev => prev.map((l, i) => (
           i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
@@ -271,7 +272,7 @@ export function useAudioHandlers({
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
   }, [registerAudioHandler, setLayers, layers]);
 
-  // Per-layer color handlers (RGBA)
+  // Per-layer color handlers (RGBA) - use raw 0-1 for color channel mapping
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unsubs = [];
@@ -283,13 +284,14 @@ export function useAudioHandlers({
       const idB = `layer:${layerKey}:colorB`;
       const idA = `layer:${layerKey}:colorA`;
 
-      const updateChannel = (channel, value01) => {
+      const updateChannel = (channel, raw) => {
         if (!layer?.manualAudioColorEnabled) return;
         const selIdx = Number.isFinite(layer?.selectedColor) ? layer.selectedColor : 0;
         const colors = Array.isArray(layer?.colors) ? layer.colors : [];
         const curHex = colors[selIdx] || '#000000';
         const cur = hexToRgb(curHex);
-        const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
+        // Use raw 0-1 value for color channel (0-255)
+        const v255 = Math.max(0, Math.min(255, Math.round(raw * 255)));
         const next = { ...cur, [channel]: v255 };
         const nextHex = rgbToHex(next);
         setLayers?.(prev => prev.map((l, i) => {
@@ -301,12 +303,13 @@ export function useAudioHandlers({
         }));
       };
 
-      unsubs.push(registerAudioHandler(idR, ({ value01 }) => updateChannel('r', value01)));
-      unsubs.push(registerAudioHandler(idG, ({ value01 }) => updateChannel('g', value01)));
-      unsubs.push(registerAudioHandler(idB, ({ value01 }) => updateChannel('b', value01)));
-      unsubs.push(registerAudioHandler(idA, ({ value01 }) => {
+      unsubs.push(registerAudioHandler(idR, ({ raw }) => updateChannel('r', raw)));
+      unsubs.push(registerAudioHandler(idG, ({ raw }) => updateChannel('g', raw)));
+      unsubs.push(registerAudioHandler(idB, ({ raw }) => updateChannel('b', raw)));
+      unsubs.push(registerAudioHandler(idA, ({ raw }) => {
         if (!layer?.manualAudioColorEnabled) return;
-        const v = Math.max(0, Math.min(1, value01));
+        // Use raw 0-1 value for opacity
+        const v = Math.max(0, Math.min(1, raw));
         setLayers?.(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
       }));
     });

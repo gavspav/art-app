@@ -186,8 +186,8 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
   
-  // Use parameter's min/max as default output range
-  const defaultRange = { inputMin: 0, inputMax: 1, outputMin: min, outputMax: max };
+  // Use parameter's min/max as default output range (simplified - no inputMin/inputMax)
+  const defaultRange = { outputMin: min, outputMax: max };
   
   // Auto-fix stale mappings that have wrong output range values
   useEffect(() => {
