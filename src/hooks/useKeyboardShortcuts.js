@@ -22,6 +22,10 @@ export function useKeyboardShortcuts({
   recallQuickPresetFromMemory,
   toggleBPM,
   toggleAudio,
+  // Timeline controls
+  toggleTimeline,
+  toggleTimelinePlay,
+  stopTimeline,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -118,6 +122,27 @@ export function useKeyboardShortcuts({
         return;
       }
 
+      // T -> Toggle Timeline visibility
+      if (key === 't' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        toggleTimeline?.();
+        return;
+      }
+
+      // P -> Toggle Timeline play/pause (when timeline is visible)
+      if (key === 'p' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        toggleTimelinePlay?.();
+        return;
+      }
+
+      // Home -> Stop timeline and go to start
+      if (key === 'home') {
+        e.preventDefault();
+        stopTimeline?.();
+        return;
+      }
+
       if (key === 'delete' || key === 'backspace') {
         const nodeMode = !!hotkeyRef?.current?.nodeEditMode;
         const len = Number(hotkeyRef?.current?.layersLen) || 0;
@@ -181,5 +206,8 @@ export function useKeyboardShortcuts({
     recallQuickPresetFromMemory,
     toggleBPM,
     toggleAudio,
+    toggleTimeline,
+    toggleTimelinePlay,
+    stopTimeline,
   ]);
 }

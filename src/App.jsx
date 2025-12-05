@@ -4,6 +4,7 @@ import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
 import { AudioProvider, useAudioReactive } from './context/AudioContext.jsx';
 import { BPMProvider, useBPM } from './context/BPMContext.jsx';
+import { TimelineProvider, useTimeline } from './context/TimelineContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -33,6 +34,9 @@ import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
 import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
 import BottomPanel from './components/BottomPanel.jsx';
+import { TimelinePanel } from './components/timeline/index.js';
+import { useTimelineModulation } from './hooks/useTimelineModulation.js';
+import DraggableDivider from './components/common/DraggableDivider.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -285,6 +289,28 @@ const MainApp = () => {
 
   // Keyboard Shortcuts overlay
   const [showShortcuts, setShowShortcuts] = useState(false);
+  
+  // Panel layout sizes (persisted to localStorage)
+  const [leftPanelRatio, setLeftPanelRatio] = useState(() => {
+    try {
+      const saved = localStorage.getItem('artapp-left-panel-ratio');
+      return saved ? parseFloat(saved) : 0.25;
+    } catch { return 0.25; }
+  });
+  const [topPanelRatio, setTopPanelRatio] = useState(() => {
+    try {
+      const saved = localStorage.getItem('artapp-top-panel-ratio');
+      return saved ? parseFloat(saved) : 0.5;
+    } catch { return 0.5; }
+  });
+  
+  // Persist panel ratios
+  useEffect(() => {
+    try { localStorage.setItem('artapp-left-panel-ratio', String(leftPanelRatio)); } catch { /* noop */ }
+  }, [leftPanelRatio]);
+  useEffect(() => {
+    try { localStorage.setItem('artapp-top-panel-ratio', String(topPanelRatio)); } catch { /* noop */ }
+  }, [topPanelRatio]);
   // Keep latest values accessible to hotkeys without re-binding listeners
   const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false, isolateMode: false });
   useEffect(() => {
@@ -384,9 +410,23 @@ const MainApp = () => {
   const bpmForAnimation = useBPM();
   const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
 
-  // Modulation store - centralizes Audio/BPM modulations so they can be applied
+  // Timeline context
+  const timelineContext = useTimeline();
+  const { getTimelineSnapshot, applyTimelineSnapshot, visible: timelineVisible, setVisible: setTimelineVisible } = timelineContext || {};
+
+  // Modulation store - centralizes Audio/BPM/Timeline modulations so they can be applied
   // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
   const modulationStore = useModulationStore();
+
+  // Timeline modulation - applies timeline track values to the modulation store
+  useTimelineModulation({
+    modulationStore,
+    layers,
+    bpmContext: bpmForAnimation,
+    audioContext: audioReactive,
+    midiContext: useMidi(),
+    setGlobalSpeedMultiplier,
+  });
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
@@ -497,12 +537,13 @@ const MainApp = () => {
       midiMappings: midiMappingsRef.current || {},
       audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
       bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+      timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
       savedAt: new Date().toISOString(),
-      version: '2.1',
+      version: '2.2',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
 
   const handleRamPresetSave = useCallback(() => {
     if (typeof setQuickPresetSnapshot !== 'function') return;
@@ -512,6 +553,7 @@ const MainApp = () => {
         appState: typeof getCurrentAppState === 'function' ? getCurrentAppState() : null,
         audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
         bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+        timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
         exportMeta: getExportMeta(),
         savedAt: new Date().toISOString(),
       };
@@ -519,7 +561,7 @@ const MainApp = () => {
     } catch (error) {
       console.warn('[RAM Preset] Failed to capture snapshot', error);
     }
-  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot]);
+  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
 
   const handleRamPresetRecall = useCallback(() => {
     if (!quickPreset) {
@@ -544,10 +586,14 @@ const MainApp = () => {
       if (quickPreset.bpmConfig && applyBPMSnapshot) {
         applyBPMSnapshot(quickPreset.bpmConfig);
       }
+      // Apply Timeline config if present
+      if (quickPreset.timelineConfig && applyTimelineSnapshot) {
+        applyTimelineSnapshot(quickPreset.timelineConfig);
+      }
     } catch (error) {
       console.warn('[RAM Preset] Failed to recall snapshot', error);
     }
-  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot]);
+  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -605,6 +651,11 @@ const MainApp = () => {
       // Apply BPM config if present
       try {
         if (data && data.bpmConfig && applyBPMSnapshot) applyBPMSnapshot(data.bpmConfig);
+      } catch { /* noop */ }
+
+      // Apply Timeline config if present
+      try {
+        if (data && data.timelineConfig && applyTimelineSnapshot) applyTimelineSnapshot(data.timelineConfig);
       } catch { /* noop */ }
 
       // Build a unique name for this import
@@ -1006,6 +1057,10 @@ const MainApp = () => {
     recallQuickPresetFromMemory: handleRamPresetRecall,
     toggleBPM: bpmForAnimation?.togglePlay,
     toggleAudio: audioReactive?.toggleAudio,
+    // Timeline controls
+    toggleTimeline: timelineContext?.toggleVisible,
+    toggleTimelinePlay: timelineContext?.togglePlay,
+    stopTimeline: timelineContext?.stop,
   });
 
   // MIDI helper refs and handlers integration
@@ -1277,159 +1332,485 @@ const MainApp = () => {
           onChange={handleImportFile}
         />
 
-        {/* Main Canvas Area - Full screen */}
-        <div 
-          className="canvas-container" 
-          ref={containerRef}
-          style={{ 
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100%',
-            height: '100%'
-          }}
-        >
-          <Canvas
-            ref={canvasRef}
-            layers={layers}
-            isFrozen={isFrozen}
-            colorFadeWhileFrozen={colorFadeWhileFrozen}
-            backgroundColor={backgroundColor}
-            globalSeed={globalSeed}
-            globalBlendMode={globalBlendMode}
-            isNodeEditMode={isNodeEditMode}
-            selectedLayerIndex={selectedLayerIndex}
-            setLayers={setLayers}
-            setSelectedLayerIndex={setSelectedLayerIndex}
-            classicMode={classicMode}
-            isolateMode={isolateMode}
-            getActiveTargetLayerIds={getActiveTargetLayerIds}
-          />
-          
-          {/* Import Adjust Panel (multi-file SVG import) */}
-          {showImportAdjust && (
-            <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
-              <ImportAdjustPanel
-                importAdjust={importAdjust}
-                onChange={(adj)=> applyImportAdjust(adj)}
-                fitEnabled={importFitEnabled}
-                onToggleFit={()=> setImportFitEnabled(v=>!v)}
-                debug={importDebug}
-                onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
-                onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
-                onClose={()=> setShowImportAdjust(false)}
+        {/* Full canvas mode when timeline is hidden */}
+        {!isFullscreen && !timelineVisible && (
+          <div
+            className="canvas-container"
+            ref={containerRef}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            <Canvas
+              ref={canvasRef}
+              layers={layers}
+              isFrozen={isFrozen}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              backgroundColor={backgroundColor}
+              globalSeed={globalSeed}
+              globalBlendMode={globalBlendMode}
+              isNodeEditMode={isNodeEditMode}
+              selectedLayerIndex={selectedLayerIndex}
+              setLayers={setLayers}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              classicMode={classicMode}
+              isolateMode={isolateMode}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+            />
+            
+            {showImportAdjust && (
+              <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
+                <ImportAdjustPanel
+                  importAdjust={importAdjust}
+                  onChange={(adj)=> applyImportAdjust(adj)}
+                  fitEnabled={importFitEnabled}
+                  onToggleFit={()=> setImportFitEnabled(v=>!v)}
+                  debug={importDebug}
+                  onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
+                  onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
+                  onClose={()=> setShowImportAdjust(false)}
+                />
+              </div>
+            )}
+            
+            <FloatingActionButtons
+              onDownload={downloadImage}
+              onRandomize={randomizeScene}
+              onToggleFullscreen={toggleFullscreen}
+              isFullscreen={isFullscreen}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              isRecording={isRecording}
+              onToggleTargetMode={toggleParameterTargetMode}
+              parameterTargetMode={parameterTargetMode}
+            />
+            
+            <button
+              type="button"
+              onClick={() => setTimelineVisible?.(!timelineVisible)}
+              style={{
+                position: 'absolute',
+                bottom: 16,
+                left: 16,
+                background: 'rgba(0, 0, 0, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 8,
+                padding: '8px 16px',
+                color: 'white',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                zIndex: 50,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="Toggle Timeline (T)"
+            >
+              🎬 Timeline
+            </button>
+            
+            {/* Bottom Panel with controls - shown when timeline is hidden */}
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                maxHeight: '55vh',
+                overflowY: 'auto',
+                background: 'rgba(20, 20, 30, 0.95)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <BottomPanel
+              backgroundColor={backgroundColor}
+              setBackgroundColor={setBackgroundColor}
+              backgroundImage={backgroundImage}
+              setBackgroundImage={setBackgroundImage}
+              isFrozen={isFrozen}
+              setIsFrozen={setIsFrozen}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
+              zIgnore={zIgnore}
+              setZIgnore={setZIgnore}
+              globalSeed={globalSeed}
+              setGlobalSeed={setGlobalSeed}
+              globalSpeedMultiplier={globalSpeedMultiplier}
+              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+              getIsRnd={getIsRnd}
+              setIsRnd={setIsRnd}
+              palettes={palettes}
+              blendModes={blendModes}
+              globalBlendMode={globalBlendMode}
+              setGlobalBlendMode={setGlobalBlendMode}
+              parameterTargetMode={parameterTargetMode}
+              setParameterTargetMode={setParameterTargetMode}
+              onQuickSave={handleQuickSave}
+              onQuickLoad={handleQuickLoad}
+              layers={uiLayers}
+              selectedLayerIds={selectedLayerIds}
+              toggleLayerSelection={toggleLayerSelection}
+              clearSelection={clearSelection}
+              layerGroups={layerGroups}
+              editTarget={editTarget}
+              setEditTarget={setEditTarget}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+              sampleColorsEven={sampleColorsEven}
+              assignOneColorPerLayer={assignOneColorPerLayer}
+              setLayers={setLayers}
+              DEFAULT_LAYER={DEFAULT_LAYER}
+              buildVariedLayerFrom={buildVariedLayerFrom}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              handleRandomizeAll={handleRandomizeAll}
+              currentLayer={currentLayer}
+              updateCurrentLayer={updateCurrentLayer}
+              randomizeCurrentLayer={randomizeCurrentLayer}
+              randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
+              randomizeCurrentLayerColors={randomizeCurrentLayerColors}
+              baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
+              baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+              isNodeEditMode={isNodeEditMode}
+              setIsNodeEditMode={setIsNodeEditMode}
+              randomizePalette={randomizePalette}
+              setRandomizePalette={setRandomizePalette}
+              randomizeNumColors={randomizeNumColors}
+              setRandomizeNumColors={setRandomizeNumColors}
+              syncLayerColorsToFirst={syncLayerColorsToFirst}
+              setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
+              colorCountMin={colorCountMin}
+              colorCountMax={colorCountMax}
+              setColorCountMin={setColorCountMin}
+              setColorCountMax={setColorCountMax}
+              layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
+              selectedLayerIndex={clampedSelectedIndex}
+              selectLayer={selectLayer}
+              addNewLayer={addNewLayer}
+              deleteLayer={deleteLayer}
+              moveSelectedLayerUp={moveSelectedLayerUp}
+              moveSelectedLayerDown={moveSelectedLayerDown}
+              handleImportSVGClick={handleImportSVGClick}
+              presetSlots={presetSlots}
+              getPresetSlot={getPresetSlot}
+              loadAppState={loadAppState}
+              morphEnabled={morphEnabled}
+              morphRoute={morphRoute}
+              morphDurationPerLeg={morphDurationPerLeg}
+              morphEasing={morphEasing}
+              morphLoopMode={morphLoopMode}
+              setMorphEnabled={setMorphEnabled}
+              setMorphRoute={setMorphRoute}
+              setMorphDurationPerLeg={setMorphDurationPerLeg}
+              setMorphEasing={setMorphEasing}
+              setMorphLoopMode={setMorphLoopMode}
+              morphMode={morphMode}
+              setMorphMode={setMorphMode}
+              applyVariationInstantly={applyVariationInstantly}
+              setApplyVariationInstantly={setApplyVariationInstantly}
+            />
+            </div>
+          </div>
+        )}
+
+        {/* Split layout when timeline is visible */}
+        {!isFullscreen && timelineVisible && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: `${(1 - topPanelRatio) * 100}vh`,
+              display: 'flex',
+              flexDirection: 'row',
+            }}
+          >
+            {/* Left Panel - Controls */}
+            <div
+              style={{
+                width: `${leftPanelRatio * 100}%`,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                background: 'rgba(20, 20, 30, 0.95)',
+                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <BottomPanel
+                // GlobalControls props
+                backgroundColor={backgroundColor}
+                setBackgroundColor={setBackgroundColor}
+                backgroundImage={backgroundImage}
+                setBackgroundImage={setBackgroundImage}
+                isFrozen={isFrozen}
+                setIsFrozen={setIsFrozen}
+                colorFadeWhileFrozen={colorFadeWhileFrozen}
+                setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+                classicMode={classicMode}
+                setClassicMode={setClassicMode}
+                zIgnore={zIgnore}
+                setZIgnore={setZIgnore}
+                globalSeed={globalSeed}
+                setGlobalSeed={setGlobalSeed}
+                globalSpeedMultiplier={globalSpeedMultiplier}
+                setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+                getIsRnd={getIsRnd}
+                setIsRnd={setIsRnd}
+                palettes={palettes}
+                blendModes={blendModes}
+                globalBlendMode={globalBlendMode}
+                setGlobalBlendMode={setGlobalBlendMode}
+                parameterTargetMode={parameterTargetMode}
+                setParameterTargetMode={setParameterTargetMode}
+                onQuickSave={handleQuickSave}
+                onQuickLoad={handleQuickLoad}
+                layers={uiLayers}
+                selectedLayerIds={selectedLayerIds}
+                toggleLayerSelection={toggleLayerSelection}
+                clearSelection={clearSelection}
+                layerGroups={layerGroups}
+                editTarget={editTarget}
+                setEditTarget={setEditTarget}
+                getActiveTargetLayerIds={getActiveTargetLayerIds}
+                sampleColorsEven={sampleColorsEven}
+                assignOneColorPerLayer={assignOneColorPerLayer}
+                setLayers={setLayers}
+                DEFAULT_LAYER={DEFAULT_LAYER}
+                buildVariedLayerFrom={buildVariedLayerFrom}
+                setSelectedLayerIndex={setSelectedLayerIndex}
+                handleRandomizeAll={handleRandomizeAll}
+                // Controls props
+                currentLayer={currentLayer}
+                updateCurrentLayer={updateCurrentLayer}
+                randomizeCurrentLayer={randomizeCurrentLayer}
+                randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
+                randomizeCurrentLayerColors={randomizeCurrentLayerColors}
+                baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
+                baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+                isNodeEditMode={isNodeEditMode}
+                setIsNodeEditMode={setIsNodeEditMode}
+                randomizePalette={randomizePalette}
+                setRandomizePalette={setRandomizePalette}
+                randomizeNumColors={randomizeNumColors}
+                setRandomizeNumColors={setRandomizeNumColors}
+                syncLayerColorsToFirst={syncLayerColorsToFirst}
+                setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
+                colorCountMin={colorCountMin}
+                colorCountMax={colorCountMax}
+                setColorCountMin={setColorCountMin}
+                setColorCountMax={setColorCountMax}
+                layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
+                selectedLayerIndex={clampedSelectedIndex}
+                selectLayer={selectLayer}
+                addNewLayer={addNewLayer}
+                deleteLayer={deleteLayer}
+                moveSelectedLayerUp={moveSelectedLayerUp}
+                moveSelectedLayerDown={moveSelectedLayerDown}
+                handleImportSVGClick={handleImportSVGClick}
+                // Morph props for GlobalControls
+                presetSlots={presetSlots}
+                getPresetSlot={getPresetSlot}
+                loadAppState={loadAppState}
+                morphEnabled={morphEnabled}
+                morphRoute={morphRoute}
+                morphDurationPerLeg={morphDurationPerLeg}
+                morphEasing={morphEasing}
+                morphLoopMode={morphLoopMode}
+                setMorphEnabled={setMorphEnabled}
+                setMorphRoute={setMorphRoute}
+                setMorphDurationPerLeg={setMorphDurationPerLeg}
+                setMorphEasing={setMorphEasing}
+                setMorphLoopMode={setMorphLoopMode}
+                morphMode={morphMode}
+                setMorphMode={setMorphMode}
+                applyVariationInstantly={applyVariationInstantly}
+                setApplyVariationInstantly={setApplyVariationInstantly}
+              />
+              </div>
+            </div>
+            
+            {/* Horizontal Divider */}
+            <DraggableDivider
+              direction="horizontal"
+              onResize={setLeftPanelRatio}
+              initialRatio={leftPanelRatio}
+              minRatio={0.15}
+              maxRatio={0.5}
+            />
+            
+            {/* Right Panel - Canvas */}
+            <div
+              className="canvas-container"
+              ref={containerRef}
+              style={{
+                flex: 1,
+                height: '100%',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              <Canvas
+                ref={canvasRef}
+                layers={layers}
+                isFrozen={isFrozen}
+                colorFadeWhileFrozen={colorFadeWhileFrozen}
+                backgroundColor={backgroundColor}
+                globalSeed={globalSeed}
+                globalBlendMode={globalBlendMode}
+                isNodeEditMode={isNodeEditMode}
+                selectedLayerIndex={selectedLayerIndex}
+                setLayers={setLayers}
+                setSelectedLayerIndex={setSelectedLayerIndex}
+                classicMode={classicMode}
+                isolateMode={isolateMode}
+                getActiveTargetLayerIds={getActiveTargetLayerIds}
+              />
+              
+              {/* Import Adjust Panel (multi-file SVG import) */}
+              {showImportAdjust && (
+                <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
+                  <ImportAdjustPanel
+                    importAdjust={importAdjust}
+                    onChange={(adj)=> applyImportAdjust(adj)}
+                    fitEnabled={importFitEnabled}
+                    onToggleFit={()=> setImportFitEnabled(v=>!v)}
+                    debug={importDebug}
+                    onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
+                    onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
+                    onClose={()=> setShowImportAdjust(false)}
+                  />
+                </div>
+              )}
+              
+              {/* Floating Action Buttons */}
+              <FloatingActionButtons
+                onDownload={downloadImage}
+                onRandomize={randomizeScene}
+                onToggleFullscreen={toggleFullscreen}
+                isFullscreen={isFullscreen}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
+                isRecording={isRecording}
+                onToggleTargetMode={toggleParameterTargetMode}
+                parameterTargetMode={parameterTargetMode}
+              />
+              
+              {/* Timeline toggle button */}
+              <button
+                type="button"
+                onClick={() => setTimelineVisible?.(!timelineVisible)}
+                style={{
+                  position: 'absolute',
+                  bottom: 16,
+                  left: 16,
+                  background: 'rgba(79, 195, 247, 0.3)',
+                  border: '1px solid rgba(79, 195, 247, 0.5)',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  color: '#4fc3f7',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  zIndex: 50,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Toggle Timeline (T)"
+              >
+                🎬 Timeline
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Fullscreen mode - canvas only */}
+        {isFullscreen && (
+          <div
+            className="canvas-container"
+            ref={containerRef}
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+            }}
+          >
+            <Canvas
+              ref={canvasRef}
+              layers={layers}
+              isFrozen={isFrozen}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              backgroundColor={backgroundColor}
+              globalSeed={globalSeed}
+              globalBlendMode={globalBlendMode}
+              isNodeEditMode={isNodeEditMode}
+              selectedLayerIndex={selectedLayerIndex}
+              setLayers={setLayers}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              classicMode={classicMode}
+              isolateMode={isolateMode}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+            />
+            <FloatingActionButtons
+              onDownload={downloadImage}
+              onRandomize={randomizeScene}
+              onToggleFullscreen={toggleFullscreen}
+              isFullscreen={isFullscreen}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              isRecording={isRecording}
+              onToggleTargetMode={toggleParameterTargetMode}
+              parameterTargetMode={parameterTargetMode}
+            />
+          </div>
+        )}
+        
+        {/* Timeline Panel - shown in lower portion when visible */}
+        {!isFullscreen && timelineVisible && (
+          <>
+            {/* Vertical Divider between top and timeline */}
+            <DraggableDivider
+              direction="vertical"
+              onResize={setTopPanelRatio}
+              initialRatio={topPanelRatio}
+              minRatio={0.2}
+              maxRatio={0.8}
+              style={{
+                position: 'fixed',
+                top: `${topPanelRatio * 100}vh`,
+                left: 0,
+                right: 0,
+                zIndex: 201,
+              }}
+            />
+            <div
+              style={{
+                position: 'fixed',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: `${(1 - topPanelRatio) * 100}vh`,
+                zIndex: 200,
+              }}
+            >
+              <TimelinePanel
+                layers={layers}
+                onClose={() => setTimelineVisible?.(false)}
               />
             </div>
-          )}
-          
-          {/* Floating Action Buttons */}
-          <FloatingActionButtons
-            onDownload={downloadImage}
-            onRandomize={randomizeScene}
-            onToggleFullscreen={toggleFullscreen}
-            isFullscreen={isFullscreen}
-            onStartRecording={startRecording}
-            onStopRecording={stopRecording}
-            isRecording={isRecording}
-            onToggleTargetMode={toggleParameterTargetMode}
-            parameterTargetMode={parameterTargetMode}
-          />
-        </div>
-        
-        {/* Bottom Panel with tabs - Hidden in fullscreen */}
-        {!isFullscreen && (
-          <BottomPanel
-            // GlobalControls props
-            backgroundColor={backgroundColor}
-            setBackgroundColor={setBackgroundColor}
-            backgroundImage={backgroundImage}
-            setBackgroundImage={setBackgroundImage}
-            isFrozen={isFrozen}
-            setIsFrozen={setIsFrozen}
-            colorFadeWhileFrozen={colorFadeWhileFrozen}
-            setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-            classicMode={classicMode}
-            setClassicMode={setClassicMode}
-            zIgnore={zIgnore}
-            setZIgnore={setZIgnore}
-            globalSeed={globalSeed}
-            setGlobalSeed={setGlobalSeed}
-            globalSpeedMultiplier={globalSpeedMultiplier}
-            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-            getIsRnd={getIsRnd}
-            setIsRnd={setIsRnd}
-            palettes={palettes}
-            blendModes={blendModes}
-            globalBlendMode={globalBlendMode}
-            setGlobalBlendMode={setGlobalBlendMode}
-            parameterTargetMode={parameterTargetMode}
-            setParameterTargetMode={setParameterTargetMode}
-            onQuickSave={handleQuickSave}
-            onQuickLoad={handleQuickLoad}
-            layers={uiLayers}
-            selectedLayerIds={selectedLayerIds}
-            toggleLayerSelection={toggleLayerSelection}
-            clearSelection={clearSelection}
-            layerGroups={layerGroups}
-            editTarget={editTarget}
-            setEditTarget={setEditTarget}
-            getActiveTargetLayerIds={getActiveTargetLayerIds}
-            sampleColorsEven={sampleColorsEven}
-            assignOneColorPerLayer={assignOneColorPerLayer}
-            setLayers={setLayers}
-            DEFAULT_LAYER={DEFAULT_LAYER}
-            buildVariedLayerFrom={buildVariedLayerFrom}
-            setSelectedLayerIndex={setSelectedLayerIndex}
-            handleRandomizeAll={handleRandomizeAll}
-            // Controls props
-            currentLayer={currentLayer}
-            updateCurrentLayer={updateCurrentLayer}
-            randomizeCurrentLayer={randomizeCurrentLayer}
-            randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
-            randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-            baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
-            baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
-            isNodeEditMode={isNodeEditMode}
-            setIsNodeEditMode={setIsNodeEditMode}
-            randomizePalette={randomizePalette}
-            setRandomizePalette={setRandomizePalette}
-            randomizeNumColors={randomizeNumColors}
-            setRandomizeNumColors={setRandomizeNumColors}
-            syncLayerColorsToFirst={syncLayerColorsToFirst}
-            setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
-            colorCountMin={colorCountMin}
-            colorCountMax={colorCountMax}
-            setColorCountMin={setColorCountMin}
-            setColorCountMax={setColorCountMax}
-            layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
-            selectedLayerIndex={clampedSelectedIndex}
-            selectLayer={selectLayer}
-            addNewLayer={addNewLayer}
-            deleteLayer={deleteLayer}
-            moveSelectedLayerUp={moveSelectedLayerUp}
-            moveSelectedLayerDown={moveSelectedLayerDown}
-            handleImportSVGClick={handleImportSVGClick}
-            // Morph props for GlobalControls
-            presetSlots={presetSlots}
-            getPresetSlot={getPresetSlot}
-            loadAppState={loadAppState}
-            morphEnabled={morphEnabled}
-            morphRoute={morphRoute}
-            morphDurationPerLeg={morphDurationPerLeg}
-            morphEasing={morphEasing}
-            morphLoopMode={morphLoopMode}
-            setMorphEnabled={setMorphEnabled}
-            setMorphRoute={setMorphRoute}
-            setMorphDurationPerLeg={setMorphDurationPerLeg}
-            setMorphEasing={setMorphEasing}
-            setMorphLoopMode={setMorphLoopMode}
-            morphMode={morphMode}
-            setMorphMode={setMorphMode}
-            applyVariationInstantly={applyVariationInstantly}
-            setApplyVariationInstantly={setApplyVariationInstantly}
-          />
+          </>
         )}
       </main>
     </div>
@@ -1443,7 +1824,9 @@ const App = () => (
       <MidiProvider>
         <AudioProvider>
           <BPMProvider>
-            <MainApp />
+            <TimelineProvider>
+              <MainApp />
+            </TimelineProvider>
           </BPMProvider>
         </AudioProvider>
       </MidiProvider>

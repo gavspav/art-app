@@ -1,9 +1,9 @@
 import { useRef, useCallback, useMemo } from 'react';
 
 /**
- * useModulationStore - Centralized store for Audio/BPM modulations
+ * useModulationStore - Centralized store for Audio/BPM/Timeline modulations
  * 
- * Instead of Audio/BPM handlers calling setLayers directly (causing multiple
+ * Instead of Audio/BPM/Timeline handlers calling setLayers directly (causing multiple
  * React updates per frame), they write to this store. The animation loop
  * then reads from here and applies all modulations in a single setLayers call.
  * 
@@ -11,27 +11,41 @@ import { useRef, useCallback, useMemo } from 'react';
  * {
  *   bpm: { [layerId]: { [paramId]: value, ... }, ... },
  *   audio: { [layerId]: { [paramId]: value, ... }, ... },
+ *   timeline: { [layerId]: { [paramId]: value, ... }, ... },
  * }
+ * 
+ * Precedence (highest to lowest): timeline > bpm > audio
  */
 export function useModulationStore() {
   // Refs to avoid re-renders when modulations change
   const bpmModsRef = useRef({});
   const audioModsRef = useRef({});
+  const timelineModsRef = useRef({});
   
   // Track which params are actively modulated (for UI indicators)
   const activeBpmParamsRef = useRef(new Set());
   const activeAudioParamsRef = useRef(new Set());
+  const activeTimelineParamsRef = useRef(new Set());
 
   /**
    * Set a modulation value for a layer parameter
-   * @param {'bpm'|'audio'} source - The modulation source
+   * @param {'bpm'|'audio'|'timeline'} source - The modulation source
    * @param {string} layerId - The layer ID
    * @param {string} paramId - The parameter name (e.g., 'radiusFactor', 'scale')
    * @param {number} value - The modulated value
    */
   const setMod = useCallback((source, layerId, paramId, value) => {
-    const ref = source === 'bpm' ? bpmModsRef : audioModsRef;
-    const activeRef = source === 'bpm' ? activeBpmParamsRef : activeAudioParamsRef;
+    let ref, activeRef;
+    if (source === 'timeline') {
+      ref = timelineModsRef;
+      activeRef = activeTimelineParamsRef;
+    } else if (source === 'bpm') {
+      ref = bpmModsRef;
+      activeRef = activeBpmParamsRef;
+    } else {
+      ref = audioModsRef;
+      activeRef = activeAudioParamsRef;
+    }
     
     if (!ref.current[layerId]) {
       ref.current[layerId] = {};
@@ -44,8 +58,17 @@ export function useModulationStore() {
    * Clear a modulation for a layer parameter
    */
   const clearMod = useCallback((source, layerId, paramId) => {
-    const ref = source === 'bpm' ? bpmModsRef : audioModsRef;
-    const activeRef = source === 'bpm' ? activeBpmParamsRef : activeAudioParamsRef;
+    let ref, activeRef;
+    if (source === 'timeline') {
+      ref = timelineModsRef;
+      activeRef = activeTimelineParamsRef;
+    } else if (source === 'bpm') {
+      ref = bpmModsRef;
+      activeRef = activeBpmParamsRef;
+    } else {
+      ref = audioModsRef;
+      activeRef = activeAudioParamsRef;
+    }
     
     if (ref.current[layerId]) {
       delete ref.current[layerId][paramId];
@@ -60,7 +83,10 @@ export function useModulationStore() {
    * Clear all modulations for a source
    */
   const clearAllMods = useCallback((source) => {
-    if (source === 'bpm') {
+    if (source === 'timeline') {
+      timelineModsRef.current = {};
+      activeTimelineParamsRef.current.clear();
+    } else if (source === 'bpm') {
       bpmModsRef.current = {};
       activeBpmParamsRef.current.clear();
     } else {
@@ -74,8 +100,17 @@ export function useModulationStore() {
    * Used when switching from global to individual mode
    */
   const clearModsExcept = useCallback((source, keepLayerIds) => {
-    const ref = source === 'bpm' ? bpmModsRef : audioModsRef;
-    const activeRef = source === 'bpm' ? activeBpmParamsRef : activeAudioParamsRef;
+    let ref, activeRef;
+    if (source === 'timeline') {
+      ref = timelineModsRef;
+      activeRef = activeTimelineParamsRef;
+    } else if (source === 'bpm') {
+      ref = bpmModsRef;
+      activeRef = activeBpmParamsRef;
+    } else {
+      ref = audioModsRef;
+      activeRef = activeAudioParamsRef;
+    }
     const keepSet = new Set(keepLayerIds);
     
     // Remove layers not in keepSet
@@ -92,13 +127,14 @@ export function useModulationStore() {
 
   /**
    * Get all modulations for a layer (merged from all sources)
-   * BPM takes precedence over Audio if both modulate the same param
+   * Precedence: timeline > bpm > audio
    */
   const getLayerMods = useCallback((layerId) => {
     const audioMods = audioModsRef.current[layerId] || {};
     const bpmMods = bpmModsRef.current[layerId] || {};
-    // BPM overrides Audio for same param
-    return { ...audioMods, ...bpmMods };
+    const timelineMods = timelineModsRef.current[layerId] || {};
+    // Timeline overrides BPM overrides Audio for same param
+    return { ...audioMods, ...bpmMods, ...timelineMods };
   }, []);
 
   /**
@@ -108,6 +144,7 @@ export function useModulationStore() {
     return {
       bpm: bpmModsRef.current,
       audio: audioModsRef.current,
+      timeline: timelineModsRef.current,
     };
   }, []);
 
@@ -116,7 +153,15 @@ export function useModulationStore() {
    */
   const isParamModulated = useCallback((layerId, paramId) => {
     const key = `${layerId}:${paramId}`;
-    return activeBpmParamsRef.current.has(key) || activeAudioParamsRef.current.has(key);
+    return activeTimelineParamsRef.current.has(key) || activeBpmParamsRef.current.has(key) || activeAudioParamsRef.current.has(key);
+  }, []);
+
+  /**
+   * Check if a param is being modulated by timeline specifically
+   */
+  const isParamModulatedByTimeline = useCallback((layerId, paramId) => {
+    const key = `${layerId}:${paramId}`;
+    return activeTimelineParamsRef.current.has(key);
   }, []);
 
   /**
@@ -164,25 +209,29 @@ export function useModulationStore() {
     getLayerMods,
     getAllMods,
     isParamModulated,
+    isParamModulatedByTimeline,
     applyModsToLayer,
     // Direct ref access for animation loop (avoids function call overhead)
     bpmModsRef,
     audioModsRef,
-  }), [setMod, clearMod, clearAllMods, clearModsExcept, getLayerMods, getAllMods, isParamModulated, applyModsToLayer]);
+    timelineModsRef,
+  }), [setMod, clearMod, clearAllMods, clearModsExcept, getLayerMods, getAllMods, isParamModulated, isParamModulatedByTimeline, applyModsToLayer]);
 }
 
 /**
  * Apply modulations from refs to a layer (standalone function for animation loop)
  * This avoids the overhead of going through the hook's callback
+ * Precedence: timeline > bpm > audio
  */
-export function applyModulationsToLayer(layer, bpmMods, audioMods) {
+export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods = {}) {
   if (!layer || !layer.id) return layer;
   
   const layerBpmMods = bpmMods[layer.id] || {};
   const layerAudioMods = audioMods[layer.id] || {};
+  const layerTimelineMods = timelineMods[layer.id] || {};
   
-  // Merge: BPM takes precedence
-  const mods = { ...layerAudioMods, ...layerBpmMods };
+  // Merge: Timeline > BPM > Audio precedence
+  const mods = { ...layerAudioMods, ...layerBpmMods, ...layerTimelineMods };
   
   if (Object.keys(mods).length === 0) return layer;
   

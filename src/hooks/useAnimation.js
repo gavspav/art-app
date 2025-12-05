@@ -305,7 +305,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
                     updatedLayer = applyModulationsToLayer(
                         updatedLayer,
                         store.bpmModsRef.current,
-                        store.audioModsRef.current
+                        store.audioModsRef.current,
+                        store.timelineModsRef?.current || {}
                     );
                 }
                 
