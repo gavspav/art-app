@@ -426,6 +426,7 @@ const MainApp = () => {
     audioContext: audioReactive,
     midiContext: useMidi(),
     setGlobalSpeedMultiplier,
+    setLayers,
   });
 
   // Start animation loop (position, bounce/drift, z-scale)

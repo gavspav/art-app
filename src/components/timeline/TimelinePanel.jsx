@@ -91,6 +91,16 @@ const TimelinePanel = ({
       setScrollLeft(e.target.scrollLeft);
     }
   }, [setScrollLeft]);
+  
+  // Keep scroll position in sync with persisted setting (e.g., after reload)
+  useEffect(() => {
+    const scroller = tracksContainerRef.current;
+    if (!scroller) return;
+    const target = scrollLeft || 0;
+    if (Math.abs(scroller.scrollLeft - target) > 1) {
+      scroller.scrollLeft = target;
+    }
+  }, [scrollLeft]);
 
   // Handle click on timeline to seek
   const handleTimelineClick = useCallback((e) => {
@@ -253,7 +263,7 @@ const TimelinePanel = ({
         onClose={onClose}
       />
 
-      {/* Tracks area */}
+      {/* Tracks + waveform area */}
       <div
         ref={tracksContainerRef}
         className="timeline-tracks-container"
@@ -338,6 +348,15 @@ const TimelinePanel = ({
                   </g>
                 );
               })}
+              {/* Playhead (ruler) */}
+              <line
+                x1={playheadXTimeline}
+                y1={0}
+                x2={playheadXTimeline}
+                y2={24}
+                stroke="#ff5722"
+                strokeWidth={2}
+              />
             </svg>
           </div>
         </div>
@@ -400,7 +419,7 @@ const TimelinePanel = ({
           style={{
             position: 'absolute',
             top: 0,
-            left: 200 + playheadXScreen,
+            left: 200 - scrollLeft + playheadXTimeline,
             width: 2,
             height: '100%',
             background: '#ff5722',
@@ -408,7 +427,6 @@ const TimelinePanel = ({
             zIndex: 5,
           }}
         />
-
       </div>
     </div>
   );

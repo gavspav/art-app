@@ -11,7 +11,6 @@ const TimelineWaveform = ({
   lengthSeconds,
   positionSeconds,
   pixelsPerSecond,
-  scrollLeft = 0,
   onSeek,
   loop,
   height = 80,
@@ -39,7 +38,7 @@ const TimelineWaveform = ({
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
     for (let t = 0; t <= lengthSeconds; t++) {
-      const x = t * pixelsPerSecond - scrollLeft;
+      const x = t * pixelsPerSecond;
       if (x >= 0 && x <= width) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -50,8 +49,8 @@ const TimelineWaveform = ({
 
     // Draw loop region if enabled
     if (loop?.enabled) {
-      const loopStartX = loop.startSeconds * pixelsPerSecond - scrollLeft;
-      const loopEndX = loop.endSeconds * pixelsPerSecond - scrollLeft;
+      const loopStartX = loop.startSeconds * pixelsPerSecond;
+      const loopEndX = loop.endSeconds * pixelsPerSecond;
       ctx.fillStyle = 'rgba(79, 195, 247, 0.1)';
       ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
       
@@ -74,10 +73,10 @@ const TimelineWaveform = ({
 
     ctx.fillStyle = 'rgba(79, 195, 247, 0.6)';
     ctx.beginPath();
-    ctx.moveTo(-scrollLeft, centerY);
+    ctx.moveTo(0, centerY);
 
     for (let x = 0; x < width; x++) {
-      const time = (x + scrollLeft) / pixelsPerSecond;
+      const time = x / pixelsPerSecond;
       if (time > audioDuration) break;
 
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
@@ -88,7 +87,7 @@ const TimelineWaveform = ({
 
     // Mirror for bottom half
     for (let x = width - 1; x >= 0; x--) {
-      const time = (x + scrollLeft) / pixelsPerSecond;
+      const time = x / pixelsPerSecond;
       if (time > audioDuration) continue;
 
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
@@ -109,7 +108,7 @@ const TimelineWaveform = ({
     ctx.stroke();
 
     // Playhead is drawn globally; omit here to avoid double lines
-  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, scrollLeft, loop, height]);
+  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height]);
 
   // Handle click/drag to seek
   const handleMouseDown = useCallback((e) => {
@@ -117,20 +116,20 @@ const TimelineWaveform = ({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect || !onSeek) return;
 
-    const x = e.clientX - rect.left + scrollLeft;
+    const x = e.clientX - rect.left;
     const time = x / pixelsPerSecond;
     onSeek(Math.max(0, Math.min(lengthSeconds, time)));
-  }, [onSeek, pixelsPerSecond, scrollLeft, lengthSeconds]);
+  }, [onSeek, pixelsPerSecond, lengthSeconds]);
 
   const handleMouseMove = useCallback((e) => {
     if (!isDraggingRef.current) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect || !onSeek) return;
 
-    const x = e.clientX - rect.left + scrollLeft;
+    const x = e.clientX - rect.left;
     const time = x / pixelsPerSecond;
     onSeek(Math.max(0, Math.min(lengthSeconds, time)));
-  }, [onSeek, pixelsPerSecond, scrollLeft, lengthSeconds]);
+  }, [onSeek, pixelsPerSecond, lengthSeconds]);
 
   const handleMouseUp = useCallback(() => {
     isDraggingRef.current = false;
@@ -189,8 +188,6 @@ const TimelineWaveform = ({
           display: 'block',
           width: timelineWidth ? `${timelineWidth}px` : '100%',
           height: '100%',
-          transform: `translateX(${-scrollLeft}px)`,
-          willChange: 'transform',
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}

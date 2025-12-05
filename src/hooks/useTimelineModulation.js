@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
 import { evaluateTrackAtTime } from '../utils/envelopes.js';
+import { buildVariedLayerFrom } from '../utils/layerVariation.js';
+import { DEFAULT_LAYER } from '../constants/defaults.js';
 
 /**
  * useTimelineModulation - Applies timeline track values to the modulation store
@@ -23,6 +25,7 @@ export function useTimelineModulation({
   setGlobalSpeedMultiplier,
   setGlobalOpacity,
   setBackgroundColor,
+  setLayers,
 }) {
   const timeline = useTimeline();
   
@@ -174,6 +177,30 @@ export function useTimelineModulation({
           case 'globalSpeedMultiplier':
             if (setGlobalSpeedMultiplier) setGlobalSpeedMultiplier(value);
             break;
+          case 'layersCount': {
+            if (typeof setLayers === 'function') {
+              const target = Math.max(1, Math.min(20, Math.round(value)));
+              setLayers(prev => {
+                if (!Array.isArray(prev)) return prev;
+                if (prev.length === target) return prev;
+                if (prev.length > target) {
+                  return prev.slice(0, target);
+                }
+                // grow by cloning last layer
+                const next = [...prev];
+                const template = prev[prev.length - 1] || {};
+                while (next.length < target) {
+                  next.push({
+                    ...template,
+                    id: `${template.id || 'layer'}-${Date.now()}-${next.length}`,
+                    name: template.name ? `${template.name} ${next.length}` : `Layer ${next.length + 1}`,
+                  });
+                }
+                return next;
+              });
+            }
+            break;
+          }
           case 'globalOpacity':
             // Apply opacity to all layers via modulation store
             if (Array.isArray(layersRef.current)) {
@@ -184,6 +211,81 @@ export function useTimelineModulation({
               });
             }
             break;
+          case 'variationPosition':
+          case 'variationShape':
+          case 'variationAnim':
+          case 'variationColor':
+          case 'variationScale': {
+            // Variation parameters require rebuilding layers, not just setting values
+            // This mirrors the logic in GlobalControls.applyVariationValue
+            if (typeof setLayers === 'function') {
+              const prop = parsed.paramId;
+              const categoryMap = {
+                variationPosition: ['position'],
+                variationShape: ['shape'],
+                variationAnim: ['anim'],
+                variationColor: ['color'],
+                variationScale: ['scale'],
+              };
+              const affectCategories = categoryMap[prop] || null;
+              
+              setLayers(prev => {
+                if (!Array.isArray(prev) || prev.length <= 1) return prev;
+                
+                // Update the variation value on all layers
+                const updated = prev.map(layer => ({
+                  ...layer,
+                  [prop]: value,
+                }));
+                
+                const firstLayer = updated[0];
+                const baseVar = {
+                  shape: Number(firstLayer?.variationShape ?? DEFAULT_LAYER.variationShape),
+                  anim: Number(firstLayer?.variationAnim ?? DEFAULT_LAYER.variationAnim),
+                  color: Number(firstLayer?.variationColor ?? DEFAULT_LAYER.variationColor),
+                  position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
+                  scale: Number(firstLayer?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0),
+                };
+                
+                // Rebuild layers with new variation
+                const rebuilt = [firstLayer];
+                let prevLayer = firstLayer;
+                
+                for (let i = 1; i < updated.length; i++) {
+                  const original = updated[i];
+                  const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
+                    affectCategories,
+                    preserveSeeds: true,
+                  }) || original;
+                  
+                  const merged = {
+                    ...original,
+                    ...varied,
+                    id: original.id ?? varied.id,
+                    name: original.name || varied.name,
+                  };
+                  
+                  // Preserve fields not in the affected category
+                  const categorySet = affectCategories ? new Set(affectCategories) : null;
+                  if (categorySet) {
+                    if (!categorySet.has('color') && Array.isArray(original.colors)) {
+                      merged.colors = [...original.colors];
+                      merged.numColors = original.numColors;
+                    }
+                    if (!categorySet.has('position') && !categorySet.has('scale') && original.position) {
+                      merged.position = { ...original.position };
+                    }
+                  }
+                  
+                  rebuilt.push(merged);
+                  prevLayer = merged;
+                }
+                
+                return rebuilt;
+              });
+            }
+            break;
+          }
           // Add more global parameters as needed
           default:
             // For unknown global params, try to apply via modulation store
@@ -199,6 +301,7 @@ export function useTimelineModulation({
     parseTargetId,
     clearOtherMappings,
     setGlobalSpeedMultiplier,
+    setLayers,
   ]);
 
   // Reset cleared targets when tracks change
