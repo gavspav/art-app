@@ -8,8 +8,45 @@ import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
  * - Draggable nodes on a curve
  * - Beat division lines (1/4, 2/4, 3/4, 4/4)
  * - Preset curves (ADSR, LFO, Saw, etc.)
- * - Right-click context menu for curve generation
+ * - Per-segment curve types (linear, easeIn, easeOut, etc.)
+ * - Right-click context menu for segment curve type selection
  */
+
+// Available curve types for segments
+export const CURVE_TYPES = {
+  linear: { name: 'Linear', icon: '/' },
+  easeIn: { name: 'Ease In', icon: '⌒' },
+  easeOut: { name: 'Ease Out', icon: '⌓' },
+  easeInOut: { name: 'Ease In-Out', icon: '∿' },
+  step: { name: 'Step (Mid)', icon: '⌐' },
+  stepStart: { name: 'Step (Start)', icon: '⌐' },
+  stepEnd: { name: 'Step (End)', icon: '⌐' },
+};
+
+// Easing functions for curve interpolation
+// tension: 0 = very gentle, 0.5 = default, 1 = very steep
+const easingFunctions = {
+  linear: (t, tension = 0.5) => t,
+  easeIn: (t, tension = 0.5) => {
+    const exp = 1 + tension * 3; // 1 to 4
+    return Math.pow(t, exp);
+  },
+  easeOut: (t, tension = 0.5) => {
+    const exp = 1 + tension * 3; // 1 to 4
+    return 1 - Math.pow(1 - t, exp);
+  },
+  easeInOut: (t, tension = 0.5) => {
+    const exp = 1 + tension * 3; // 1 to 4
+    if (t < 0.5) {
+      return Math.pow(2, exp - 1) * Math.pow(t, exp);
+    } else {
+      return 1 - Math.pow(-2 * t + 2, exp) / 2;
+    }
+  },
+  step: (t, tension = 0.5) => t < tension ? 0 : 1, // tension controls step position
+  stepStart: (t) => t <= 0 ? 0 : 1,
+  stepEnd: (t) => t >= 1 ? 1 : 0,
+};
 
 // Preset envelope curves
 export const ENVELOPE_PRESETS = {
@@ -23,28 +60,26 @@ export const ENVELOPE_PRESETS = {
   easyEase: {
     name: 'Easy Ease',
     nodes: [
-      { x: 0, y: 0 },
-      { x: 0.25, y: 0.1 },
-      { x: 0.75, y: 0.9 },
+      { x: 0, y: 0, curve: 'easeInOut' },
       { x: 1, y: 1 },
     ],
   },
   adsr: {
     name: 'ADSR',
     nodes: [
-      { x: 0, y: 0 },
-      { x: 0.1, y: 1 },
-      { x: 0.3, y: 0.7 },
-      { x: 0.8, y: 0.7 },
+      { x: 0, y: 0, curve: 'easeOut' },
+      { x: 0.1, y: 1, curve: 'easeIn' },
+      { x: 0.3, y: 0.7, curve: 'linear' },
+      { x: 0.8, y: 0.7, curve: 'easeIn' },
       { x: 1, y: 0 },
     ],
   },
   asr: {
     name: 'ASR',
     nodes: [
-      { x: 0, y: 0 },
-      { x: 0.2, y: 1 },
-      { x: 0.8, y: 1 },
+      { x: 0, y: 0, curve: 'easeOut' },
+      { x: 0.2, y: 1, curve: 'linear' },
+      { x: 0.8, y: 1, curve: 'easeIn' },
       { x: 1, y: 0 },
     ],
   },
@@ -73,10 +108,8 @@ export const ENVELOPE_PRESETS = {
   square: {
     name: 'Square',
     nodes: [
-      { x: 0, y: 0 },
-      { x: 0, y: 1 },
-      { x: 0.5, y: 1 },
-      { x: 0.5, y: 0 },
+      { x: 0, y: 0, curve: 'stepStart' },
+      { x: 0.5, y: 1, curve: 'stepStart' },
       { x: 1, y: 0 },
     ],
   },
@@ -194,7 +227,7 @@ export const DEFAULT_ENVELOPE = {
 
 /**
  * Evaluate envelope at a given x position (0-1)
- * Uses linear interpolation between nodes
+ * Supports per-segment curve types for different interpolation styles
  */
 export const evaluateEnvelope = (envelope, x) => {
   if (!envelope?.nodes || envelope.nodes.length === 0) return x;
@@ -208,11 +241,13 @@ export const evaluateEnvelope = (envelope, x) => {
   // Find the two nodes to interpolate between
   let left = nodes[0];
   let right = nodes[nodes.length - 1];
+  let leftIndex = 0;
   
   for (let i = 0; i < nodes.length - 1; i++) {
     if (x >= nodes[i].x && x <= nodes[i + 1].x) {
       left = nodes[i];
       right = nodes[i + 1];
+      leftIndex = i;
       break;
     }
   }
@@ -221,9 +256,32 @@ export const evaluateEnvelope = (envelope, x) => {
   if (x <= left.x) return left.y;
   if (x >= right.x) return right.y;
   
-  // Linear interpolation
+  // Get curve type and tension for this segment (stored on left node)
+  const curveType = left.curve || 'linear';
+  const tension = left.tension !== undefined ? left.tension : 0.5;
+  const easingFn = easingFunctions[curveType] || easingFunctions.linear;
+  
+  // Calculate normalized position within segment (0-1)
   const t = (x - left.x) / (right.x - left.x);
-  return left.y + t * (right.y - left.y);
+  
+  // Apply easing function with tension and interpolate
+  const easedT = easingFn(t, tension);
+  return left.y + easedT * (right.y - left.y);
+};
+
+/**
+ * Find which segment index contains the given x position
+ */
+export const findSegmentAtX = (nodes, x) => {
+  if (!nodes || nodes.length < 2) return -1;
+  x = Math.max(0, Math.min(1, x));
+  
+  for (let i = 0; i < nodes.length - 1; i++) {
+    if (x >= nodes[i].x && x <= nodes[i + 1].x) {
+      return i;
+    }
+  }
+  return nodes.length - 2; // Last segment
 };
 
 /**
@@ -262,9 +320,13 @@ const BPMEnvelopeEditor = ({
   // Use container width or explicit width
   const effectiveWidth = typeof width === 'number' ? width : containerWidth;
   const [draggingNode, setDraggingNode] = useState(null);
+  const [draggingSegment, setDraggingSegment] = useState(null); // For dragging curve tension
+  const [dragStartY, setDragStartY] = useState(null); // Y position when drag started
   const [showContextMenu, setShowContextMenu] = useState(false);
+  const [showCurveMenu, setShowCurveMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
   const [showPresets, setShowPresets] = useState(false);
+  const [selectedSegment, setSelectedSegment] = useState(null); // Index of segment for curve type editing
   
   const [localEnvelope, setLocalEnvelope] = useState(envelope || DEFAULT_ENVELOPE);
   // Keep local envelope in sync with external changes
@@ -281,6 +343,12 @@ const BPMEnvelopeEditor = ({
   const innerWidth = Math.max(1, effectiveWidth - padding.left - padding.right);
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   
+  // Find segment at SVG coordinates
+  const findSegmentAtSvgX = useCallback((svgX) => {
+    const nodeX = (svgX - padding.left) / innerWidth;
+    return findSegmentAtX(nodes, nodeX);
+  }, [nodes, padding.left, innerWidth]);
+  
   // Convert node coordinates to SVG coordinates
   const nodeToSvg = useCallback((node) => ({
     x: padding.left + node.x * innerWidth,
@@ -293,13 +361,63 @@ const BPMEnvelopeEditor = ({
     y: Math.max(0, Math.min(1, 1 - (svgY - padding.top) / innerHeight)),
   }), [innerWidth, innerHeight, padding]);
   
-  // Generate path for the curve
+  // Generate path for the curve with per-segment curve types
   const pathD = useMemo(() => {
     if (nodes.length === 0) return '';
     const pts = nodes.map(nodeToSvg);
     let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      d += ` L ${pts[i].x} ${pts[i].y}`;
+    
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const curveType = nodes[i].curve || 'linear';
+      const tension = nodes[i].tension !== undefined ? nodes[i].tension : 0.5;
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      
+      if (curveType === 'linear') {
+        d += ` L ${p1.x} ${p1.y}`;
+      } else if (curveType === 'step') {
+        // Step position controlled by tension (0-1)
+        const stepX = p0.x + (p1.x - p0.x) * tension;
+        d += ` L ${stepX} ${p0.y} L ${stepX} ${p1.y} L ${p1.x} ${p1.y}`;
+      } else if (curveType === 'stepStart') {
+        // Immediate step at start
+        d += ` L ${p0.x} ${p1.y} L ${p1.x} ${p1.y}`;
+      } else if (curveType === 'stepEnd') {
+        // Step at end
+        d += ` L ${p1.x} ${p0.y} L ${p1.x} ${p1.y}`;
+      } else {
+        // Bezier curves for easing - tension affects control point positions
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        // tension 0 = gentle curve, 0.5 = default, 1 = steep curve
+        const cpOffset = 0.1 + tension * 0.8; // 0.1 to 0.9
+        let cp1x, cp1y, cp2x, cp2y;
+        
+        if (curveType === 'easeIn') {
+          // Control points for ease-in (slow start)
+          cp1x = p0.x + dx * cpOffset;
+          cp1y = p0.y;
+          cp2x = p0.x + dx * 1.0;
+          cp2y = p1.y;
+        } else if (curveType === 'easeOut') {
+          // Control points for ease-out (slow end)
+          cp1x = p0.x;
+          cp1y = p1.y;
+          cp2x = p0.x + dx * (1 - cpOffset);
+          cp2y = p1.y;
+        } else if (curveType === 'easeInOut') {
+          // Control points for ease-in-out (S-curve)
+          cp1x = p0.x + dx * cpOffset;
+          cp1y = p0.y;
+          cp2x = p0.x + dx * (1 - cpOffset);
+          cp2y = p1.y;
+        } else {
+          // Fallback to linear
+          d += ` L ${p1.x} ${p1.y}`;
+          continue;
+        }
+        d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`;
+      }
     }
     return d;
   }, [nodes, nodeToSvg]);
@@ -365,7 +483,7 @@ const BPMEnvelopeEditor = ({
     setAddNodeMode(false);
   };
   
-  // Handle mouse move
+  // Handle mouse move for node dragging
   const handleMouseMove = useCallback((e) => {
     if (draggingNode === null) return;
     
@@ -384,15 +502,15 @@ const BPMEnvelopeEditor = ({
     
     // First and last nodes are locked to x=0 and x=1
     if (isFirst) {
-      newNodes[draggingNode] = { x: 0, y: newPos.y };
+      newNodes[draggingNode] = { ...nodes[draggingNode], x: 0, y: newPos.y };
     } else if (isLast) {
-      newNodes[draggingNode] = { x: 1, y: newPos.y };
+      newNodes[draggingNode] = { ...nodes[draggingNode], x: 1, y: newPos.y };
     } else {
       // Clamp x between neighbors
       const prevX = nodes[draggingNode - 1].x;
       const nextX = nodes[draggingNode + 1].x;
       const clampedX = Math.max(prevX + 0.01, Math.min(nextX - 0.01, newPos.x));
-      newNodes[draggingNode] = { x: clampedX, y: newPos.y };
+      newNodes[draggingNode] = { ...nodes[draggingNode], x: clampedX, y: newPos.y };
     }
     
     const next = { ...localEnvelope, nodes: newNodes, preset: null };
@@ -400,12 +518,73 @@ const BPMEnvelopeEditor = ({
     onChange?.(next);
   }, [draggingNode, nodes, svgToNode, onChange, localEnvelope]);
   
+  // Handle mouse move for segment tension dragging
+  const handleSegmentMouseMove = useCallback((e) => {
+    if (draggingSegment === null || dragStartY === null) return;
+    
+    const svg = svgRef.current;
+    if (!svg) return;
+    
+    const rect = svg.getBoundingClientRect();
+    const currentY = e.clientY - rect.top;
+    
+    // Calculate tension change based on vertical drag
+    // Dragging up = more tension (steeper), dragging down = less tension (gentler)
+    const deltaY = dragStartY - currentY;
+    const tensionChange = deltaY / innerHeight; // Normalize by height
+    
+    const currentTension = nodes[draggingSegment].tension !== undefined ? nodes[draggingSegment].tension : 0.5;
+    const newTension = Math.max(0, Math.min(1, currentTension + tensionChange * 2));
+    
+    // Update the node's tension
+    const newNodes = nodes.map((node, i) => {
+      if (i === draggingSegment) {
+        return { ...node, tension: newTension };
+      }
+      return { ...node };
+    });
+    
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+    
+    // Update drag start for continuous dragging
+    setDragStartY(currentY);
+  }, [draggingSegment, dragStartY, nodes, innerHeight, onChange, localEnvelope]);
+  
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
     setDraggingNode(null);
+    setDraggingSegment(null);
+    setDragStartY(null);
   }, []);
   
-  // Add global mouse listeners when dragging
+  // Start dragging segment tension (called on mousedown on curve)
+  const handleCurveMouseDown = useCallback((e) => {
+    // Don't start segment drag if we're in add mode or clicking a node
+    if (addNodeMode) return;
+    
+    const svg = svgRef.current;
+    if (!svg) return;
+    
+    const rect = svg.getBoundingClientRect();
+    const svgX = e.clientX - rect.left;
+    const svgY = e.clientY - rect.top;
+    
+    const segmentIndex = findSegmentAtSvgX(svgX);
+    const curveType = nodes[segmentIndex]?.curve || 'linear';
+    
+    // Only allow tension dragging for non-linear curves
+    if (curveType !== 'linear' && curveType !== 'stepStart' && curveType !== 'stepEnd') {
+      e.preventDefault();
+      e.stopPropagation();
+      setDraggingSegment(segmentIndex);
+      setDragStartY(svgY);
+      setSelectedSegment(segmentIndex);
+    }
+  }, [addNodeMode, findSegmentAtSvgX, nodes]);
+  
+  // Add global mouse listeners when dragging node
   useEffect(() => {
     if (draggingNode !== null) {
       window.addEventListener('mousemove', handleMouseMove);
@@ -416,6 +595,18 @@ const BPMEnvelopeEditor = ({
       };
     }
   }, [draggingNode, handleMouseMove, handleMouseUp]);
+  
+  // Add global mouse listeners when dragging segment tension
+  useEffect(() => {
+    if (draggingSegment !== null) {
+      window.addEventListener('mousemove', handleSegmentMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleSegmentMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [draggingSegment, handleSegmentMouseMove, handleMouseUp]);
   
   // Handle double-click to add node
   const handleDoubleClick = (e) => {
@@ -461,14 +652,29 @@ const BPMEnvelopeEditor = ({
     setSelectedNode(null);
   };
 
-  // Handle right-click for context menu
+  // Handle right-click on SVG background for curve type menu
   const handleContextMenu = (e) => {
     e.preventDefault();
-    setContextMenuPos({ x: e.clientX, y: e.clientY });
-    setShowContextMenu(true);
+    
+    // Get SVG-relative coordinates
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const svgX = e.clientX - rect.left;
+    
+    // Find which segment was clicked
+    const segmentIndex = findSegmentAtSvgX(svgX);
+    console.debug('[Envelope] curve context menu', { segmentIndex, svgX });
+    
+    if (segmentIndex >= 0) {
+      setSelectedSegment(segmentIndex);
+      setContextMenuPos({ x: e.clientX, y: e.clientY });
+      setShowCurveMenu(true);
+      setShowContextMenu(false);
+    }
   };
   
-  // Handle node right-click to show menu
+  // Handle node right-click to show node menu
   const handleNodeContextMenu = (e, index) => {
     e.preventDefault();
     e.stopPropagation();
@@ -477,6 +683,26 @@ const BPMEnvelopeEditor = ({
     setSelectedNode(index);
     setContextMenuPos({ x: e.clientX, y: e.clientY });
     setShowContextMenu(true);
+    setShowCurveMenu(false);
+  };
+  
+  // Apply curve type to selected segment
+  const applySegmentCurveType = (curveType) => {
+    if (selectedSegment === null || selectedSegment < 0) return;
+    console.debug('[Envelope] apply curve type', { selectedSegment, curveType });
+    
+    const newNodes = nodes.map((node, i) => {
+      if (i === selectedSegment) {
+        return { ...node, curve: curveType };
+      }
+      return { ...node };
+    });
+    
+    const next = { ...localEnvelope, nodes: newNodes, preset: null };
+    setLocalEnvelope(next);
+    onChange?.(next);
+    setShowCurveMenu(false);
+    setSelectedSegment(null);
   };
   
   // Apply preset
@@ -497,7 +723,7 @@ const BPMEnvelopeEditor = ({
   
   // Close context menu on click outside - use a longer delay to allow menu clicks to register
   useEffect(() => {
-    if (!showContextMenu && !showPresets) return;
+    if (!showContextMenu && !showPresets && !showCurveMenu) return;
 
     const handleClick = (e) => {
       // Check if click is inside menu or on preset button
@@ -513,6 +739,8 @@ const BPMEnvelopeEditor = ({
       console.debug('[Envelope] click outside menu, closing');
       setShowContextMenu(false);
       setShowPresets(false);
+      setShowCurveMenu(false);
+      setSelectedSegment(null);
     };
 
     // Delay adding listener to avoid immediate close
@@ -524,7 +752,7 @@ const BPMEnvelopeEditor = ({
       clearTimeout(timerId);
       document.removeEventListener('mousedown', handleClick);
     };
-  }, [showContextMenu, showPresets]);
+  }, [showContextMenu, showPresets, showCurveMenu]);
   
   // Beat division lines
   const beatLines = useMemo(() => {
@@ -556,7 +784,7 @@ const BPMEnvelopeEditor = ({
         style={{ 
           background: 'rgba(0,0,0,0.5)', 
           borderRadius: 8,
-          cursor: addNodeMode ? 'copy' : (draggingNode !== null ? 'grabbing' : 'default'),
+          cursor: addNodeMode ? 'copy' : (draggingNode !== null ? 'grabbing' : (draggingSegment !== null ? 'ns-resize' : 'default')),
           display: 'block',
           border: addNodeMode ? '2px solid #4fc3f7' : '1px solid rgba(255,255,255,0.1)',
         }}
@@ -595,7 +823,41 @@ const BPMEnvelopeEditor = ({
           </text>
         ))}
         
-        {/* Curve path - ignore clicks */}
+        {/* Segment highlight when selecting curve type */}
+        {selectedSegment !== null && nodes.length > selectedSegment + 1 && (() => {
+          const p0 = nodeToSvg(nodes[selectedSegment]);
+          const p1 = nodeToSvg(nodes[selectedSegment + 1]);
+          return (
+            <line
+              x1={p0.x}
+              y1={p0.y}
+              x2={p1.x}
+              y2={p1.y}
+              stroke="#ff5722"
+              strokeWidth="6"
+              strokeLinecap="round"
+              opacity="0.5"
+              style={{ pointerEvents: 'none' }}
+            />
+          );
+        })()}
+        
+        {/* Invisible wider path for dragging curve tension */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="transparent"
+          strokeWidth="16"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ 
+            pointerEvents: 'stroke', 
+            cursor: draggingSegment !== null ? 'ns-resize' : 'pointer',
+          }}
+          onMouseDown={handleCurveMouseDown}
+        />
+        
+        {/* Visible curve path */}
         <path
           d={pathD}
           fill="none"
@@ -629,7 +891,7 @@ const BPMEnvelopeEditor = ({
             {/* Playhead dot on curve */}
             <circle
               cx={padding.left + playheadPosition * innerWidth}
-              cy={padding.top + (1 - evaluateEnvelope(envelope, playheadPosition)) * innerHeight}
+              cy={padding.top + (1 - evaluateEnvelope(localEnvelope, playheadPosition)) * innerHeight}
               r={5}
               fill="#ff5722"
               stroke="#fff"
@@ -774,7 +1036,7 @@ const BPMEnvelopeEditor = ({
         </div>
       )}
       
-      {/* Context menu */}
+      {/* Node context menu (right-click on node) */}
       {showContextMenu && (
         <div
           className="bpm-context-menu"
@@ -794,32 +1056,7 @@ const BPMEnvelopeEditor = ({
           <div
             style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6, borderBottom: '1px solid rgba(255,255,255,0.1)' }}
           >
-            Presets
-          </div>
-          {Object.entries(ENVELOPE_PRESETS).slice(0, 8).map(([key, preset]) => (
-            <div
-              key={key}
-              style={{
-                padding: '4px 8px',
-                cursor: 'pointer',
-                fontSize: '0.7rem',
-              }}
-              onClick={() => applyPreset(key)}
-              onMouseEnter={(e) => e.target.style.background = 'rgba(255,255,255,0.1)'}
-              onMouseLeave={(e) => e.target.style.background = 'transparent'}
-            >
-              {preset.name}
-            </div>
-          ))}
-          <div
-            style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6, borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 4 }}
-          >
-            Double-click to add/delete node
-          </div>
-          <div
-            style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6 }}
-          >
-            Right-click for menu
+            Node Options
           </div>
           {selectedNode !== null && selectedNode !== 0 && selectedNode !== nodes.length - 1 && (
              <div
@@ -828,8 +1065,6 @@ const BPMEnvelopeEditor = ({
                 fontSize: '0.7rem', 
                 cursor: 'pointer',
                 color: '#ff5722',
-                borderTop: '1px solid rgba(255,255,255,0.1)', 
-                marginTop: 4 
               }}
               onClick={() => {
                 deleteSelectedNode();
@@ -838,9 +1073,77 @@ const BPMEnvelopeEditor = ({
               onMouseEnter={(e) => e.target.style.background = 'rgba(244, 67, 54, 0.2)'}
               onMouseLeave={(e) => e.target.style.background = 'transparent'}
             >
-              Delete Selected Node
+              Delete Node
             </div>
           )}
+          <div
+            style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6, borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 4 }}
+          >
+            Tip: Double-click to add/delete
+          </div>
+        </div>
+      )}
+      
+      {/* Curve type context menu (right-click on curve/background) */}
+      {showCurveMenu && selectedSegment !== null && (
+        <div
+          className="bpm-context-menu"
+          style={{
+            position: 'fixed',
+            left: contextMenuPos.x,
+            top: contextMenuPos.y,
+            background: 'rgba(30, 30, 40, 0.98)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 4,
+            padding: '4px 0',
+            zIndex: 1001,
+            minWidth: 140,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{ padding: '4px 8px', fontSize: '0.7rem', opacity: 0.6, borderBottom: '1px solid rgba(255,255,255,0.1)' }}
+          >
+            Segment {selectedSegment + 1} Curve Type
+          </div>
+          {Object.entries(CURVE_TYPES).map(([key, curveInfo]) => {
+            const currentCurve = nodes[selectedSegment]?.curve || 'linear';
+            const isSelected = currentCurve === key;
+            return (
+              <div
+                key={key}
+                style={{
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  fontSize: '0.7rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: isSelected ? 'rgba(79, 195, 247, 0.3)' : 'transparent',
+                }}
+                onClick={() => applySegmentCurveType(key)}
+                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? 'rgba(79, 195, 247, 0.3)' : 'transparent'; }}
+              >
+                <span style={{ width: '14px', textAlign: 'center' }}>{curveInfo.icon}</span>
+                <span>{curveInfo.name}</span>
+                {isSelected && <span style={{ marginLeft: 'auto', opacity: 0.6 }}>✓</span>}
+              </div>
+            );
+          })}
+          {/* Tension indicator and tip */}
+          {(() => {
+            const curveType = nodes[selectedSegment]?.curve || 'linear';
+            const tension = nodes[selectedSegment]?.tension !== undefined ? nodes[selectedSegment].tension : 0.5;
+            const canAdjustTension = curveType !== 'linear' && curveType !== 'stepStart' && curveType !== 'stepEnd';
+            if (!canAdjustTension) return null;
+            return (
+              <div style={{ padding: '4px 8px', fontSize: '0.65rem', opacity: 0.6, borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 4 }}>
+                <div>Tension: {Math.round(tension * 100)}%</div>
+                <div style={{ marginTop: 2 }}>Drag curve up/down to adjust</div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
