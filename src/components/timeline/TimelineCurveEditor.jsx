@@ -28,7 +28,7 @@ const TimelineCurveEditor = ({
 }) => {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
-  const [containerWidth, setContainerWidth] = useState(800);
+  const [containerWidth, setContainerWidth] = useState(timelineWidth || 800);
   const [draggingKeyframe, setDraggingKeyframe] = useState(null);
   const [selectedKeyframe, setSelectedKeyframe] = useState(null);
   const [showCurveMenu, setShowCurveMenu] = useState(false);
@@ -42,23 +42,25 @@ const TimelineCurveEditor = ({
   const padding = { top: 8, right: 8, bottom: 8, left: 0 };
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
 
-  // Measure container
+  // Keep content width in sync with timeline width (fallback to measured container)
   useEffect(() => {
+    if (timelineWidth) {
+      setContainerWidth(timelineWidth);
+      return;
+    }
     const container = containerRef.current;
     if (!container) return;
-    
     const updateWidth = () => {
       const rect = container.getBoundingClientRect();
       if (rect.width > 0) {
         setContainerWidth(rect.width);
       }
     };
-    
     updateWidth();
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
-  }, []);
+  }, [timelineWidth]);
 
   // Convert keyframe to SVG coordinates
   const keyframeToSvg = useCallback((kf) => ({
@@ -271,7 +273,7 @@ const TimelineCurveEditor = ({
       <div
         ref={containerRef}
         style={{
-          width: '100%',
+          width: timelineWidth ? `${timelineWidth}px` : '100%',
           height,
           background: 'rgba(0, 0, 0, 0.2)',
           position: 'relative',

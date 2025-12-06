@@ -21,7 +21,9 @@ const TimelinePanel = ({
   const timeline = useTimeline();
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
-  
+  const fileInputRef = useRef(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [showWaveform, setShowWaveform] = useState(true);
   const {
     session,
     tracks,
@@ -222,7 +224,12 @@ const TimelinePanel = ({
   if (!visible) return null;
 
   // Playhead X in timeline coordinates (no scroll), and screen X for overlays
-  const playheadXTimeline = positionSeconds * pixelsPerSecond;
+  const playheadXTimeline = (positionSeconds * pixelsPerSecond) - scrollLeft;
+  const contentWidth = useMemo(() => {
+    const base = lengthSeconds * pixelsPerSecond;
+    return Math.max(timelineWidth || 0, base, 800);
+  }, [timelineWidth, lengthSeconds, pixelsPerSecond]);
+  const WAVEFORM_HEIGHT = 80;
   const playheadXScreen = playheadXTimeline - scrollLeft;
 
   return (
@@ -269,154 +276,197 @@ const TimelinePanel = ({
         className="timeline-tracks-container"
         style={{
           flex: 1,
-          overflow: 'auto',
+          overflowX: 'auto',
+          overflowY: 'auto',
           position: 'relative',
         }}
         onScroll={handleScroll}
       >
-        {/* Waveform row (acts like first track) */}
-        {audio && (
-          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.6)' }}>
-              Audio
+        <div style={{ minWidth: contentWidth + 200, width: contentWidth + 200 }}>
+          {/* Waveform row (acts like first track) */}
+          {audio && showWaveform && (
+            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'sticky', top: 0, zIndex: 12, background: 'rgba(20,20,30,0.98)' }}>
+              <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', position: 'sticky', left: 0, background: 'rgba(30,30,40,0.98)', zIndex: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowWaveform(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.7)',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    padding: '2px 4px',
+                  }}
+                  title="Hide waveform"
+                >
+                  ◀
+                </button>
+                Audio
+              </div>
+              <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ width: contentWidth, transform: `translateX(-${scrollLeft}px)`, willChange: 'transform' }}>
+                  <TimelineWaveform
+                    audio={audio}
+                    lengthSeconds={lengthSeconds}
+                    positionSeconds={positionSeconds}
+                    pixelsPerSecond={pixelsPerSecond}
+                    scrollLeft={scrollLeft}
+                    timelineWidth={contentWidth}
+                    onSeek={seekTo}
+                    loop={loop}
+                    height={WAVEFORM_HEIGHT}
+                  />
+                </div>
+              </div>
             </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <TimelineWaveform
-                audio={audio}
+          )}
+
+          {!showWaveform && audio && (
+            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'sticky', top: 0, zIndex: 12, background: 'rgba(20,20,30,0.98)' }}>
+              <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', position: 'sticky', left: 0, background: 'rgba(30,30,40,0.98)', zIndex: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowWaveform(true)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.7)',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    padding: '2px 4px',
+                  }}
+                  title="Show waveform"
+                >
+                  ▶
+                </button>
+                Audio
+              </div>
+            </div>
+          )}
+
+          {/* Time ruler */}
+          <div
+            className="timeline-ruler"
+            style={{
+              position: 'sticky',
+              top: showWaveform && audio ? WAVEFORM_HEIGHT : 0,
+              left: 0,
+              height: 24,
+              background: 'rgba(30, 30, 40, 0.95)',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              zIndex: 10,
+              display: 'flex',
+            }}
+          >
+            {/* Track list header */}
+            <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}>
+              Tracks
+            </div>
+            {/* Time markers */}
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: contentWidth, width: contentWidth }}>
+              <svg
+                width={contentWidth}
+                height={24}
+                style={{ display: 'block', marginLeft: -scrollLeft }}
+              >
+                {/* Second markers */}
+                {Array.from({ length: Math.ceil(lengthSeconds) + 1 }, (_, i) => {
+                  const x = i * pixelsPerSecond;
+                  const isMinute = i % 60 === 0;
+                  const is10Sec = i % 10 === 0;
+                  return (
+                    <g key={i}>
+                      <line
+                        x1={x}
+                        y1={isMinute ? 0 : (is10Sec ? 8 : 14)}
+                        x2={x}
+                        y2={24}
+                        stroke={isMinute ? 'rgba(255,255,255,0.4)' : (is10Sec ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)')}
+                        strokeWidth={isMinute ? 2 : 1}
+                      />
+                      {(isMinute || is10Sec) && (
+                        <text
+                          x={x + 3}
+                          y={10}
+                          fill="rgba(255,255,255,0.5)"
+                          fontSize="9"
+                        >
+                          {formatTime(i)}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+                {/* Playhead (ruler) */}
+                <line
+                  x1={playheadXTimeline}
+                  y1={0}
+                  x2={playheadXTimeline}
+                  y2={24}
+                  stroke="#ff5722"
+                  strokeWidth={2}
+                />
+              </svg>
+            </div>
+          </div>
+
+          {/* Track rows */}
+          <div className="timeline-tracks" style={{ display: 'flex', flexDirection: 'column' }}>
+            {tracks?.map((track, index) => (
+              <TimelineTrackRow
+                key={track.id}
+                track={track}
+                index={index}
                 lengthSeconds={lengthSeconds}
                 positionSeconds={positionSeconds}
                 pixelsPerSecond={pixelsPerSecond}
                 scrollLeft={scrollLeft}
                 timelineWidth={timelineWidth}
+                layers={layers}
+                globalParameters={globalParameters}
+                layerParameters={layerParameters}
+                onUpdateTrack={(updates) => updateTrack(track.id, updates)}
+                onRemoveTrack={() => removeTrack(track.id)}
+                onAddKeyframe={(time, value, curve, tension) => addKeyframe(track.id, time, value, curve, tension)}
+                onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
+                onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
                 onSeek={seekTo}
-                loop={loop}
               />
+            ))}
+            
+            {/* Add track button */}
+            <div
+              style={{
+                display: 'flex',
+                padding: '8px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+              }}
+            >
+              <div style={{ width: 200, minWidth: 200 }}>
+                <button
+                  type="button"
+                  onClick={handleAddTrack}
+                  style={{
+                    background: 'rgba(79, 195, 247, 0.2)',
+                    border: '1px dashed rgba(79, 195, 247, 0.5)',
+                    borderRadius: 4,
+                    padding: '6px 12px',
+                    color: '#4fc3f7',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    width: '100%',
+                  }}
+                >
+                  + Add Track
+                </button>
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Time ruler */}
-        <div
-          className="timeline-ruler"
-          style={{
-            position: 'sticky',
-            top: 0,
-            left: 0,
-            height: 24,
-            background: 'rgba(30, 30, 40, 0.95)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            zIndex: 10,
-            display: 'flex',
-          }}
-        >
-          {/* Track list header */}
-          <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-            Tracks
-          </div>
-          {/* Time markers */}
-          <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-            <svg
-              width={timelineWidth}
-              height={24}
-              style={{ display: 'block', marginLeft: -scrollLeft }}
-            >
-              {/* Second markers */}
-              {Array.from({ length: Math.ceil(lengthSeconds) + 1 }, (_, i) => {
-                const x = i * pixelsPerSecond;
-                const isMinute = i % 60 === 0;
-                const is10Sec = i % 10 === 0;
-                return (
-                  <g key={i}>
-                    <line
-                      x1={x}
-                      y1={isMinute ? 0 : (is10Sec ? 8 : 14)}
-                      x2={x}
-                      y2={24}
-                      stroke={isMinute ? 'rgba(255,255,255,0.4)' : (is10Sec ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)')}
-                      strokeWidth={isMinute ? 2 : 1}
-                    />
-                    {(isMinute || is10Sec) && (
-                      <text
-                        x={x + 3}
-                        y={10}
-                        fill="rgba(255,255,255,0.5)"
-                        fontSize="9"
-                      >
-                        {formatTime(i)}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-              {/* Playhead (ruler) */}
-              <line
-                x1={playheadXTimeline}
-                y1={0}
-                x2={playheadXTimeline}
-                y2={24}
-                stroke="#ff5722"
-                strokeWidth={2}
-              />
-            </svg>
-          </div>
-        </div>
-
-        {/* Track rows */}
-        <div className="timeline-tracks" style={{ display: 'flex', flexDirection: 'column' }}>
-          {tracks?.map((track, index) => (
-            <TimelineTrackRow
-              key={track.id}
-              track={track}
-              index={index}
-              lengthSeconds={lengthSeconds}
-              positionSeconds={positionSeconds}
-              pixelsPerSecond={pixelsPerSecond}
-              scrollLeft={scrollLeft}
-              timelineWidth={timelineWidth}
-              layers={layers}
-              globalParameters={globalParameters}
-              layerParameters={layerParameters}
-              onUpdateTrack={(updates) => updateTrack(track.id, updates)}
-              onRemoveTrack={() => removeTrack(track.id)}
-              onAddKeyframe={(time, value, curve, tension) => addKeyframe(track.id, time, value, curve, tension)}
-              onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
-              onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
-              onSeek={seekTo}
-            />
-          ))}
-          
-          {/* Add track button */}
+          {/* Single playhead overlay spanning waveform, ruler, tracks */}
           <div
             style={{
-              display: 'flex',
-              padding: '8px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-            }}
-          >
-            <div style={{ width: 200, minWidth: 200 }}>
-              <button
-                type="button"
-                onClick={handleAddTrack}
-                style={{
-                  background: 'rgba(79, 195, 247, 0.2)',
-                  border: '1px dashed rgba(79, 195, 247, 0.5)',
-                  borderRadius: 4,
-                  padding: '6px 12px',
-                  color: '#4fc3f7',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  width: '100%',
-                }}
-              >
-                + Add Track
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Single playhead overlay spanning waveform, ruler, tracks */}
-        <div
-          style={{
             position: 'absolute',
             top: 0,
             left: 200 - scrollLeft + playheadXTimeline,
@@ -426,7 +476,8 @@ const TimelinePanel = ({
             pointerEvents: 'none',
             zIndex: 5,
           }}
-        />
+          />
+        </div>
       </div>
     </div>
   );

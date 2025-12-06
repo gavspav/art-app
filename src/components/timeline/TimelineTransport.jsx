@@ -42,7 +42,7 @@ const TimelineTransport = ({
     const dx = e.clientX - zoomStartRef.current.x;
     // 100px drag = 2x zoom change
     const factor = Math.pow(2, dx / 100);
-    const newZoom = Math.max(0.1, Math.min(10, zoomStartRef.current.zoom * factor));
+    const newZoom = Math.max(0.1, Math.min(4000, zoomStartRef.current.zoom * factor));
     onZoomChange?.(newZoom);
   }, [isDraggingZoom, onZoomChange]);
 

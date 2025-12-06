@@ -11,6 +11,7 @@ const TimelineWaveform = ({
   lengthSeconds,
   positionSeconds,
   pixelsPerSecond,
+  scrollLeft = 0,
   onSeek,
   loop,
   height = 80,
@@ -23,26 +24,37 @@ const TimelineWaveform = ({
   // Draw waveform
   useEffect(() => {
     const canvas = canvasRef.current;
+    const container = containerRef.current;
     if (!canvas || !audio?.peaks) return;
 
     const ctx = canvas.getContext('2d');
-    const { width, height } = canvas;
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const targetCssWidth = timelineWidth || container?.clientWidth || 800;
+    const renderWidth = Math.max(1, targetCssWidth);
+    const renderHeight = height;
+
+    // Size the backing buffer using DPR; CSS width stays timelineWidth for correct scroll sizing
+    canvas.width = renderWidth * dpr;
+    canvas.height = renderHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const widthScale = (timelineWidth || renderWidth) / renderWidth;
     const peaks = audio.peaks;
     const audioDuration = audio.durationSeconds || lengthSeconds;
 
     // Clear canvas
     ctx.fillStyle = 'rgba(20, 20, 30, 1)';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, renderWidth, renderHeight);
 
     // Draw grid lines (every second)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
     for (let t = 0; t <= lengthSeconds; t++) {
-      const x = t * pixelsPerSecond;
-      if (x >= 0 && x <= width) {
+      const x = (t * pixelsPerSecond) / widthScale;
+      if (x >= 0 && x <= renderWidth) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.lineTo(x, renderHeight);
         ctx.stroke();
       }
     }
@@ -52,47 +64,47 @@ const TimelineWaveform = ({
       const loopStartX = loop.startSeconds * pixelsPerSecond;
       const loopEndX = loop.endSeconds * pixelsPerSecond;
       ctx.fillStyle = 'rgba(79, 195, 247, 0.1)';
-      ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, height);
+      ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, renderHeight);
       
       // Loop markers
       ctx.strokeStyle = 'rgba(79, 195, 247, 0.5)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(loopStartX, 0);
-      ctx.lineTo(loopStartX, height);
+      ctx.lineTo(loopStartX, renderHeight);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(loopEndX, 0);
-      ctx.lineTo(loopEndX, height);
+      ctx.lineTo(loopEndX, renderHeight);
       ctx.stroke();
     }
 
     // Draw waveform
     const peaksPerPixel = peaks.length / (audioDuration * pixelsPerSecond);
-    const centerY = height / 2;
+    const centerY = renderHeight / 2;
 
     ctx.fillStyle = 'rgba(79, 195, 247, 0.6)';
     ctx.beginPath();
     ctx.moveTo(0, centerY);
 
-    for (let x = 0; x < width; x++) {
-      const time = x / pixelsPerSecond;
+    for (let x = 0; x < renderWidth; x++) {
+      const time = (x * widthScale) / pixelsPerSecond;
       if (time > audioDuration) break;
 
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
       const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
-      const y = centerY - peak * (height / 2 - 4);
+      const y = centerY - peak * (renderHeight / 2 - 4);
       ctx.lineTo(x, y);
     }
 
     // Mirror for bottom half
-    for (let x = width - 1; x >= 0; x--) {
-      const time = x / pixelsPerSecond;
+    for (let x = renderWidth - 1; x >= 0; x--) {
+      const time = (x * widthScale) / pixelsPerSecond;
       if (time > audioDuration) continue;
 
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
       const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
-      const y = centerY + peak * (height / 2 - 4);
+      const y = centerY + peak * (renderHeight / 2 - 4);
       ctx.lineTo(x, y);
     }
 
@@ -104,11 +116,11 @@ const TimelineWaveform = ({
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, centerY);
-    ctx.lineTo(width, centerY);
+    ctx.lineTo(renderWidth, centerY);
     ctx.stroke();
 
     // Playhead is drawn globally; omit here to avoid double lines
-  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height]);
+  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth]);
 
   // Handle click/drag to seek
   const handleMouseDown = useCallback((e) => {
@@ -116,20 +128,20 @@ const TimelineWaveform = ({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect || !onSeek) return;
 
-    const x = e.clientX - rect.left;
+    const x = e.clientX - rect.left + scrollLeft;
     const time = x / pixelsPerSecond;
     onSeek(Math.max(0, Math.min(lengthSeconds, time)));
-  }, [onSeek, pixelsPerSecond, lengthSeconds]);
+  }, [onSeek, pixelsPerSecond, lengthSeconds, scrollLeft]);
 
   const handleMouseMove = useCallback((e) => {
     if (!isDraggingRef.current) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect || !onSeek) return;
 
-    const x = e.clientX - rect.left;
+    const x = e.clientX - rect.left + (scrollLeft || 0);
     const time = x / pixelsPerSecond;
     onSeek(Math.max(0, Math.min(lengthSeconds, time)));
-  }, [onSeek, pixelsPerSecond, lengthSeconds]);
+  }, [onSeek, pixelsPerSecond, lengthSeconds, scrollLeft]);
 
   const handleMouseUp = useCallback(() => {
     isDraggingRef.current = false;
@@ -148,24 +160,6 @@ const TimelineWaveform = ({
     return container?.clientWidth || 800;
   }, [timelineWidth]);
 
-  // Update canvas size on resize
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas = canvasRef.current;
-    if (!container || !canvas) return;
-
-    const updateSize = () => {
-      const rect = container.getBoundingClientRect();
-      canvas.width = timelineWidth || rect.width;
-      canvas.height = height;
-    };
-
-    updateSize();
-    const resizeObserver = new ResizeObserver(updateSize);
-    resizeObserver.observe(container);
-    return () => resizeObserver.disconnect();
-  }, [height, timelineWidth]);
-
   if (!audio) return null;
 
   return (
@@ -173,7 +167,7 @@ const TimelineWaveform = ({
       ref={containerRef}
       className="timeline-waveform"
       style={{
-        width: '100%',
+        width: timelineWidth ? `${timelineWidth}px` : '100%',
         height,
         background: 'rgba(20, 20, 30, 1)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',

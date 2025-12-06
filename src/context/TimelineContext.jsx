@@ -478,7 +478,8 @@ export const TimelineProvider = ({ children }) => {
   }, []);
 
   const setZoom = useCallback((zoom) => {
-    setSettings(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(10, zoom)) }));
+    // Allow extreme close-ups; keep practical lower bound
+    setSettings(prev => ({ ...prev, zoom: Math.max(0.1, Math.min(4000, zoom)) }));
   }, []);
 
   const setScrollLeft = useCallback((scrollLeft) => {

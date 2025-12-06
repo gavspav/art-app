@@ -116,6 +116,10 @@ const TimelineTrackRow = ({
         style={{
           width: 200,
           minWidth: 200,
+          position: 'sticky',
+          left: 0,
+          zIndex: 6,
+          background: 'rgba(30, 30, 40, 0.95)',
           padding: '8px',
           borderRight: '1px solid rgba(255, 255, 255, 0.1)',
           display: 'flex',

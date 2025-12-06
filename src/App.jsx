@@ -303,6 +303,10 @@ const MainApp = () => {
       return saved ? parseFloat(saved) : 0.5;
     } catch { return 0.5; }
   });
+  const TOP_BAR_HEIGHT = 40;
+  const availableHeightExpr = `calc(100vh - ${TOP_BAR_HEIGHT}px)`; // exclude fixed top bar
+  const topPanelHeightExpr = `calc(${availableHeightExpr} * ${topPanelRatio})`;
+  const timelineHeightExpr = `calc(${availableHeightExpr} * ${1 - topPanelRatio})`;
   
   // Persist panel ratios
   useEffect(() => {
@@ -1062,6 +1066,8 @@ const MainApp = () => {
     toggleTimeline: timelineContext?.toggleVisible,
     toggleTimelinePlay: timelineContext?.togglePlay,
     stopTimeline: timelineContext?.stop,
+    timelineVisible: timelineContext?.visible,
+    timelineIsPlaying: timelineContext?.isPlaying,
   });
 
   // MIDI helper refs and handlers integration
@@ -1525,12 +1531,14 @@ const MainApp = () => {
           <div
             style={{
               position: 'fixed',
-              top: 0,
+              top: `${TOP_BAR_HEIGHT}px`,
               left: 0,
               right: 0,
-              bottom: `${(1 - topPanelRatio) * 100}vh`,
+              height: topPanelHeightExpr,
               display: 'flex',
               flexDirection: 'row',
+              zIndex: 150,
+              overflow: 'hidden',
             }}
           >
             {/* Left Panel - Controls */}
@@ -1545,7 +1553,16 @@ const MainApp = () => {
                 borderRight: '1px solid rgba(255, 255, 255, 0.1)',
               }}
             >
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <div
+                style={{
+                  height: '100%', // match top panel height
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  padding: '0 12px 0 12px',
+                  boxSizing: 'border-box',
+                }}
+              >
                 <BottomPanel
                 // GlobalControls props
                 backgroundColor={backgroundColor}
@@ -1790,7 +1807,7 @@ const MainApp = () => {
               maxRatio={0.8}
               style={{
                 position: 'fixed',
-                top: `${topPanelRatio * 100}vh`,
+                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
                 left: 0,
                 right: 0,
                 zIndex: 201,
@@ -1799,10 +1816,10 @@ const MainApp = () => {
             <div
               style={{
                 position: 'fixed',
-                bottom: 0,
+                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
                 left: 0,
                 right: 0,
-                height: `${(1 - topPanelRatio) * 100}vh`,
+                height: timelineHeightExpr,
                 zIndex: 200,
               }}
             >

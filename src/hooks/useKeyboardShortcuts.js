@@ -26,6 +26,8 @@ export function useKeyboardShortcuts({
   toggleTimeline,
   toggleTimelinePlay,
   stopTimeline,
+  timelineVisible,
+  timelineIsPlaying,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -35,7 +37,14 @@ export function useKeyboardShortcuts({
       // Spacebar -> toggle Freeze
       if (e.code === 'Space') {
         e.preventDefault();
-        setIsFrozen?.(prev => !prev);
+        if (timelineVisible) {
+          const willPlay = !timelineIsPlaying;
+          toggleTimelinePlay?.();
+          // Keep global freeze in sync with timeline play/pause
+          setIsFrozen?.(!willPlay);
+        } else {
+          setIsFrozen?.(prev => !prev);
+        }
         return;
       }
 
@@ -209,5 +218,7 @@ export function useKeyboardShortcuts({
     toggleTimeline,
     toggleTimelinePlay,
     stopTimeline,
+    timelineVisible,
+    timelineIsPlaying,
   ]);
 }
