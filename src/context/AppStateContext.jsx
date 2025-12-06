@@ -106,6 +106,7 @@ export const AppStateProvider = ({ children }) => {
     morphEasing: 'linear', // 'linear' | future: 'easeInOut'
     morphLoopMode: 'loop', // 'loop' | 'pingpong'
     morphMode: 'tween', // 'tween' | 'fade'
+    morphNodes: false, // interpolate node geometry (requires matching topology)
   });
   const appStateRef = useRef(appState);
   useEffect(() => { appStateRef.current = appState; }, [appState]);
@@ -408,6 +409,10 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
     markDirty();
   }, [markDirty]);
+  const setMorphNodes = useCallback((value) => {
+    setAppState(prev => ({ ...prev, morphNodes: !!value }));
+    markDirty();
+  }, [markDirty]);
 
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
@@ -661,6 +666,7 @@ export const AppStateProvider = ({ children }) => {
     setMorphEasing,
     setMorphLoopMode,
     setMorphMode,
+    setMorphNodes,
 
     // Selection & Groups API
     toggleLayerSelection,
@@ -722,6 +728,7 @@ export const AppStateProvider = ({ children }) => {
     setMorphEasing,
     setMorphLoopMode,
     setMorphMode,
+    setMorphNodes,
     toggleLayerSelection,
     clearSelection,
     createGroup,

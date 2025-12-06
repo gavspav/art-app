@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
+import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 
 /**
  * usePresetMorph encapsulates the preset morphing engine (fade/tween) without resetting app state each frame.
@@ -16,6 +17,7 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
  * - morphEasing: 'linear'
  * - morphLoopMode: 'loop' | 'pingpong'
  * - morphMode: 'tween' | 'fade'
+ * - morphNodes: boolean (interpolate node geometry if topology matches)
  */
 export function usePresetMorph({
   getPresetSlot,
@@ -28,6 +30,7 @@ export function usePresetMorph({
   morphEasing,
   morphLoopMode,
   morphMode,
+  morphNodes,
 }) {
   const [morphStatus, setMorphStatus] = useState(null);
 
@@ -37,6 +40,7 @@ export function usePresetMorph({
   const easingRef = useRef('linear');
   const loopModeRef = useRef('loop');
   const modeRef = useRef('tween');
+  const morphNodesRef = useRef(false);
   const getPresetSlotRef = useRef(getPresetSlot);
 
   // For fade mode baselines (A+B stack)
@@ -48,6 +52,7 @@ export function usePresetMorph({
   useEffect(() => { easingRef.current = morphEasing || 'linear'; }, [morphEasing]);
   useEffect(() => { loopModeRef.current = morphLoopMode || 'loop'; }, [morphLoopMode]);
   useEffect(() => { modeRef.current = morphMode || 'tween'; }, [morphMode]);
+  useEffect(() => { morphNodesRef.current = !!morphNodes; }, [morphNodes]);
   useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
 
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -225,6 +230,23 @@ export function usePresetMorph({
                       t,
                     ),
                   },
+                  // Node morphing (if enabled and topology matches)
+                  ...(morphNodesRef.current ? (() => {
+                    const nodesA = laSrc?.nodes;
+                    const nodesB = lbSrc?.nodes;
+                    const subpathsA = laSrc?.subpaths;
+                    const subpathsB = lbSrc?.subpaths;
+                    // Try subpaths first, then nodes
+                    if (Array.isArray(subpathsA) && Array.isArray(subpathsB)) {
+                      const interpolated = lerpSubpaths(subpathsA, subpathsB, t);
+                      if (interpolated) return { subpaths: interpolated };
+                    }
+                    if (Array.isArray(nodesA) && Array.isArray(nodesB)) {
+                      const interpolated = lerpNodes(nodesA, nodesB, t);
+                      if (interpolated) return { nodes: interpolated };
+                    }
+                    return {};
+                  })() : {}),
                 };
               });
             });

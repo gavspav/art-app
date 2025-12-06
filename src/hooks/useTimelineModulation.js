@@ -3,6 +3,38 @@ import { useTimeline } from '../context/TimelineContext.jsx';
 import { evaluateTrackAtTime } from '../utils/envelopes.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
+import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
+
+const lerp = (a, b, t) => a + (b - a) * t;
+const toNumber = (value, fallback) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+const sanitizeHex = (val) => (typeof val === 'string' && /^#([0-9a-fA-F]{6})$/.test(val) ? val : '#000000');
+const lerpColor = (ca, cb, t) => {
+  const ra = hexToRgb(sanitizeHex(ca));
+  const rb = hexToRgb(sanitizeHex(cb));
+  return rgbToHex({
+    r: Math.round(lerp(ra.r, rb.r, t)),
+    g: Math.round(lerp(ra.g, rb.g, t)),
+    b: Math.round(lerp(ra.b, rb.b, t)),
+  });
+};
+
+const stripMorphFields = (state) => {
+  if (!state || typeof state !== 'object') return state;
+  const {
+    morphEnabled: _me,
+    morphRoute: _mr,
+    morphDurationPerLeg: _md,
+    morphEasing: _meas,
+    morphLoopMode: _ml,
+    morphMode: _mm,
+    ...rest
+  } = state;
+  return rest;
+};
 
 /**
  * useTimelineModulation - Applies timeline track values to the modulation store
@@ -26,6 +58,9 @@ export function useTimelineModulation({
   setGlobalOpacity,
   setBackgroundColor,
   setLayers,
+  getPresetSlot,
+  morphRoute,
+  morphNodes,
 }) {
   const timeline = useTimeline();
   
@@ -35,6 +70,9 @@ export function useTimelineModulation({
   const bpmContextRef = useRef(bpmContext);
   const audioContextRef = useRef(audioContext);
   const midiContextRef = useRef(midiContext);
+  const getPresetSlotRef = useRef(getPresetSlot);
+  const morphRouteRef = useRef(Array.isArray(morphRoute) ? [...morphRoute] : []);
+  const morphNodesRef = useRef(false);
   
   // Keep refs in sync
   useEffect(() => { modulationStoreRef.current = modulationStore; }, [modulationStore]);
@@ -42,6 +80,9 @@ export function useTimelineModulation({
   useEffect(() => { bpmContextRef.current = bpmContext; }, [bpmContext]);
   useEffect(() => { audioContextRef.current = audioContext; }, [audioContext]);
   useEffect(() => { midiContextRef.current = midiContext; }, [midiContext]);
+  useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
+  useEffect(() => { morphRouteRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
+  useEffect(() => { morphNodesRef.current = !!morphNodes; }, [morphNodes]);
 
   // Build a map of layer name -> layer id for resolving targetIds
   const layerNameToIdRef = useRef({});
@@ -211,6 +252,165 @@ export function useTimelineModulation({
               });
             }
             break;
+          case 'morphProgress': {
+            const getSlot = getPresetSlotRef.current;
+            const route = morphRouteRef.current;
+            if (!getSlot || !Array.isArray(route) || route.length < 2) {
+              break;
+            }
+
+            const clamped = Math.max(0, Math.min(1, value));
+            const totalLegs = route.length - 1;
+            if (totalLegs <= 0) break;
+
+            const scaled = clamped * totalLegs;
+            let legIndex = Math.floor(scaled);
+            if (legIndex >= totalLegs) {
+              legIndex = totalLegs - 1;
+            }
+            const localT = Math.max(0, Math.min(1, scaled - legIndex));
+
+            const fromId = route[legIndex];
+            const toId = route[legIndex + 1];
+
+            const fromSlot = getSlot(fromId);
+            const toSlot = getSlot(toId);
+            const fromState = fromSlot?.payload?.appState;
+            const toState = toSlot?.payload?.appState;
+            if (!fromState || !toState) {
+              break;
+            }
+
+            const a = stripMorphFields(fromState);
+            const b = stripMorphFields(toState);
+
+            if (setBackgroundColor) {
+              setBackgroundColor(lerpColor(a.backgroundColor || '#000000', b.backgroundColor || '#000000', localT));
+            }
+
+            if (setGlobalSpeedMultiplier) {
+              const nextGS = lerp(
+                Number(a.globalSpeedMultiplier || 1),
+                Number(b.globalSpeedMultiplier || 1),
+                localT,
+              );
+              setGlobalSpeedMultiplier(Number(nextGS));
+            }
+
+            const aLayers = Array.isArray(a.layers) ? a.layers : [];
+            const bLayers = Array.isArray(b.layers) ? b.layers : [];
+
+            if (typeof setLayers === 'function') {
+              setLayers((prev) => {
+                const prevLayers = Array.isArray(prev) ? [...prev] : [];
+                const maxLen = Math.max(prevLayers.length, aLayers.length, bLayers.length);
+
+                for (let i = prevLayers.length; i < maxLen; i += 1) {
+                  const template = aLayers[i] || bLayers[i];
+                  if (!template) continue;
+                  const fromExists = Boolean(aLayers[i]);
+                  const initialOpacity = fromExists
+                    ? toNumber(template.opacity ?? 1, 1)
+                    : 0;
+                  prevLayers[i] = { ...template, opacity: initialOpacity };
+                }
+
+                return prevLayers.map((la, i) => {
+                  const fromTemplate = aLayers[i];
+                  const toTemplate = bLayers[i];
+                  const laSrc = fromTemplate || (toTemplate ? { ...toTemplate, opacity: 0 } : la);
+                  const lbSrc = toTemplate || (fromTemplate ? { ...fromTemplate, opacity: 0 } : la);
+
+                  const pa = laSrc?.position
+                    ? laSrc.position
+                    : (la?.position || { x: 0.5, y: 0.5, scale: 1 });
+                  const pb = lbSrc?.position ? lbSrc.position : pa;
+
+                  const ca = Array.isArray(laSrc?.colors)
+                    ? laSrc.colors
+                    : (Array.isArray(la?.colors) ? la.colors : []);
+                  const cb = Array.isArray(lbSrc?.colors) ? lbSrc.colors : ca;
+                  const n = Math.min(ca.length || 0, cb.length || 0);
+                  let nextColors = Array.isArray(la?.colors) ? [...la.colors] : [];
+                  if (n > 0) {
+                    nextColors = Array.from({ length: n }, (_, k) => lerpColor(ca[k], cb[k], localT));
+                  } else if (cb.length) {
+                    nextColors = cb.slice();
+                  } else if (ca.length) {
+                    nextColors = ca.slice();
+                  }
+
+                  const baseLayer = la || laSrc || lbSrc || {};
+                  const nextOpacity = lerp(
+                    toNumber(laSrc?.opacity ?? baseLayer.opacity ?? 1, 1),
+                    toNumber(lbSrc?.opacity ?? baseLayer.opacity ?? 1, 1),
+                    localT,
+                  );
+
+                  return {
+                    ...baseLayer,
+                    opacity: Math.max(0, Math.min(1, nextOpacity)),
+                    rotation: lerp(
+                      toNumber(laSrc?.rotation ?? baseLayer.rotation ?? 0, 0),
+                      toNumber(lbSrc?.rotation ?? baseLayer.rotation ?? 0, 0),
+                      localT,
+                    ),
+                    radiusFactor: lerp(
+                      toNumber(laSrc?.radiusFactor ?? baseLayer.radiusFactor ?? 0.125, 0.125),
+                      toNumber(lbSrc?.radiusFactor ?? baseLayer.radiusFactor ?? 0.125, 0.125),
+                      localT,
+                    ),
+                    movementSpeed: lerp(
+                      toNumber(laSrc?.movementSpeed ?? baseLayer.movementSpeed ?? 1, 1),
+                      toNumber(lbSrc?.movementSpeed ?? baseLayer.movementSpeed ?? 1, 1),
+                      localT,
+                    ),
+                    colors: nextColors,
+                    numColors: Array.isArray(nextColors) && nextColors.length
+                      ? nextColors.length
+                      : (baseLayer.numColors ?? 1),
+                    selectedColor: 0,
+                    position: {
+                      ...pa,
+                      x: lerp(
+                        toNumber(pa?.x ?? 0.5, 0.5),
+                        toNumber(pb?.x ?? (pa?.x ?? 0.5), pa?.x ?? 0.5),
+                        localT,
+                      ),
+                      y: lerp(
+                        toNumber(pa?.y ?? 0.5, 0.5),
+                        toNumber(pb?.y ?? (pa?.y ?? 0.5), pa?.y ?? 0.5),
+                        localT,
+                      ),
+                      scale: lerp(
+                        toNumber(pa?.scale ?? 1, 1),
+                        toNumber(pb?.scale ?? (pa?.scale ?? 1), pa?.scale ?? 1),
+                        localT,
+                      ),
+                    },
+                    // Node morphing (if enabled and topology matches)
+                    ...(morphNodesRef.current ? (() => {
+                      const nodesA = laSrc?.nodes;
+                      const nodesB = lbSrc?.nodes;
+                      const subpathsA = laSrc?.subpaths;
+                      const subpathsB = lbSrc?.subpaths;
+                      // Try subpaths first, then nodes
+                      if (Array.isArray(subpathsA) && Array.isArray(subpathsB)) {
+                        const interpolated = lerpSubpaths(subpathsA, subpathsB, localT);
+                        if (interpolated) return { subpaths: interpolated };
+                      }
+                      if (Array.isArray(nodesA) && Array.isArray(nodesB)) {
+                        const interpolated = lerpNodes(nodesA, nodesB, localT);
+                        if (interpolated) return { nodes: interpolated };
+                      }
+                      return {};
+                    })() : {}),
+                  };
+                });
+              });
+            }
+            break;
+          }
           case 'variationPosition':
           case 'variationShape':
           case 'variationAnim':

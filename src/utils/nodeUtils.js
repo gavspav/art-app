@@ -72,6 +72,44 @@ export const resizeNodes = (nodes, desired) => {
   return curr;
 };
 
+/**
+ * Linearly interpolate between two node arrays of the same length.
+ * Returns null if arrays have different lengths (topology mismatch).
+ */
+export const lerpNodes = (nodesA, nodesB, t) => {
+  if (!Array.isArray(nodesA) || !Array.isArray(nodesB)) return null;
+  if (nodesA.length !== nodesB.length) return null;
+  if (nodesA.length === 0) return [];
+  const clampedT = Math.max(0, Math.min(1, t));
+  return nodesA.map((a, i) => {
+    const b = nodesB[i];
+    const ax = Number.isFinite(a?.x) ? a.x : 0;
+    const ay = Number.isFinite(a?.y) ? a.y : 0;
+    const bx = Number.isFinite(b?.x) ? b.x : 0;
+    const by = Number.isFinite(b?.y) ? b.y : 0;
+    return {
+      x: ax + (bx - ax) * clampedT,
+      y: ay + (by - ay) * clampedT,
+    };
+  });
+};
+
+/**
+ * Linearly interpolate between two subpaths arrays.
+ * Each subpath is an array of nodes. Returns null if structure doesn't match.
+ */
+export const lerpSubpaths = (subpathsA, subpathsB, t) => {
+  if (!Array.isArray(subpathsA) || !Array.isArray(subpathsB)) return null;
+  if (subpathsA.length !== subpathsB.length) return null;
+  const result = [];
+  for (let i = 0; i < subpathsA.length; i++) {
+    const interpolated = lerpNodes(subpathsA[i], subpathsB[i], t);
+    if (interpolated === null) return null; // topology mismatch
+    result.push(interpolated);
+  }
+  return result;
+};
+
 // Calculate the actual bounding box extents from custom nodes
 // Nodes are in normalized [-1, 1] space, returns the max extent in each direction
 export const calculateNodeExtents = (nodes, rotation = 0) => {

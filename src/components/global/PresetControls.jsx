@@ -35,6 +35,8 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphLoopMode,
     morphMode,
     setMorphMode,
+    morphNodes,
+    setMorphNodes,
   } = useAppState() || {};
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
@@ -73,6 +75,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     morphEasing,
     morphLoopMode,
     morphMode,
+    morphNodes,
   });
 
   // Preset helpers
@@ -401,6 +404,17 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
               <option value="tween">tween</option>
               <option value="fade">fade</option>
             </select>
+          </label>
+        </div>
+        <div className="compact-row" style={{ marginTop: '0.4rem' }}>
+          <label className="compact-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Interpolate node geometry between shapes (requires matching node counts)">
+            <input
+              type="checkbox"
+              checked={!!morphNodes}
+              onChange={() => setMorphNodes && setMorphNodes(!morphNodes)}
+            />
+            Morph Nodes
+            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>(same topology)</span>
           </label>
         </div>
         {morphEnabled && morphStatus && (

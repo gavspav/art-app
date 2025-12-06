@@ -126,6 +126,8 @@ const MainApp = () => {
     setMorphLoopMode,
     morphMode,
     setMorphMode,
+    morphNodes,
+    setMorphNodes,
     applyVariationInstantly,
     setApplyVariationInstantly,
   } = appStateCtx;
@@ -431,6 +433,10 @@ const MainApp = () => {
     midiContext: useMidi(),
     setGlobalSpeedMultiplier,
     setLayers,
+    setBackgroundColor,
+    getPresetSlot,
+    morphRoute,
+    morphNodes,
   });
 
   // Start animation loop (position, bounce/drift, z-scale)

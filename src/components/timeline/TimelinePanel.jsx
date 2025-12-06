@@ -137,6 +137,7 @@ const TimelinePanel = ({
     { id: 'variationAnim', label: 'Animation Variation', range: { outputMin: 0, outputMax: 1 } },
     { id: 'variationColor', label: 'Colour Variation', range: { outputMin: 0, outputMax: 1 } },
     { id: 'variationScale', label: 'Scale Variation', range: { outputMin: 0, outputMax: 1 } },
+    { id: 'morphProgress', label: 'Morph Progress', range: { outputMin: 0, outputMax: 1 } },
   ], []);
 
   // Layer parameters - per user list
