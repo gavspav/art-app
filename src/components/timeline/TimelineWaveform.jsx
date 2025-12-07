@@ -22,6 +22,7 @@ const TimelineWaveform = ({
   const isDraggingRef = useRef(false);
 
   // Draw waveform
+  // Key invariant: audio starts at x=0 and ends at x=(audioDuration * pixelsPerSecond)
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -29,28 +30,29 @@ const TimelineWaveform = ({
 
     const ctx = canvas.getContext('2d');
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const targetCssWidth = timelineWidth || container?.clientWidth || 800;
-    const renderWidth = Math.max(1, targetCssWidth);
+    const canvasWidth = timelineWidth || container?.clientWidth || 800;
+    const renderWidth = Math.max(1, canvasWidth);
     const renderHeight = height;
 
-    // Size the backing buffer using DPR; CSS width stays timelineWidth for correct scroll sizing
+    // Size the backing buffer using DPR for crisp rendering
     canvas.width = renderWidth * dpr;
     canvas.height = renderHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const widthScale = (timelineWidth || renderWidth) / renderWidth;
     const peaks = audio.peaks;
     const audioDuration = audio.durationSeconds || lengthSeconds;
+    // Width in pixels that the audio waveform should occupy
+    const audioWidthPx = audioDuration * pixelsPerSecond;
 
     // Clear canvas
     ctx.fillStyle = 'rgba(20, 20, 30, 1)';
     ctx.fillRect(0, 0, renderWidth, renderHeight);
 
-    // Draw grid lines (every second)
+    // Draw grid lines (every second) - aligned with ruler
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
     for (let t = 0; t <= lengthSeconds; t++) {
-      const x = (t * pixelsPerSecond) / widthScale;
+      const x = t * pixelsPerSecond;
       if (x >= 0 && x <= renderWidth) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -79,29 +81,27 @@ const TimelineWaveform = ({
       ctx.stroke();
     }
 
-    // Draw waveform
-    const peaksPerPixel = peaks.length / (audioDuration * pixelsPerSecond);
+    // Draw waveform - from x=0 to x=audioWidthPx
     const centerY = renderHeight / 2;
+    const waveformEndX = Math.min(audioWidthPx, renderWidth);
 
     ctx.fillStyle = 'rgba(79, 195, 247, 0.6)';
     ctx.beginPath();
     ctx.moveTo(0, centerY);
 
-    for (let x = 0; x < renderWidth; x++) {
-      const time = (x * widthScale) / pixelsPerSecond;
-      if (time > audioDuration) break;
-
+    // Top half of waveform (going right)
+    for (let x = 0; x <= waveformEndX; x++) {
+      // Convert pixel position to time, then to peak index
+      const time = x / pixelsPerSecond;
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
       const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
       const y = centerY - peak * (renderHeight / 2 - 4);
       ctx.lineTo(x, y);
     }
 
-    // Mirror for bottom half
-    for (let x = renderWidth - 1; x >= 0; x--) {
-      const time = (x * widthScale) / pixelsPerSecond;
-      if (time > audioDuration) continue;
-
+    // Bottom half of waveform (going left - mirror)
+    for (let x = waveformEndX; x >= 0; x--) {
+      const time = x / pixelsPerSecond;
       const peakIndex = Math.floor((time / audioDuration) * peaks.length);
       const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
       const y = centerY + peak * (renderHeight / 2 - 4);
@@ -116,10 +116,19 @@ const TimelineWaveform = ({
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, centerY);
-    ctx.lineTo(renderWidth, centerY);
+    ctx.lineTo(waveformEndX, centerY);
     ctx.stroke();
 
-    // Playhead is drawn globally; omit here to avoid double lines
+    // Draw playhead line
+    const playheadX = positionSeconds * pixelsPerSecond;
+    if (playheadX >= 0 && playheadX <= renderWidth) {
+      ctx.strokeStyle = '#ff5722';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(playheadX, 0);
+      ctx.lineTo(playheadX, renderHeight);
+      ctx.stroke();
+    }
   }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth]);
 
   // Handle click/drag to seek

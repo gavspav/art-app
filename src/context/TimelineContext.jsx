@@ -162,6 +162,11 @@ export const TimelineProvider = ({ children }) => {
   const audioSourceRef = useRef(null);
   const audioStartTimeRef = useRef(0);
   const audioStartPositionRef = useRef(0);
+  
+  // Timing refs for RAF loop (used by seekTo and tick)
+  const playStartTimeRef = useRef(0); // performance.now() when playback started
+  const playStartPositionRef = useRef(0); // timeline position when playback started
+  const frameCountRef = useRef(0);
 
   // Keep refs in sync
   useEffect(() => { positionRef.current = positionSeconds; }, [positionSeconds]);
@@ -290,39 +295,56 @@ export const TimelineProvider = ({ children }) => {
 
   const seekTo = useCallback((seconds) => {
     const clamped = Math.max(0, Math.min(sessionRef.current.lengthSeconds, seconds));
+    positionRef.current = clamped;
     setPositionSeconds(clamped);
     
-    // If playing, restart audio from new position
+    // If playing, restart audio from new position and reset timing refs
     if (isPlaying) {
       stopAudioPlayback();
       startAudioPlayback(clamped);
+      // Reset timing refs so elapsed time calculation starts from new position
+      playStartTimeRef.current = performance.now();
+      playStartPositionRef.current = clamped;
     }
   }, [isPlaying, startAudioPlayback, stopAudioPlayback]);
 
   // --- RAF Playback Loop ---
-  // Throttle React state updates to prevent "Maximum update depth exceeded" errors
-  const frameCountRef = useRef(0);
+  // Uses audio context time as source of truth when audio is playing
+  // Falls back to performance.now() delta accumulation when no audio
   const SYNC_EVERY_N_FRAMES = 3; // Sync to React every 3 frames (~20fps UI updates)
 
   useEffect(() => {
     if (!isPlaying) return;
 
-    const tick = () => {
-      const now = performance.now();
-      const deltaMs = lastUpdateTimeRef.current ? now - lastUpdateTimeRef.current : 0;
-      lastUpdateTimeRef.current = now;
+    // Record when we started playing for non-audio fallback
+    playStartTimeRef.current = performance.now();
+    playStartPositionRef.current = positionRef.current;
 
-      const deltaSeconds = deltaMs / 1000;
-      let newPosition = positionRef.current + deltaSeconds;
-      let didLoop = false;
+    const tick = () => {
+      const audio = sessionRef.current.audio;
+      const audioCtx = audioContextRef.current;
+      let newPosition;
+
+      // Use audio context time as source of truth when audio is playing
+      if (audio?.buffer && audioCtx && audioSourceRef.current) {
+        // Calculate position from audio context's high-precision clock
+        const audioElapsed = audioCtx.currentTime - audioStartTimeRef.current;
+        const audioOffset = audio.offsetSeconds || 0;
+        newPosition = audioStartPositionRef.current - audioOffset + audioElapsed;
+      } else {
+        // Fallback: calculate from performance.now() elapsed time
+        const elapsedMs = performance.now() - playStartTimeRef.current;
+        newPosition = playStartPositionRef.current + (elapsedMs / 1000);
+      }
 
       const { lengthSeconds, loop } = sessionRef.current;
+      let didLoop = false;
 
       // Handle looping or end
       if (loop.enabled) {
         // Loop within region
         if (newPosition >= loop.endSeconds) {
-          newPosition = loop.startSeconds + (newPosition - loop.endSeconds);
+          newPosition = loop.startSeconds + ((newPosition - loop.startSeconds) % (loop.endSeconds - loop.startSeconds));
           didLoop = true;
         }
       } else {
@@ -333,6 +355,9 @@ export const TimelineProvider = ({ children }) => {
           stopAudioPlayback();
         }
       }
+
+      // Clamp to valid range
+      newPosition = Math.max(0, Math.min(lengthSeconds, newPosition));
 
       // Always update the ref (for smooth playhead via getPositionSeconds)
       positionRef.current = newPosition;
@@ -348,6 +373,9 @@ export const TimelineProvider = ({ children }) => {
       if (didLoop) {
         stopAudioPlayback();
         startAudioPlayback(newPosition);
+        // Reset timing refs for the new loop iteration
+        playStartTimeRef.current = performance.now();
+        playStartPositionRef.current = newPosition;
       }
       
       if (isPlaying && newPosition < lengthSeconds) {

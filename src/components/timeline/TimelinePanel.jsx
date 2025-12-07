@@ -24,7 +24,6 @@ const TimelinePanel = ({
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
-  const playheadRef = useRef(null);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [showWaveform, setShowWaveform] = useState(true);
   const {
@@ -99,26 +98,41 @@ const TimelinePanel = ({
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   useEffect(() => { pixelsPerSecondRef.current = pixelsPerSecond; }, [pixelsPerSecond]);
 
-  // Smooth playhead animation via RAF (avoids React re-render jitter)
+  // Auto-scroll to keep playhead visible during playback
   useEffect(() => {
-    if (!isPlaying || !playheadRef.current || !getPositionSeconds) return;
+    if (!isPlaying || !getPositionSeconds) return;
     
     let rafId;
     
-    const updatePlayhead = () => {
+    const autoScroll = () => {
       const pos = getPositionSeconds();
       const pps = pixelsPerSecondRef.current;
       const xAbsolute = pos * pps;
       
-      // Position playhead at absolute timeline position (container handles scrolling)
-      if (playheadRef.current) {
-        playheadRef.current.style.left = `${200 + xAbsolute}px`;
+      // Auto-scroll to keep playhead visible during playback
+      const container = tracksContainerRef.current;
+      if (container) {
+        const currentScroll = container.scrollLeft;
+        const viewWidth = container.clientWidth - 200; // Subtract track labels width
+        const playheadScreenX = xAbsolute - currentScroll;
+        
+        // Scroll when playhead reaches right 20% of view
+        const scrollThreshold = viewWidth * 0.8;
+        if (playheadScreenX > scrollThreshold) {
+          // Scroll to put playhead at 20% from left
+          const targetScroll = Math.max(0, xAbsolute - viewWidth * 0.2);
+          container.scrollLeft = targetScroll;
+        }
+        // Also handle if playhead is before current view (e.g., after loop)
+        else if (playheadScreenX < 0) {
+          container.scrollLeft = Math.max(0, xAbsolute - viewWidth * 0.1);
+        }
       }
       
-      rafId = requestAnimationFrame(updatePlayhead);
+      rafId = requestAnimationFrame(autoScroll);
     };
     
-    rafId = requestAnimationFrame(updatePlayhead);
+    rafId = requestAnimationFrame(autoScroll);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
@@ -343,9 +357,6 @@ const TimelinePanel = ({
 
   if (!visible) return null;
 
-  // Playhead X in absolute timeline coordinates (not affected by scroll)
-  // Since the playhead is inside the scrollable container, we use absolute position
-  const playheadXAbsolute = positionSeconds * pixelsPerSecond;
   const contentWidth = useMemo(() => {
     const base = lengthSeconds * pixelsPerSecond;
     return Math.max(timelineWidth || 0, base, 800);
@@ -424,20 +435,18 @@ const TimelinePanel = ({
                 </button>
                 Audio
               </div>
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                <div style={{ width: contentWidth, transform: `translateX(-${scrollLeft}px)`, willChange: 'transform' }}>
-                  <TimelineWaveform
-                    audio={audio}
-                    lengthSeconds={lengthSeconds}
-                    positionSeconds={positionSeconds}
-                    pixelsPerSecond={pixelsPerSecond}
-                    scrollLeft={scrollLeft}
-                    timelineWidth={contentWidth}
-                    onSeek={seekTo}
-                    loop={loop}
-                    height={WAVEFORM_HEIGHT}
-                  />
-                </div>
+              <div style={{ flex: 1, width: contentWidth }}>
+                <TimelineWaveform
+                  audio={audio}
+                  lengthSeconds={lengthSeconds}
+                  positionSeconds={positionSeconds}
+                  pixelsPerSecond={pixelsPerSecond}
+                  scrollLeft={0}
+                  timelineWidth={contentWidth}
+                  onSeek={seekTo}
+                  loop={loop}
+                  height={WAVEFORM_HEIGHT}
+                />
               </div>
             </div>
           )}
@@ -516,11 +525,11 @@ const TimelinePanel = ({
               </div>
             </div>
             {/* Time markers */}
-            <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: contentWidth, width: contentWidth }}>
+            <div style={{ flex: 1, position: 'relative', minWidth: contentWidth, width: contentWidth }}>
               <svg
                 width={contentWidth}
                 height={24}
-                style={{ display: 'block', marginLeft: -scrollLeft }}
+                style={{ display: 'block' }}
               >
                 {/* Second markers */}
                 {Array.from({ length: Math.ceil(lengthSeconds) + 1 }, (_, i) => {
@@ -550,7 +559,15 @@ const TimelinePanel = ({
                     </g>
                   );
                 })}
-                {/* Playhead drawn via global overlay - no duplicate here */}
+                {/* Playhead line in ruler */}
+                <line
+                  x1={positionSeconds * pixelsPerSecond}
+                  y1={0}
+                  x2={positionSeconds * pixelsPerSecond}
+                  y2={24}
+                  stroke="#ff5722"
+                  strokeWidth={2}
+                />
               </svg>
             </div>
           </div>
@@ -565,8 +582,8 @@ const TimelinePanel = ({
                 lengthSeconds={lengthSeconds}
                 positionSeconds={positionSeconds}
                 pixelsPerSecond={pixelsPerSecond}
-                scrollLeft={scrollLeft}
-                timelineWidth={timelineWidth}
+                scrollLeft={0}
+                timelineWidth={contentWidth}
                 layers={layers}
                 globalParameters={globalParameters}
                 layerParameters={layerParameters}
@@ -612,21 +629,7 @@ const TimelinePanel = ({
             </div>
           </div>
 
-          {/* Single playhead overlay spanning waveform, ruler, tracks */}
-          <div
-            ref={playheadRef}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 200 + playheadXAbsolute,
-              width: 2,
-              height: '100%',
-              background: '#ff5722',
-              pointerEvents: 'none',
-              zIndex: 5,
-              willChange: isPlaying ? 'left' : 'auto',
-            }}
-          />
+          {/* Playhead is now drawn by each component (waveform, ruler, tracks) for perfect alignment */}
         </div>
       </div>
     </div>

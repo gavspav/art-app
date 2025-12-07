@@ -707,6 +707,19 @@ const TimelineCurveEditor = ({
           );
         })}
 
+        {/* Playhead line through this track */}
+        {playheadX >= 0 && playheadX <= containerWidth && (
+          <line
+            x1={playheadX}
+            y1={0}
+            x2={playheadX}
+            y2={height}
+            stroke="#ff5722"
+            strokeWidth={2}
+            pointerEvents="none"
+          />
+        )}
+
         {/* Current value dot on playhead (numeric tracks only) */}
         {!isShapeTrack && playheadX >= 0 && playheadX <= containerWidth && currentValue !== null && (
           <circle
