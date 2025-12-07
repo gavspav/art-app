@@ -270,14 +270,20 @@ const applyAudioModulations = (layer, audioContext) => {
  * @param {number} globalSpeedMultiplier - Speed multiplier
  * @param {boolean} zIgnore - Whether to ignore Z-axis movement
  * @param {Object} modulationStore - The modulation store from useModulationStore()
+ * @param {Object} shapeTrackUpdatesRef - Ref containing shape track updates from timeline
  */
-export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, modulationStore = null) => {
+export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, modulationStore = null, shapeTrackUpdatesRef = null) => {
     const animationFrameId = useRef(null);
     const { runWithoutDirty, isUserInteracting } = useAppState() || {};
     
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
     useEffect(() => { modulationStoreRef.current = modulationStore; }, [modulationStore]);
+    
+    // Store shape track updates ref for access in animation loop
+    // We store the ref object itself so we can read .current during animation
+    const shapeTrackUpdatesRefLocal = useRef(shapeTrackUpdatesRef);
+    useEffect(() => { shapeTrackUpdatesRefLocal.current = shapeTrackUpdatesRef; }, [shapeTrackUpdatesRef]);
 
     // Track user-interaction status in a ref so we can read it inside RAF loop
     const isUserInteractingRef = useRef(isUserInteracting);
@@ -366,12 +372,70 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         const speedMultiplier = globalSpeedMultiplierRef.current;
         const zIgnoreVal = zIgnoreRef.current;
 
+        // Get shape track updates from the ref (set by useTimelineModulation)
+        const shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
+
         // Calculate updated layers (always, for smooth animation)
         const computeUpdatedLayers = (prevLayers) => prevLayers.map(layer => {
-            // 1. Update layer animation (movement, scale oscillation, etc.)
-            let updatedLayer = updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
+            // Check if this layer has shape track updates
+            const shapeUpdate = shapeUpdatesMap.get(layer?.id);
+            const hasShapeUpdate = !!shapeUpdate;
             
-            // 2. Apply Audio/BPM/Timeline modulations from the store (single pass)
+            // 1. Update layer animation (movement, scale oscillation, etc.)
+            // Skip if shape track is controlling this layer (to avoid conflicts with keyframe interpolation)
+            // Noise and wobble still apply (they're applied in Canvas, not here)
+            let updatedLayer = hasShapeUpdate 
+                ? { ...layer }
+                : updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
+            
+            // 2. Apply shape track updates if present (at animation loop framerate for smoothness)
+            if (shapeUpdate) {
+                // Apply nodes or subpaths (clear the other to avoid conflicts)
+                if (shapeUpdate.subpaths) {
+                    updatedLayer.subpaths = shapeUpdate.subpaths;
+                    updatedLayer.nodes = undefined;
+                } else if (shapeUpdate.nodes) {
+                    updatedLayer.nodes = shapeUpdate.nodes;
+                    updatedLayer.subpaths = undefined;
+                }
+                
+                // Apply position interpolation
+                if (shapeUpdate.position) {
+                    updatedLayer.position = {
+                        ...updatedLayer.position,
+                        x: shapeUpdate.position.x ?? updatedLayer.position?.x ?? 0.5,
+                        y: shapeUpdate.position.y ?? updatedLayer.position?.y ?? 0.5,
+                        scale: shapeUpdate.position.scale ?? updatedLayer.position?.scale ?? 1,
+                    };
+                    if (shapeUpdate.position.xOffset !== undefined) {
+                        updatedLayer.xOffset = shapeUpdate.position.xOffset;
+                    }
+                    if (shapeUpdate.position.yOffset !== undefined) {
+                        updatedLayer.yOffset = shapeUpdate.position.yOffset;
+                    }
+                }
+                
+                // Apply animation parameters if present
+                if (shapeUpdate.animation) {
+                    const anim = shapeUpdate.animation;
+                    if (anim.movementStyle !== undefined) updatedLayer.movementStyle = anim.movementStyle;
+                    if (anim.movementSpeed !== undefined) updatedLayer.movementSpeed = anim.movementSpeed;
+                    if (anim.movementAngle !== undefined) updatedLayer.movementAngle = anim.movementAngle;
+                    if (anim.scaleSpeed !== undefined) updatedLayer.scaleSpeed = anim.scaleSpeed;
+                    if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
+                    if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
+                    if (anim.rotation !== undefined) updatedLayer.rotation = anim.rotation;
+                    if (anim.radiusFactor !== undefined) updatedLayer.radiusFactor = anim.radiusFactor;
+                }
+                
+                // Apply colors if present
+                if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
+                    updatedLayer.colors = shapeUpdate.colors;
+                    updatedLayer.numColors = shapeUpdate.colors.length;
+                }
+            }
+            
+            // 3. Apply Audio/BPM/Timeline modulations from the store (single pass)
             const store = modulationStoreRef.current;
             if (store && store.bpmModsRef && store.audioModsRef) {
                 const interacting = typeof isUserInteractingRef.current === 'function'

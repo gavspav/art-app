@@ -143,6 +143,8 @@ const MainApp = () => {
   const containerRef = useRef(null);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
+  // Shape track updates ref - shared between useTimelineModulation and useAnimation
+  const shapeTrackUpdatesRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   const [isRecording, setIsRecording] = useState(false);
@@ -460,7 +462,8 @@ const MainApp = () => {
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore);
+  // Shape track updates are passed via shapeTrackUpdatesRef for smooth 60fps interpolation
+  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef);
 
   // Config save/load from contexts
   const {
@@ -647,6 +650,7 @@ const MainApp = () => {
   const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
   // Timeline modulation - applies timeline track values to the modulation store
+  // Uses shapeTrackUpdatesRef for animation loop to consume shape track data
   useTimelineModulation({
     modulationStore,
     layers,
@@ -664,6 +668,7 @@ const MainApp = () => {
     getPresetSlot,
     morphRoute,
     morphNodes,
+    shapeTrackUpdatesRef, // Pass ref for shape track updates
   });
 
   // Assign exactly ONE colour per layer (cycled) so Global palette preset can be detected reliably

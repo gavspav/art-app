@@ -248,17 +248,22 @@ const TimelinePanel = ({
     }
   }, [addTrack, tracks?.length]);
 
-  // Handle capturing a shape keyframe
+  // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerId) => {
     if (!addShapeKeyframe || !layerId) return;
     
-    // Find the layer to capture its current shape
+    // Find the layer to capture its current state
     const layer = layers.find(l => l?.id === layerId);
     if (!layer) {
       console.warn('[Timeline] Cannot capture shape: layer not found', layerId);
       return;
     }
     
+    // Find the track to check which categories are enabled
+    const track = tracks?.find(t => t.id === trackId);
+    const categories = track?.categories || { shape: true, animation: false, color: false };
+    
+    // Always capture shape data (nodes/subpaths) - this is the base requirement
     const { nodes, subpaths } = layer;
     if (!nodes && !subpaths) {
       console.warn('[Timeline] Cannot capture shape: layer has no nodes or subpaths', layerId);
@@ -269,8 +274,42 @@ const TimelinePanel = ({
     const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
     const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
     
-    addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths);
-  }, [addShapeKeyframe, layers, positionSeconds]);
+    // Build extras object based on enabled categories
+    const extras = {};
+    
+    // Always capture position (for shape interpolation between screen positions)
+    // Position includes x, y offsets and scale from layer.position
+    extras.position = {
+      x: layer.position?.x ?? 0.5,
+      y: layer.position?.y ?? 0.5,
+      scale: layer.position?.scale ?? 1,
+      xOffset: layer.xOffset ?? 0,
+      yOffset: layer.yOffset ?? 0,
+    };
+    
+    // Capture animation parameters if enabled
+    if (categories.animation) {
+      extras.animation = {
+        movementStyle: layer.movementStyle ?? 'bounce',
+        movementSpeed: layer.movementSpeed ?? 1,
+        movementAngle: layer.movementAngle ?? 45,
+        scaleSpeed: layer.scaleSpeed ?? 0.05,
+        scaleMin: layer.scaleMin ?? 0,
+        scaleMax: layer.scaleMax ?? 1.5,
+        rotation: layer.rotation ?? 0,
+        radiusFactor: layer.radiusFactor ?? 0.125,
+      };
+    }
+    
+    // Capture colors if enabled
+    if (categories.color) {
+      extras.colors = Array.isArray(layer.colors) 
+        ? JSON.parse(JSON.stringify(layer.colors)) 
+        : ['#0000FF'];
+    }
+    
+    addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths, '', extras);
+  }, [addShapeKeyframe, layers, tracks, positionSeconds]);
 
   // Handle timeline preset button click (save/recall/clear)
   const handleTimelinePresetClick = useCallback((event) => {

@@ -67,6 +67,8 @@ export function useTimelineModulation({
   getPresetSlot,
   morphRoute,
   morphNodes,
+  // Ref for shape track updates (consumed by animation loop)
+  shapeTrackUpdatesRef,
 }) {
   const timeline = useTimeline();
   
@@ -190,9 +192,8 @@ export function useTimelineModulation({
   const getPositionSecondsRef = useRef(getPositionSeconds);
   useEffect(() => { getPositionSecondsRef.current = getPositionSeconds; }, [getPositionSeconds]);
 
-  // Throttle shape updates to prevent excessive setLayers calls
-  const lastShapeUpdateTimeRef = useRef(0);
-  const SHAPE_UPDATE_INTERVAL_MS = 50; // Max 20 shape updates per second
+  // shapeTrackUpdatesRef is passed in from parent and shared with animation loop
+  // This allows shape track data to be applied at the animation loop's framerate
 
   // Apply timeline values to modulation store on each frame
   // Note: During playback, the RAF loop below handles layer parameter updates for smoother animation
@@ -212,7 +213,7 @@ export function useTimelineModulation({
     
     // Evaluate each enabled track
     // Collect shape track results to apply after numeric tracks
-    const shapeUpdates = []; // { layerId, nodes, subpaths }
+    const shapeUpdates = []; // { layerId, nodes, subpaths, position, animation, colors }
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
@@ -223,7 +224,7 @@ export function useTimelineModulation({
         clearedTargetsRef.current.add(track.targetId);
       }
       
-      // Handle shape tracks separately
+      // Handle shape tracks separately (now includes position, animation, colors)
       if (track.type === 'shape') {
         const shapeResult = evaluateShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
         if (shapeResult) {
@@ -233,6 +234,9 @@ export function useTimelineModulation({
               layerId: parsed.layerId,
               nodes: shapeResult.nodes,
               subpaths: shapeResult.subpaths,
+              position: shapeResult.position,     // Extended: interpolated position
+              animation: shapeResult.animation,   // Extended: interpolated animation params
+              colors: shapeResult.colors,         // Extended: interpolated colors
             });
           }
         }
@@ -636,35 +640,18 @@ export function useTimelineModulation({
       }
     }
 
-    // Apply shape track updates to layers (throttled to prevent update depth errors)
-    if (shapeUpdates.length > 0 && typeof setLayers === 'function') {
-      const now = Date.now();
-      if (now - lastShapeUpdateTimeRef.current >= SHAPE_UPDATE_INTERVAL_MS) {
-        lastShapeUpdateTimeRef.current = now;
-        setLayers(prev => {
-          if (!Array.isArray(prev)) return prev;
-          
-          // Build a map of layerId -> shape update
-          const updateMap = new Map();
-          for (const update of shapeUpdates) {
-            updateMap.set(update.layerId, update);
-          }
-          
-          // Apply shape updates to matching layers
-          return prev.map(layer => {
-            const update = updateMap.get(layer?.id);
-            if (!update) return layer;
-            
-            // Apply nodes or subpaths (clear the other to avoid conflicts)
-            if (update.subpaths) {
-              return { ...layer, subpaths: update.subpaths, nodes: undefined };
-            } else if (update.nodes) {
-              return { ...layer, nodes: update.nodes, subpaths: undefined };
-            }
-            return layer;
-          });
-        });
+    // Store shape track updates in ref for animation loop to consume
+    // This allows the animation loop to apply updates at its own framerate (smooth 60fps)
+    // instead of being throttled separately
+    if (shapeUpdates.length > 0) {
+      const updateMap = new Map();
+      for (const update of shapeUpdates) {
+        updateMap.set(update.layerId, update);
       }
+      shapeTrackUpdatesRef.current = updateMap;
+    } else {
+      // Clear if no shape updates
+      shapeTrackUpdatesRef.current = new Map();
     }
   }, [
     timeline?.isPlaying,
@@ -683,6 +670,7 @@ export function useTimelineModulation({
 
   // RAF-based modulation update during playback
   // This ensures modulations are applied every frame, not just when React re-renders
+  // Now also evaluates shape tracks and stores in shapeTrackUpdatesRef for smooth 60fps interpolation
   useEffect(() => {
     if (!timeline?.isPlaying || !timeline?.visible) return;
     
@@ -699,9 +687,30 @@ export function useTimelineModulation({
         // Clear and re-apply timeline modulations
         store.clearAllMods('timeline');
         
+        // Collect shape track updates
+        const shapeUpdates = new Map();
+        
         for (const track of tracks) {
           if (!track.enabled || !track.targetId) continue;
-          if (track.type === 'shape') continue; // Shape tracks handled by main effect
+          
+          // Handle shape tracks - evaluate and store in ref for animation loop
+          if (track.type === 'shape') {
+            const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
+            if (shapeResult) {
+              const parsed = parseTargetId(track.targetId);
+              if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+                shapeUpdates.set(parsed.layerId, {
+                  layerId: parsed.layerId,
+                  nodes: shapeResult.nodes,
+                  subpaths: shapeResult.subpaths,
+                  position: shapeResult.position,
+                  animation: shapeResult.animation,
+                  colors: shapeResult.colors,
+                });
+              }
+            }
+            continue;
+          }
           
           // Handle color tracks
           if (track.type === 'color') {
@@ -726,6 +735,11 @@ export function useTimelineModulation({
           }
           // Global params are handled by the main effect since they need setters
         }
+        
+        // Update shape track ref (consumed by animation loop)
+        if (shapeTrackUpdatesRef) {
+          shapeTrackUpdatesRef.current = shapeUpdates;
+        }
       }
       
       rafId = requestAnimationFrame(updateModulations);
@@ -735,7 +749,7 @@ export function useTimelineModulation({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId]);
+  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef]);
 
   // Clean up timeline modulations when timeline is hidden or stopped
   useEffect(() => {
@@ -744,8 +758,12 @@ export function useTimelineModulation({
       if (store) {
         store.clearAllMods('timeline');
       }
+      // Clear shape track updates
+      if (shapeTrackUpdatesRef) {
+        shapeTrackUpdatesRef.current = new Map();
+      }
     }
-  }, [timeline?.visible, timeline?.isPlaying]);
+  }, [timeline?.visible, timeline?.isPlaying, shapeTrackUpdatesRef]);
 
   return {
     parseTargetId,

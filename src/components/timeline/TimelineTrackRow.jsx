@@ -315,27 +315,65 @@ const TimelineTrackRow = ({
         )}
         {/* Shape track info and capture button */}
         {isExpanded && isShapeTrack && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6rem' }}>
-            <button
-              type="button"
-              onClick={() => onCaptureShapeKeyframe?.(track.id, layerId)}
-              style={{
-                background: 'rgba(76, 175, 80, 0.3)',
-                border: '1px solid rgba(76, 175, 80, 0.5)',
-                borderRadius: 3,
-                padding: '3px 6px',
-                color: '#a5d6a7',
-                fontSize: '0.6rem',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-              title="Capture current shape at playhead position (K)"
-            >
-              ⬡ Capture
-            </button>
-            <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
-              {track.keyframes?.length || 0} keyframe{(track.keyframes?.length || 0) !== 1 ? 's' : ''}
-            </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6rem' }}>
+              <button
+                type="button"
+                onClick={() => onCaptureShapeKeyframe?.(track.id, layerId)}
+                style={{
+                  background: 'rgba(76, 175, 80, 0.3)',
+                  border: '1px solid rgba(76, 175, 80, 0.5)',
+                  borderRadius: 3,
+                  padding: '3px 6px',
+                  color: '#a5d6a7',
+                  fontSize: '0.6rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Capture current shape at playhead position (K)"
+              >
+                ⬡ Capture
+              </button>
+              <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
+                {track.keyframes?.length || 0} keyframe{(track.keyframes?.length || 0) !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {/* Category toggles for shape tracks */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.55rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.shape !== false}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...track.categories, shape: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Shape
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.animation === true}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...track.categories, animation: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Anim
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.color === true}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...track.categories, color: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Color
+              </label>
+            </div>
           </div>
         )}
       </div>

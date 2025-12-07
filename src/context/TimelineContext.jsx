@@ -54,13 +54,18 @@ const createKeyframe = (timeSeconds, value01, curve = 'linear', tension = 0.5) =
 
 /**
  * Create a shape keyframe (stores node geometry snapshot)
+ * Extended to optionally include animation and color parameters
  */
-const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '') => ({
+const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = {}) => ({
   id: generateId(),
   timeSeconds,
   nodes: nodes || null,
   subpaths: subpaths || null,
   label,
+  // Extended layer preset data (optional)
+  position: extras.position || null,      // { x, y, scale } - layer position
+  animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax, rotation }
+  colors: extras.colors || null,          // array of hex colors
 });
 
 /**
@@ -87,6 +92,13 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
       createKeyframe(0, 0),
       createKeyframe(lengthSeconds, 1),
     ],
+    // Shape track category toggles (which parameters to interpolate)
+    // Only used when type === 'shape'
+    categories: isShape ? {
+      shape: true,      // Interpolate nodes/subpaths
+      animation: false, // Interpolate animation params (movementStyle, speeds, etc.)
+      color: false,     // Interpolate colors array
+    } : null,
   };
 };
 
@@ -510,8 +522,14 @@ export const TimelineProvider = ({ children }) => {
   /**
    * Add or update a shape keyframe on a shape track
    * If a keyframe exists at the same time (within epsilon), it will be updated
+   * @param {string} trackId - Track ID
+   * @param {number} timeSeconds - Time position
+   * @param {Array|null} nodes - Node array (for shape)
+   * @param {Array|null} subpaths - Subpaths array (for shape)
+   * @param {string} label - Optional label
+   * @param {Object} extras - Extended data { position, animation, colors }
    */
-  const addShapeKeyframe = useCallback((trackId, timeSeconds, nodes, subpaths, label = '') => {
+  const addShapeKeyframe = useCallback((trackId, timeSeconds, nodes, subpaths, label = '', extras = {}) => {
     const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
     setSession(prev => ({
       ...prev,
@@ -526,15 +544,23 @@ export const TimelineProvider = ({ children }) => {
         
         let keyframes;
         if (existingIndex >= 0) {
-          // Update existing keyframe
+          // Update existing keyframe - merge all data
           keyframes = track.keyframes.map((kf, i) =>
             i === existingIndex
-              ? { ...kf, nodes: nodes || null, subpaths: subpaths || null, label }
+              ? {
+                  ...kf,
+                  nodes: nodes || null,
+                  subpaths: subpaths || null,
+                  label,
+                  position: extras.position || null,
+                  animation: extras.animation || null,
+                  colors: extras.colors || null,
+                }
               : kf
           );
         } else {
-          // Add new keyframe
-          const newKeyframe = createShapeKeyframe(timeSeconds, nodes, subpaths, label);
+          // Add new keyframe with extended data
+          const newKeyframe = createShapeKeyframe(timeSeconds, nodes, subpaths, label, extras);
           keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
         
