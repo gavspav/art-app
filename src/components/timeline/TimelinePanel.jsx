@@ -231,7 +231,8 @@ const TimelinePanel = ({
     { id: 'rotation', label: 'Rotate', range: { outputMin: -180, outputMax: 180 } },
     { id: 'wobble', label: 'Wobble', range: { outputMin: 0, outputMax: 1 } },
     { id: 'noiseAmount', label: 'Noise', range: { outputMin: 0, outputMax: 1 } },
-    { id: 'movementStyle', label: 'Movement Style', range: { outputMin: 0, outputMax: 3 } },
+    // Movement style is treated as a discrete enum; timeline uses 0..4 to select styles
+    { id: 'movementStyle', label: 'Movement Style', range: { outputMin: 0, outputMax: 4 } },
     { id: 'movementSpeed', label: 'Movement Speed', range: { outputMin: 0, outputMax: 5 } },
     { id: 'movementAngle', label: 'Angle', range: { outputMin: 0, outputMax: 360 } },
     { id: 'scaleSpeed', label: 'Z Speed', range: { outputMin: 0, outputMax: 1 } },

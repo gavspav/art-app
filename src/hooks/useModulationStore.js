@@ -285,6 +285,28 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
         ...modifiedLayer,
         position: { ...(modifiedLayer.position || {}), scale: value },
       };
+    } else if (paramId === 'movementStyle') {
+      // Map numeric value to discrete movement style string
+      const styles = Array.isArray(MOVEMENT_STYLES) && MOVEMENT_STYLES.length
+        ? MOVEMENT_STYLES
+        : ['bounce', 'drift', 'still', 'orbit', 'spin'];
+      const num = Number(value);
+      // Allow both 0-1 and 0..N ranges
+      let index;
+      if (Number.isFinite(num)) {
+        if (num <= 1 && num >= 0) {
+          index = Math.floor(num * styles.length);
+        } else {
+          index = Math.round(num);
+        }
+      } else {
+        index = 0;
+      }
+      const clampedIndex = Math.max(0, Math.min(styles.length - 1, index));
+      modifiedLayer = {
+        ...modifiedLayer,
+        movementStyle: styles[clampedIndex],
+      };
     } else if (paramId === 'colors' && Array.isArray(value)) {
       modifiedLayer = {
         ...modifiedLayer,

@@ -57,6 +57,12 @@ export function useTimelineModulation({
   setGlobalSpeedMultiplier,
   setGlobalOpacity,
   setBackgroundColor,
+  setGlobalBlendMode,
+  // Global appearance helpers
+  blendModes,
+  palettes,
+  sampleColorsEven,
+  // Layer setters / morph helpers
   setLayers,
   getPresetSlot,
   morphRoute,
@@ -266,6 +272,57 @@ export function useTimelineModulation({
           case 'globalSpeedMultiplier':
             if (setGlobalSpeedMultiplier) setGlobalSpeedMultiplier(value);
             break;
+          case 'globalBlendMode': {
+            // Map numeric value (expected 0-1) to discrete blend mode using same
+            // behaviour as Audio/BPM handlers
+            if (Array.isArray(blendModes) && blendModes.length && typeof setGlobalBlendMode === 'function') {
+              const v = Math.max(0, Math.min(1, Number(value) || 0));
+              const index = Math.floor(v * blendModes.length);
+              const clampedIndex = Math.max(0, Math.min(blendModes.length - 1, index));
+              const mode = blendModes[clampedIndex];
+              setGlobalBlendMode(mode);
+            }
+            break;
+          }
+          case 'globalPaletteIndex': {
+            // Global palette: affect ALL layers. Behaviour mirrors GlobalControls
+            // and audio/BPM handlers: map control value to a palette index and
+            // then distribute colours across layers.
+            if (!Array.isArray(palettes) || !palettes.length || typeof setLayers !== 'function') {
+              break;
+            }
+
+            const v = Math.max(0, Math.min(1, Number(value) || 0));
+            const index = Math.floor(v * palettes.length);
+            const clampedIndex = Math.max(0, Math.min(palettes.length - 1, index));
+            const pick = palettes[clampedIndex];
+            const src = Array.isArray(pick) ? pick : (pick && Array.isArray(pick.colors) ? pick.colors : []);
+            if (!src.length) break;
+
+            const layerCount = Array.isArray(layersRef.current) ? layersRef.current.length : 0;
+            if (!layerCount) break;
+
+            // Evenly sample colours for the number of layers
+            const paletteColors = sampleColorsEven
+              ? (sampleColorsEven(src, Math.max(1, layerCount)) || src.slice(0, layerCount))
+              : src.slice(0, layerCount);
+
+            setLayers(prev => {
+              if (!Array.isArray(prev) || !prev.length) return prev;
+              const n = Math.max(1, paletteColors.length);
+              return prev.map((layer, i) => {
+                const c = paletteColors[i % n];
+                if (!c) return layer;
+                return {
+                  ...layer,
+                  colors: [c],
+                  numColors: 1,
+                  selectedColor: 0,
+                };
+              });
+            });
+            break;
+          }
           case 'layersCount': {
             if (typeof setLayers === 'function') {
               const target = Math.max(1, Math.min(20, Math.round(value)));
