@@ -432,26 +432,6 @@ const MainApp = () => {
   // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
   const modulationStore = useModulationStore();
 
-  // Timeline modulation - applies timeline track values to the modulation store
-  useTimelineModulation({
-    modulationStore,
-    layers,
-    bpmContext: bpmForAnimation,
-    audioContext: audioReactive,
-    midiContext: useMidi(),
-    setGlobalSpeedMultiplier,
-    setGlobalOpacity: undefined,
-    setBackgroundColor,
-    setGlobalBlendMode,
-    blendModes,
-    palettes,
-    sampleColorsEven,
-    setLayers,
-    getPresetSlot,
-    morphRoute,
-    morphNodes,
-  });
-
   // When timeline playback starts from t=0 and a timeline start preset exists,
   // recall that preset app state before timeline automation is applied.
   const lastTimelinePlayingRef = useRef(false);
@@ -665,6 +645,26 @@ const MainApp = () => {
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
   const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
+
+  // Timeline modulation - applies timeline track values to the modulation store
+  useTimelineModulation({
+    modulationStore,
+    layers,
+    bpmContext: bpmForAnimation,
+    audioContext: audioReactive,
+    midiContext: useMidi(),
+    setGlobalSpeedMultiplier,
+    setGlobalOpacity: undefined,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    blendModes,
+    palettes,
+    sampleColorsEven,
+    setLayers,
+    getPresetSlot,
+    morphRoute,
+    morphNodes,
+  });
 
   // Assign exactly ONE colour per layer (cycled) so Global palette preset can be detected reliably
   // Memoized to provide a stable function identity to child components/hooks

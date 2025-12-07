@@ -447,10 +447,17 @@ export function useTimelineModulation({
                   const laSrc = fromTemplate || (toTemplate ? { ...toTemplate, opacity: 0 } : la);
                   const lbSrc = toTemplate || (fromTemplate ? { ...fromTemplate, opacity: 0 } : la);
 
-                  const pa = laSrc?.position
-                    ? laSrc.position
-                    : (la?.position || { x: 0.5, y: 0.5, scale: 1 });
-                  const pb = lbSrc?.position ? lbSrc.position : pa;
+                  // Ensure pa is fully initialized before any usage to avoid
+                  // temporal dead zone issues in transpiled bundles
+                  let pa = la?.position || { x: 0.5, y: 0.5, scale: 1 };
+                  if (laSrc && laSrc.position) {
+                    pa = laSrc.position;
+                  }
+
+                  let pb = pa;
+                  if (lbSrc && lbSrc.position) {
+                    pb = lbSrc.position;
+                  }
 
                   const ca = Array.isArray(laSrc?.colors)
                     ? laSrc.colors
