@@ -278,6 +278,81 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   return { nodes: left.nodes, subpaths: left.subpaths };
 };
 
+// Helper to convert hex color to RGB components
+function hexToRgb(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16),
+  } : { r: 255, g: 255, b: 255 };
+}
+
+// Helper to convert RGB to hex
+function rgbToHex(r, g, b) {
+  const toHex = (v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// Interpolate between two colors
+function lerpColor(color1, color2, t) {
+  const c1 = hexToRgb(color1);
+  const c2 = hexToRgb(color2);
+  return rgbToHex(
+    c1.r + (c2.r - c1.r) * t,
+    c1.g + (c2.g - c1.g) * t,
+    c1.b + (c2.b - c1.b) * t
+  );
+}
+
+/**
+ * Evaluate a color track at a given time
+ * Returns a hex color string or null if no keyframes
+ */
+export const evaluateColorTrackAtTime = (track, timeSeconds) => {
+  if (!track || track.type !== 'color') return null;
+  
+  const keyframes = track.keyframes || [];
+  if (keyframes.length === 0) return null;
+  
+  // Sort by time
+  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  
+  // Before first keyframe: use first keyframe's color
+  if (timeSeconds <= sorted[0].timeSeconds) {
+    return sorted[0].color || '#ffffff';
+  }
+  
+  // After last keyframe: use last keyframe's color
+  if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
+    return sorted[sorted.length - 1].color || '#ffffff';
+  }
+  
+  // Find bracketing keyframes
+  let left = sorted[0];
+  let right = sorted[sorted.length - 1];
+  
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
+      left = sorted[i];
+      right = sorted[i + 1];
+      break;
+    }
+  }
+  
+  // Same keyframe or very close
+  if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
+    return left.color || '#ffffff';
+  }
+  
+  // Calculate local t (0-1) between the two keyframes
+  const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
+  const clampedT = Math.max(0, Math.min(1, localT));
+  
+  // Interpolate colors
+  return lerpColor(left.color || '#ffffff', right.color || '#ffffff', clampedT);
+};
+
 /**
  * Find which segment index contains the given x position
  */

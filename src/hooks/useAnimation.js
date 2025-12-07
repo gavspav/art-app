@@ -283,54 +283,138 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
     const isUserInteractingRef = useRef(isUserInteracting);
     useEffect(() => { isUserInteractingRef.current = isUserInteracting; }, [isUserInteracting]);
 
-    const animate = useCallback(() => {
-        if (isFrozen) {
-            // Do not advance animation; let other UI changes trigger renders naturally
-            return;
-        }
+    // Store setLayers and runWithoutDirty in refs to avoid recreating animate callback
+    const setLayersRef = useRef(setLayers);
+    useEffect(() => { setLayersRef.current = setLayers; }, [setLayers]);
+    
+    const runWithoutDirtyRef = useRef(runWithoutDirty);
+    useEffect(() => { runWithoutDirtyRef.current = runWithoutDirty; }, [runWithoutDirty]);
+    
+    // Store other values in refs to stabilize the animate callback
+    const isFrozenRef = useRef(isFrozen);
+    useEffect(() => { isFrozenRef.current = isFrozen; }, [isFrozen]);
+    
+    const globalSpeedMultiplierRef = useRef(globalSpeedMultiplier);
+    useEffect(() => { globalSpeedMultiplierRef.current = globalSpeedMultiplier; }, [globalSpeedMultiplier]);
+    
+    const zIgnoreRef = useRef(zIgnore);
+    useEffect(() => { zIgnoreRef.current = zIgnore; }, [zIgnore]);
 
-        const applyUpdate = () => setLayers(prevLayers =>
+    // Frame counter for throttling React state updates
+    // Only sync to React every N frames to prevent "Maximum update depth exceeded" errors
+    const frameCountRef = useRef(0);
+    const UPDATE_EVERY_N_FRAMES = 2; // Sync to React every 2 frames (~30fps visual updates)
+
+    // Apply modulations only (no movement animation)
+    // Uses refs to avoid recreating this callback
+    const applyModulationsOnly = useCallback(() => {
+        const store = modulationStoreRef.current;
+        if (!store || !store.timelineModsRef) return;
+        
+        const timelineMods = store.timelineModsRef.current || {};
+        const bpmMods = store.bpmModsRef?.current || {};
+        const audioMods = store.audioModsRef?.current || {};
+        
+        // Check if there are any modulations to apply
+        const hasTimelineMods = Object.keys(timelineMods).length > 0;
+        const hasBpmMods = Object.keys(bpmMods).length > 0;
+        const hasAudioMods = Object.keys(audioMods).length > 0;
+        
+        if (!hasTimelineMods && !hasBpmMods && !hasAudioMods) return;
+        
+        // Check if user is interacting - skip BPM/Audio mods but ALWAYS apply timeline mods
+        const interacting = typeof isUserInteractingRef.current === 'function'
+            ? isUserInteractingRef.current()
+            : false;
+        
+        const setLayersFn = setLayersRef.current;
+        const runWithoutDirtyFn = runWithoutDirtyRef.current;
+        
+        const applyUpdate = () => setLayersFn(prevLayers =>
             prevLayers.map(layer => {
-                // 1. Update layer animation (movement, scale oscillation, etc.)
-                let updatedLayer = updateLayerAnimation(layer, globalSpeedMultiplier, zIgnore);
-                
-                // 2. Apply Audio/BPM modulations from the store (single pass)
-                //    Skip while user is actively interacting with the UI so that
-                //    manual adjustments are not immediately overridden.
-                const store = modulationStoreRef.current;
-                const interacting = typeof isUserInteractingRef.current === 'function'
-                    ? isUserInteractingRef.current()
-                    : false;
-                if (!interacting && store && store.bpmModsRef && store.audioModsRef) {
-                    updatedLayer = applyModulationsToLayer(
-                        updatedLayer,
-                        store.bpmModsRef.current,
-                        store.audioModsRef.current,
-                        store.timelineModsRef?.current || {}
-                    );
-                }
-                
-                return updatedLayer;
+                // Always apply timeline mods, but skip BPM/Audio during interaction
+                const effectiveBpmMods = interacting ? {} : bpmMods;
+                const effectiveAudioMods = interacting ? {} : audioMods;
+                return applyModulationsToLayer(layer, effectiveBpmMods, effectiveAudioMods, timelineMods);
             })
         );
-
-        if (typeof runWithoutDirty === 'function') {
-            runWithoutDirty(applyUpdate);
+        
+        if (typeof runWithoutDirtyFn === 'function') {
+            runWithoutDirtyFn(applyUpdate);
         } else {
             applyUpdate();
         }
+    }, []); // No dependencies - uses refs
+
+    // Main animation loop - uses refs to stay stable
+    // Throttles React state updates to prevent "Maximum update depth exceeded" errors
+    const animate = useCallback(() => {
+        frameCountRef.current += 1;
+        const shouldSyncToReact = frameCountRef.current >= UPDATE_EVERY_N_FRAMES;
+        
+        if (isFrozenRef.current) {
+            // When frozen, still apply modulations but don't advance movement
+            // Only sync to React on throttled frames
+            if (shouldSyncToReact) {
+                frameCountRef.current = 0;
+                applyModulationsOnly();
+            }
+            animationFrameId.current = requestAnimationFrame(animate);
+            return;
+        }
+
+        const speedMultiplier = globalSpeedMultiplierRef.current;
+        const zIgnoreVal = zIgnoreRef.current;
+
+        // Calculate updated layers (always, for smooth animation)
+        const computeUpdatedLayers = (prevLayers) => prevLayers.map(layer => {
+            // 1. Update layer animation (movement, scale oscillation, etc.)
+            let updatedLayer = updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
+            
+            // 2. Apply Audio/BPM/Timeline modulations from the store (single pass)
+            const store = modulationStoreRef.current;
+            if (store && store.bpmModsRef && store.audioModsRef) {
+                const interacting = typeof isUserInteractingRef.current === 'function'
+                    ? isUserInteractingRef.current()
+                    : false;
+                const timelineMods = store.timelineModsRef?.current || {};
+                const effectiveBpmMods = interacting ? {} : store.bpmModsRef.current;
+                const effectiveAudioMods = interacting ? {} : store.audioModsRef.current;
+                updatedLayer = applyModulationsToLayer(
+                    updatedLayer,
+                    effectiveBpmMods,
+                    effectiveAudioMods,
+                    timelineMods
+                );
+            }
+            
+            return updatedLayer;
+        });
+
+        // Only sync to React state on throttled frames to prevent update depth errors
+        if (shouldSyncToReact) {
+            frameCountRef.current = 0;
+            const setLayersFn = setLayersRef.current;
+            const runWithoutDirtyFn = runWithoutDirtyRef.current;
+
+            const applyUpdate = () => setLayersFn(computeUpdatedLayers);
+
+            if (typeof runWithoutDirtyFn === 'function') {
+                runWithoutDirtyFn(applyUpdate);
+            } else {
+                applyUpdate();
+            }
+        }
 
         animationFrameId.current = requestAnimationFrame(animate);
-    }, [isFrozen, setLayers, globalSpeedMultiplier, zIgnore, runWithoutDirty]);
+    }, [applyModulationsOnly]); // Only depends on applyModulationsOnly which is stable
 
+    // Start animation loop once on mount
     useEffect(() => {
-        // Start loop only when not frozen
-        if (!isFrozen) {
-            animationFrameId.current = requestAnimationFrame(animate);
-        }
+        animationFrameId.current = requestAnimationFrame(animate);
         return () => {
             if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
             animationFrameId.current = null;
         };
-    }, [animate, isFrozen]);
+    }, [animate]);
 };

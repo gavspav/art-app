@@ -1336,7 +1336,7 @@ const MainApp = () => {
   }, [isFrozen, setIsFrozen]);
 
   return (
-    <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
+    <div ref={containerRef} className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
         <KeyboardShortcutsOverlay
           visible={showShortcuts}
@@ -1383,7 +1383,6 @@ const MainApp = () => {
         {!isFullscreen && !timelineVisible && (
           <div
             className="canvas-container"
-            ref={containerRef}
             style={{
               position: 'fixed',
               top: 0,
@@ -1708,7 +1707,6 @@ const MainApp = () => {
             {/* Right Panel - Canvas */}
             <div
               className="canvas-container"
-              ref={containerRef}
               style={{
                 flex: 1,
                 height: '100%',
@@ -1794,7 +1792,6 @@ const MainApp = () => {
         {isFullscreen && (
           <div
             className="canvas-container"
-            ref={containerRef}
             style={{
               position: 'fixed',
               top: 0,

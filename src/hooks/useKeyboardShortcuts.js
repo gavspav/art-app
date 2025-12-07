@@ -31,9 +31,16 @@ export function useKeyboardShortcuts({
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (shouldIgnoreGlobalKey(e)) return;
-
       const key = (e.key || '').toLowerCase();
+      
+      // F key for fullscreen should ALWAYS work, even when inputs are focused
+      if (key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        toggleFullscreen?.();
+        return;
+      }
+      
+      if (shouldIgnoreGlobalKey(e)) return;
       // Spacebar -> toggle Freeze
       if (e.code === 'Space') {
         e.preventDefault();
@@ -74,12 +81,7 @@ export function useKeyboardShortcuts({
 
       // H previously toggled overlay; handled by BottomPanel now (minimize). No action here.
 
-      // F -> toggle fullscreen
-      if (key === 'f') {
-        e.preventDefault();
-        toggleFullscreen?.();
-        return;
-      }
+      // F -> toggle fullscreen (handled above, before shouldIgnoreGlobalKey check)
 
       if (!e.metaKey && !e.ctrlKey && !e.altKey && key === 's') {
         e.preventDefault();

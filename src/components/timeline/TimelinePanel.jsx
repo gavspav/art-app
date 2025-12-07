@@ -24,6 +24,7 @@ const TimelinePanel = ({
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const playheadRef = useRef(null);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [showWaveform, setShowWaveform] = useState(true);
   const {
@@ -54,11 +55,15 @@ const TimelinePanel = ({
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
+    keyframeClipboard,
+    copyKeyframe,
+    pasteKeyframe,
     setAudio,
     clearAudio,
     setZoom,
     setScrollLeft,
     setVisible,
+    getPositionSeconds,
   } = timeline || {};
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
@@ -89,6 +94,57 @@ const TimelinePanel = ({
     const basePixelsPerSecond = (containerWidth - 200) / Math.max(1, lengthSeconds);
     return basePixelsPerSecond * (zoom || 1);
   }, [containerWidth, lengthSeconds, zoom]);
+
+  // Keep pixelsPerSecond in a ref for RAF access
+  const pixelsPerSecondRef = useRef(pixelsPerSecond);
+  useEffect(() => { pixelsPerSecondRef.current = pixelsPerSecond; }, [pixelsPerSecond]);
+
+  // Smooth playhead animation via RAF (avoids React re-render jitter)
+  useEffect(() => {
+    if (!isPlaying || !playheadRef.current || !getPositionSeconds) return;
+    
+    let rafId;
+    
+    const updatePlayhead = () => {
+      const pos = getPositionSeconds();
+      const pps = pixelsPerSecondRef.current;
+      const xAbsolute = pos * pps;
+      
+      // Position playhead at absolute timeline position (container handles scrolling)
+      if (playheadRef.current) {
+        playheadRef.current.style.left = `${200 + xAbsolute}px`;
+      }
+      
+      rafId = requestAnimationFrame(updatePlayhead);
+    };
+    
+    rafId = requestAnimationFrame(updatePlayhead);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [isPlaying, getPositionSeconds]);
+
+  // Scroll to show playhead when position changes significantly (e.g., stop/rewind)
+  useEffect(() => {
+    if (isPlaying) return; // Don't interfere with playback auto-scroll
+    
+    const xAbsolute = positionSeconds * pixelsPerSecond;
+    const xScreen = xAbsolute - (scrollLeft || 0);
+    const viewWidth = containerWidth - 200;
+    
+    // If playhead is off-screen, scroll to show it
+    if (xScreen < 0 || xScreen > viewWidth) {
+      // Center the playhead in view, or scroll to 0 if at start
+      const newScroll = positionSeconds < 0.1 ? 0 : Math.max(0, xAbsolute - viewWidth / 2);
+      if (setScrollLeft) {
+        setScrollLeft(newScroll);
+      }
+      // Also scroll the DOM element
+      if (tracksContainerRef.current) {
+        tracksContainerRef.current.scrollLeft = newScroll;
+      }
+    }
+  }, [positionSeconds, isPlaying, pixelsPerSecond, scrollLeft, containerWidth, setScrollLeft]);
 
   // Total timeline width in pixels
   const timelineWidth = useMemo(() => {
@@ -167,9 +223,7 @@ const TimelinePanel = ({
     { id: 'scaleSpeed', label: 'Z Speed', range: { outputMin: 0, outputMax: 1 } },
     { id: 'scaleMin', label: 'Z Min', range: { outputMin: 0, outputMax: 2 } },
     { id: 'scaleMax', label: 'Z Max', range: { outputMin: 0, outputMax: 3 } },
-    { id: 'colorR', label: 'Layer Colour R', range: { outputMin: 0, outputMax: 1 } },
-    { id: 'colorG', label: 'Layer Colour G', range: { outputMin: 0, outputMax: 1 } },
-    { id: 'colorB', label: 'Layer Colour B', range: { outputMin: 0, outputMax: 1 } },
+    { id: 'color', label: 'Layer Colour', type: 'color' },
   ], []);
 
   // Handle adding a new track
@@ -289,14 +343,14 @@ const TimelinePanel = ({
 
   if (!visible) return null;
 
-  // Playhead X in timeline coordinates (no scroll), and screen X for overlays
-  const playheadXTimeline = (positionSeconds * pixelsPerSecond) - scrollLeft;
+  // Playhead X in absolute timeline coordinates (not affected by scroll)
+  // Since the playhead is inside the scrollable container, we use absolute position
+  const playheadXAbsolute = positionSeconds * pixelsPerSecond;
   const contentWidth = useMemo(() => {
     const base = lengthSeconds * pixelsPerSecond;
     return Math.max(timelineWidth || 0, base, 800);
   }, [timelineWidth, lengthSeconds, pixelsPerSecond]);
   const WAVEFORM_HEIGHT = 80;
-  const playheadXScreen = playheadXTimeline - scrollLeft;
 
   return (
     <div
@@ -496,15 +550,7 @@ const TimelinePanel = ({
                     </g>
                   );
                 })}
-                {/* Playhead (ruler) */}
-                <line
-                  x1={playheadXTimeline}
-                  y1={0}
-                  x2={playheadXTimeline}
-                  y2={24}
-                  stroke="#ff5722"
-                  strokeWidth={2}
-                />
+                {/* Playhead drawn via global overlay - no duplicate here */}
               </svg>
             </div>
           </div>
@@ -530,6 +576,9 @@ const TimelinePanel = ({
                 onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
                 onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
                 onCaptureShapeKeyframe={handleCaptureShapeKeyframe}
+                onCopyKeyframe={(kfId) => copyKeyframe?.(track.id, kfId)}
+                onPasteKeyframe={(time) => pasteKeyframe?.(track.id, time)}
+                hasClipboard={!!keyframeClipboard}
                 onSeek={seekTo}
               />
             ))}
@@ -565,16 +614,18 @@ const TimelinePanel = ({
 
           {/* Single playhead overlay spanning waveform, ruler, tracks */}
           <div
+            ref={playheadRef}
             style={{
-            position: 'absolute',
-            top: 0,
-            left: 200 - scrollLeft + playheadXTimeline,
-            width: 2,
-            height: '100%',
-            background: '#ff5722',
-            pointerEvents: 'none',
-            zIndex: 5,
-          }}
+              position: 'absolute',
+              top: 0,
+              left: 200 + playheadXAbsolute,
+              width: 2,
+              height: '100%',
+              background: '#ff5722',
+              pointerEvents: 'none',
+              zIndex: 5,
+              willChange: isPlaying ? 'left' : 'auto',
+            }}
           />
         </div>
       </div>

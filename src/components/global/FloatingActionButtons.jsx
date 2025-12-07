@@ -15,6 +15,29 @@ const FloatingActionButtons = ({
   const modeTitle = parameterTargetMode === 'global'
     ? 'Target: Global (switch to Individual)'
     : 'Target: Individual (switch to Global)';
+  
+  // In fullscreen mode, only show the exit fullscreen button (minimal UI)
+  if (isFullscreen) {
+    return (
+      <div 
+        className="floating-actions" 
+        aria-label="Floating Actions"
+        style={{ opacity: 0.3, transition: 'opacity 0.2s' }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.3'}
+      >
+        <button 
+          className="fab" 
+          title="Exit Fullscreen (F)" 
+          aria-label="Exit Fullscreen" 
+          onClick={onToggleFullscreen}
+        >
+          ⤢
+        </button>
+      </div>
+    );
+  }
+  
   return (
     <div className="floating-actions" aria-label="Floating Actions">
       {onToggleTargetMode && (

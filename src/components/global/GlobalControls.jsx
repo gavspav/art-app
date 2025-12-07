@@ -97,7 +97,7 @@ const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange })
 
 // Audio Reactive Section Component - Global audio settings only
 // Per-parameter audio mappings are shown alongside MIDI controls on each parameter
-const AudioReactiveSection = () => {
+const AudioReactiveSection = ({ isActiveTab = true }) => {
   const audio = useAudioReactive();
   const [showSettings, setShowSettings] = useState(false);
   const [features, setFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
@@ -148,23 +148,24 @@ const AudioReactiveSection = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
-  // Poll audio features for visual meters when active
+  // Poll audio features for visual meters when active and tab is visible
   // This hook must be called unconditionally (before any early returns)
   useEffect(() => {
-    if (!isActive || !getFeatures) return;
+    // Only run when tab is active and audio is active
+    if (!isActiveTab || !isActive || !getFeatures) return;
     
-    let rafId;
+    let intervalId;
     const updateMeters = () => {
       const f = getFeatures();
       setFeatures(f);
-      rafId = requestAnimationFrame(updateMeters);
     };
     
-    rafId = requestAnimationFrame(updateMeters);
+    // Run at ~20fps instead of RAF
+    intervalId = setInterval(updateMeters, 50);
     return () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      if (intervalId) clearInterval(intervalId);
     };
-  }, [isActive, getFeatures]);
+  }, [isActiveTab, isActive, getFeatures]);
 
   if (!audio) {
     return null;
@@ -753,6 +754,8 @@ const BPMControlRow = React.memo(({ paramId }) => {
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
+  // Tab visibility for gating animations
+  isActiveTab = true,
   // State and actions
   backgroundColor,
   setBackgroundColor,
@@ -2103,7 +2106,7 @@ const GlobalControls = ({
           </div>
 
           {/* Audio Reactive Section */}
-          <AudioReactiveSection />
+          <AudioReactiveSection isActiveTab={isActiveTab} />
 
           {/* BPM/Beat Sync Section */}
           <BPMSection />

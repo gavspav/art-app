@@ -2589,21 +2589,34 @@ const Canvas = forwardRef(({
 
     // Initialize baseline snapshot when enabling node edit, switching layer,
   // or when the selected layer gains nodes (e.g., after auto-init)
+  // Use refs to track state and avoid re-running on every layers change
+  const prevNodeLenRef = useRef(0);
+  const wasNodeEditModeRef = useRef(false);
   useEffect(() => {
     if (!isNodeEditMode) {
-      // Reset when leaving node edit mode
-      historyRef.current = { stack: [], index: -1, layerIndex: -1 };
-      setHistoryTick(t => t + 1);
+      // Only reset when transitioning FROM node edit mode TO non-node edit mode
+      if (wasNodeEditModeRef.current) {
+        historyRef.current = { stack: [], index: -1, layerIndex: -1 };
+        prevNodeLenRef.current = 0;
+        setHistoryTick(t => t + 1);
+      }
+      wasNodeEditModeRef.current = false;
       return;
     }
+    wasNodeEditModeRef.current = true;
     const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
     const sel = layers[idx];
     const nodeLen = Array.isArray(sel?.nodes) ? sel.nodes.length : 0;
-    // Initialize when switching tracked layer, or if no baseline yet but nodes now exist
-    if (historyRef.current.layerIndex !== idx || (historyRef.current.index < 0 && nodeLen > 0)) {
+    const prevNodeLen = prevNodeLenRef.current;
+    prevNodeLenRef.current = nodeLen;
+    
+    // Initialize when switching tracked layer, or if nodes appeared (0 -> non-zero)
+    if (historyRef.current.layerIndex !== idx || (prevNodeLen === 0 && nodeLen > 0)) {
       initHistoryBaseline(idx);
     }
-  }, [isNodeEditMode, initHistoryBaseline, layers, selectedLayerIndex]);
+    // Only depend on isNodeEditMode and selectedLayerIndex, not layers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNodeEditMode, initHistoryBaseline, selectedLayerIndex]);
 
     return (
         <>

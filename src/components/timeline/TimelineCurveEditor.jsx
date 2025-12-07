@@ -24,6 +24,9 @@ const TimelineCurveEditor = ({
   onUpdateKeyframe,
   onRemoveKeyframe,
   onSeek,
+  onCopyKeyframe,
+  onPasteKeyframe,
+  hasClipboard = false,
   collapsed = false,
 }) => {
   const svgRef = useRef(null);
@@ -38,12 +41,17 @@ const TimelineCurveEditor = ({
   const keyframes = track?.keyframes || [];
   const trackColor = track?.color || '#4fc3f7';
   const isShapeTrack = track?.type === 'shape';
+  const isColorTrack = track?.type === 'color';
+
+  // Color picker state
+  const [colorPickerKeyframeId, setColorPickerKeyframeId] = useState(null);
+  const colorInputRef = useRef(null);
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
   const padding = { top: 8, right: 8, bottom: 8, left: 0 };
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   
-  // For shape tracks, keyframes sit on a horizontal centerline
+  // For shape/color tracks, keyframes sit on a horizontal centerline
   const shapeCenterY = padding.top + innerHeight / 2;
 
   // Keep content width in sync with timeline width (fallback to measured container)
@@ -203,8 +211,13 @@ const TimelineCurveEditor = ({
     const svgY = e.clientY - rect.top;
     const { timeSeconds, value01 } = svgToKeyframe(svgX, svgY);
     
-    onAddKeyframe?.(timeSeconds, value01, 'linear', 0.5);
-  }, [svgToKeyframe, onAddKeyframe]);
+    // For color tracks, add a keyframe with a default color
+    if (isColorTrack) {
+      onAddKeyframe?.(timeSeconds, 0.5, 'linear', 0.5, { color: '#ffffff' });
+    } else {
+      onAddKeyframe?.(timeSeconds, value01, 'linear', 0.5);
+    }
+  }, [svgToKeyframe, onAddKeyframe, isColorTrack]);
 
   // Handle keyframe double-click to delete
   const handleKeyframeDoubleClick = useCallback((e, kf) => {
@@ -220,15 +233,129 @@ const TimelineCurveEditor = ({
     onRemoveKeyframe?.(kf.id);
   }, [keyframes, onRemoveKeyframe]);
 
-  // Handle right-click for curve menu
+  // Handle click on color keyframe to open color picker
+  const handleColorKeyframeClick = useCallback((e, kf) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedKeyframe(kf.id);
+    setColorPickerKeyframeId(kf.id);
+    // Trigger the hidden color input
+    setTimeout(() => {
+      if (colorInputRef.current) {
+        colorInputRef.current.value = kf.color || '#ffffff';
+        colorInputRef.current.click();
+      }
+    }, 0);
+  }, []);
+
+  // Handle color change from picker
+  const handleColorChange = useCallback((e) => {
+    const newColor = e.target.value;
+    if (colorPickerKeyframeId && onUpdateKeyframe) {
+      onUpdateKeyframe(colorPickerKeyframeId, { color: newColor });
+    }
+  }, [colorPickerKeyframeId, onUpdateKeyframe]);
+
+  // Handle right-click for curve menu (on keyframe)
   const handleKeyframeContextMenu = useCallback((e, kf) => {
     e.preventDefault();
     e.stopPropagation();
     
+    setSelectedKeyframe(kf.id);
     setCurveMenuKeyframeId(kf.id);
-    setCurveMenuPos({ x: e.clientX, y: e.clientY });
+    
+    // Position menu above the click point to avoid going off screen
+    const menuWidth = 160;
+    const menuHeight = 280;
+    let menuX = e.clientX - menuWidth / 2;
+    let menuY = e.clientY - menuHeight - 10;
+    
+    if (menuY < 10) {
+      menuY = e.clientY + 10;
+    }
+    if (menuX < 10) {
+      menuX = 10;
+    } else if (menuX + menuWidth > window.innerWidth - 10) {
+      menuX = window.innerWidth - menuWidth - 10;
+    }
+    if (menuY + menuHeight > window.innerHeight - 10) {
+      menuY = window.innerHeight - menuHeight - 10;
+    }
+    
+    setCurveMenuPos({ x: menuX, y: menuY });
     setShowCurveMenu(true);
   }, []);
+
+  // Handle right-click on background - find nearest keyframe for curve editing
+  const handleBackgroundContextMenu = useCallback((e) => {
+    // Always prevent the browser context menu in the timeline
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Get click position in timeline coordinates
+    const rect = e.currentTarget.getBoundingClientRect();
+    const svgX = e.clientX - rect.left;
+    const clickTime = (svgX - padding.left + scrollLeft) / pixelsPerSecond;
+    
+    // Find the nearest keyframe to the click position (for applying curves)
+    // Curves apply to the segment AFTER a keyframe, so prefer keyframes before click time
+    let nearestKf = null;
+    let minDist = Infinity;
+    
+    // First pass: find keyframes before or at click position
+    for (const kf of keyframes) {
+      if (kf.timeSeconds <= clickTime) {
+        const dist = clickTime - kf.timeSeconds;
+        if (dist < minDist) {
+          minDist = dist;
+          nearestKf = kf;
+        }
+      }
+    }
+    
+    // If no keyframe before click, find the closest one overall
+    if (!nearestKf && keyframes.length > 0) {
+      for (const kf of keyframes) {
+        const dist = Math.abs(kf.timeSeconds - clickTime);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestKf = kf;
+        }
+      }
+    }
+    
+    // Always select the nearest keyframe if we have one
+    if (nearestKf) {
+      setSelectedKeyframe(nearestKf.id);
+      setCurveMenuKeyframeId(nearestKf.id);
+    } else {
+      setCurveMenuKeyframeId(null);
+    }
+    
+    // Position menu above the click point to avoid going off screen
+    const menuWidth = 160;
+    const menuHeight = 280;
+    let menuX = e.clientX - menuWidth / 2; // Center horizontally on click
+    let menuY = e.clientY - menuHeight - 10; // Position above click
+    
+    // If menu would go off top, position below click instead
+    if (menuY < 10) {
+      menuY = e.clientY + 10;
+    }
+    // Keep within horizontal bounds
+    if (menuX < 10) {
+      menuX = 10;
+    } else if (menuX + menuWidth > window.innerWidth - 10) {
+      menuX = window.innerWidth - menuWidth - 10;
+    }
+    // Final check for bottom edge
+    if (menuY + menuHeight > window.innerHeight - 10) {
+      menuY = window.innerHeight - menuHeight - 10;
+    }
+    
+    setCurveMenuPos({ x: menuX, y: menuY });
+    setShowCurveMenu(true);
+  }, [keyframes, padding.left, scrollLeft, pixelsPerSecond]);
 
   // Apply curve type
   const handleApplyCurveType = useCallback((curveType) => {
@@ -254,6 +381,35 @@ const TimelineCurveEditor = ({
     
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showCurveMenu]);
+
+  // Keyboard shortcuts for copy/paste (Ctrl/Cmd+C, Ctrl/Cmd+V)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Only handle if this track's editor is focused or has a selected keyframe
+      if (!selectedKeyframe && !curveMenuKeyframeId) return;
+      
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      
+      if (modKey && e.key === 'c') {
+        // Copy selected keyframe
+        const kfId = selectedKeyframe || curveMenuKeyframeId;
+        if (kfId && onCopyKeyframe) {
+          e.preventDefault();
+          onCopyKeyframe(kfId);
+        }
+      } else if (modKey && e.key === 'v') {
+        // Paste at playhead
+        if (hasClipboard && onPasteKeyframe) {
+          e.preventDefault();
+          onPasteKeyframe(positionSeconds);
+        }
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedKeyframe, curveMenuKeyframeId, onCopyKeyframe, onPasteKeyframe, hasClipboard, positionSeconds]);
 
   // Playhead position (align with global line; account for left padding)
   const playheadX = positionSeconds * pixelsPerSecond - scrollLeft;
@@ -321,6 +477,7 @@ const TimelineCurveEditor = ({
           cursor: draggingKeyframe ? 'grabbing' : 'crosshair',
         }}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleBackgroundContextMenu}
       >
         {/* Background grid */}
         <defs>
@@ -385,11 +542,50 @@ const TimelineCurveEditor = ({
           />
         )}
 
+        {/* Color track centerline */}
+        {isColorTrack && (
+          <line
+            x1={-scrollLeft}
+            y1={shapeCenterY}
+            x2={containerWidth - scrollLeft}
+            y2={shapeCenterY}
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth={1}
+            strokeDasharray="4,4"
+          />
+        )}
+
+        {/* Color track gradient preview between keyframes */}
+        {isColorTrack && keyframes.length >= 2 && (
+          <defs>
+            <linearGradient id={`colorGradient-${track?.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
+              {keyframes.map((kf) => (
+                <stop
+                  key={kf.id}
+                  offset={`${(kf.timeSeconds / lengthSeconds) * 100}%`}
+                  stopColor={kf.color || '#ffffff'}
+                />
+              ))}
+            </linearGradient>
+          </defs>
+        )}
+        {isColorTrack && keyframes.length >= 2 && (
+          <rect
+            x={keyframes[0].timeSeconds * pixelsPerSecond - scrollLeft}
+            y={shapeCenterY - 8}
+            width={(keyframes[keyframes.length - 1].timeSeconds - keyframes[0].timeSeconds) * pixelsPerSecond}
+            height={16}
+            fill={`url(#colorGradient-${track?.id})`}
+            rx={4}
+            opacity={0.8}
+          />
+        )}
+
         {/* Keyframe nodes */}
         {keyframes.map((kf, i) => {
-          // For shape tracks, use centerline Y; for numeric, use value-based Y
+          // For shape/color tracks, use centerline Y; for numeric, use value-based Y
           const basePos = keyframeToSvg(kf);
-          const pos = isShapeTrack 
+          const pos = (isShapeTrack || isColorTrack)
             ? { x: basePos.x, y: shapeCenterY }
             : basePos;
           const isFirst = i === 0;
@@ -414,6 +610,7 @@ const TimelineCurveEditor = ({
                   style={{ cursor: 'grab' }}
                   onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
                   onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
+                  onContextMenu={(e) => handleKeyframeContextMenu(e, kf)}
                 />
                 {/* Diamond shape */}
                 <polygon
@@ -435,6 +632,37 @@ const TimelineCurveEditor = ({
                     {kf.label}
                   </text>
                 )}
+              </g>
+            );
+          }
+          
+          // Color track: render colored circles
+          if (isColorTrack) {
+            const radius = isSelected ? 10 : 8;
+            const kfColor = kf.color || '#ffffff';
+            return (
+              <g key={kf.id}>
+                {/* Larger hit area */}
+                <circle
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={14}
+                  fill="transparent"
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => handleColorKeyframeClick(e, kf)}
+                  onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
+                  onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
+                />
+                {/* Colored circle */}
+                <circle
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={radius}
+                  fill={kfColor}
+                  stroke={isSelected ? '#ff5722' : '#fff'}
+                  strokeWidth={isSelected ? 3 : 2}
+                  style={{ pointerEvents: 'none' }}
+                />
               </g>
             );
           }
@@ -511,7 +739,7 @@ const TimelineCurveEditor = ({
         )}
       </svg>
 
-      {/* Curve type context menu */}
+      {/* Keyframe context menu */}
       {showCurveMenu && (
         <div
           style={{
@@ -523,26 +751,21 @@ const TimelineCurveEditor = ({
             borderRadius: 4,
             padding: '4px 0',
             zIndex: 1000,
-            minWidth: 120,
+            minWidth: 140,
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div
-            style={{
-              padding: '4px 8px',
-              fontSize: '0.65rem',
-              color: 'rgba(255, 255, 255, 0.5)',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            Curve Type
-          </div>
-          {Object.entries(CURVE_TYPES).map(([key, { name, icon }]) => (
+          {/* Copy option (only when a keyframe is selected) */}
+          {curveMenuKeyframeId && (
             <button
-              key={key}
               type="button"
-              onClick={() => handleApplyCurveType(key)}
+              onClick={() => {
+                if (onCopyKeyframe) {
+                  onCopyKeyframe(curveMenuKeyframeId);
+                }
+                setShowCurveMenu(false);
+              }}
               style={{
                 display: 'block',
                 width: '100%',
@@ -555,10 +778,88 @@ const TimelineCurveEditor = ({
                 textAlign: 'left',
               }}
             >
-              {icon} {name}
+              📋 Copy Keyframe (⌘C)
             </button>
-          ))}
+          )}
+          {/* Paste option */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onPasteKeyframe) {
+                onPasteKeyframe(positionSeconds);
+              }
+              setShowCurveMenu(false);
+            }}
+            disabled={!hasClipboard}
+            style={{
+              display: 'block',
+              width: '100%',
+              padding: '6px 12px',
+              background: 'transparent',
+              border: 'none',
+              color: hasClipboard ? 'white' : 'rgba(255,255,255,0.3)',
+              fontSize: '0.7rem',
+              cursor: hasClipboard ? 'pointer' : 'not-allowed',
+              textAlign: 'left',
+            }}
+          >
+            📄 Paste at Playhead (⌘V)
+          </button>
+          
+          {/* Curve type section (for numeric tracks when there are keyframes) */}
+          {!isShapeTrack && !isColorTrack && keyframes.length > 0 && (
+            <>
+              <div
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.65rem',
+                  color: 'rgba(255, 255, 255, 0.5)',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                  marginTop: 4,
+                }}
+              >
+                {curveMenuKeyframeId ? 'Curve Type' : 'No keyframe selected'}
+              </div>
+              {curveMenuKeyframeId && Object.entries(CURVE_TYPES).map(([key, { name, icon }]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleApplyCurveType(key)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  {icon} {name}
+                </button>
+              ))}
+            </>
+          )}
         </div>
+      )}
+
+      {/* Hidden color input for color picker */}
+      {isColorTrack && (
+        <input
+          ref={colorInputRef}
+          type="color"
+          style={{
+            position: 'absolute',
+            opacity: 0,
+            pointerEvents: 'none',
+            width: 0,
+            height: 0,
+          }}
+          onChange={handleColorChange}
+        />
       )}
     </div>
   );

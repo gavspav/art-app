@@ -25,6 +25,9 @@ const TimelineTrackRow = ({
   onUpdateKeyframe,
   onRemoveKeyframe,
   onCaptureShapeKeyframe,
+  onCopyKeyframe,
+  onPasteKeyframe,
+  hasClipboard = false,
   onSeek,
   height = 100,
 }) => {
@@ -73,16 +76,19 @@ const TimelineTrackRow = ({
         targetId: `global:${newParamId}`,
         range: param?.range || { outputMin: 0, outputMax: 1 },
         type: param?.type || 'numeric',
+        // Clear keyframes when changing parameter type to avoid incompatible data
+        keyframes: [],
       });
     } else if (targetType === 'layer' && layerId) {
       const param = layerParameters.find(p => p.id === newParamId);
       const isShape = param?.type === 'shape' || newParamId === 'shape';
+      const isColor = param?.type === 'color' || newParamId === 'color';
       onUpdateTrack?.({
         targetId: `layer:${layerId}:${newParamId}`,
-        range: isShape ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
-        type: isShape ? 'shape' : 'numeric',
-        // Clear keyframes when switching to shape track (they'll be added via capture)
-        ...(isShape ? { keyframes: [] } : {}),
+        range: (isShape || isColor) ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
+        type: isShape ? 'shape' : (isColor ? 'color' : 'numeric'),
+        // Always clear keyframes when changing parameter to avoid incompatible data
+        keyframes: [],
       });
     }
   }, [targetType, layerId, globalParameters, layerParameters, onUpdateTrack]);
@@ -355,6 +361,9 @@ const TimelineTrackRow = ({
           onAddKeyframe={onAddKeyframe}
           onUpdateKeyframe={onUpdateKeyframe}
           onRemoveKeyframe={onRemoveKeyframe}
+          onCopyKeyframe={onCopyKeyframe}
+          onPasteKeyframe={onPasteKeyframe}
+          hasClipboard={hasClipboard}
           onSeek={onSeek}
           collapsed={!isExpanded}
         />

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
-import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime } from '../utils/envelopes.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
@@ -179,7 +179,17 @@ export function useTimelineModulation({
   // Track which targetIds we've cleared mappings for (to avoid repeated clears)
   const clearedTargetsRef = useRef(new Set());
 
+  // Get direct position access from timeline (for RAF-based updates)
+  const getPositionSeconds = timeline?.getPositionSeconds;
+  const getPositionSecondsRef = useRef(getPositionSeconds);
+  useEffect(() => { getPositionSecondsRef.current = getPositionSeconds; }, [getPositionSeconds]);
+
+  // Throttle shape updates to prevent excessive setLayers calls
+  const lastShapeUpdateTimeRef = useRef(0);
+  const SHAPE_UPDATE_INTERVAL_MS = 50; // Max 20 shape updates per second
+
   // Apply timeline values to modulation store on each frame
+  // Note: During playback, the RAF loop below handles layer parameter updates for smoother animation
   useEffect(() => {
     if (!timeline) return;
     
@@ -188,8 +198,11 @@ export function useTimelineModulation({
     
     if (!store || !Array.isArray(tracks)) return;
     
-    // Clear all timeline modulations first
-    store.clearAllMods('timeline');
+    // Clear all timeline modulations first when not playing
+    // During playback, RAF loop manages layer params for smoother updates
+    if (!isPlaying) {
+      store.clearAllMods('timeline');
+    }
     
     // Evaluate each enabled track
     // Collect shape track results to apply after numeric tracks
@@ -220,6 +233,19 @@ export function useTimelineModulation({
         continue;
       }
       
+      // Handle color tracks separately
+      if (track.type === 'color') {
+        const colorResult = evaluateColorTrackAtTime(track, positionSeconds);
+        if (colorResult) {
+          const parsed = parseTargetId(track.targetId);
+          if (parsed?.type === 'layer' && parsed.paramId === 'color') {
+            // Store the color in the modulation store as 'colors' array
+            store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+          }
+        }
+        continue;
+      }
+      
       // Evaluate numeric track at current position
       const value = evaluateTrackAtTime(track, positionSeconds);
       if (value === null) continue;
@@ -230,7 +256,10 @@ export function useTimelineModulation({
       
       if (parsed.type === 'layer') {
         // Apply to modulation store for layer parameter
-        store.setMod('timeline', parsed.layerId, parsed.paramId, value);
+        // During playback, RAF loop handles this for smoother updates
+        if (!isPlaying) {
+          store.setMod('timeline', parsed.layerId, parsed.paramId, value);
+        }
       } else if (parsed.type === 'global') {
         // Apply to global setter directly
         switch (parsed.paramId) {
@@ -240,21 +269,42 @@ export function useTimelineModulation({
           case 'layersCount': {
             if (typeof setLayers === 'function') {
               const target = Math.max(1, Math.min(20, Math.round(value)));
+              // Check if we already have the target count to avoid infinite loops
+              const currentCount = layersRef.current?.length || 0;
+              if (currentCount === target) break;
+              
               setLayers(prev => {
                 if (!Array.isArray(prev)) return prev;
                 if (prev.length === target) return prev;
                 if (prev.length > target) {
                   return prev.slice(0, target);
                 }
-                // grow by cloning last layer
+                // grow by using buildVariedLayerFrom for proper variation
                 const next = [...prev];
-                const template = prev[prev.length - 1] || {};
+                const template = prev[prev.length - 1] || DEFAULT_LAYER;
+                const baseVar = {
+                  shape: template.variationShape ?? 0.2,
+                  anim: template.variationAnim ?? 0.2,
+                  color: template.variationColor ?? 0.2,
+                  position: template.variationPosition ?? 0.2,
+                  scale: template.variationScale ?? 0.2,
+                };
+                let prevLayer = template;
                 while (next.length < target) {
-                  next.push({
+                  const layerIndex = next.length + 1;
+                  const varied = buildVariedLayerFrom(prevLayer, layerIndex, baseVar);
+                  // Ensure unique ID - buildVariedLayerFrom doesn't set a new ID
+                  const newLayer = varied ? {
+                    ...varied,
+                    id: `layer-timeline-${Date.now()}-${layerIndex}-${Math.random().toString(36).slice(2, 8)}`,
+                    name: `Layer ${layerIndex}`,
+                  } : {
                     ...template,
-                    id: `${template.id || 'layer'}-${Date.now()}-${next.length}`,
-                    name: template.name ? `${template.name} ${next.length}` : `Layer ${next.length + 1}`,
-                  });
+                    id: `layer-timeline-${Date.now()}-${layerIndex}-${Math.random().toString(36).slice(2, 8)}`,
+                    name: `Layer ${layerIndex}`,
+                  };
+                  next.push(newLayer);
+                  prevLayer = newLayer;
                 }
                 return next;
               });
@@ -439,6 +489,10 @@ export function useTimelineModulation({
             // This mirrors the logic in GlobalControls.applyVariationValue
             if (typeof setLayers === 'function') {
               const prop = parsed.paramId;
+              // Check if the value has actually changed to avoid infinite loops
+              const currentValue = layersRef.current?.[0]?.[prop];
+              if (currentValue !== undefined && Math.abs(currentValue - value) < 0.001) break;
+              
               const categoryMap = {
                 variationPosition: ['position'],
                 variationShape: ['shape'],
@@ -450,6 +504,10 @@ export function useTimelineModulation({
               
               setLayers(prev => {
                 if (!Array.isArray(prev) || prev.length <= 1) return prev;
+                
+                // Check again inside setLayers to be safe
+                const currentVal = prev[0]?.[prop];
+                if (currentVal !== undefined && Math.abs(currentVal - value) < 0.001) return prev;
                 
                 // Update the variation value on all layers
                 const updated = prev.map(layer => ({
@@ -514,31 +572,35 @@ export function useTimelineModulation({
       }
     }
 
-    // Apply shape track updates to layers
+    // Apply shape track updates to layers (throttled to prevent update depth errors)
     if (shapeUpdates.length > 0 && typeof setLayers === 'function') {
-      setLayers(prev => {
-        if (!Array.isArray(prev)) return prev;
-        
-        // Build a map of layerId -> shape update
-        const updateMap = new Map();
-        for (const update of shapeUpdates) {
-          updateMap.set(update.layerId, update);
-        }
-        
-        // Apply shape updates to matching layers
-        return prev.map(layer => {
-          const update = updateMap.get(layer?.id);
-          if (!update) return layer;
+      const now = Date.now();
+      if (now - lastShapeUpdateTimeRef.current >= SHAPE_UPDATE_INTERVAL_MS) {
+        lastShapeUpdateTimeRef.current = now;
+        setLayers(prev => {
+          if (!Array.isArray(prev)) return prev;
           
-          // Apply nodes or subpaths (clear the other to avoid conflicts)
-          if (update.subpaths) {
-            return { ...layer, subpaths: update.subpaths, nodes: undefined };
-          } else if (update.nodes) {
-            return { ...layer, nodes: update.nodes, subpaths: undefined };
+          // Build a map of layerId -> shape update
+          const updateMap = new Map();
+          for (const update of shapeUpdates) {
+            updateMap.set(update.layerId, update);
           }
-          return layer;
+          
+          // Apply shape updates to matching layers
+          return prev.map(layer => {
+            const update = updateMap.get(layer?.id);
+            if (!update) return layer;
+            
+            // Apply nodes or subpaths (clear the other to avoid conflicts)
+            if (update.subpaths) {
+              return { ...layer, subpaths: update.subpaths, nodes: undefined };
+            } else if (update.nodes) {
+              return { ...layer, nodes: update.nodes, subpaths: undefined };
+            }
+            return layer;
+          });
         });
-      });
+      }
     }
   }, [
     timeline?.isPlaying,
@@ -554,6 +616,62 @@ export function useTimelineModulation({
   useEffect(() => {
     clearedTargetsRef.current.clear();
   }, [timeline?.tracks]);
+
+  // RAF-based modulation update during playback
+  // This ensures modulations are applied every frame, not just when React re-renders
+  useEffect(() => {
+    if (!timeline?.isPlaying || !timeline?.visible) return;
+    
+    const getPos = getPositionSecondsRef.current;
+    if (!getPos) return;
+    
+    let rafId;
+    const updateModulations = () => {
+      const pos = getPos();
+      const store = modulationStoreRef.current;
+      const tracks = timeline?.tracks;
+      
+      if (store && Array.isArray(tracks)) {
+        // Clear and re-apply timeline modulations
+        store.clearAllMods('timeline');
+        
+        for (const track of tracks) {
+          if (!track.enabled || !track.targetId) continue;
+          if (track.type === 'shape') continue; // Shape tracks handled by main effect
+          
+          // Handle color tracks
+          if (track.type === 'color') {
+            const colorResult = evaluateColorTrackAtTime(track, pos);
+            if (colorResult) {
+              const parsed = parseTargetId(track.targetId);
+              if (parsed?.type === 'layer' && parsed.paramId === 'color') {
+                store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+              }
+            }
+            continue;
+          }
+          
+          const value = evaluateTrackAtTime(track, pos);
+          if (value === null) continue;
+          
+          const parsed = parseTargetId(track.targetId);
+          if (!parsed) continue;
+          
+          if (parsed.type === 'layer') {
+            store.setMod('timeline', parsed.layerId, parsed.paramId, value);
+          }
+          // Global params are handled by the main effect since they need setters
+        }
+      }
+      
+      rafId = requestAnimationFrame(updateModulations);
+    };
+    
+    rafId = requestAnimationFrame(updateModulations);
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId]);
 
   // Clean up timeline modulations when timeline is hidden or stopped
   useEffect(() => {

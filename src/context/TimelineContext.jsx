@@ -148,6 +148,9 @@ export const TimelineProvider = ({ children }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionSeconds, setPositionSeconds] = useState(0);
 
+  // Keyframe clipboard (for copy/paste)
+  const [keyframeClipboard, setKeyframeClipboard] = useState(null);
+
   // Refs for RAF loop
   const lastUpdateTimeRef = useRef(null);
   const animationFrameRef = useRef(null);
@@ -210,13 +213,21 @@ export const TimelineProvider = ({ children }) => {
       source.buffer = audio.buffer;
       source.connect(ctx.destination);
       
-      // Start from the current position
-      const offset = Math.max(0, Math.min(startPosition, audio.durationSeconds));
-      source.start(0, offset);
+      // Calculate audio offset: timeline position + audio offset within the audio file
+      // audioOffset allows the audio to be shifted relative to the timeline
+      const audioOffset = audio.offsetSeconds || 0;
+      const audioPosition = startPosition + audioOffset;
       
-      audioSourceRef.current = source;
-      audioStartTimeRef.current = ctx.currentTime;
-      audioStartPositionRef.current = offset;
+      // Clamp to valid range within the audio buffer
+      const clampedOffset = Math.max(0, Math.min(audioPosition, audio.durationSeconds));
+      
+      // Only start if we're within the audio duration
+      if (clampedOffset < audio.durationSeconds) {
+        source.start(0, clampedOffset);
+        audioSourceRef.current = source;
+        audioStartTimeRef.current = ctx.currentTime;
+        audioStartPositionRef.current = clampedOffset;
+      }
     } catch (error) {
       console.warn('Failed to start audio playback:', error);
     }
@@ -289,6 +300,9 @@ export const TimelineProvider = ({ children }) => {
   }, [isPlaying, startAudioPlayback, stopAudioPlayback]);
 
   // --- RAF Playback Loop ---
+  // Throttle React state updates to prevent "Maximum update depth exceeded" errors
+  const frameCountRef = useRef(0);
+  const SYNC_EVERY_N_FRAMES = 3; // Sync to React every 3 frames (~20fps UI updates)
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -300,6 +314,7 @@ export const TimelineProvider = ({ children }) => {
 
       const deltaSeconds = deltaMs / 1000;
       let newPosition = positionRef.current + deltaSeconds;
+      let didLoop = false;
 
       const { lengthSeconds, loop } = sessionRef.current;
 
@@ -308,16 +323,32 @@ export const TimelineProvider = ({ children }) => {
         // Loop within region
         if (newPosition >= loop.endSeconds) {
           newPosition = loop.startSeconds + (newPosition - loop.endSeconds);
+          didLoop = true;
         }
       } else {
         // One-shot: stop at end
         if (newPosition >= lengthSeconds) {
           newPosition = lengthSeconds;
           setIsPlaying(false);
+          stopAudioPlayback();
         }
       }
 
-      setPositionSeconds(newPosition);
+      // Always update the ref (for smooth playhead via getPositionSeconds)
+      positionRef.current = newPosition;
+      
+      // Only sync to React state periodically to prevent update depth errors
+      frameCountRef.current += 1;
+      if (frameCountRef.current >= SYNC_EVERY_N_FRAMES) {
+        frameCountRef.current = 0;
+        setPositionSeconds(newPosition);
+      }
+      
+      // Restart audio from loop start when looping occurs
+      if (didLoop) {
+        stopAudioPlayback();
+        startAudioPlayback(newPosition);
+      }
       
       if (isPlaying && newPosition < lengthSeconds) {
         animationFrameRef.current = requestAnimationFrame(tick);
@@ -332,7 +363,7 @@ export const TimelineProvider = ({ children }) => {
         animationFrameRef.current = null;
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, startAudioPlayback, stopAudioPlayback]);
 
   // --- Session Mutations ---
 
@@ -483,6 +514,82 @@ export const TimelineProvider = ({ children }) => {
       }),
     }));
   }, []);
+
+  // --- Keyframe Copy/Paste ---
+
+  /**
+   * Copy a keyframe to the clipboard
+   * @param {string} trackId - Track ID
+   * @param {string} keyframeId - Keyframe ID to copy
+   */
+  const copyKeyframe = useCallback((trackId, keyframeId) => {
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track) return;
+    
+    const keyframe = track.keyframes.find(kf => kf.id === keyframeId);
+    if (!keyframe) return;
+    
+    // Store a deep copy of the keyframe along with track type info
+    setKeyframeClipboard({
+      keyframe: JSON.parse(JSON.stringify(keyframe)),
+      trackType: track.type || 'numeric',
+      trackTargetId: track.targetId,
+    });
+  }, [session.tracks]);
+
+  /**
+   * Paste the clipboard keyframe at a specific time
+   * @param {string} trackId - Track ID to paste into
+   * @param {number} timeSeconds - Time to paste at (defaults to current playhead)
+   */
+  const pasteKeyframe = useCallback((trackId, timeSeconds) => {
+    if (!keyframeClipboard) return;
+    
+    const pasteTime = timeSeconds ?? positionRef.current;
+    const { keyframe, trackType } = keyframeClipboard;
+    const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
+    
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(track => {
+        if (track.id !== trackId) return track;
+        
+        // Check track type compatibility
+        const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
+        const isShapeKeyframe = trackType === 'shape';
+        
+        if (isShapeTrack !== isShapeKeyframe) {
+          console.warn('Cannot paste: keyframe type does not match track type');
+          return track;
+        }
+        
+        // Check if a keyframe already exists at this time
+        const existingIndex = track.keyframes.findIndex(
+          kf => Math.abs(kf.timeSeconds - pasteTime) < TIME_EPSILON
+        );
+        
+        // Create new keyframe with new ID and updated time
+        const newKeyframe = {
+          ...keyframe,
+          id: generateId(),
+          timeSeconds: pasteTime,
+        };
+        
+        let keyframes;
+        if (existingIndex >= 0) {
+          // Replace existing keyframe at this time
+          keyframes = track.keyframes.map((kf, i) =>
+            i === existingIndex ? newKeyframe : kf
+          );
+        } else {
+          // Add new keyframe
+          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        }
+        
+        return { ...track, keyframes };
+      }),
+    }));
+  }, [keyframeClipboard]);
 
   // --- Audio ---
 
@@ -657,6 +764,11 @@ export const TimelineProvider = ({ children }) => {
     removeKeyframe,
     addShapeKeyframe,
 
+    // Keyframe clipboard
+    keyframeClipboard,
+    copyKeyframe,
+    pasteKeyframe,
+
     // Audio
     setAudio,
     clearAudio,
@@ -665,6 +777,9 @@ export const TimelineProvider = ({ children }) => {
     getTrackValue,
     getAllTrackValues,
     getTrackValuesAtTime,
+
+    // Direct position access (for smooth playhead without re-renders)
+    getPositionSeconds: () => positionRef.current,
 
     // Settings
     setVisible,
@@ -705,11 +820,15 @@ export const TimelineProvider = ({ children }) => {
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
+    keyframeClipboard,
+    copyKeyframe,
+    pasteKeyframe,
     setAudio,
     clearAudio,
     getTrackValue,
     getAllTrackValues,
     getTrackValuesAtTime,
+    // getPositionSeconds is defined inline above
     setVisible,
     toggleVisible,
     setZoom,

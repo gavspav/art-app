@@ -12,17 +12,18 @@ import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 
 // Compact beat indicator that shows BPM state with a pulsing circle
-const BeatIndicator = () => {
+const BeatIndicator = ({ panelExpanded = true }) => {
   const bpm = useBPM();
   const [phase, setPhase] = useState(0);
-  const rafRef = useRef(null);
+  const intervalRef = useRef(null);
   
   const isPlaying = bpm?.isPlaying;
   const getClockState = bpm?.getClockState;
   const togglePlay = bpm?.togglePlay;
   
   useEffect(() => {
-    if (!isPlaying || typeof getClockState !== 'function') {
+    // Only run when panel is expanded and BPM is playing
+    if (!panelExpanded || !isPlaying || typeof getClockState !== 'function') {
       setPhase(0);
       return undefined;
     }
@@ -32,14 +33,14 @@ const BeatIndicator = () => {
       if (clock) {
         setPhase(clock.beatPhase ?? 0);
       }
-      rafRef.current = requestAnimationFrame(tick);
     };
 
-    rafRef.current = requestAnimationFrame(tick);
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, getClockState]);
+  }, [panelExpanded, isPlaying, getClockState]);
   
   // Pulse effect: scale from 0.6 to 1.0 based on beat phase
   const scale = isPlaying ? 0.6 + (1 - phase) * 0.4 : 0.6;
@@ -74,16 +75,17 @@ const BeatIndicator = () => {
 };
 
 // LED bar meter for audio bands (bass, mids, highs)
-const AudioLEDMeter = () => {
+const AudioLEDMeter = ({ panelExpanded = true }) => {
   const audio = useAudioReactive();
   const [bands, setBands] = useState({ bass: 0, mids: 0, highs: 0 });
-  const rafRef = useRef(null);
+  const intervalRef = useRef(null);
 
   const enabled = !!audio?.settings?.enabled;
   const getFeatures = audio?.getFeatures;
 
   useEffect(() => {
-    if (!enabled || typeof getFeatures !== 'function') {
+    // Only run when panel is expanded and audio is enabled
+    if (!panelExpanded || !enabled || typeof getFeatures !== 'function') {
       setBands({ bass: 0, mids: 0, highs: 0 });
       return undefined;
     }
@@ -95,14 +97,14 @@ const AudioLEDMeter = () => {
         mids: typeof features?.mids === 'number' ? features.mids : 0,
         highs: typeof features?.highs === 'number' ? features.highs : 0,
       });
-      rafRef.current = requestAnimationFrame(tick);
     };
 
-    rafRef.current = requestAnimationFrame(tick);
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [enabled, getFeatures]);
+  }, [panelExpanded, enabled, getFeatures]);
 
   if (!enabled) return null;
 
@@ -204,10 +206,10 @@ const ClearMappingsButton = () => {
 };
 
 // Speaker indicator for Audio on/off & activity
-const AudioIndicator = () => {
+const AudioIndicator = ({ panelExpanded = true }) => {
   const audio = useAudioReactive();
   const [level, setLevel] = useState(0);
-  const rafRef = useRef(null);
+  const intervalRef = useRef(null);
 
   const enabled = !!audio?.settings?.enabled;
   const isListening = enabled && !!audio?.isActive;
@@ -215,7 +217,8 @@ const AudioIndicator = () => {
   const toggleAudio = audio?.toggleAudio;
 
   useEffect(() => {
-    if (!enabled || typeof getFeatures !== 'function') {
+    // Only run when panel is expanded and audio is enabled
+    if (!panelExpanded || !enabled || typeof getFeatures !== 'function') {
       setLevel(0);
       return undefined;
     }
@@ -224,14 +227,14 @@ const AudioIndicator = () => {
       const features = getFeatures?.();
       const rms = typeof features?.rms === 'number' ? features.rms : 0;
       setLevel(rms);
-      rafRef.current = requestAnimationFrame(tick);
     };
 
-    rafRef.current = requestAnimationFrame(tick);
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [enabled, getFeatures]);
+  }, [panelExpanded, enabled, getFeatures]);
 
   const pulseScale = enabled ? 0.9 + Math.min(0.4, level * 0.6) : 0.9;
   const intensity = enabled ? Math.min(1, 0.35 + level * 2.2) : 0.45;
@@ -949,9 +952,9 @@ const BottomPanel = ({
           >
             🛟
           </button>
-          <BeatIndicator />
-          <AudioIndicator />
-          <AudioLEDMeter />
+          <BeatIndicator panelExpanded={panelState === 'expanded'} />
+          <AudioIndicator panelExpanded={panelState === 'expanded'} />
+          <AudioLEDMeter panelExpanded={panelState === 'expanded'} />
           <ClearMappingsButton />
         </div>
 

@@ -218,6 +218,22 @@ export function useModulationStore() {
   }), [setMod, clearMod, clearAllMods, clearModsExcept, getLayerMods, getAllMods, isParamModulated, isParamModulatedByTimeline, applyModsToLayer]);
 }
 
+// Helper to convert hex color to RGB components
+function hexToRgbComponents(hex) {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16) / 255,
+    g: parseInt(result[2], 16) / 255,
+    b: parseInt(result[3], 16) / 255,
+  } : { r: 0, g: 0, b: 0 };
+}
+
+// Helper to convert RGB components (0-1) to hex
+function rgbComponentsToHex(r, g, b) {
+  const toHex = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 /**
  * Apply modulations from refs to a layer (standalone function for animation loop)
  * This avoids the overhead of going through the hook's callback
@@ -237,7 +253,33 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
   
   let modifiedLayer = { ...layer };
   
+  // Check if we have color component modulations (colorR, colorG, colorB)
+  const hasColorMods = 'colorR' in mods || 'colorG' in mods || 'colorB' in mods;
+  
+  // If we have color component mods, apply them to the colors array
+  if (hasColorMods) {
+    const currentColors = Array.isArray(modifiedLayer.colors) && modifiedLayer.colors.length > 0
+      ? [...modifiedLayer.colors]
+      : ['#ffffff'];
+    
+    // Apply RGB modulations to all colors in the array
+    const newColors = currentColors.map(color => {
+      const rgb = hexToRgbComponents(color);
+      const newR = 'colorR' in mods ? mods.colorR : rgb.r;
+      const newG = 'colorG' in mods ? mods.colorG : rgb.g;
+      const newB = 'colorB' in mods ? mods.colorB : rgb.b;
+      return rgbComponentsToHex(newR, newG, newB);
+    });
+    
+    modifiedLayer = { ...modifiedLayer, colors: newColors };
+  }
+  
   for (const [paramId, value] of Object.entries(mods)) {
+    // Skip color components - already handled above
+    if (paramId === 'colorR' || paramId === 'colorG' || paramId === 'colorB') {
+      continue;
+    }
+    
     if (paramId === 'scale') {
       modifiedLayer = {
         ...modifiedLayer,
