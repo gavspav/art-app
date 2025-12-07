@@ -37,10 +37,14 @@ const TimelineCurveEditor = ({
 
   const keyframes = track?.keyframes || [];
   const trackColor = track?.color || '#4fc3f7';
+  const isShapeTrack = track?.type === 'shape';
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
   const padding = { top: 8, right: 8, bottom: 8, left: 0 };
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
+  
+  // For shape tracks, keyframes sit on a horizontal centerline
+  const shapeCenterY = padding.top + innerHeight / 2;
 
   // Keep content width in sync with timeline width (fallback to measured container)
   useEffect(() => {
@@ -347,8 +351,8 @@ const TimelineCurveEditor = ({
           />
         ))}
 
-        {/* Filled area under curve */}
-        {pathD && (
+        {/* Filled area under curve (numeric tracks only) */}
+        {!isShapeTrack && pathD && (
           <path
             d={`${pathD} L ${keyframes.length > 0 ? keyframeToSvg(keyframes[keyframes.length - 1]).x : padding.left} ${padding.top + innerHeight} L ${keyframes.length > 0 ? keyframeToSvg(keyframes[0]).x : padding.left} ${padding.top + innerHeight} Z`}
             fill={trackColor}
@@ -356,19 +360,38 @@ const TimelineCurveEditor = ({
           />
         )}
 
-        {/* Curve path */}
-        <path
-          d={pathD}
-          fill="none"
-          stroke={trackColor}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {/* Curve path (numeric tracks only) */}
+        {!isShapeTrack && (
+          <path
+            d={pathD}
+            fill="none"
+            stroke={trackColor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+
+        {/* Shape track centerline */}
+        {isShapeTrack && (
+          <line
+            x1={-scrollLeft}
+            y1={shapeCenterY}
+            x2={containerWidth - scrollLeft}
+            y2={shapeCenterY}
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth={1}
+            strokeDasharray="4,4"
+          />
+        )}
 
         {/* Keyframe nodes */}
         {keyframes.map((kf, i) => {
-          const pos = keyframeToSvg(kf);
+          // For shape tracks, use centerline Y; for numeric, use value-based Y
+          const basePos = keyframeToSvg(kf);
+          const pos = isShapeTrack 
+            ? { x: basePos.x, y: shapeCenterY }
+            : basePos;
           const isFirst = i === 0;
           const isLast = i === keyframes.length - 1;
           const isSelected = selectedKeyframe === kf.id;
@@ -376,6 +399,47 @@ const TimelineCurveEditor = ({
           // Skip if outside visible area
           if (pos.x < -20 || pos.x > containerWidth + 20) return null;
           
+          // Shape track: render diamond markers
+          if (isShapeTrack) {
+            const size = isSelected ? 8 : 6;
+            return (
+              <g key={kf.id}>
+                {/* Larger hit area */}
+                <rect
+                  x={pos.x - 12}
+                  y={pos.y - 12}
+                  width={24}
+                  height={24}
+                  fill="transparent"
+                  style={{ cursor: 'grab' }}
+                  onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
+                  onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
+                />
+                {/* Diamond shape */}
+                <polygon
+                  points={`${pos.x},${pos.y - size} ${pos.x + size},${pos.y} ${pos.x},${pos.y + size} ${pos.x - size},${pos.y}`}
+                  fill={isSelected ? '#ff5722' : trackColor}
+                  stroke={isSelected ? '#fff' : '#fff'}
+                  strokeWidth={1.5}
+                  style={{ pointerEvents: 'none' }}
+                />
+                {/* Label if present */}
+                {kf.label && (
+                  <text
+                    x={pos.x}
+                    y={pos.y - size - 4}
+                    fill="rgba(255,255,255,0.6)"
+                    fontSize="8"
+                    textAnchor="middle"
+                  >
+                    {kf.label}
+                  </text>
+                )}
+              </g>
+            );
+          }
+          
+          // Numeric track: render circles
           return (
             <g key={kf.id}>
               {/* Larger hit area */}
@@ -415,8 +479,8 @@ const TimelineCurveEditor = ({
           );
         })}
 
-        {/* Current value dot on playhead (no line - that's drawn globally) */}
-        {playheadX >= 0 && playheadX <= containerWidth && currentValue !== null && (
+        {/* Current value dot on playhead (numeric tracks only) */}
+        {!isShapeTrack && playheadX >= 0 && playheadX <= containerWidth && currentValue !== null && (
           <circle
             cx={playheadX}
             cy={valueToY(currentValue)}
@@ -427,13 +491,24 @@ const TimelineCurveEditor = ({
           />
         )}
 
-        {/* Value labels */}
-        <text x={padding.left + 2} y={padding.top + 10} fill="rgba(255,255,255,0.3)" fontSize="8">
-          {track?.range?.outputMax?.toFixed(1) ?? '1'}
-        </text>
-        <text x={padding.left + 2} y={height - padding.bottom - 2} fill="rgba(255,255,255,0.3)" fontSize="8">
-          {track?.range?.outputMin?.toFixed(1) ?? '0'}
-        </text>
+        {/* Value labels (numeric tracks only) */}
+        {!isShapeTrack && (
+          <>
+            <text x={padding.left + 2} y={padding.top + 10} fill="rgba(255,255,255,0.3)" fontSize="8">
+              {track?.range?.outputMax?.toFixed(1) ?? '1'}
+            </text>
+            <text x={padding.left + 2} y={height - padding.bottom - 2} fill="rgba(255,255,255,0.3)" fontSize="8">
+              {track?.range?.outputMin?.toFixed(1) ?? '0'}
+            </text>
+          </>
+        )}
+
+        {/* Shape track label */}
+        {isShapeTrack && (
+          <text x={padding.left + 2} y={padding.top + 10} fill="rgba(255,255,255,0.3)" fontSize="8">
+            ⬡ Shape
+          </text>
+        )}
       </svg>
 
       {/* Curve type context menu */}

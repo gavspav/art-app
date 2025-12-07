@@ -418,7 +418,15 @@ const MainApp = () => {
 
   // Timeline context
   const timelineContext = useTimeline();
-  const { getTimelineSnapshot, applyTimelineSnapshot, visible: timelineVisible, setVisible: setTimelineVisible } = timelineContext || {};
+  const {
+    getTimelineSnapshot,
+    applyTimelineSnapshot,
+    visible: timelineVisible,
+    setVisible: setTimelineVisible,
+    isPlaying: timelineIsPlaying,
+    positionSeconds: timelinePositionSeconds,
+    startPreset: timelineStartPreset,
+  } = timelineContext || {};
 
   // Modulation store - centralizes Audio/BPM/Timeline modulations so they can be applied
   // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
@@ -438,6 +446,32 @@ const MainApp = () => {
     morphRoute,
     morphNodes,
   });
+
+  // When timeline playback starts from t=0 and a timeline start preset exists,
+  // recall that preset app state before timeline automation is applied.
+  const lastTimelinePlayingRef = useRef(false);
+  useEffect(() => {
+    if (!timelineStartPreset || !timelineStartPreset.appState || !loadAppState) {
+      lastTimelinePlayingRef.current = !!timelineIsPlaying;
+      return;
+    }
+
+    const wasPlaying = lastTimelinePlayingRef.current;
+    const nowPlaying = !!timelineIsPlaying;
+    const pos = typeof timelinePositionSeconds === 'number' ? timelinePositionSeconds : 0;
+
+    // Rising edge of play while at (or very near) t=0
+    if (!wasPlaying && nowPlaying && pos <= 0.001) {
+      loadAppState(timelineStartPreset.appState);
+    }
+
+    lastTimelinePlayingRef.current = nowPlaying;
+  }, [
+    timelineIsPlaying,
+    timelinePositionSeconds,
+    timelineStartPreset,
+    loadAppState,
+  ]);
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass

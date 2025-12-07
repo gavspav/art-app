@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { useTimeline } from '../../context/TimelineContext.jsx';
+import { useAppState } from '../../context/AppStateContext.jsx';
 import TimelineWaveform from './TimelineWaveform.jsx';
 import TimelineTrackRow from './TimelineTrackRow.jsx';
 import TimelineTransport from './TimelineTransport.jsx';
@@ -19,6 +20,7 @@ const TimelinePanel = ({
   onClose,
 }) => {
   const timeline = useTimeline();
+  const { getCurrentAppState, loadAppState } = useAppState() || {};
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -30,6 +32,9 @@ const TimelinePanel = ({
     lengthSeconds,
     loop,
     audio,
+    startPreset,
+    setStartPreset,
+    clearStartPreset,
     isPlaying,
     positionSeconds,
     visible,
@@ -48,12 +53,15 @@ const TimelinePanel = ({
     addKeyframe,
     updateKeyframe,
     removeKeyframe,
+    addShapeKeyframe,
     setAudio,
     clearAudio,
     setZoom,
     setScrollLeft,
     setVisible,
   } = timeline || {};
+
+  const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
   // Calculate pixels per second based on container width and zoom
   const [containerWidth, setContainerWidth] = useState(800);
@@ -142,6 +150,7 @@ const TimelinePanel = ({
 
   // Layer parameters - per user list
   const layerParameters = useMemo(() => [
+    { id: 'shape', label: '⬡ Shape (nodes)', type: 'shape' }, // Shape track - no range
     { id: 'numSides', label: 'Sides', range: { outputMin: 3, outputMax: 24 } },
     { id: 'curviness', label: 'Curviness', range: { outputMin: 0, outputMax: 1 } },
     { id: 'radiusFactor', label: 'Size', range: { outputMin: 0, outputMax: 2 } },
@@ -169,6 +178,62 @@ const TimelinePanel = ({
       addTrack(`Track ${(tracks?.length || 0) + 1}`, '');
     }
   }, [addTrack, tracks?.length]);
+
+  // Handle capturing a shape keyframe
+  const handleCaptureShapeKeyframe = useCallback((trackId, layerId) => {
+    if (!addShapeKeyframe || !layerId) return;
+    
+    // Find the layer to capture its current shape
+    const layer = layers.find(l => l?.id === layerId);
+    if (!layer) {
+      console.warn('[Timeline] Cannot capture shape: layer not found', layerId);
+      return;
+    }
+    
+    const { nodes, subpaths } = layer;
+    if (!nodes && !subpaths) {
+      console.warn('[Timeline] Cannot capture shape: layer has no nodes or subpaths', layerId);
+      return;
+    }
+    
+    // Deep clone the geometry to avoid reference issues
+    const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
+    const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
+    
+    addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths);
+  }, [addShapeKeyframe, layers, positionSeconds]);
+
+  // Handle timeline preset button click (save/recall/clear)
+  const handleTimelinePresetClick = useCallback((event) => {
+    if (!getCurrentAppState || !loadAppState || !setStartPreset) return;
+
+    const hasPreset = !!(startPreset && startPreset.appState);
+
+    // Alt+Click -> clear preset
+    if (event.altKey) {
+      clearStartPreset?.();
+      return;
+    }
+
+    // Shift+Click or empty -> save current scene
+    if (event.shiftKey || !hasPreset) {
+      const snapshot = getCurrentAppState();
+      if (!snapshot) return;
+      setStartPreset({ appState: snapshot, savedAt: Date.now() });
+      return;
+    }
+
+    // Normal click with existing preset -> recall
+    if (hasPreset && startPreset.appState) {
+      loadAppState(startPreset.appState);
+    }
+  }, [
+    startPreset,
+    getCurrentAppState,
+    loadAppState,
+    setStartPreset,
+    clearStartPreset,
+  ]);
 
   // Handle audio file load
   const handleLoadAudio = useCallback(async (file) => {
@@ -360,9 +425,41 @@ const TimelinePanel = ({
               display: 'flex',
             }}
           >
-            {/* Track list header */}
+            {/* Track list header + timeline preset button */}
             <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}>
-              Tracks
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
+                <span>Tracks</span>
+                <button
+                  type="button"
+                  onClick={handleTimelinePresetClick}
+                  title={
+                    hasTimelinePreset
+                      ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
+                      : 'Timeline Preset\nClick or Shift+Click: Save current scene for t=0\nAlt+Click: Clear preset'
+                  }
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: '999px',
+                    border: hasTimelinePreset
+                      ? '2px solid #4fc3f7'
+                      : '2px dashed rgba(255, 255, 255, 0.35)',
+                    background: hasTimelinePreset
+                      ? 'rgba(79,195,247,0.18)'
+                      : 'transparent',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 600,
+                    fontSize: '0.65rem',
+                    padding: 0,
+                    cursor: 'pointer',
+                  }}
+                >
+                  TL
+                </button>
+              </div>
             </div>
             {/* Time markers */}
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minWidth: contentWidth, width: contentWidth }}>
@@ -432,6 +529,7 @@ const TimelinePanel = ({
                 onAddKeyframe={(time, value, curve, tension) => addKeyframe(track.id, time, value, curve, tension)}
                 onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
                 onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
+                onCaptureShapeKeyframe={handleCaptureShapeKeyframe}
                 onSeek={seekTo}
               />
             ))}

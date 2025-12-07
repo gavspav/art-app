@@ -24,10 +24,12 @@ const TimelineTrackRow = ({
   onAddKeyframe,
   onUpdateKeyframe,
   onRemoveKeyframe,
+  onCaptureShapeKeyframe,
   onSeek,
   height = 100,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
 
   // Parse current target to get layer and parameter
   const { targetType, layerId, paramId } = useMemo(() => {
@@ -70,12 +72,17 @@ const TimelineTrackRow = ({
       onUpdateTrack?.({
         targetId: `global:${newParamId}`,
         range: param?.range || { outputMin: 0, outputMax: 1 },
+        type: param?.type || 'numeric',
       });
     } else if (targetType === 'layer' && layerId) {
       const param = layerParameters.find(p => p.id === newParamId);
+      const isShape = param?.type === 'shape' || newParamId === 'shape';
       onUpdateTrack?.({
         targetId: `layer:${layerId}:${newParamId}`,
-        range: param?.range || { outputMin: 0, outputMax: 1 },
+        range: isShape ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
+        type: isShape ? 'shape' : 'numeric',
+        // Clear keyframes when switching to shape track (they'll be added via capture)
+        ...(isShape ? { keyframes: [] } : {}),
       });
     }
   }, [targetType, layerId, globalParameters, layerParameters, onUpdateTrack]);
@@ -263,8 +270,8 @@ const TimelineTrackRow = ({
           </select>
         )}
 
-        {/* Range controls */}
-        {isExpanded && track.targetId && (
+        {/* Range controls (hidden for shape tracks) */}
+        {isExpanded && track.targetId && !isShapeTrack && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem' }}>
             <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>Range:</span>
             <input
@@ -298,6 +305,31 @@ const TimelineTrackRow = ({
                 fontSize: '0.6rem',
               }}
             />
+          </div>
+        )}
+        {/* Shape track info and capture button */}
+        {isExpanded && isShapeTrack && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6rem' }}>
+            <button
+              type="button"
+              onClick={() => onCaptureShapeKeyframe?.(track.id, layerId)}
+              style={{
+                background: 'rgba(76, 175, 80, 0.3)',
+                border: '1px solid rgba(76, 175, 80, 0.5)',
+                borderRadius: 3,
+                padding: '3px 6px',
+                color: '#a5d6a7',
+                fontSize: '0.6rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="Capture current shape at playhead position (K)"
+            >
+              ⬡ Capture
+            </button>
+            <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
+              {track.keyframes?.length || 0} keyframe{(track.keyframes?.length || 0) !== 1 ? 's' : ''}
+            </span>
           </div>
         )}
       </div>

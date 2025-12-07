@@ -211,6 +211,74 @@ export const evaluateTrackAtTime = (track, timeSeconds) => {
 };
 
 /**
+ * Evaluate a shape track at a given time
+ * Returns { nodes, subpaths } or null if no keyframes
+ * 
+ * Shape tracks store geometry snapshots at keyframes and interpolate between them
+ * using lerpNodes/lerpSubpaths (imported separately to avoid circular deps)
+ */
+export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubpaths) => {
+  if (!track || track.type !== 'shape') return null;
+  
+  const keyframes = track.keyframes || [];
+  if (keyframes.length === 0) return null;
+  
+  // Sort by time (should already be sorted, but ensure)
+  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  
+  // Before first keyframe: use first keyframe's shape
+  if (timeSeconds <= sorted[0].timeSeconds) {
+    return { nodes: sorted[0].nodes, subpaths: sorted[0].subpaths };
+  }
+  
+  // After last keyframe: use last keyframe's shape
+  if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
+    const last = sorted[sorted.length - 1];
+    return { nodes: last.nodes, subpaths: last.subpaths };
+  }
+  
+  // Find bracketing keyframes
+  let left = sorted[0];
+  let right = sorted[sorted.length - 1];
+  
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
+      left = sorted[i];
+      right = sorted[i + 1];
+      break;
+    }
+  }
+  
+  // Same keyframe or very close
+  if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
+    return { nodes: left.nodes, subpaths: left.subpaths };
+  }
+  
+  // Calculate local t (0-1) between the two keyframes
+  const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
+  const clampedT = Math.max(0, Math.min(1, localT));
+  
+  // Try to interpolate subpaths first
+  if (left.subpaths && right.subpaths && lerpSubpaths) {
+    const interpolated = lerpSubpaths(left.subpaths, right.subpaths, clampedT);
+    if (interpolated) {
+      return { subpaths: interpolated, nodes: null };
+    }
+  }
+  
+  // Try to interpolate nodes
+  if (left.nodes && right.nodes && lerpNodes) {
+    const interpolated = lerpNodes(left.nodes, right.nodes, clampedT);
+    if (interpolated) {
+      return { nodes: interpolated, subpaths: null };
+    }
+  }
+  
+  // Topology mismatch: hold previous keyframe's shape
+  return { nodes: left.nodes, subpaths: left.subpaths };
+};
+
+/**
  * Find which segment index contains the given x position
  */
 export const findSegmentAtX = (nodes, x) => {

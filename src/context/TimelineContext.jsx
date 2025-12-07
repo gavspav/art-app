@@ -42,7 +42,7 @@ const TRACK_COLORS = [
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 /**
- * Create a default keyframe
+ * Create a default numeric keyframe
  */
 const createKeyframe = (timeSeconds, value01, curve = 'linear', tension = 0.5) => ({
   id: generateId(),
@@ -53,20 +53,42 @@ const createKeyframe = (timeSeconds, value01, curve = 'linear', tension = 0.5) =
 });
 
 /**
- * Create a default track
+ * Create a shape keyframe (stores node geometry snapshot)
  */
-const createTrack = (name, targetId, color, lengthSeconds) => ({
+const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '') => ({
   id: generateId(),
-  name,
-  color,
-  enabled: true,
-  targetId, // e.g., 'layer:abc123:radiusFactor' or 'global:globalSpeedMultiplier'
-  range: { outputMin: 0, outputMax: 1 },
-  keyframes: [
-    createKeyframe(0, 0),
-    createKeyframe(lengthSeconds, 1),
-  ],
+  timeSeconds,
+  nodes: nodes || null,
+  subpaths: subpaths || null,
+  label,
 });
+
+/**
+ * Create a default track
+ * @param {string} name - Track display name
+ * @param {string} targetId - e.g., 'layer:abc123:radiusFactor' or 'global:globalSpeedMultiplier' or 'layer:abc123:shape'
+ * @param {string} color - Track color
+ * @param {number} lengthSeconds - Timeline length
+ * @param {'numeric'|'shape'} type - Track type (default: 'numeric')
+ */
+const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => {
+  const isShape = type === 'shape' || (targetId && targetId.endsWith(':shape'));
+  return {
+    id: generateId(),
+    name,
+    color,
+    enabled: true,
+    targetId,
+    type: isShape ? 'shape' : 'numeric',
+    // Numeric tracks have range and numeric keyframes
+    // Shape tracks have shape keyframes (no range needed)
+    range: isShape ? null : { outputMin: 0, outputMax: 1 },
+    keyframes: isShape ? [] : [
+      createKeyframe(0, 0),
+      createKeyframe(lengthSeconds, 1),
+    ],
+  };
+};
 
 /**
  * Default timeline session
@@ -76,6 +98,8 @@ const createDefaultSession = () => ({
   lengthSeconds: DEFAULT_LENGTH_SECONDS,
   tracks: [],
   audio: null, // { src, durationSeconds, peaks, offsetSeconds }
+  // Optional: snapshot of app state to apply when timeline starts from 0
+  startPreset: null,
   loop: {
     enabled: false,
     startSeconds: 0,
@@ -196,6 +220,21 @@ export const TimelineProvider = ({ children }) => {
     } catch (error) {
       console.warn('Failed to start audio playback:', error);
     }
+  }, []);
+
+  // Timeline start preset (app state snapshot applied when playing from t=0)
+  const setStartPreset = useCallback((preset) => {
+    setSession(prev => ({
+      ...prev,
+      startPreset: preset || null,
+    }));
+  }, []);
+
+  const clearStartPreset = useCallback(() => {
+    setSession(prev => ({
+      ...prev,
+      startPreset: null,
+    }));
   }, []);
 
   const stopAudioPlayback = useCallback(() => {
@@ -397,13 +436,50 @@ export const TimelineProvider = ({ children }) => {
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId) return track;
         
-        // Don't allow removing if only 2 keyframes left
-        if (track.keyframes.length <= 2) return track;
+        // Don't allow removing if only 2 keyframes left (for numeric tracks)
+        // Shape tracks can have any number of keyframes (including 0)
+        if (track.type !== 'shape' && track.keyframes.length <= 2) return track;
         
         return {
           ...track,
           keyframes: track.keyframes.filter(kf => kf.id !== keyframeId),
         };
+      }),
+    }));
+  }, []);
+
+  /**
+   * Add or update a shape keyframe on a shape track
+   * If a keyframe exists at the same time (within epsilon), it will be updated
+   */
+  const addShapeKeyframe = useCallback((trackId, timeSeconds, nodes, subpaths, label = '') => {
+    const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(track => {
+        const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
+        if (track.id !== trackId || !isShapeTrack) return track;
+        
+        // Check if a keyframe already exists at this time
+        const existingIndex = track.keyframes.findIndex(
+          kf => Math.abs(kf.timeSeconds - timeSeconds) < TIME_EPSILON
+        );
+        
+        let keyframes;
+        if (existingIndex >= 0) {
+          // Update existing keyframe
+          keyframes = track.keyframes.map((kf, i) =>
+            i === existingIndex
+              ? { ...kf, nodes: nodes || null, subpaths: subpaths || null, label }
+              : kf
+          );
+        } else {
+          // Add new keyframe
+          const newKeyframe = createShapeKeyframe(timeSeconds, nodes, subpaths, label);
+          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        }
+        
+        return { ...track, type: 'shape', keyframes };
       }),
     }));
   }, []);
@@ -544,6 +620,7 @@ export const TimelineProvider = ({ children }) => {
     lengthSeconds: session.lengthSeconds,
     loop: session.loop,
     audio: session.audio,
+    startPreset: session.startPreset,
 
     // Playback state
     isPlaying,
@@ -565,6 +642,8 @@ export const TimelineProvider = ({ children }) => {
     setLengthSeconds,
     setLoop,
     setSession,
+    setStartPreset,
+    clearStartPreset,
 
     // Track CRUD
     addTrack,
@@ -576,6 +655,7 @@ export const TimelineProvider = ({ children }) => {
     addKeyframe,
     updateKeyframe,
     removeKeyframe,
+    addShapeKeyframe,
 
     // Audio
     setAudio,
@@ -596,10 +676,13 @@ export const TimelineProvider = ({ children }) => {
     getTimelineSnapshot,
     applyTimelineSnapshot,
     clearTimeline,
-
+    
     // Helpers
     TRACK_COLORS,
     createKeyframe,
+    createShapeKeyframe,
+    setStartPresetStorage: (startPresetStorage) => setSession(prev => ({ ...prev, startPresetStorage })),
+    getStartPresetStorage: () => session.startPresetStorage,
   }), [
     session,
     isPlaying,
@@ -612,6 +695,8 @@ export const TimelineProvider = ({ children }) => {
     seekTo,
     setLengthSeconds,
     setLoop,
+    setStartPreset,
+    clearStartPreset,
     addTrack,
     updateTrack,
     removeTrack,
@@ -619,6 +704,7 @@ export const TimelineProvider = ({ children }) => {
     addKeyframe,
     updateKeyframe,
     removeKeyframe,
+    addShapeKeyframe,
     setAudio,
     clearAudio,
     getTrackValue,

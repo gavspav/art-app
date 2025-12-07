@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
-import { evaluateTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
@@ -192,6 +192,9 @@ export function useTimelineModulation({
     store.clearAllMods('timeline');
     
     // Evaluate each enabled track
+    // Collect shape track results to apply after numeric tracks
+    const shapeUpdates = []; // { layerId, nodes, subpaths }
+
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
       
@@ -201,7 +204,23 @@ export function useTimelineModulation({
         clearedTargetsRef.current.add(track.targetId);
       }
       
-      // Evaluate track at current position
+      // Handle shape tracks separately
+      if (track.type === 'shape') {
+        const shapeResult = evaluateShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
+        if (shapeResult) {
+          const parsed = parseTargetId(track.targetId);
+          if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+            shapeUpdates.push({
+              layerId: parsed.layerId,
+              nodes: shapeResult.nodes,
+              subpaths: shapeResult.subpaths,
+            });
+          }
+        }
+        continue;
+      }
+      
+      // Evaluate numeric track at current position
       const value = evaluateTrackAtTime(track, positionSeconds);
       if (value === null) continue;
       
@@ -493,6 +512,33 @@ export function useTimelineModulation({
             store.setMod('timeline', '__global__', parsed.paramId, value);
         }
       }
+    }
+
+    // Apply shape track updates to layers
+    if (shapeUpdates.length > 0 && typeof setLayers === 'function') {
+      setLayers(prev => {
+        if (!Array.isArray(prev)) return prev;
+        
+        // Build a map of layerId -> shape update
+        const updateMap = new Map();
+        for (const update of shapeUpdates) {
+          updateMap.set(update.layerId, update);
+        }
+        
+        // Apply shape updates to matching layers
+        return prev.map(layer => {
+          const update = updateMap.get(layer?.id);
+          if (!update) return layer;
+          
+          // Apply nodes or subpaths (clear the other to avoid conflicts)
+          if (update.subpaths) {
+            return { ...layer, subpaths: update.subpaths, nodes: undefined };
+          } else if (update.nodes) {
+            return { ...layer, nodes: update.nodes, subpaths: undefined };
+          }
+          return layer;
+        });
+      });
     }
   }, [
     timeline?.isPlaying,
