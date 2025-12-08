@@ -292,6 +292,11 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.position = { ...kf.position };
     }
     
+    // Always include shape params (Layer Shape Tab: Sides, Curviness, Size, etc.)
+    if (kf.shapeParams) {
+      result.shapeParams = { ...kf.shapeParams };
+    }
+    
     if (categories.animation && kf.animation) {
       result.animation = { ...kf.animation };
     }
@@ -376,6 +381,22 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       scale: lerp(posA.scale ?? 1, posB.scale ?? 1, clampedT),
       xOffset: lerp(posA.xOffset ?? 0, posB.xOffset ?? 0, clampedT),
       yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, clampedT),
+    };
+  }
+  
+  // Always interpolate shape params (Layer Shape Tab: Sides, Curviness, Size, Size X, Size Y, Rotate)
+  if (left.shapeParams || right.shapeParams) {
+    const spA = left.shapeParams || {};
+    const spB = right.shapeParams || spA;
+    
+    result.shapeParams = {
+      // numSides: interpolate but round to integer for rendering
+      numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, clampedT)),
+      curviness: lerp(spA.curviness ?? 1.0, spB.curviness ?? 1.0, clampedT),
+      radiusFactor: lerp(spA.radiusFactor ?? 0.125, spB.radiusFactor ?? 0.125, clampedT),
+      radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, clampedT),
+      radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, clampedT),
+      rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, clampedT),
     };
   }
   

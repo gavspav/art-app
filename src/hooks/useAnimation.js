@@ -415,6 +415,17 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
                     }
                 }
                 
+                // Apply shape params (Layer Shape Tab: Sides, Curviness, Size, Size X, Size Y, Rotate)
+                if (shapeUpdate.shapeParams) {
+                    const sp = shapeUpdate.shapeParams;
+                    if (sp.numSides !== undefined) updatedLayer.numSides = sp.numSides;
+                    if (sp.curviness !== undefined) updatedLayer.curviness = sp.curviness;
+                    if (sp.radiusFactor !== undefined) updatedLayer.radiusFactor = sp.radiusFactor;
+                    if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
+                    if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
+                    if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
+                }
+                
                 // Apply animation parameters if present
                 if (shapeUpdate.animation) {
                     const anim = shapeUpdate.animation;
@@ -424,8 +435,6 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
                     if (anim.scaleSpeed !== undefined) updatedLayer.scaleSpeed = anim.scaleSpeed;
                     if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
                     if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
-                    if (anim.rotation !== undefined) updatedLayer.rotation = anim.rotation;
-                    if (anim.radiusFactor !== undefined) updatedLayer.radiusFactor = anim.radiusFactor;
                 }
                 
                 // Apply colors if present

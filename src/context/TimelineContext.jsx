@@ -63,8 +63,9 @@ const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = 
   subpaths: subpaths || null,
   label,
   // Extended layer preset data (optional)
-  position: extras.position || null,      // { x, y, scale } - layer position
-  animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax, rotation }
+  position: extras.position || null,      // { x, y, scale, xOffset, yOffset } - layer position
+  shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
+  animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
   colors: extras.colors || null,          // array of hex colors
 });
 
@@ -553,6 +554,7 @@ export const TimelineProvider = ({ children }) => {
                   subpaths: subpaths || null,
                   label,
                   position: extras.position || null,
+                  shapeParams: extras.shapeParams || null,
                   animation: extras.animation || null,
                   colors: extras.colors || null,
                 }

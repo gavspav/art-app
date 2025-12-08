@@ -35,6 +35,7 @@ const TimelineTrackRow = ({
   const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
 
   // Parse current target to get layer and parameter
+  // Note: layerId here is actually the layer NAME (for stable targeting across layer recreation)
   const { targetType, layerId, paramId } = useMemo(() => {
     if (!track.targetId) return { targetType: null, layerId: null, paramId: null };
     
@@ -43,14 +44,15 @@ const TimelineTrackRow = ({
     }
     if (track.targetId.startsWith('layer:')) {
       const parts = track.targetId.split(':');
+      // parts[1] is the layer name (e.g., "Layer 1") for stable targeting
       return { targetType: 'layer', layerId: parts[1], paramId: parts[2] };
     }
     return { targetType: null, layerId: null, paramId: null };
   }, [track.targetId]);
 
-  // Handle layer selection
-  const handleLayerChange = useCallback((newLayerId) => {
-    if (newLayerId === 'global') {
+  // Handle layer selection - uses layer NAME for stable targeting
+  const handleLayerChange = useCallback((newLayerName) => {
+    if (newLayerName === 'global') {
       // Switch to global - pick first global param
       const firstGlobal = globalParameters[0];
       onUpdateTrack?.({
@@ -58,11 +60,12 @@ const TimelineTrackRow = ({
         range: firstGlobal?.range || { outputMin: 0, outputMax: 1 },
       });
     } else {
-      // Switch to layer - keep current param or pick first
+      // Switch to layer - use layer NAME (not ID) for stable targeting
+      // This ensures the track still works when layers are recreated with new IDs
       const currentParam = layerParameters.find(p => p.id === paramId);
       const param = currentParam || layerParameters[0];
       onUpdateTrack?.({
-        targetId: param ? `layer:${newLayerId}:${param.id}` : '',
+        targetId: param ? `layer:${newLayerName}:${param.id}` : '',
         range: param?.range || { outputMin: 0, outputMax: 1 },
       });
     }
@@ -80,11 +83,12 @@ const TimelineTrackRow = ({
         keyframes: [],
       });
     } else if (targetType === 'layer' && layerId) {
+      // layerId is actually the layer name for stable targeting
       const param = layerParameters.find(p => p.id === newParamId);
       const isShape = param?.type === 'shape' || newParamId === 'shape';
       const isColor = param?.type === 'color' || newParamId === 'color';
       onUpdateTrack?.({
-        targetId: `layer:${layerId}:${newParamId}`,
+        targetId: `layer:${layerId}:${newParamId}`, // layerId is the layer name
         range: (isShape || isColor) ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
         type: isShape ? 'shape' : (isColor ? 'color' : 'numeric'),
         // Always clear keyframes when changing parameter to avoid incompatible data
@@ -242,11 +246,15 @@ const TimelineTrackRow = ({
             >
               <option value="">Select target...</option>
               <option value="global">🌐 Global</option>
-              {layers.map((layer, i) => (
-                <option key={layer.id || i} value={layer.id || i}>
-                  {layer.name || `Layer ${i + 1}`}
-                </option>
-              ))}
+              {/* Use layer NAME as value for stable targeting across layer recreation */}
+              {layers.map((layer, i) => {
+                const layerName = layer.name || `Layer ${i + 1}`;
+                return (
+                  <option key={layer.id || i} value={layerName}>
+                    {layerName}
+                  </option>
+                );
+              })}
             </select>
           </div>
         )}

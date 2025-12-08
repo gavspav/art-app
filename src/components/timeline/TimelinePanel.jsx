@@ -287,6 +287,17 @@ const TimelinePanel = ({
       yOffset: layer.yOffset ?? 0,
     };
     
+    // Always capture shape tab properties for tweening
+    // These are the Layer Shape Tab controls: Sides, Curviness, Size, Size X, Size Y, Rotate
+    extras.shapeParams = {
+      numSides: layer.numSides ?? 6,
+      curviness: layer.curviness ?? 1.0,
+      radiusFactor: layer.radiusFactor ?? 0.125,
+      radiusFactorX: layer.radiusFactorX ?? layer.radiusFactor ?? 0.125,
+      radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
+      rotation: layer.rotation ?? 0,
+    };
+    
     // Capture animation parameters if enabled
     if (categories.animation) {
       extras.animation = {

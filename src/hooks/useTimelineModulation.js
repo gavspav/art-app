@@ -92,6 +92,18 @@ export function useTimelineModulation({
   useEffect(() => { morphRouteRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
   useEffect(() => { morphNodesRef.current = !!morphNodes; }, [morphNodes]);
 
+  // Layer pool for timeline layersCount modulation - preserves layer IDs when shrinking/growing
+  // This prevents tracks from losing their targets when layer count changes during playback
+  const layerPoolRef = useRef([]);
+  
+  // Track the max layer count seen during this timeline session to know when to use pool
+  const maxLayerCountRef = useRef(0);
+  useEffect(() => {
+    if (Array.isArray(layers) && layers.length > maxLayerCountRef.current) {
+      maxLayerCountRef.current = layers.length;
+    }
+  }, [layers]);
+
   // Build a map of layer name -> layer id for resolving targetIds
   const layerNameToIdRef = useRef({});
   useEffect(() => {
@@ -234,9 +246,10 @@ export function useTimelineModulation({
               layerId: parsed.layerId,
               nodes: shapeResult.nodes,
               subpaths: shapeResult.subpaths,
-              position: shapeResult.position,     // Extended: interpolated position
-              animation: shapeResult.animation,   // Extended: interpolated animation params
-              colors: shapeResult.colors,         // Extended: interpolated colors
+              position: shapeResult.position,       // Extended: interpolated position
+              shapeParams: shapeResult.shapeParams, // Extended: Layer Shape Tab params (Sides, Curviness, Size, etc.)
+              animation: shapeResult.animation,     // Extended: interpolated animation params
+              colors: shapeResult.colors,           // Extended: interpolated colors
             });
           }
         }
@@ -337,35 +350,59 @@ export function useTimelineModulation({
               setLayers(prev => {
                 if (!Array.isArray(prev)) return prev;
                 if (prev.length === target) return prev;
+                
                 if (prev.length > target) {
+                  // Shrinking: move removed layers to pool (preserves their IDs for later)
+                  const removed = prev.slice(target);
+                  const pool = layerPoolRef.current;
+                  removed.forEach(layer => {
+                    // Only add to pool if not already there
+                    if (!pool.find(p => p.id === layer.id)) {
+                      pool.push(layer);
+                    }
+                  });
                   return prev.slice(0, target);
                 }
-                // grow by using buildVariedLayerFrom for proper variation
+                
+                // Growing: try to restore from pool first (preserves IDs)
                 const next = [...prev];
-                const template = prev[prev.length - 1] || DEFAULT_LAYER;
-                const baseVar = {
-                  shape: template.variationShape ?? 0.2,
-                  anim: template.variationAnim ?? 0.2,
-                  color: template.variationColor ?? 0.2,
-                  position: template.variationPosition ?? 0.2,
-                  scale: template.variationScale ?? 0.2,
-                };
-                let prevLayer = template;
+                const pool = layerPoolRef.current;
+                
                 while (next.length < target) {
-                  const layerIndex = next.length + 1;
-                  const varied = buildVariedLayerFrom(prevLayer, layerIndex, baseVar);
-                  // Ensure unique ID - buildVariedLayerFrom doesn't set a new ID
-                  const newLayer = varied ? {
-                    ...varied,
-                    id: `layer-timeline-${Date.now()}-${layerIndex}-${Math.random().toString(36).slice(2, 8)}`,
-                    name: `Layer ${layerIndex}`,
-                  } : {
-                    ...template,
-                    id: `layer-timeline-${Date.now()}-${layerIndex}-${Math.random().toString(36).slice(2, 8)}`,
-                    name: `Layer ${layerIndex}`,
-                  };
-                  next.push(newLayer);
-                  prevLayer = newLayer;
+                  const layerIndex = next.length;
+                  
+                  // Try to find a pooled layer that was previously at this index or has matching name
+                  const pooledIndex = pool.findIndex(p => 
+                    p.name === `Layer ${layerIndex + 1}` || 
+                    pool.indexOf(p) === 0 // fallback: use first available
+                  );
+                  
+                  if (pooledIndex >= 0) {
+                    // Restore from pool - preserves the original ID!
+                    const restored = pool.splice(pooledIndex, 1)[0];
+                    next.push(restored);
+                  } else {
+                    // No pooled layer available, create new one
+                    const template = prev[prev.length - 1] || DEFAULT_LAYER;
+                    const baseVar = {
+                      shape: template.variationShape ?? 0.2,
+                      anim: template.variationAnim ?? 0.2,
+                      color: template.variationColor ?? 0.2,
+                      position: template.variationPosition ?? 0.2,
+                      scale: template.variationScale ?? 0.2,
+                    };
+                    const varied = buildVariedLayerFrom(template, layerIndex + 1, baseVar);
+                    const newLayer = varied ? {
+                      ...varied,
+                      id: `layer-timeline-${Date.now()}-${layerIndex + 1}-${Math.random().toString(36).slice(2, 8)}`,
+                      name: `Layer ${layerIndex + 1}`,
+                    } : {
+                      ...template,
+                      id: `layer-timeline-${Date.now()}-${layerIndex + 1}-${Math.random().toString(36).slice(2, 8)}`,
+                      name: `Layer ${layerIndex + 1}`,
+                    };
+                    next.push(newLayer);
+                  }
                 }
                 return next;
               });
@@ -649,6 +686,80 @@ export function useTimelineModulation({
         updateMap.set(update.layerId, update);
       }
       shapeTrackUpdatesRef.current = updateMap;
+      
+      // When paused, apply shape updates directly to layers (scrubbing preview)
+      // During playback, the animation loop handles this
+      if (!isPlaying && typeof setLayers === 'function') {
+        setLayers(prev => {
+          if (!Array.isArray(prev)) return prev;
+          
+          let changed = false;
+          const updated = prev.map(layer => {
+            const shapeUpdate = updateMap.get(layer?.name) || updateMap.get(layer?.id);
+            if (!shapeUpdate) return layer;
+            
+            changed = true;
+            const updatedLayer = { ...layer };
+            
+            // Apply nodes/subpaths
+            if (shapeUpdate.subpaths) {
+              updatedLayer.subpaths = shapeUpdate.subpaths;
+              updatedLayer.nodes = undefined;
+            } else if (shapeUpdate.nodes) {
+              updatedLayer.nodes = shapeUpdate.nodes;
+              updatedLayer.subpaths = undefined;
+            }
+            
+            // Apply position
+            if (shapeUpdate.position) {
+              updatedLayer.position = {
+                ...updatedLayer.position,
+                x: shapeUpdate.position.x ?? updatedLayer.position?.x ?? 0.5,
+                y: shapeUpdate.position.y ?? updatedLayer.position?.y ?? 0.5,
+                scale: shapeUpdate.position.scale ?? updatedLayer.position?.scale ?? 1,
+              };
+              if (shapeUpdate.position.xOffset !== undefined) {
+                updatedLayer.xOffset = shapeUpdate.position.xOffset;
+              }
+              if (shapeUpdate.position.yOffset !== undefined) {
+                updatedLayer.yOffset = shapeUpdate.position.yOffset;
+              }
+            }
+            
+            // Apply shape params (Layer Shape Tab)
+            if (shapeUpdate.shapeParams) {
+              const sp = shapeUpdate.shapeParams;
+              if (sp.numSides !== undefined) updatedLayer.numSides = sp.numSides;
+              if (sp.curviness !== undefined) updatedLayer.curviness = sp.curviness;
+              if (sp.radiusFactor !== undefined) updatedLayer.radiusFactor = sp.radiusFactor;
+              if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
+              if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
+              if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
+            }
+            
+            // Apply animation params
+            if (shapeUpdate.animation) {
+              const anim = shapeUpdate.animation;
+              if (anim.movementStyle !== undefined) updatedLayer.movementStyle = anim.movementStyle;
+              if (anim.movementSpeed !== undefined) updatedLayer.movementSpeed = anim.movementSpeed;
+              if (anim.movementAngle !== undefined) updatedLayer.movementAngle = anim.movementAngle;
+              if (anim.scaleSpeed !== undefined) updatedLayer.scaleSpeed = anim.scaleSpeed;
+              if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
+              if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
+            }
+            
+            // Apply colors
+            if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
+              updatedLayer.colors = shapeUpdate.colors;
+              updatedLayer.numColors = shapeUpdate.colors.length;
+            }
+            
+            return updatedLayer;
+          });
+          
+          return changed ? updated : prev;
+        });
+      }
     } else {
       // Clear if no shape updates
       shapeTrackUpdatesRef.current = new Map();
@@ -704,6 +815,7 @@ export function useTimelineModulation({
                   nodes: shapeResult.nodes,
                   subpaths: shapeResult.subpaths,
                   position: shapeResult.position,
+                  shapeParams: shapeResult.shapeParams,
                   animation: shapeResult.animation,
                   colors: shapeResult.colors,
                 });
@@ -762,6 +874,9 @@ export function useTimelineModulation({
       if (shapeTrackUpdatesRef) {
         shapeTrackUpdatesRef.current = new Map();
       }
+      // Clear layer pool when timeline stops (fresh start next time)
+      layerPoolRef.current = [];
+      maxLayerCountRef.current = 0;
     }
   }, [timeline?.visible, timeline?.isPlaying, shapeTrackUpdatesRef]);
 
