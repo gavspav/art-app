@@ -345,7 +345,7 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.shape !== false}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...track.categories, shape: e.target.checked }
+                    categories: { ...(track.categories || {}), shape: e.target.checked }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
@@ -356,7 +356,7 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.animation === true}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...track.categories, animation: e.target.checked }
+                    categories: { ...(track.categories || {}), animation: e.target.checked }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
@@ -367,7 +367,7 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.color === true}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...track.categories, color: e.target.checked }
+                    categories: { ...(track.categories || {}), color: e.target.checked }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
