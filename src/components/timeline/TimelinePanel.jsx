@@ -18,6 +18,9 @@ import TimelineTransport from './TimelineTransport.jsx';
 const TimelinePanel = ({
   layers = [],
   onClose,
+  isRecording = false,
+  onStartRecording,
+  onStopRecording,
 }) => {
   const timeline = useTimeline();
   const { getCurrentAppState, loadAppState, setIsFrozen, isFrozen } = useAppState() || {};
@@ -636,6 +639,34 @@ const TimelinePanel = ({
                     />
                     <span>Freeze</span>
                   </label>
+                  {/* Record button */}
+                  <button
+                    type="button"
+                    onClick={isRecording ? onStopRecording : onStartRecording}
+                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '999px',
+                      border: isRecording
+                        ? '2px solid #f44336'
+                        : '2px solid rgba(255, 255, 255, 0.35)',
+                      background: isRecording
+                        ? 'rgba(244, 67, 54, 0.3)'
+                        : 'transparent',
+                      color: isRecording ? '#f44336' : 'rgba(255, 255, 255, 0.7)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 600,
+                      fontSize: '0.7rem',
+                      padding: 0,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {isRecording ? '⏹' : '⏺'}
+                  </button>
+                  {/* Timeline preset button */}
                   <button
                     type="button"
                     onClick={handleTimelinePresetClick}

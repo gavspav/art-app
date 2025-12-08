@@ -177,6 +177,10 @@ export const TimelineProvider = ({ children }) => {
   const audioStartTimeRef = useRef(0);
   const audioStartPositionRef = useRef(0);
   
+  // Audio capture for recording
+  const audioDestinationRef = useRef(null); // MediaStreamDestination for recording
+  const audioGainRef = useRef(null); // Gain node to route audio to both destination and capture
+  
   // Timing refs for RAF loop (used by seekTo and tick)
   const playStartTimeRef = useRef(0); // performance.now() when playback started
   const playStartPositionRef = useRef(0); // timeline position when playback started
@@ -230,7 +234,20 @@ export const TimelineProvider = ({ children }) => {
       const ctx = audioContextRef.current;
       const source = ctx.createBufferSource();
       source.buffer = audio.buffer;
-      source.connect(ctx.destination);
+      
+      // Create gain node and media stream destination if not already created
+      // This allows us to capture audio for recording while still playing to speakers
+      if (!audioGainRef.current) {
+        audioGainRef.current = ctx.createGain();
+        audioGainRef.current.connect(ctx.destination);
+      }
+      if (!audioDestinationRef.current) {
+        audioDestinationRef.current = ctx.createMediaStreamDestination();
+        audioGainRef.current.connect(audioDestinationRef.current);
+      }
+      
+      // Connect source through gain node (which routes to both speakers and capture)
+      source.connect(audioGainRef.current);
       
       // Calculate audio offset: timeline position + audio offset within the audio file
       // audioOffset allows the audio to be shifted relative to the timeline
@@ -655,6 +672,29 @@ export const TimelineProvider = ({ children }) => {
   // --- Audio ---
 
   const setAudio = useCallback((audioData) => {
+    // Initialize audio context and capture nodes when audio is loaded
+    // This ensures getAudioStream() returns a valid stream for recording
+    if (audioData?.buffer) {
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const ctx = audioContextRef.current;
+        
+        // Create gain node and media stream destination for recording capture
+        if (!audioGainRef.current) {
+          audioGainRef.current = ctx.createGain();
+          audioGainRef.current.connect(ctx.destination);
+        }
+        if (!audioDestinationRef.current) {
+          audioDestinationRef.current = ctx.createMediaStreamDestination();
+          audioGainRef.current.connect(audioDestinationRef.current);
+        }
+      } catch (error) {
+        console.warn('Failed to initialize audio context for recording:', error);
+      }
+    }
+    
     setSession(prev => ({
       ...prev,
       audio: audioData,
@@ -833,6 +873,9 @@ export const TimelineProvider = ({ children }) => {
     // Audio
     setAudio,
     clearAudio,
+    
+    // Audio stream for recording (returns MediaStream or null)
+    getAudioStream: () => audioDestinationRef.current?.stream || null,
 
     // Evaluation
     getTrackValue,

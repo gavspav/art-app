@@ -139,6 +139,9 @@ const MainApp = () => {
     registerParamHandler,
   } = useMidi() || {};
 
+  // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
+  const timelineContext = useTimeline();
+
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const configFileInputRef = React.useRef(null);
@@ -177,33 +180,51 @@ const MainApp = () => {
       return;
     }
 
-    let stream;
+    let videoStream;
     try {
-      stream = canvasEl.captureStream(60);
+      videoStream = canvasEl.captureStream(60);
     } catch (error) {
       console.warn('Failed to capture canvas stream', error);
       window.alert('Unable to start recording: canvas capture stream failed.');
       return;
     }
 
-    if (!stream) {
+    if (!videoStream) {
       window.alert('Unable to start recording: no stream produced.');
       return;
     }
 
+    // Try to get audio stream from timeline (if audio is loaded and playing)
+    let combinedStream = videoStream;
+    const audioStream = timelineContext?.getAudioStream?.();
+    if (audioStream) {
+      try {
+        // Combine video and audio tracks into a single stream
+        const videoTracks = videoStream.getVideoTracks();
+        const audioTracks = audioStream.getAudioTracks();
+        combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+        console.log('Recording with audio: video tracks:', videoTracks.length, 'audio tracks:', audioTracks.length);
+      } catch (error) {
+        console.warn('Failed to combine audio stream, recording video only:', error);
+        combinedStream = videoStream;
+      }
+    } else {
+      console.log('Recording video only (no timeline audio available)');
+    }
+
     const preferredMime = pickBestRecorderMime();
-    const options = { mimeType: preferredMime, videoBitsPerSecond: 20_000_000 };
+    const options = { mimeType: preferredMime, videoBitsPerSecond: 20_000_000, audioBitsPerSecond: 128_000 };
     let mediaRecorder;
     try {
-      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder = new MediaRecorder(combinedStream, options);
     } catch (error) {
       console.warn('Failed to create MediaRecorder with options', options, error);
       try {
-        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder = new MediaRecorder(combinedStream);
       } catch (fallbackError) {
         console.warn('Failed to create MediaRecorder without options', fallbackError);
         window.alert('Unable to start recording: MediaRecorder could not be initialized.');
-        stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
         return;
       }
     }
@@ -247,25 +268,25 @@ const MainApp = () => {
         console.warn('Failed to export recording', error);
         window.alert('Recording stopped but exporting failed. Check console for details.');
       } finally {
-        stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
         cleanupRecorder();
       }
     };
 
-    recorderRef.current = { mediaRecorder, stream };
+    recorderRef.current = { mediaRecorder, stream: combinedStream };
 
     try {
       mediaRecorder.start(1000);
     } catch (error) {
       console.warn('MediaRecorder.start failed', error);
       window.alert('Unable to start recording: MediaRecorder start failed.');
-      stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+      combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
       cleanupRecorder();
       return;
     }
 
     setIsRecording(true);
-  }, [cleanupRecorder, isRecording]);
+  }, [cleanupRecorder, isRecording, timelineContext]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
@@ -418,8 +439,7 @@ const MainApp = () => {
   const bpmForAnimation = useBPM();
   const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
 
-  // Timeline context
-  const timelineContext = useTimeline();
+  // Timeline context helpers
   const {
     getTimelineSnapshot,
     applyTimelineSnapshot,
@@ -1873,6 +1893,9 @@ const MainApp = () => {
               <TimelinePanel
                 layers={layers}
                 onClose={() => setTimelineVisible?.(false)}
+                isRecording={isRecording}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
               />
             </div>
           </>
