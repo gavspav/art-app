@@ -46,6 +46,11 @@ const TimelineCurveEditor = ({
   // Color picker state
   const [colorPickerKeyframeId, setColorPickerKeyframeId] = useState(null);
   const colorInputRef = useRef(null);
+  
+  // Edit panel state
+  const [editingKeyframe, setEditingKeyframe] = useState(null);
+  const [editTime, setEditTime] = useState('');
+  const [editValue, setEditValue] = useState('');
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
   const padding = { top: 8, right: 8, bottom: 8, left: 0 };
@@ -366,6 +371,63 @@ const TimelineCurveEditor = ({
     setCurveMenuKeyframeId(null);
   }, [curveMenuKeyframeId, onUpdateKeyframe]);
 
+  // Open edit panel for a keyframe
+  const handleOpenEditPanel = useCallback((kfId) => {
+    const kf = keyframes.find(k => k.id === kfId);
+    if (!kf) return;
+    
+    setEditingKeyframe(kfId);
+    setEditTime(kf.timeSeconds.toFixed(3));
+    setEditValue(kf.value01 !== undefined ? (kf.value01 * 100).toFixed(1) : '');
+    setShowCurveMenu(false);
+  }, [keyframes]);
+
+  // Apply time/value edits
+  const handleApplyEdit = useCallback(() => {
+    if (!editingKeyframe) return;
+    
+    const updates = {};
+    const newTime = parseFloat(editTime);
+    if (!isNaN(newTime) && newTime >= 0 && newTime <= lengthSeconds) {
+      updates.timeSeconds = newTime;
+    }
+    
+    if (!isShapeTrack && !isColorTrack && editValue !== '') {
+      const newValue = parseFloat(editValue) / 100;
+      if (!isNaN(newValue)) {
+        updates.value01 = Math.max(0, Math.min(1, newValue));
+      }
+    }
+    
+    if (Object.keys(updates).length > 0) {
+      onUpdateKeyframe?.(editingKeyframe, updates);
+    }
+    
+    setEditingKeyframe(null);
+  }, [editingKeyframe, editTime, editValue, lengthSeconds, isShapeTrack, isColorTrack, onUpdateKeyframe]);
+
+  // Close edit panel
+  const handleCloseEditPanel = useCallback(() => {
+    setEditingKeyframe(null);
+  }, []);
+
+  // Delete keyframe from edit panel
+  const handleDeleteFromEdit = useCallback(() => {
+    if (editingKeyframe && onRemoveKeyframe) {
+      onRemoveKeyframe(editingKeyframe);
+    }
+    setEditingKeyframe(null);
+  }, [editingKeyframe, onRemoveKeyframe]);
+
+  // Seek to keyframe
+  const handleSeekToKeyframe = useCallback((kfId) => {
+    const kf = keyframes.find(k => k.id === kfId);
+    if (kf && onSeek) {
+      onSeek(kf.timeSeconds);
+    }
+    setShowCurveMenu(false);
+  }, [keyframes, onSeek]);
+
   // Close curve menu on click outside
   useEffect(() => {
     if (!showCurveMenu) return;
@@ -381,6 +443,23 @@ const TimelineCurveEditor = ({
     
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showCurveMenu]);
+
+  // Close edit panel on click outside
+  useEffect(() => {
+    if (!editingKeyframe) return;
+    
+    const handleClick = (e) => {
+      // Don't close if clicking inside the edit panel
+      if (e.target.closest('.keyframe-edit-panel')) return;
+      setEditingKeyframe(null);
+    };
+    
+    setTimeout(() => {
+      document.addEventListener('mousedown', handleClick);
+    }, 100);
+    
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [editingKeyframe]);
 
   // Keyboard shortcuts for copy/paste (Ctrl/Cmd+C, Ctrl/Cmd+V)
   useEffect(() => {
@@ -764,36 +843,105 @@ const TimelineCurveEditor = ({
             borderRadius: 4,
             padding: '4px 0',
             zIndex: 1000,
-            minWidth: 140,
+            minWidth: 160,
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
           }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {/* Copy option (only when a keyframe is selected) */}
+          {/* Keyframe actions (only when a keyframe is selected) */}
           {curveMenuKeyframeId && (
-            <button
-              type="button"
-              onClick={() => {
-                if (onCopyKeyframe) {
-                  onCopyKeyframe(curveMenuKeyframeId);
-                }
-                setShowCurveMenu(false);
-              }}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: '6px 12px',
-                background: 'transparent',
-                border: 'none',
-                color: 'white',
-                fontSize: '0.7rem',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              📋 Copy Keyframe (⌘C)
-            </button>
+            <>
+              {/* Edit keyframe */}
+              <button
+                type="button"
+                onClick={() => handleOpenEditPanel(curveMenuKeyframeId)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'white',
+                  fontSize: '0.7rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                ✏️ Edit Keyframe
+              </button>
+              
+              {/* Seek to keyframe */}
+              <button
+                type="button"
+                onClick={() => handleSeekToKeyframe(curveMenuKeyframeId)}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'white',
+                  fontSize: '0.7rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                ⏱️ Seek to Keyframe
+              </button>
+              
+              {/* Copy keyframe */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onCopyKeyframe) {
+                    onCopyKeyframe(curveMenuKeyframeId);
+                  }
+                  setShowCurveMenu(false);
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'white',
+                  fontSize: '0.7rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                📋 Copy (⌘C)
+              </button>
+              
+              {/* Delete keyframe */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onRemoveKeyframe) {
+                    onRemoveKeyframe(curveMenuKeyframeId);
+                  }
+                  setShowCurveMenu(false);
+                  setCurveMenuKeyframeId(null);
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#f44336',
+                  fontSize: '0.7rem',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                🗑️ Delete Keyframe
+              </button>
+              
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '4px 0' }} />
+            </>
           )}
+          
           {/* Paste option */}
           <button
             type="button"
@@ -873,6 +1021,168 @@ const TimelineCurveEditor = ({
           }}
           onChange={handleColorChange}
         />
+      )}
+
+      {/* Keyframe edit panel */}
+      {editingKeyframe && (
+        <div
+          className="keyframe-edit-panel"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(30, 30, 40, 0.98)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 8,
+            padding: '16px',
+            zIndex: 1001,
+            minWidth: 240,
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ color: 'white', fontWeight: 600, fontSize: '0.85rem' }}>
+              Edit Keyframe
+            </span>
+            <button
+              type="button"
+              onClick={handleCloseEditPanel}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'rgba(255,255,255,0.5)',
+                fontSize: '1rem',
+                cursor: 'pointer',
+                padding: '2px 6px',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Time input */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', marginBottom: 4 }}>
+              Time (seconds)
+            </label>
+            <input
+              type="number"
+              value={editTime}
+              onChange={(e) => setEditTime(e.target.value)}
+              step="0.001"
+              min="0"
+              max={lengthSeconds}
+              style={{
+                width: '100%',
+                padding: '6px 8px',
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 4,
+                color: 'white',
+                fontSize: '0.8rem',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleApplyEdit();
+                if (e.key === 'Escape') handleCloseEditPanel();
+              }}
+            />
+          </div>
+
+          {/* Value input (numeric tracks only) */}
+          {!isShapeTrack && !isColorTrack && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', color: 'rgba(255,255,255,0.7)', fontSize: '0.7rem', marginBottom: 4 }}>
+                Value (0-100%)
+              </label>
+              <input
+                type="number"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                step="0.1"
+                min="0"
+                max="100"
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 4,
+                  color: 'white',
+                  fontSize: '0.8rem',
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleApplyEdit();
+                  if (e.key === 'Escape') handleCloseEditPanel();
+                }}
+              />
+              <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', marginTop: 2 }}>
+                Maps to {track?.range?.outputMin?.toFixed(2) ?? '0'} – {track?.range?.outputMax?.toFixed(2) ?? '1'}
+              </div>
+            </div>
+          )}
+
+          {/* Shape track info */}
+          {isShapeTrack && (
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.7rem', marginBottom: 12 }}>
+              Shape keyframes store geometry snapshots. Use "⬡ Capture" to update.
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={handleApplyEdit}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                background: '#4fc3f7',
+                border: 'none',
+                borderRadius: 4,
+                color: '#000',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSeekToKeyframe(editingKeyframe)}
+              style={{
+                padding: '8px 12px',
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 4,
+                color: 'white',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+              }}
+              title="Seek playhead to this keyframe"
+            >
+              ⏱️
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteFromEdit}
+              style={{
+                padding: '8px 12px',
+                background: 'rgba(244, 67, 54, 0.2)',
+                border: '1px solid rgba(244, 67, 54, 0.5)',
+                borderRadius: 4,
+                color: '#f44336',
+                fontSize: '0.75rem',
+                cursor: 'pointer',
+              }}
+              title="Delete keyframe"
+            >
+              🗑️
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

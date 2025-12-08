@@ -249,13 +249,15 @@ const TimelinePanel = ({
   }, [addTrack, tracks?.length]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
-  const handleCaptureShapeKeyframe = useCallback((trackId, layerId) => {
-    if (!addShapeKeyframe || !layerId) return;
+  const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName) => {
+    if (!addShapeKeyframe || !layerIdOrName) return;
     
     // Find the layer to capture its current state
-    const layer = layers.find(l => l?.id === layerId);
+    // TimelineTrackRow now passes the layer NAME (e.g., 'Layer 2') for stable targeting,
+    // so resolve by id OR name.
+    const layer = layers.find(l => l?.id === layerIdOrName || l?.name === layerIdOrName);
     if (!layer) {
-      console.warn('[Timeline] Cannot capture shape: layer not found', layerId);
+      console.warn('[Timeline] Cannot capture shape: layer not found', layerIdOrName);
       return;
     }
     
