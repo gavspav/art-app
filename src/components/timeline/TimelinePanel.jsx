@@ -20,7 +20,7 @@ const TimelinePanel = ({
   onClose,
 }) => {
   const timeline = useTimeline();
-  const { getCurrentAppState, loadAppState } = useAppState() || {};
+  const { getCurrentAppState, loadAppState, setIsFrozen, isFrozen } = useAppState() || {};
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -203,59 +203,20 @@ const TimelinePanel = ({
     }
   }, [zoom, setZoom]);
 
-  // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
-  useEffect(() => {
-    if (!visible) return;
+  // When starting playback from the beginning, always unfreeze the scene
+  const handlePlay = useCallback(() => {
+    if (!isPlaying && (positionSeconds ?? 0) <= 0.001 && setIsFrozen) {
+      setIsFrozen(false);
+    }
+    if (play) play();
+  }, [isPlaying, positionSeconds, play, setIsFrozen]);
 
-    const handleKeyDown = (e) => {
-      // Only plain 'c' (no modifiers) to avoid conflicts with copy, etc.
-      if (e.key !== 'c' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-
-      // Prevent default so it doesn't type into inputs if focus is on timeline
-      e.preventDefault();
-
-      if (!tracks || !tracks.length) return;
-      if (!getCurrentAppState) return;
-
-      const appState = getCurrentAppState();
-      if (!appState) return;
-
-      const selectedIndex = appState.selectedLayerIndex ?? 0;
-      const activeLayer = layers?.[selectedIndex];
-      if (!activeLayer) return;
-
-      const layerName = activeLayer.name || `Layer ${selectedIndex + 1}`;
-
-      // Find any shape tracks targeting this layer
-      const shapeTracks = tracks.filter((track) => {
-        if (!track.enabled || !track.targetId) return false;
-        const isShape = track.type === 'shape' || track.targetId.endsWith(':shape');
-        if (!isShape) return false;
-        // targetId is of form 'layer:<Layer Name>:shape'
-        return track.targetId.startsWith(`layer:${layerName}:`);
-      });
-
-      if (!shapeTracks.length) return;
-
-      // Capture for each matching shape track at current playhead time
-      shapeTracks.forEach((track) => {
-        if (typeof addShapeKeyframe === 'function') {
-          // Reuse the existing capture helper so extras (position, shapeParams, etc.) are included
-          handleCaptureShapeKeyframe(track.id, layerName);
-        }
-      });
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    visible,
-    tracks,
-    layers,
-    getCurrentAppState,
-    addShapeKeyframe,
-    handleCaptureShapeKeyframe,
-  ]);
+  const handleTogglePlay = useCallback(() => {
+    if (!isPlaying && (positionSeconds ?? 0) <= 0.001 && setIsFrozen) {
+      setIsFrozen(false);
+    }
+    if (togglePlay) togglePlay();
+  }, [isPlaying, positionSeconds, togglePlay, setIsFrozen]);
 
   // Global parameters - per user list
   const globalParameters = useMemo(() => [
@@ -378,6 +339,66 @@ const TimelinePanel = ({
     addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths, '', extras);
   }, [addShapeKeyframe, layers, tracks, positionSeconds]);
 
+  // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (e) => {
+      // Only plain 'c' (no modifiers) to avoid conflicts with copy, etc.
+      if (e.key !== 'c' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+      const target = e.target;
+      const isEditableTarget =
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA');
+
+      if (isEditableTarget) return;
+
+      // Prevent default so it doesn't type into inputs if focus is on timeline
+      e.preventDefault();
+
+      if (!tracks || !tracks.length) return;
+      if (!getCurrentAppState) return;
+
+      const appState = getCurrentAppState();
+      if (!appState) return;
+
+      const selectedIndex = appState.selectedLayerIndex ?? 0;
+      const activeLayer = layers?.[selectedIndex];
+      if (!activeLayer) return;
+
+      const layerName = activeLayer.name || `Layer ${selectedIndex + 1}`;
+
+      // Find any shape tracks targeting this layer
+      const shapeTracks = tracks.filter((track) => {
+        if (!track.enabled || !track.targetId) return false;
+        const isShape = track.type === 'shape' || track.targetId.endsWith(':shape');
+        if (!isShape) return false;
+        // targetId is of form 'layer:<Layer Name>:shape'
+        return track.targetId.startsWith(`layer:${layerName}:`);
+      });
+
+      if (!shapeTracks.length) return;
+
+      // Capture for each matching shape track at current playhead time
+      shapeTracks.forEach((track) => {
+        // Reuse the existing capture helper so extras (position, shapeParams, etc.) are included
+        handleCaptureShapeKeyframe(track.id, layerName);
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    visible,
+    tracks,
+    layers,
+    getCurrentAppState,
+    handleCaptureShapeKeyframe,
+  ]);
+
   // Handle timeline preset button click (save/recall/clear)
   const handleTimelinePresetClick = useCallback((event) => {
     if (!getCurrentAppState || !loadAppState || !setStartPreset) return;
@@ -394,13 +415,19 @@ const TimelinePanel = ({
     if (event.shiftKey || !hasPreset) {
       const snapshot = getCurrentAppState();
       if (!snapshot) return;
-      setStartPreset({ appState: snapshot, savedAt: Date.now() });
+      const { isFrozen: _ignoredFreeze, ...rest } = snapshot;
+      setStartPreset({ appState: rest, savedAt: Date.now() });
       return;
     }
 
     // Normal click with existing preset -> recall
     if (hasPreset && startPreset.appState) {
-      loadAppState(startPreset.appState);
+      const presetState = {
+        ...startPreset.appState,
+        // Always unfreeze when recalling a timeline preset so animation can run
+        isFrozen: false,
+      };
+      loadAppState(presetState);
     }
   }, [
     startPreset,
@@ -493,10 +520,10 @@ const TimelinePanel = ({
         positionSeconds={positionSeconds}
         lengthSeconds={lengthSeconds}
         loop={loop}
-        onPlay={play}
+        onPlay={handlePlay}
         onPause={pause}
         onStop={stop}
-        onTogglePlay={togglePlay}
+        onTogglePlay={handleTogglePlay}
         onSeek={seekTo}
         onSetLength={setLengthSeconds}
         onSetLoop={setLoop}
@@ -599,36 +626,47 @@ const TimelinePanel = ({
             <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
                 <span>Tracks</span>
-                <button
-                  type="button"
-                  onClick={handleTimelinePresetClick}
-                  title={
-                    hasTimelinePreset
-                      ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
-                      : 'Timeline Preset\nClick or Shift+Click: Save current scene for t=0\nAlt+Click: Clear preset'
-                  }
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: '999px',
-                    border: hasTimelinePreset
-                      ? '2px solid #4fc3f7'
-                      : '2px dashed rgba(255, 255, 255, 0.35)',
-                    background: hasTimelinePreset
-                      ? 'rgba(79,195,247,0.18)'
-                      : 'transparent',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 600,
-                    fontSize: '0.65rem',
-                    padding: 0,
-                    cursor: 'pointer',
-                  }}
-                >
-                  TL
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: 'pointer', color: 'rgba(255, 255, 255, 0.7)' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!isFrozen}
+                      onChange={(e) => setIsFrozen?.(!!e.target.checked)}
+                      style={{ margin: 0, cursor: 'pointer' }}
+                    />
+                    <span>Freeze</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleTimelinePresetClick}
+                    title={
+                      hasTimelinePreset
+                        ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
+                        : 'Timeline Preset\nClick or Shift+Click: Save current scene for t=0\nAlt+Click: Clear preset'
+                    }
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: '999px',
+                      border: hasTimelinePreset
+                        ? '2px solid #4fc3f7'
+                        : '2px dashed rgba(255, 255, 255, 0.35)',
+                      background: hasTimelinePreset
+                        ? 'rgba(79,195,247,0.18)'
+                        : 'transparent',
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 600,
+                      fontSize: '0.65rem',
+                      padding: 0,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    TL
+                  </button>
+                </div>
               </div>
             </div>
             {/* Time markers */}
@@ -707,15 +745,26 @@ const TimelinePanel = ({
               />
             ))}
             
-            {/* Add track button */}
+            {/* Add track button - header column sticky like other track rows */}
             <div
               style={{
                 display: 'flex',
-                padding: '8px',
                 borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
               }}
             >
-              <div style={{ width: 200, minWidth: 200 }}>
+              {/* Left fixed column */}
+              <div
+                style={{
+                  width: 200,
+                  minWidth: 200,
+                  position: 'sticky',
+                  left: 0,
+                  zIndex: 6,
+                  background: 'rgba(30, 30, 40, 0.95)',
+                  padding: '8px',
+                  borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
                 <button
                   type="button"
                   onClick={handleAddTrack}
@@ -733,6 +782,9 @@ const TimelinePanel = ({
                   + Add Track
                 </button>
               </div>
+
+              {/* Right side (empty, matches track row layout so timeline continues) */}
+              <div style={{ flex: 1 }} />
             </div>
           </div>
 

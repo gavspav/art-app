@@ -1,4 +1,5 @@
 import { useRef, useCallback, useMemo } from 'react';
+import { MOVEMENT_STYLES } from './movementStyles.js';
 
 /**
  * useModulationStore - Centralized store for Audio/BPM/Timeline modulations

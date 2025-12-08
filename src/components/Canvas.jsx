@@ -49,86 +49,38 @@ const getArtboardMapping = (canvas) => {
 };
 
 // Resolve how a layer should map its normalized [0,1] coordinates onto the canvas space.
-// Drift and bounce modes use the full canvas extents so shapes can traverse the entire viewport;
-// other movement styles stay constrained to the square artboard for symmetrical scaling.
+// All layers use the artboard as their reference coordinate system to maintain
+// consistent relationships between shapes regardless of canvas aspect ratio.
+// This ensures that when switching between timeline view and fullscreen, layers
+// maintain their relative positions to each other.
 const getLayerCanvasMapping = (canvas, layer) => {
     if (!canvas) {
         return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
     }
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const art = getArtboardMapping(canvas);
-    const useFullCanvas = layer?.movementStyle === 'drift' || layer?.movementStyle === 'bounce';
-    const spanX = useFullCanvas ? canvasWidth : art.size;
-    const spanY = useFullCanvas ? canvasHeight : art.size;
-    const offsetX = useFullCanvas ? 0 : art.offsetX;
-    const offsetY = useFullCanvas ? 0 : art.offsetY;
+    
+    // All layers now use the artboard coordinate system for consistent relationships.
+    // Position (0.5, 0.5) always maps to the center of the artboard (which is centered
+    // in the canvas). This ensures layers maintain their relative positions regardless
+    // of canvas aspect ratio changes (e.g., timeline view vs fullscreen).
+    //
+    // Note: Drift/bounce layers can still move beyond [0,1] bounds and will extend
+    // outside the artboard, but their reference frame is the same as other layers.
+    const spanX = art.size;
+    const spanY = art.size;
+    const offsetX = art.offsetX;
+    const offsetY = art.offsetY;
     const refSize = art.size;
+    
     return { spanX, spanY, offsetX, offsetY, refSize };
 };
 
 // Helper to convert position between coordinate systems when movementStyle changes
-const convertPositionBetweenCoordinateSystems = (layer, canvas, oldMovementStyle) => {
-    if (!canvas || !layer?.position || oldMovementStyle === layer.movementStyle) {
-        return layer;
-    }
-
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
-    const art = getArtboardMapping(canvas);
-    const { size: artSize, offsetX: artOffsetX, offsetY: artOffsetY } = art;
-
-    const hasCanvasMetrics = Number.isFinite(canvasWidth) && Number.isFinite(canvasHeight) && canvasWidth > 0 && canvasHeight > 0;
-    const hasArtboardMetrics = Number.isFinite(artSize) && artSize > 0 && Number.isFinite(artOffsetX) && Number.isFinite(artOffsetY);
-
-    if (!hasCanvasMetrics) {
-        return layer;
-    }
-
-    const oldUsesFullCanvas = oldMovementStyle === 'drift' || oldMovementStyle === 'bounce';
-    const newUsesFullCanvas = layer.movementStyle === 'drift' || layer.movementStyle === 'bounce';
-
-    // If both use the same coordinate system, no conversion needed
-    if (oldUsesFullCanvas === newUsesFullCanvas) {
-        return layer;
-    }
-
-    const { x = 0.5, y = 0.5 } = layer.position;
-
-    // Convert from old coordinate system to new one
-    let newX = x;
-    let newY = y;
-
-    if (oldUsesFullCanvas && !newUsesFullCanvas) {
-        if (!hasArtboardMetrics) {
-            return layer;
-        }
-        // Converting from full canvas to artboard
-        // Old: (0,0) to (canvasWidth, canvasHeight)
-        // New: (art.offsetX, art.offsetY) to (art.offsetX + art.size, art.offsetY + art.size)
-        newX = (x * canvasWidth - artOffsetX) / artSize;
-        newY = (y * canvasHeight - artOffsetY) / artSize;
-    } else if (!oldUsesFullCanvas && newUsesFullCanvas) {
-        if (!hasArtboardMetrics) {
-            return layer;
-        }
-        // Converting from artboard to full canvas
-        // Old: (art.offsetX, art.offsetY) to (art.offsetX + art.size, art.offsetY + art.size)
-        // New: (0,0) to (canvasWidth, canvasHeight)
-        newX = (artOffsetX + x * artSize) / canvasWidth;
-        newY = (artOffsetY + y * artSize) / canvasHeight;
-    }
-
-    // Clamp to valid range
-    newX = Math.max(0, Math.min(1, newX));
-    newY = Math.max(0, Math.min(1, newY));
-
-    return {
-        ...layer,
-        position: {
-            ...layer.position,
-            x: newX,
-            y: newY
-        }
-    };
+// Note: Since all layers now use the artboard coordinate system, no conversion is needed.
+// This function is kept for backwards compatibility but simply returns the layer unchanged.
+const convertPositionBetweenCoordinateSystems = (layer, _canvas, _oldMovementStyle) => {
+    // All layers use the same artboard coordinate system now, so no conversion needed
+    return layer;
 };
 
 const getLayerGeometry = (layer, canvas) => {

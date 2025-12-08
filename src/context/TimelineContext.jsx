@@ -67,6 +67,7 @@ const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = 
   shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
   animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
   colors: extras.colors || null,          // array of hex colors
+  enabled: extras.enabled !== undefined ? extras.enabled : true,
 });
 
 /**
@@ -595,42 +596,46 @@ export const TimelineProvider = ({ children }) => {
 
   /**
    * Paste the clipboard keyframe at a specific time
-   * @param {string} trackId - Track ID to paste into
+   * Note: Destination track is determined by the clipboard's original trackTargetId,
+   * so pasted keyframes always go back to the source track they were copied from.
+   * The trackId argument is accepted for backwards compatibility but ignored.
+   * @param {string} _trackId - (unused) Track ID hint
    * @param {number} timeSeconds - Time to paste at (defaults to current playhead)
    */
-  const pasteKeyframe = useCallback((trackId, timeSeconds) => {
+  const pasteKeyframe = useCallback((_trackId, timeSeconds) => {
     if (!keyframeClipboard) return;
-    
+
     const pasteTime = timeSeconds ?? positionRef.current;
-    const { keyframe, trackType } = keyframeClipboard;
+    const { keyframe, trackType, trackTargetId } = keyframeClipboard;
     const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
-    
+
     setSession(prev => ({
       ...prev,
       tracks: prev.tracks.map(track => {
-        if (track.id !== trackId) return track;
-        
+        // Only paste into the original source track (matching targetId)
+        if (!trackTargetId || track.targetId !== trackTargetId) return track;
+
         // Check track type compatibility
         const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
         const isShapeKeyframe = trackType === 'shape';
-        
+
         if (isShapeTrack !== isShapeKeyframe) {
           console.warn('Cannot paste: keyframe type does not match track type');
           return track;
         }
-        
+
         // Check if a keyframe already exists at this time
         const existingIndex = track.keyframes.findIndex(
           kf => Math.abs(kf.timeSeconds - pasteTime) < TIME_EPSILON
         );
-        
+
         // Create new keyframe with new ID and updated time
         const newKeyframe = {
           ...keyframe,
           id: generateId(),
           timeSeconds: pasteTime,
         };
-        
+
         let keyframes;
         if (existingIndex >= 0) {
           // Replace existing keyframe at this time
@@ -641,7 +646,7 @@ export const TimelineProvider = ({ children }) => {
           // Add new keyframe
           keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
-        
+
         return { ...track, keyframes };
       }),
     }));

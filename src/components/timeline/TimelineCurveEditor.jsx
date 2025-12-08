@@ -52,6 +52,11 @@ const TimelineCurveEditor = ({
   const [editTime, setEditTime] = useState('');
   const [editValue, setEditValue] = useState('');
 
+  const selectedMenuKeyframe = useMemo(
+    () => keyframes.find(k => k.id === curveMenuKeyframeId) || null,
+    [keyframes, curveMenuKeyframeId],
+  );
+
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
   const padding = { top: 8, right: 8, bottom: 8, left: 0 };
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
@@ -850,6 +855,31 @@ const TimelineCurveEditor = ({
           {/* Keyframe actions (only when a keyframe is selected) */}
           {curveMenuKeyframeId && (
             <>
+              {/* Enable/disable for shape tracks */}
+              {isShapeTrack && selectedMenuKeyframe && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextEnabled = selectedMenuKeyframe.enabled === false;
+                    onUpdateKeyframe?.(selectedMenuKeyframe.id, { enabled: nextEnabled });
+                    setShowCurveMenu(false);
+                    setCurveMenuKeyframeId(null);
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'white',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  {selectedMenuKeyframe.enabled === false ? '⚡ Enable Shape Track From Here' : '🔌 Disable Shape Track From Here'}
+                </button>
+              )}
               {/* Edit keyframe */}
               <button
                 type="button"

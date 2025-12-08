@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
+import { useAppState } from '../context/AppStateContext.jsx';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime } from '../utils/envelopes.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
@@ -71,6 +72,7 @@ export function useTimelineModulation({
   shapeTrackUpdatesRef,
 }) {
   const timeline = useTimeline();
+  const { isNodeEditMode } = useAppState() || {};
   
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
@@ -242,8 +244,12 @@ export function useTimelineModulation({
         if (shapeResult) {
           const parsed = parseTargetId(track.targetId);
           if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+            // Extract original layer name from targetId for reliable lookup
+            const parts = track.targetId.split(':');
+            const originalLayerName = parts.length >= 2 ? parts[1] : parsed.layerId;
             shapeUpdates.push({
               layerId: parsed.layerId,
+              layerName: originalLayerName, // Store original name for lookup
               nodes: shapeResult.nodes,
               subpaths: shapeResult.subpaths,
               position: shapeResult.position,       // Extended: interpolated position
@@ -683,7 +689,21 @@ export function useTimelineModulation({
     if (shapeUpdates.length > 0) {
       const updateMap = new Map();
       for (const update of shapeUpdates) {
+        // Store by resolved ID (UUID)
         updateMap.set(update.layerId, update);
+        // Also store by original layer name from targetId
+        if (update.layerName && update.layerName !== update.layerId) {
+          updateMap.set(update.layerName, update);
+        }
+        // Also find and store by the layer's actual name property
+        if (Array.isArray(layers)) {
+          const matchingLayer = layers.find(l => 
+            l?.id === update.layerId || l?.name === update.layerName
+          );
+          if (matchingLayer?.name && matchingLayer.name !== update.layerId && matchingLayer.name !== update.layerName) {
+            updateMap.set(matchingLayer.name, update);
+          }
+        }
       }
       shapeTrackUpdatesRef.current = updateMap;
       
@@ -700,14 +720,17 @@ export function useTimelineModulation({
             
             changed = true;
             const updatedLayer = { ...layer };
-            
-            // Apply nodes/subpaths
-            if (shapeUpdate.subpaths) {
-              updatedLayer.subpaths = shapeUpdate.subpaths;
-              updatedLayer.nodes = undefined;
-            } else if (shapeUpdate.nodes) {
-              updatedLayer.nodes = shapeUpdate.nodes;
-              updatedLayer.subpaths = undefined;
+
+            const nodeEditActive = !!isNodeEditMode;
+            // Apply nodes/subpaths only when NOT in node edit mode
+            if (!nodeEditActive) {
+              if (shapeUpdate.subpaths) {
+                updatedLayer.subpaths = shapeUpdate.subpaths;
+                updatedLayer.nodes = undefined;
+              } else if (shapeUpdate.nodes) {
+                updatedLayer.nodes = shapeUpdate.nodes;
+                updatedLayer.subpaths = undefined;
+              }
             }
             
             // Apply position
@@ -810,7 +833,7 @@ export function useTimelineModulation({
             if (shapeResult) {
               const parsed = parseTargetId(track.targetId);
               if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
-                shapeUpdates.set(parsed.layerId, {
+                const updateData = {
                   layerId: parsed.layerId,
                   nodes: shapeResult.nodes,
                   subpaths: shapeResult.subpaths,
@@ -818,7 +841,28 @@ export function useTimelineModulation({
                   shapeParams: shapeResult.shapeParams,
                   animation: shapeResult.animation,
                   colors: shapeResult.colors,
-                });
+                };
+                // Store by resolved ID (UUID)
+                shapeUpdates.set(parsed.layerId, updateData);
+                
+                // Also store by original layer name from targetId
+                const parts = track.targetId.split(':');
+                const originalName = parts.length >= 2 ? parts[1] : null;
+                if (originalName && originalName !== parsed.layerId) {
+                  shapeUpdates.set(originalName, updateData);
+                }
+                
+                // Also find and store by the layer's actual name property
+                // This handles cases where layer.name differs from targetId name
+                const currentLayers = layersRef.current;
+                if (Array.isArray(currentLayers)) {
+                  const matchingLayer = currentLayers.find(l => 
+                    l?.id === parsed.layerId || l?.name === originalName
+                  );
+                  if (matchingLayer?.name && matchingLayer.name !== parsed.layerId && matchingLayer.name !== originalName) {
+                    shapeUpdates.set(matchingLayer.name, updateData);
+                  }
+                }
               }
             }
             continue;

@@ -274,7 +274,7 @@ const applyAudioModulations = (layer, audioContext) => {
  */
 export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, modulationStore = null, shapeTrackUpdatesRef = null) => {
     const animationFrameId = useRef(null);
-    const { runWithoutDirty, isUserInteracting } = useAppState() || {};
+    const { runWithoutDirty, isUserInteracting, isNodeEditMode } = useAppState() || {};
     
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
@@ -288,6 +288,10 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
     // Track user-interaction status in a ref so we can read it inside RAF loop
     const isUserInteractingRef = useRef(isUserInteracting);
     useEffect(() => { isUserInteractingRef.current = isUserInteracting; }, [isUserInteracting]);
+
+    // Track node edit mode so we can avoid overwriting user-edited geometry
+    const isNodeEditModeRef = useRef(isNodeEditMode);
+    useEffect(() => { isNodeEditModeRef.current = isNodeEditMode; }, [isNodeEditMode]);
 
     // Store setLayers and runWithoutDirty in refs to avoid recreating animate callback
     const setLayersRef = useRef(setLayers);
@@ -378,7 +382,8 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
         // Calculate updated layers (always, for smooth animation)
         const computeUpdatedLayers = (prevLayers) => prevLayers.map(layer => {
             // Check if this layer has shape track updates
-            const shapeUpdate = shapeUpdatesMap.get(layer?.id);
+            // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
+            const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);
             const hasShapeUpdate = !!shapeUpdate;
             
             // 1. Update layer animation (movement, scale oscillation, etc.)
@@ -390,13 +395,19 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
             
             // 2. Apply shape track updates if present (at animation loop framerate for smoothness)
             if (shapeUpdate) {
-                // Apply nodes or subpaths (clear the other to avoid conflicts)
-                if (shapeUpdate.subpaths) {
-                    updatedLayer.subpaths = shapeUpdate.subpaths;
-                    updatedLayer.nodes = undefined;
-                } else if (shapeUpdate.nodes) {
-                    updatedLayer.nodes = shapeUpdate.nodes;
-                    updatedLayer.subpaths = undefined;
+                const nodeEditActive = !!isNodeEditModeRef.current;
+                
+                // Only apply shape track geometry when NOT in node edit mode
+                // This protects user's node edits during both scrubbing AND playback
+                // User must exit node edit mode (or capture keyframe) for timeline to take over
+                if (!nodeEditActive) {
+                    if (shapeUpdate.subpaths) {
+                        updatedLayer.subpaths = shapeUpdate.subpaths;
+                        updatedLayer.nodes = undefined;
+                    } else if (shapeUpdate.nodes) {
+                        updatedLayer.nodes = shapeUpdate.nodes;
+                        updatedLayer.subpaths = undefined;
+                    }
                 }
                 
                 // Apply position interpolation

@@ -41,7 +41,7 @@ export function useKeyboardShortcuts({
       }
       
       if (shouldIgnoreGlobalKey(e)) return;
-      // Spacebar -> toggle Freeze
+      // Spacebar -> toggle Freeze, and when timeline is visible also toggle timeline play/pause
       if (e.code === 'Space') {
         e.preventDefault();
         if (timelineVisible) {
@@ -143,6 +143,10 @@ export function useKeyboardShortcuts({
       // P -> Toggle Timeline play/pause (when timeline is visible)
       if (key === 'p' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
+        // If we're about to start playing the timeline, always unfreeze
+        if (!timelineIsPlaying) {
+          setIsFrozen?.(false);
+        }
         toggleTimelinePlay?.();
         return;
       }

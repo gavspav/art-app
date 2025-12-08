@@ -280,8 +280,11 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   // Sort by time (should already be sorted, but ensure)
   const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
   
+  const isEnabled = (kf) => kf && kf.enabled !== false;
+  
   // Helper to build result from a single keyframe
   const buildSingleResult = (kf) => {
+    if (!isEnabled(kf)) return null;
     const result = {
       nodes: categories.shape ? kf.nodes : null,
       subpaths: categories.shape ? kf.subpaths : null,
@@ -308,12 +311,12 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     return result;
   };
   
-  // Before first keyframe: use first keyframe's data
+  // Before first keyframe: use first keyframe's data if enabled
   if (timeSeconds <= sorted[0].timeSeconds) {
     return buildSingleResult(sorted[0]);
   }
   
-  // After last keyframe: use last keyframe's data
+  // After last keyframe: use last keyframe's data if enabled
   if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
     return buildSingleResult(sorted[sorted.length - 1]);
   }
@@ -338,6 +341,11 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   // Calculate local t (0-1) between the two keyframes
   const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
   const clampedT = Math.max(0, Math.min(1, localT));
+  
+  // If the leading keyframe for this segment is disabled, treat the shape track as off
+  if (!isEnabled(left)) {
+    return null;
+  }
   
   // Build interpolated result
   const result = {
