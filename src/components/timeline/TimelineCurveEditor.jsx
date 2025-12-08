@@ -454,9 +454,8 @@ const TimelineCurveEditor = ({
       setEditingKeyframe(null);
     };
     
-    setTimeout(() => {
-      document.addEventListener('mousedown', handleClick);
-    }, 100);
+    // Add the listener immediately and ensure it is removed on cleanup
+    document.addEventListener('mousedown', handleClick);
     
     return () => document.removeEventListener('mousedown', handleClick);
   }, [editingKeyframe]);

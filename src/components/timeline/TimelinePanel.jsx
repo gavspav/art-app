@@ -203,6 +203,60 @@ const TimelinePanel = ({
     }
   }, [zoom, setZoom]);
 
+  // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (e) => {
+      // Only plain 'c' (no modifiers) to avoid conflicts with copy, etc.
+      if (e.key !== 'c' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+
+      // Prevent default so it doesn't type into inputs if focus is on timeline
+      e.preventDefault();
+
+      if (!tracks || !tracks.length) return;
+      if (!getCurrentAppState) return;
+
+      const appState = getCurrentAppState();
+      if (!appState) return;
+
+      const selectedIndex = appState.selectedLayerIndex ?? 0;
+      const activeLayer = layers?.[selectedIndex];
+      if (!activeLayer) return;
+
+      const layerName = activeLayer.name || `Layer ${selectedIndex + 1}`;
+
+      // Find any shape tracks targeting this layer
+      const shapeTracks = tracks.filter((track) => {
+        if (!track.enabled || !track.targetId) return false;
+        const isShape = track.type === 'shape' || track.targetId.endsWith(':shape');
+        if (!isShape) return false;
+        // targetId is of form 'layer:<Layer Name>:shape'
+        return track.targetId.startsWith(`layer:${layerName}:`);
+      });
+
+      if (!shapeTracks.length) return;
+
+      // Capture for each matching shape track at current playhead time
+      shapeTracks.forEach((track) => {
+        if (typeof addShapeKeyframe === 'function') {
+          // Reuse the existing capture helper so extras (position, shapeParams, etc.) are included
+          handleCaptureShapeKeyframe(track.id, layerName);
+        }
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    visible,
+    tracks,
+    layers,
+    getCurrentAppState,
+    addShapeKeyframe,
+    handleCaptureShapeKeyframe,
+  ]);
+
   // Global parameters - per user list
   const globalParameters = useMemo(() => [
     { id: 'globalSpeedMultiplier', label: 'Speed', range: { outputMin: 0, outputMax: 5 } },
