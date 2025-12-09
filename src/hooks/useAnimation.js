@@ -313,7 +313,7 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
     // Frame counter for throttling React state updates
     // Only sync to React every N frames to prevent "Maximum update depth exceeded" errors
     const frameCountRef = useRef(0);
-    const UPDATE_EVERY_N_FRAMES = 2; // Sync to React every 2 frames (~30fps visual updates)
+    const UPDATE_EVERY_N_FRAMES = 1; // Sync to React every 2 frames (~30fps visual updates)
 
     // Apply modulations only (no movement animation)
     // Uses refs to avoid recreating this callback

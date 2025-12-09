@@ -600,13 +600,14 @@ const TimelineCurveEditor = ({
           />
         )}
 
-        {/* Curve path (numeric tracks only) */}
-        {!isShapeTrack && (
+        {/* Curve path (all non-color tracks) */}
+        {!isColorTrack && pathD && (
           <path
             d={pathD}
             fill="none"
             stroke={trackColor}
             strokeWidth={2}
+            strokeOpacity={isShapeTrack ? 0.85 : 1}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -996,8 +997,8 @@ const TimelineCurveEditor = ({
             📄 Paste at Playhead (⌘V)
           </button>
           
-          {/* Curve type section (for numeric tracks when there are keyframes) */}
-          {!isShapeTrack && !isColorTrack && keyframes.length > 0 && (
+          {/* Curve type section (for all non-color tracks when there are keyframes) */}
+          {!isColorTrack && keyframes.length > 0 && (
             <>
               <div
                 style={{

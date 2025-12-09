@@ -54,21 +54,35 @@ const createKeyframe = (timeSeconds, value01, curve = 'linear', tension = 0.5) =
 
 /**
  * Create a shape keyframe (stores node geometry snapshot)
- * Extended to optionally include animation and color parameters
+ * Extended to optionally include animation and color parameters.
+ *
+ * For visualization in the curve editor, we also derive a display-only value01
+ * from the X position (0-1). This does NOT affect playback; shape tracks use
+ * the full position object, not value01, when evaluating.
  */
-const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = {}) => ({
-  id: generateId(),
-  timeSeconds,
-  nodes: nodes || null,
-  subpaths: subpaths || null,
-  label,
-  // Extended layer preset data (optional)
-  position: extras.position || null,      // { x, y, scale, xOffset, yOffset } - layer position
-  shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
-  animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
-  colors: extras.colors || null,          // array of hex colors
-  enabled: extras.enabled !== undefined ? extras.enabled : true,
-});
+const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = {}) => {
+  const pos = extras.position || null;
+  const displayValue01 =
+    pos && typeof pos.x === 'number'
+      ? Math.max(0, Math.min(1, pos.x))
+      : 0.5;
+
+  return {
+    id: generateId(),
+    timeSeconds,
+    nodes: nodes || null,
+    subpaths: subpaths || null,
+    label,
+    // Proxy value for curve editor visualization only
+    value01: displayValue01,
+    // Extended layer preset data (optional)
+    position: pos,                    // { x, y, scale, xOffset, yOffset } - layer position
+    shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
+    animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
+    colors: extras.colors || null,          // array of hex colors
+    enabled: extras.enabled !== undefined ? extras.enabled : true,
+  };
+};
 
 /**
  * Create a default track

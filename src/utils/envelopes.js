@@ -352,6 +352,12 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     nodes: null,
     subpaths: null,
   };
+
+  // Use curve/tension from the left keyframe to ease scalar interpolations
+  // Geometry (nodes/subpaths) continues to use linear clampedT
+  const curveType = left.curve || 'linear';
+  const tension = left.tension !== undefined ? left.tension : 0.5;
+  const easedT = interpolateValue(clampedT, 0, 1, curveType, tension);
   
   // Interpolate shape (nodes/subpaths) if enabled
   if (categories.shape) {
@@ -384,11 +390,11 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     const posB = right.position || posA;
     
     result.position = {
-      x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, clampedT),
-      y: lerp(posA.y ?? 0.5, posB.y ?? 0.5, clampedT),
-      scale: lerp(posA.scale ?? 1, posB.scale ?? 1, clampedT),
-      xOffset: lerp(posA.xOffset ?? 0, posB.xOffset ?? 0, clampedT),
-      yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, clampedT),
+      x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
+      y: lerp(posA.y ?? 0.5, posB.y ?? 0.5, easedT),
+      scale: lerp(posA.scale ?? 1, posB.scale ?? 1, easedT),
+      xOffset: lerp(posA.xOffset ?? 0, posB.xOffset ?? 0, easedT),
+      yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, easedT),
     };
   }
   
@@ -399,12 +405,12 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     
     result.shapeParams = {
       // numSides: interpolate but round to integer for rendering
-      numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, clampedT)),
-      curviness: lerp(spA.curviness ?? 1.0, spB.curviness ?? 1.0, clampedT),
-      radiusFactor: lerp(spA.radiusFactor ?? 0.125, spB.radiusFactor ?? 0.125, clampedT),
-      radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, clampedT),
-      radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, clampedT),
-      rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, clampedT),
+      numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, easedT)),
+      curviness: lerp(spA.curviness ?? 1.0, spB.curviness ?? 1.0, easedT),
+      radiusFactor: lerp(spA.radiusFactor ?? 0.125, spB.radiusFactor ?? 0.125, easedT),
+      radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, easedT),
+      radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, easedT),
+      rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
     };
   }
   
@@ -416,19 +422,19 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     result.animation = {
       // movementStyle: use left's style (discrete, no interpolation)
       movementStyle: animA.movementStyle ?? animB.movementStyle ?? 'bounce',
-      movementSpeed: lerp(animA.movementSpeed ?? 1, animB.movementSpeed ?? 1, clampedT),
-      movementAngle: lerp(animA.movementAngle ?? 45, animB.movementAngle ?? 45, clampedT),
-      scaleSpeed: lerp(animA.scaleSpeed ?? 0.05, animB.scaleSpeed ?? 0.05, clampedT),
-      scaleMin: lerp(animA.scaleMin ?? 0, animB.scaleMin ?? 0, clampedT),
-      scaleMax: lerp(animA.scaleMax ?? 1.5, animB.scaleMax ?? 1.5, clampedT),
-      rotation: lerp(animA.rotation ?? 0, animB.rotation ?? 0, clampedT),
-      radiusFactor: lerp(animA.radiusFactor ?? 0.125, animB.radiusFactor ?? 0.125, clampedT),
+      movementSpeed: lerp(animA.movementSpeed ?? 1, animB.movementSpeed ?? 1, easedT),
+      movementAngle: lerp(animA.movementAngle ?? 45, animB.movementAngle ?? 45, easedT),
+      scaleSpeed: lerp(animA.scaleSpeed ?? 0.05, animB.scaleSpeed ?? 0.05, easedT),
+      scaleMin: lerp(animA.scaleMin ?? 0, animB.scaleMin ?? 0, easedT),
+      scaleMax: lerp(animA.scaleMax ?? 1.5, animB.scaleMax ?? 1.5, easedT),
+      rotation: lerp(animA.rotation ?? 0, animB.rotation ?? 0, easedT),
+      radiusFactor: lerp(animA.radiusFactor ?? 0.125, animB.radiusFactor ?? 0.125, easedT),
     };
   }
   
   // Interpolate colors if enabled
   if (categories.color && (left.colors || right.colors)) {
-    result.colors = lerpColorArrays(left.colors || [], right.colors || [], clampedT);
+    result.colors = lerpColorArrays(left.colors || [], right.colors || [], easedT);
   }
   
   return result;
