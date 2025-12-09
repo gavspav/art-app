@@ -722,7 +722,6 @@ export const AppStateProvider = ({ children }) => {
     setSelectedLayerIndex,
     setIsOverlayVisible,
     setIsNodeEditMode,
-    setNodeEditContext,
     setClassicMode,
     setZIgnore,
     setRandomizePalette,
