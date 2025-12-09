@@ -489,7 +489,6 @@ const MainApp = () => {
     if (value) {
       // Entering node edit mode - capture context
       const layer = layers[selectedLayerIndex];
-      console.debug('[NodeEdit] Selected layer index:', selectedLayerIndex, 'layer name:', layer?.name, 'total layers:', layers.length);
       
       // Use getPositionSeconds() if available to get the most up-to-date time from the ref
       // This avoids using stale state which updates less frequently
@@ -527,9 +526,6 @@ const MainApp = () => {
       let shapeUpdate = null;
       if (shapeTrack) {
         // Directly evaluate the shape track at the current timeline position
-        console.debug('[NodeEdit] Found shape track:', shapeTrack.targetId, 'keyframes:', shapeTrack.keyframes?.length, 'categories:', shapeTrack.categories);
-        
-        // Debug: find bracketing keyframes to see what we're interpolating between
         const sorted = [...(shapeTrack.keyframes || [])].sort((a, b) => a.timeSeconds - b.timeSeconds);
         const beforeKf = sorted.filter(kf => kf.timeSeconds <= positionSeconds).pop();
         const afterKf = sorted.find(kf => kf.timeSeconds > positionSeconds);
@@ -539,16 +535,8 @@ const MainApp = () => {
           const dtAfter = Math.abs(afterKf.timeSeconds - positionSeconds);
           nearestKf = dtBefore <= dtAfter ? beforeKf : afterKf;
         }
-        console.debug('[NodeEdit] Bracketing keyframes:', 
-          'before:', beforeKf?.timeSeconds, 'nodes:', beforeKf?.nodes?.length, 'first:', beforeKf?.nodes?.[0],
-          'after:', afterKf?.timeSeconds, 'nodes:', afterKf?.nodes?.length, 'first:', afterKf?.nodes?.[0],
-          'nearestId:', nearestKf?.id, 'nearestTime:', nearestKf?.timeSeconds
-        );
-        
+
         shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
-        console.debug('[NodeEdit] Evaluated shape track at', positionSeconds, 'nodes:', shapeUpdate?.nodes?.length, 'subpaths:', shapeUpdate?.subpaths?.length);
-      } else {
-        console.debug('[NodeEdit] No shape track found for layer:', layer?.name, layer?.id, 'tracks:', tracks.map(t => t.targetId));
       }
       
       // During playback, prefer the ref which has the most current frame's data
@@ -558,24 +546,14 @@ const MainApp = () => {
       
       if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
         // Use ref only during playback to ensure synchronization with animation loop
-        console.debug('[NodeEdit] Using ref (playback active), nodes:', refUpdate?.nodes?.length, 'subpaths:', refUpdate?.subpaths?.length);
         shapeUpdate = refUpdate;
-      } else if (!shapeUpdate) {
+      } else if (!shapeUpdate && refUpdate) {
         // Fallback to ref if direct evaluation failed (even if paused)
-        if (refUpdate) {
-             console.debug('[NodeEdit] Using ref fallback (evaluation failed), nodes:', refUpdate?.nodes?.length);
-             shapeUpdate = refUpdate;
-        } else {
-             console.debug('[NodeEdit] No shape update from evaluation or ref');
-        }
+        shapeUpdate = refUpdate;
       }
       
       if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
         // Apply ALL shape update properties to ensure layer matches timeline exactly
-        const nodeCount = shapeUpdate.nodes?.length || 0;
-        const firstNode = shapeUpdate.nodes?.[0];
-        console.debug('[NodeEdit] Applying full shape update to layer:', nodeCount, 'nodes, first:', firstNode, 'pos:', shapeUpdate.position, 'shapeParams:', shapeUpdate.shapeParams);
-        
         setLayers(prev => prev.map((l, i) => {
           if (i !== selectedLayerIndex) return l;
           const updated = { ...l };
@@ -644,10 +622,8 @@ const MainApp = () => {
         
         // Set node edit mode synchronously - the setLayers call above will be batched
         // but React guarantees the state update order
-        console.debug('[NodeEdit] Entering node edit mode after geometry applied');
         setIsNodeEditMode(true, context);
       } else {
-        console.debug('[NodeEdit] No shape update found, entering node edit mode without geometry');
         setIsNodeEditMode(true, context);
       }
     } else {

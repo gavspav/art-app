@@ -683,10 +683,6 @@ export function useTimelineModulation({
       }
     }
 
-    // Store shape track updates in ref for animation loop to consume
-    // This allows the animation loop to apply updates at its own framerate (smooth 60fps)
-    // instead of being throttled separately
-    console.debug('[TimelineMod] Effect running at', positionSeconds, 'isPlaying:', isPlaying, 'shapeUpdates:', shapeUpdates.length, 'nodeEditMode:', isNodeEditMode);
     if (shapeUpdates.length > 0) {
       const updateMap = new Map();
       for (const update of shapeUpdates) {
@@ -748,13 +744,6 @@ export function useTimelineModulation({
                 updatedLayer.nodes = shapeUpdate.nodes;
                 updatedLayer.subpaths = undefined;
               }
-              // Debug: log when geometry is applied during scrubbing
-              if (!isPlaying) {
-                const firstNode = shapeUpdate.nodes?.[0];
-                console.debug('[TimelineMod] Applied geometry to', layer?.name || layer?.id, 'at', positionSeconds, 'nodes:', shapeUpdate.nodes?.length, 'first:', firstNode);
-              }
-            } else {
-              console.debug('[TimelineMod] Blocked geometry for edited layer at', positionSeconds);
             }
             
             // Apply position
