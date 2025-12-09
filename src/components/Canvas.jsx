@@ -1484,6 +1484,10 @@ const Canvas = forwardRef(({
                     renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
                     renderedPointsRef.current.set(index, renderedPoints);
                 } else {
+                    // Debug: log when layer doesn't have nodes
+                    if (index === 0) {
+                        console.debug('[Canvas] Layer', layer?.name, 'has no nodes, using procedural. nodes:', layer?.nodes?.length);
+                    }
                     renderedPointsRef.current.delete(index);
                 }
                 if (layer.image && layer.image.src) {

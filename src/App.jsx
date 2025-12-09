@@ -489,6 +489,7 @@ const MainApp = () => {
     if (value) {
       // Entering node edit mode - capture context
       const layer = layers[selectedLayerIndex];
+      console.debug('[NodeEdit] Selected layer index:', selectedLayerIndex, 'layer name:', layer?.name, 'total layers:', layers.length);
       const positionSeconds = timelineContext?.positionSeconds ?? 0;
       const context = {
         layerId: layer?.id || null,
@@ -508,28 +509,45 @@ const MainApp = () => {
       let shapeUpdate = null;
       if (shapeTrack) {
         // Directly evaluate the shape track at the current timeline position
+        console.debug('[NodeEdit] Found shape track:', shapeTrack.targetId, 'keyframes:', shapeTrack.keyframes?.length, 'categories:', shapeTrack.categories);
+        
+        // Debug: find bracketing keyframes to see what we're interpolating between
+        const sorted = [...(shapeTrack.keyframes || [])].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        const beforeKf = sorted.filter(kf => kf.timeSeconds <= positionSeconds).pop();
+        const afterKf = sorted.find(kf => kf.timeSeconds > positionSeconds);
+        console.debug('[NodeEdit] Bracketing keyframes:', 
+          'before:', beforeKf?.timeSeconds, 'nodes:', beforeKf?.nodes?.length, 'first:', beforeKf?.nodes?.[0],
+          'after:', afterKf?.timeSeconds, 'nodes:', afterKf?.nodes?.length, 'first:', afterKf?.nodes?.[0]
+        );
+        
         shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
         console.debug('[NodeEdit] Evaluated shape track at', positionSeconds, 'nodes:', shapeUpdate?.nodes?.length, 'subpaths:', shapeUpdate?.subpaths?.length);
+      } else {
+        console.debug('[NodeEdit] No shape track found for layer:', layer?.name, layer?.id, 'tracks:', tracks.map(t => t.targetId));
       }
       
-      // Fallback to ref if direct evaluation didn't work
-      if (!shapeUpdate) {
-        const shapeUpdates = shapeTrackUpdatesRef.current;
-        shapeUpdate = shapeUpdates?.get(layer?.name) || shapeUpdates?.get(layer?.id);
-        if (shapeUpdate) {
-          console.debug('[NodeEdit] Using ref fallback, nodes:', shapeUpdate?.nodes?.length, 'subpaths:', shapeUpdate?.subpaths?.length);
-        }
+      // During playback, prefer the ref which has the most current frame's data
+      // During pause/scrub, the direct evaluation should be accurate
+      const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
+      if (refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
+        // Use ref if it has geometry data (more current during playback)
+        console.debug('[NodeEdit] Using ref (current frame), nodes:', refUpdate?.nodes?.length, 'subpaths:', refUpdate?.subpaths?.length);
+        shapeUpdate = refUpdate;
+      } else if (!shapeUpdate) {
+        console.debug('[NodeEdit] No shape update from evaluation or ref');
       }
       
       if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
-        // Apply geometry and set node edit mode together to ensure atomicity
+        // Apply ALL shape update properties to ensure layer matches timeline exactly
         const nodeCount = shapeUpdate.nodes?.length || 0;
         const firstNode = shapeUpdate.nodes?.[0];
-        console.debug('[NodeEdit] Applying nodes to layer:', nodeCount, 'first node:', firstNode);
+        console.debug('[NodeEdit] Applying full shape update to layer:', nodeCount, 'nodes, first:', firstNode, 'pos:', shapeUpdate.position, 'shapeParams:', shapeUpdate.shapeParams);
         
         setLayers(prev => prev.map((l, i) => {
           if (i !== selectedLayerIndex) return l;
           const updated = { ...l };
+          
+          // Apply geometry (nodes or subpaths)
           if (shapeUpdate.subpaths) {
             updated.subpaths = shapeUpdate.subpaths;
             updated.nodes = undefined;
@@ -537,13 +555,58 @@ const MainApp = () => {
             updated.nodes = shapeUpdate.nodes;
             updated.subpaths = undefined;
           }
+          
+          // Apply position (same as useTimelineModulation)
+          if (shapeUpdate.position) {
+            updated.position = {
+              ...updated.position,
+              x: shapeUpdate.position.x ?? updated.position?.x ?? 0.5,
+              y: shapeUpdate.position.y ?? updated.position?.y ?? 0.5,
+              scale: shapeUpdate.position.scale ?? updated.position?.scale ?? 1,
+            };
+            if (shapeUpdate.position.xOffset !== undefined) {
+              updated.xOffset = shapeUpdate.position.xOffset;
+            }
+            if (shapeUpdate.position.yOffset !== undefined) {
+              updated.yOffset = shapeUpdate.position.yOffset;
+            }
+          }
+          
+          // Apply shape params (Layer Shape Tab: Sides, Curviness, Size, etc.)
+          if (shapeUpdate.shapeParams) {
+            const sp = shapeUpdate.shapeParams;
+            if (sp.numSides !== undefined) updated.numSides = sp.numSides;
+            if (sp.curviness !== undefined) updated.curviness = sp.curviness;
+            if (sp.radiusFactor !== undefined) updated.radiusFactor = sp.radiusFactor;
+            if (sp.radiusFactorX !== undefined) updated.radiusFactorX = sp.radiusFactorX;
+            if (sp.radiusFactorY !== undefined) updated.radiusFactorY = sp.radiusFactorY;
+            if (sp.rotation !== undefined) updated.rotation = sp.rotation;
+          }
+          
+          // Apply animation params
+          if (shapeUpdate.animation) {
+            const anim = shapeUpdate.animation;
+            if (anim.movementStyle !== undefined) updated.movementStyle = anim.movementStyle;
+            if (anim.movementSpeed !== undefined) updated.movementSpeed = anim.movementSpeed;
+            if (anim.movementAngle !== undefined) updated.movementAngle = anim.movementAngle;
+            if (anim.scaleSpeed !== undefined) updated.scaleSpeed = anim.scaleSpeed;
+            if (anim.scaleMin !== undefined) updated.scaleMin = anim.scaleMin;
+            if (anim.scaleMax !== undefined) updated.scaleMax = anim.scaleMax;
+          }
+          
+          // Apply colors
+          if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
+            updated.colors = shapeUpdate.colors;
+            updated.numColors = shapeUpdate.colors.length;
+          }
+          
           return updated;
         }));
-        // Use setTimeout to ensure layer update is processed before node edit mode
-        setTimeout(() => {
-          console.debug('[NodeEdit] Entering node edit mode after geometry applied');
-          setIsNodeEditMode(true, context);
-        }, 0);
+        
+        // Set node edit mode synchronously - the setLayers call above will be batched
+        // but React guarantees the state update order
+        console.debug('[NodeEdit] Entering node edit mode after geometry applied');
+        setIsNodeEditMode(true, context);
       } else {
         console.debug('[NodeEdit] No shape update found, entering node edit mode without geometry');
         setIsNodeEditMode(true, context);
