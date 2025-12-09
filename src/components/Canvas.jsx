@@ -1845,6 +1845,7 @@ const Canvas = forwardRef(({
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
+            console.debug('[Canvas] Node init effect: layer has', layer.nodes?.length, 'nodes, regenerating from numSides:', layer.numSides);
             const nodes = computeInitialNodes(layer);
             // Avoid redundant updates
             if (!Array.isArray(layer.nodes) || layer.nodes.length !== nodes.length) {
@@ -1861,6 +1862,7 @@ const Canvas = forwardRef(({
         const layer = layers[selectedLayerIndex];
         if (!layer || layer.layerType !== 'shape') return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
+            console.debug('[Canvas] Safety effect: layer has', layer.nodes?.length, 'nodes, regenerating from numSides:', layer.numSides);
             const nodes = computeInitialNodes(layer);
             setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
             // Seed/refresh cache for this layer

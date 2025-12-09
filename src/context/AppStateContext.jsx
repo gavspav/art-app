@@ -77,6 +77,9 @@ export const AppStateProvider = ({ children }) => {
     selectedLayerIndex: DEFAULTS.selectedLayerIndex,
     isOverlayVisible: true,
     isNodeEditMode: false,
+    // Node edit context: tracks which layer and timeline position is being edited
+    // This allows timeline to know whether to apply geometry updates
+    nodeEditContext: null, // { layerId: string, layerName: string, timelinePosition: number | null }
     classicMode: false,
     // Z-axis movement ignore (disable all Z scaling movement)
     zIgnore: true,
@@ -313,10 +316,23 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  const setIsNodeEditMode = useCallback((value) => {
-    setAppState(prev => ({ ...prev, isNodeEditMode: value }));
+  const setIsNodeEditMode = useCallback((value, context = null) => {
+    setAppState(prev => ({
+      ...prev,
+      isNodeEditMode: value,
+      // When entering node edit mode, store context; when exiting, clear it
+      nodeEditContext: value ? (context || prev.nodeEditContext) : null,
+    }));
     markDirty();
   }, [markDirty]);
+
+  // Update node edit context (e.g., when timeline position changes during node edit)
+  const setNodeEditContext = useCallback((context) => {
+    setAppState(prev => ({
+      ...prev,
+      nodeEditContext: context,
+    }));
+  }, []);
 
   // Toggle Classic Mode (original CodePen-like aesthetics)
   const setClassicMode = useCallback((value) => {
@@ -599,6 +615,7 @@ export const AppStateProvider = ({ children }) => {
       selectedLayerIndex: DEFAULTS.selectedLayerIndex,
       isOverlayVisible: true,
       isNodeEditMode: false,
+      nodeEditContext: null,
       classicMode: false,
       zIgnore: true,
       randomizePalette: true,
@@ -646,6 +663,7 @@ export const AppStateProvider = ({ children }) => {
     setSelectedLayerIndex,
     setIsOverlayVisible,
     setIsNodeEditMode,
+    setNodeEditContext,
     setClassicMode,
     setZIgnore,
     setRandomizePalette,
@@ -712,6 +730,7 @@ export const AppStateProvider = ({ children }) => {
     setSelectedLayerIndex,
     setIsOverlayVisible,
     setIsNodeEditMode,
+    setNodeEditContext,
     setClassicMode,
     setZIgnore,
     setRandomizePalette,

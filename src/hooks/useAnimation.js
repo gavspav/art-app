@@ -274,7 +274,7 @@ const applyAudioModulations = (layer, audioContext) => {
  */
 export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore = false, modulationStore = null, shapeTrackUpdatesRef = null) => {
     const animationFrameId = useRef(null);
-    const { runWithoutDirty, isUserInteracting, isNodeEditMode } = useAppState() || {};
+    const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext } = useAppState() || {};
     
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
@@ -289,9 +289,12 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
     const isUserInteractingRef = useRef(isUserInteracting);
     useEffect(() => { isUserInteractingRef.current = isUserInteracting; }, [isUserInteracting]);
 
-    // Track node edit mode so we can avoid overwriting user-edited geometry
+    // Track node edit mode and context so we can avoid overwriting user-edited geometry
     const isNodeEditModeRef = useRef(isNodeEditMode);
     useEffect(() => { isNodeEditModeRef.current = isNodeEditMode; }, [isNodeEditMode]);
+    
+    const nodeEditContextRef = useRef(nodeEditContext);
+    useEffect(() => { nodeEditContextRef.current = nodeEditContext; }, [nodeEditContext]);
 
     // Store setLayers and runWithoutDirty in refs to avoid recreating animate callback
     const setLayersRef = useRef(setLayers);
@@ -394,13 +397,23 @@ export const useAnimation = (setLayers, isFrozen, globalSpeedMultiplier, zIgnore
                 : updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
             
             // 2. Apply shape track updates if present (at animation loop framerate for smoothness)
+            // During playback, timeline is authoritative - always apply geometry
+            // Node edit protection only applies when paused (handled by useTimelineModulation)
             if (shapeUpdate) {
                 const nodeEditActive = !!isNodeEditModeRef.current;
+                const editContext = nodeEditContextRef.current;
                 
-                // Only apply shape track geometry when NOT in node edit mode
-                // This protects user's node edits during both scrubbing AND playback
-                // User must exit node edit mode (or capture keyframe) for timeline to take over
-                if (!nodeEditActive) {
+                // Check if this specific layer is being node-edited
+                const isEditedLayer = editContext && (
+                    layer?.id === editContext.layerId ||
+                    layer?.name === editContext.layerName
+                );
+                
+                // During playback, apply geometry unless user is actively editing THIS layer
+                // (indicated by nodeEditMode being active for this specific layer)
+                const shouldBlockGeometry = nodeEditActive && isEditedLayer;
+                
+                if (!shouldBlockGeometry) {
                     if (shapeUpdate.subpaths) {
                         updatedLayer.subpaths = shapeUpdate.subpaths;
                         updatedLayer.nodes = undefined;

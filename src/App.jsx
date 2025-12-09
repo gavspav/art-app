@@ -26,6 +26,8 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { evaluateShapeTrackAtTime } from './utils/envelopes.js';
+import { lerpNodes, lerpSubpaths } from './utils/nodeUtils.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 
 import Canvas from './components/Canvas';
@@ -479,6 +481,78 @@ const MainApp = () => {
     timelineStartPreset,
     loadAppState,
   ]);
+
+  // Wrapper for setIsNodeEditMode that sets context with layer info and timeline position
+  // When entering node edit mode, first apply any pending timeline geometry to ensure
+  // the layer has the correct shape before Canvas node-init effects run
+  const handleSetNodeEditMode = useCallback((value) => {
+    if (value) {
+      // Entering node edit mode - capture context
+      const layer = layers[selectedLayerIndex];
+      const positionSeconds = timelineContext?.positionSeconds ?? 0;
+      const context = {
+        layerId: layer?.id || null,
+        layerName: layer?.name || null,
+        timelinePosition: positionSeconds,
+      };
+      
+      // Find the shape track for this layer and evaluate it directly at current position
+      // This is more reliable than reading from shapeTrackUpdatesRef which may be stale
+      const tracks = timelineContext?.tracks || [];
+      const shapeTrack = tracks.find(t => 
+        t.type === 'shape' && 
+        t.enabled && 
+        (t.targetId?.includes(layer?.name) || t.targetId?.includes(layer?.id))
+      );
+      
+      let shapeUpdate = null;
+      if (shapeTrack) {
+        // Directly evaluate the shape track at the current timeline position
+        shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
+        console.debug('[NodeEdit] Evaluated shape track at', positionSeconds, 'nodes:', shapeUpdate?.nodes?.length, 'subpaths:', shapeUpdate?.subpaths?.length);
+      }
+      
+      // Fallback to ref if direct evaluation didn't work
+      if (!shapeUpdate) {
+        const shapeUpdates = shapeTrackUpdatesRef.current;
+        shapeUpdate = shapeUpdates?.get(layer?.name) || shapeUpdates?.get(layer?.id);
+        if (shapeUpdate) {
+          console.debug('[NodeEdit] Using ref fallback, nodes:', shapeUpdate?.nodes?.length, 'subpaths:', shapeUpdate?.subpaths?.length);
+        }
+      }
+      
+      if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
+        // Apply geometry and set node edit mode together to ensure atomicity
+        const nodeCount = shapeUpdate.nodes?.length || 0;
+        const firstNode = shapeUpdate.nodes?.[0];
+        console.debug('[NodeEdit] Applying nodes to layer:', nodeCount, 'first node:', firstNode);
+        
+        setLayers(prev => prev.map((l, i) => {
+          if (i !== selectedLayerIndex) return l;
+          const updated = { ...l };
+          if (shapeUpdate.subpaths) {
+            updated.subpaths = shapeUpdate.subpaths;
+            updated.nodes = undefined;
+          } else if (shapeUpdate.nodes) {
+            updated.nodes = shapeUpdate.nodes;
+            updated.subpaths = undefined;
+          }
+          return updated;
+        }));
+        // Use setTimeout to ensure layer update is processed before node edit mode
+        setTimeout(() => {
+          console.debug('[NodeEdit] Entering node edit mode after geometry applied');
+          setIsNodeEditMode(true, context);
+        }, 0);
+      } else {
+        console.debug('[NodeEdit] No shape update found, entering node edit mode without geometry');
+        setIsNodeEditMode(true, context);
+      }
+    } else {
+      // Exiting node edit mode - clear context
+      setIsNodeEditMode(false);
+    }
+  }, [layers, selectedLayerIndex, timelineContext?.positionSeconds, timelineContext?.tracks, setIsNodeEditMode, setLayers]);
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
@@ -935,7 +1009,7 @@ const MainApp = () => {
 
       // Select the first of the newly added layers
       setSelectedLayerIndex(layersSnapshot.length);
-      setIsNodeEditMode(true);
+      handleSetNodeEditMode(true);
       
       // Success log
       console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layers.length} existing layer(s)`);
@@ -954,7 +1028,7 @@ const MainApp = () => {
     setImportAdjust,
     setImportDebug,
     setImportFitEnabled,
-    setIsNodeEditMode,
+    handleSetNodeEditMode,
     setLayers,
     setSelectedLayerIndex,
     setShowImportAdjust,
@@ -1118,7 +1192,7 @@ const MainApp = () => {
     toggleFullscreen,
     handleRandomizeAll,
     setIsOverlayVisible,
-    setIsNodeEditMode,
+    setIsNodeEditMode: handleSetNodeEditMode,
     setSelectedLayerIndex,
     hotkeyRef,
     setZIgnore,
@@ -1554,7 +1628,7 @@ const MainApp = () => {
               baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
               baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
               isNodeEditMode={isNodeEditMode}
-              setIsNodeEditMode={setIsNodeEditMode}
+              setIsNodeEditMode={handleSetNodeEditMode}
               randomizePalette={randomizePalette}
               setRandomizePalette={setRandomizePalette}
               randomizeNumColors={randomizeNumColors}
@@ -1684,7 +1758,7 @@ const MainApp = () => {
                 baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
                 baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
                 isNodeEditMode={isNodeEditMode}
-                setIsNodeEditMode={setIsNodeEditMode}
+                setIsNodeEditMode={handleSetNodeEditMode}
                 randomizePalette={randomizePalette}
                 setRandomizePalette={setRandomizePalette}
                 randomizeNumColors={randomizeNumColors}

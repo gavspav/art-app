@@ -72,7 +72,7 @@ export function useTimelineModulation({
   shapeTrackUpdatesRef,
 }) {
   const timeline = useTimeline();
-  const { isNodeEditMode } = useAppState() || {};
+  const { isNodeEditMode, nodeEditContext } = useAppState() || {};
   
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
@@ -721,9 +721,25 @@ export function useTimelineModulation({
             changed = true;
             const updatedLayer = { ...layer };
 
+            // Determine if we should block geometry updates for this layer
+            // Block only if:
+            // 1. Node edit mode is active
+            // 2. This is the layer being edited (by id or name)
+            // 3. Timeline position hasn't changed significantly from when edit started
             const nodeEditActive = !!isNodeEditMode;
-            // Apply nodes/subpaths only when NOT in node edit mode
-            if (!nodeEditActive) {
+            const isEditedLayer = nodeEditContext && (
+              layer?.id === nodeEditContext.layerId ||
+              layer?.name === nodeEditContext.layerName
+            );
+            const TIME_EPSILON = 0.05; // 50ms tolerance
+            const positionChanged = nodeEditContext?.timelinePosition != null &&
+              Math.abs(positionSeconds - nodeEditContext.timelinePosition) > TIME_EPSILON;
+            
+            // Block geometry updates only for the edited layer when position hasn't changed
+            // If user scrubs timeline, we apply the new geometry (timeline is authoritative)
+            const shouldBlockGeometry = nodeEditActive && isEditedLayer && !positionChanged;
+            
+            if (!shouldBlockGeometry) {
               if (shapeUpdate.subpaths) {
                 updatedLayer.subpaths = shapeUpdate.subpaths;
                 updatedLayer.nodes = undefined;
@@ -795,6 +811,8 @@ export function useTimelineModulation({
     clearOtherMappings,
     setGlobalSpeedMultiplier,
     setLayers,
+    isNodeEditMode,
+    nodeEditContext,
   ]);
 
   // Reset cleared targets when tracks change
