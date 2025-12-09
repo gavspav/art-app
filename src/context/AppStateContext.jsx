@@ -326,13 +326,6 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  // Update node edit context (e.g., when timeline position changes during node edit)
-  const setNodeEditContext = useCallback((context) => {
-    setAppState(prev => ({
-      ...prev,
-      nodeEditContext: context,
-    }));
-  }, []);
 
   // Toggle Classic Mode (original CodePen-like aesthetics)
   const setClassicMode = useCallback((value) => {
@@ -663,7 +656,6 @@ export const AppStateProvider = ({ children }) => {
     setSelectedLayerIndex,
     setIsOverlayVisible,
     setIsNodeEditMode,
-    setNodeEditContext,
     setClassicMode,
     setZIgnore,
     setRandomizePalette,

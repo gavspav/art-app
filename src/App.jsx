@@ -526,16 +526,6 @@ const MainApp = () => {
       let shapeUpdate = null;
       if (shapeTrack) {
         // Directly evaluate the shape track at the current timeline position
-        const sorted = [...(shapeTrack.keyframes || [])].sort((a, b) => a.timeSeconds - b.timeSeconds);
-        const beforeKf = sorted.filter(kf => kf.timeSeconds <= positionSeconds).pop();
-        const afterKf = sorted.find(kf => kf.timeSeconds > positionSeconds);
-        let nearestKf = beforeKf || afterKf || null;
-        if (beforeKf && afterKf) {
-          const dtBefore = Math.abs(beforeKf.timeSeconds - positionSeconds);
-          const dtAfter = Math.abs(afterKf.timeSeconds - positionSeconds);
-          nearestKf = dtBefore <= dtAfter ? beforeKf : afterKf;
-        }
-
         shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
       }
       
