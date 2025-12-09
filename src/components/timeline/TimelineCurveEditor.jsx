@@ -26,7 +26,11 @@ const TimelineCurveEditor = ({
   onSeek,
   onCopyKeyframe,
   onPasteKeyframe,
+  onPasteKeyframeToTrack,
   hasClipboard = false,
+  clipboardTrackType = null,
+  clipboardSourceTargetId = null,
+  allShapeTracks = [],
   collapsed = false,
 }) => {
   const svgRef = useRef(null);
@@ -482,8 +486,10 @@ const TimelineCurveEditor = ({
           onCopyKeyframe(kfId);
         }
       } else if (modKey && e.key === 'v') {
-        // Paste at playhead
-        if (hasClipboard && onPasteKeyframe) {
+        // Paste at playhead - only if this track is the source track
+        // This prevents multiple tracks from all trying to paste
+        const isSourceTrack = clipboardSourceTargetId && track?.targetId === clipboardSourceTargetId;
+        if (hasClipboard && onPasteKeyframe && isSourceTrack) {
           e.preventDefault();
           onPasteKeyframe(positionSeconds);
         }
@@ -492,7 +498,7 @@ const TimelineCurveEditor = ({
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedKeyframe, curveMenuKeyframeId, onCopyKeyframe, onPasteKeyframe, hasClipboard, positionSeconds]);
+  }, [selectedKeyframe, curveMenuKeyframeId, onCopyKeyframe, onPasteKeyframe, hasClipboard, positionSeconds, clipboardSourceTargetId, track?.targetId]);
 
   // Playhead position (align with global line; account for left padding)
   const playheadX = positionSeconds * pixelsPerSecond - scrollLeft;
@@ -972,30 +978,75 @@ const TimelineCurveEditor = ({
             </>
           )}
           
-          {/* Paste option */}
-          <button
-            type="button"
-            onClick={() => {
-              if (onPasteKeyframe) {
-                onPasteKeyframe(positionSeconds);
-              }
-              setShowCurveMenu(false);
-            }}
-            disabled={!hasClipboard}
-            style={{
-              display: 'block',
-              width: '100%',
-              padding: '6px 12px',
-              background: 'transparent',
-              border: 'none',
-              color: hasClipboard ? 'white' : 'rgba(255,255,255,0.3)',
-              fontSize: '0.7rem',
-              cursor: hasClipboard ? 'pointer' : 'not-allowed',
-              textAlign: 'left',
-            }}
-          >
-            📄 Paste at Playhead (⌘V)
-          </button>
+          {/* Paste option - for shape keyframes, show submenu with track options */}
+          {clipboardTrackType === 'shape' && hasClipboard && allShapeTracks.length > 0 ? (
+            <>
+              <div
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.65rem',
+                  color: 'rgba(255, 255, 255, 0.5)',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                Paste Shape Keyframe to:
+              </div>
+              {allShapeTracks.map((shapeTrack) => {
+                // Extract layer name from targetId (e.g., "layer:Layer 1:shape" -> "Layer 1")
+                const parts = shapeTrack.targetId?.split(':') || [];
+                const layerName = parts.length >= 2 ? parts[1] : shapeTrack.name;
+                return (
+                  <button
+                    key={shapeTrack.id}
+                    type="button"
+                    onClick={() => {
+                      if (onPasteKeyframeToTrack) {
+                        onPasteKeyframeToTrack(shapeTrack.id, positionSeconds);
+                      }
+                      setShowCurveMenu(false);
+                    }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '6px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'white',
+                      fontSize: '0.7rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    ⬡ {layerName}
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (onPasteKeyframe) {
+                  onPasteKeyframe(positionSeconds);
+                }
+                setShowCurveMenu(false);
+              }}
+              disabled={!hasClipboard}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 12px',
+                background: 'transparent',
+                border: 'none',
+                color: hasClipboard ? 'white' : 'rgba(255,255,255,0.3)',
+                fontSize: '0.7rem',
+                cursor: hasClipboard ? 'pointer' : 'not-allowed',
+                textAlign: 'left',
+              }}
+            >
+              📄 Paste at Playhead (⌘V)
+            </button>
+          )}
           
           {/* Curve type section (for all non-color tracks when there are keyframes) */}
           {!isColorTrack && keyframes.length > 0 && (

@@ -27,7 +27,11 @@ const TimelineTrackRow = ({
   onCaptureShapeKeyframe,
   onCopyKeyframe,
   onPasteKeyframe,
+  onPasteKeyframeToTrack,
   hasClipboard = false,
+  clipboardTrackType = null,
+  clipboardSourceTargetId = null,
+  allShapeTracks = [],
   onSeek,
   height = 100,
 }) => {
@@ -409,7 +413,11 @@ const TimelineTrackRow = ({
           onRemoveKeyframe={onRemoveKeyframe}
           onCopyKeyframe={onCopyKeyframe}
           onPasteKeyframe={onPasteKeyframe}
+          onPasteKeyframeToTrack={onPasteKeyframeToTrack}
           hasClipboard={hasClipboard}
+          clipboardTrackType={clipboardTrackType}
+          clipboardSourceTargetId={clipboardSourceTargetId}
+          allShapeTracks={allShapeTracks}
           onSeek={onSeek}
           collapsed={!isExpanded}
         />

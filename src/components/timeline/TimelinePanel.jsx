@@ -60,6 +60,7 @@ const TimelinePanel = ({
     keyframeClipboard,
     copyKeyframe,
     pasteKeyframe,
+    pasteKeyframeToTrack,
     setAudio,
     clearAudio,
     setZoom,
@@ -69,6 +70,16 @@ const TimelinePanel = ({
   } = timeline || {};
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
+
+  // Compute all shape tracks for paste menu
+  const allShapeTracks = useMemo(() => {
+    if (!Array.isArray(tracks)) return [];
+    return tracks.filter(t => t.type === 'shape' || t.targetId?.endsWith(':shape'));
+  }, [tracks]);
+
+  // Get clipboard track type and source for paste menu logic
+  const clipboardTrackType = keyframeClipboard?.trackType || null;
+  const clipboardSourceTargetId = keyframeClipboard?.trackTargetId || null;
 
   // Calculate pixels per second based on container width and zoom
   const [containerWidth, setContainerWidth] = useState(800);
@@ -771,7 +782,11 @@ const TimelinePanel = ({
                 onCaptureShapeKeyframe={handleCaptureShapeKeyframe}
                 onCopyKeyframe={(kfId) => copyKeyframe?.(track.id, kfId)}
                 onPasteKeyframe={(time) => pasteKeyframe?.(track.id, time)}
+                onPasteKeyframeToTrack={(targetTrackId, time) => pasteKeyframeToTrack?.(targetTrackId, time)}
                 hasClipboard={!!keyframeClipboard}
+                clipboardTrackType={clipboardTrackType}
+                clipboardSourceTargetId={clipboardSourceTargetId}
+                allShapeTracks={allShapeTracks}
                 onSeek={seekTo}
               />
             ))}

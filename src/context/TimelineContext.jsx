@@ -683,6 +683,59 @@ export const TimelineProvider = ({ children }) => {
     }));
   }, [keyframeClipboard]);
 
+  /**
+   * Paste the clipboard keyframe to a specific target track (for right-click paste menu)
+   * @param {string} targetTrackId - The track ID to paste into
+   * @param {number} timeSeconds - Time to paste at (defaults to current playhead)
+   */
+  const pasteKeyframeToTrack = useCallback((targetTrackId, timeSeconds) => {
+    if (!keyframeClipboard) return;
+
+    const pasteTime = timeSeconds ?? positionRef.current;
+    const { keyframe, trackType } = keyframeClipboard;
+    const TIME_EPSILON = 0.01;
+
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(track => {
+        // Only paste into the specified target track
+        if (track.id !== targetTrackId) return track;
+
+        // Check track type compatibility
+        const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
+        const isShapeKeyframe = trackType === 'shape';
+
+        if (isShapeTrack !== isShapeKeyframe) {
+          console.warn('Cannot paste: keyframe type does not match track type');
+          return track;
+        }
+
+        // Check if a keyframe already exists at this time
+        const existingIndex = track.keyframes.findIndex(
+          kf => Math.abs(kf.timeSeconds - pasteTime) < TIME_EPSILON
+        );
+
+        // Create new keyframe with new ID and updated time
+        const newKeyframe = {
+          ...keyframe,
+          id: generateId(),
+          timeSeconds: pasteTime,
+        };
+
+        let keyframes;
+        if (existingIndex >= 0) {
+          keyframes = track.keyframes.map((kf, i) =>
+            i === existingIndex ? newKeyframe : kf
+          );
+        } else {
+          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        }
+
+        return { ...track, keyframes };
+      }),
+    }));
+  }, [keyframeClipboard]);
+
   // --- Audio ---
 
   const setAudio = useCallback((audioData) => {
@@ -883,6 +936,7 @@ export const TimelineProvider = ({ children }) => {
     keyframeClipboard,
     copyKeyframe,
     pasteKeyframe,
+    pasteKeyframeToTrack,
 
     // Audio
     setAudio,
@@ -941,6 +995,7 @@ export const TimelineProvider = ({ children }) => {
     keyframeClipboard,
     copyKeyframe,
     pasteKeyframe,
+    pasteKeyframeToTrack,
     setAudio,
     clearAudio,
     getTrackValue,
