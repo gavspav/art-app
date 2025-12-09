@@ -204,6 +204,32 @@ const TimelinePanel = ({
     if (seekTo) {
       seekTo(Math.max(0, Math.min(lengthSeconds, time)));
     }
+    try {
+      const layer0 = Array.isArray(layers) && layers.length > 0 ? layers[0] : null;
+      const layerKey = layer0?.id || layer0?.name || 'Layer 1';
+      const shapeTracks = Array.isArray(tracks)
+        ? tracks.filter(t => t.enabled && t.type === 'shape' && typeof t.targetId === 'string' && t.targetId.startsWith(`layer:${layerKey}:`))
+        : [];
+      const nearestPerTrack = shapeTracks.map(track => {
+        if (!Array.isArray(track.keyframes) || !track.keyframes.length) return { trackId: track.id, keyframeId: null, keyframeTime: null };
+        let best = track.keyframes[0];
+        let bestDt = Math.abs(best.timeSeconds - time);
+        for (let i = 1; i < track.keyframes.length; i++) {
+          const kf = track.keyframes[i];
+          const dt = Math.abs(kf.timeSeconds - time);
+          if (dt < bestDt) {
+            best = kf;
+            bestDt = dt;
+          }
+        }
+        return { trackId: track.id, keyframeId: best.id, keyframeTime: best.timeSeconds };
+      });
+      // eslint-disable-next-line no-console
+      console.debug('[TimelineClick] Layer 1 nearest shape keyframes at', time, nearestPerTrack);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.debug('[TimelineClick] Error logging layer 1 keyframes', err);
+    }
   }, [pixelsPerSecond, scrollLeft, seekTo, lengthSeconds]);
 
   // Handle zoom with mouse wheel

@@ -83,14 +83,29 @@ export const lerpNodes = (nodesA, nodesB, t) => {
   const clampedT = Math.max(0, Math.min(1, t));
   return nodesA.map((a, i) => {
     const b = nodesB[i];
-    const ax = Number.isFinite(a?.x) ? a.x : 0;
-    const ay = Number.isFinite(a?.y) ? a.y : 0;
-    const bx = Number.isFinite(b?.x) ? b.x : 0;
-    const by = Number.isFinite(b?.y) ? b.y : 0;
-    return {
-      x: ax + (bx - ax) * clampedT,
-      y: ay + (by - ay) * clampedT,
+    
+    // Helper to safely lerp a property
+    const lerpProp = (prop, defaultVal = 0) => {
+      const valA = Number.isFinite(a?.[prop]) ? a[prop] : defaultVal;
+      const valB = Number.isFinite(b?.[prop]) ? b[prop] : defaultVal;
+      return valA + (valB - valA) * clampedT;
     };
+
+    const result = {
+      x: lerpProp('x'),
+      y: lerpProp('y'),
+    };
+    
+    // Preserve and interpolate control points if they exist
+    if (a.cp1x !== undefined || b.cp1x !== undefined) result.cp1x = lerpProp('cp1x');
+    if (a.cp1y !== undefined || b.cp1y !== undefined) result.cp1y = lerpProp('cp1y');
+    if (a.cp2x !== undefined || b.cp2x !== undefined) result.cp2x = lerpProp('cp2x');
+    if (a.cp2y !== undefined || b.cp2y !== undefined) result.cp2y = lerpProp('cp2y');
+    
+    // Preserve other properties like isCurve from the start node (discrete, no interpolation)
+    if (a.isCurve !== undefined) result.isCurve = a.isCurve;
+    
+    return result;
   });
 };
 

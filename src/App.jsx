@@ -490,7 +490,11 @@ const MainApp = () => {
       // Entering node edit mode - capture context
       const layer = layers[selectedLayerIndex];
       console.debug('[NodeEdit] Selected layer index:', selectedLayerIndex, 'layer name:', layer?.name, 'total layers:', layers.length);
-      const positionSeconds = timelineContext?.positionSeconds ?? 0;
+      
+      // Use getPositionSeconds() if available to get the most up-to-date time from the ref
+      // This avoids using stale state which updates less frequently
+      const positionSeconds = timelineContext?.getPositionSeconds?.() ?? timelineContext?.positionSeconds ?? 0;
+      
       const context = {
         layerId: layer?.id || null,
         layerName: layer?.name || null,
@@ -498,13 +502,27 @@ const MainApp = () => {
       };
       
       // Find the shape track for this layer and evaluate it directly at current position
-      // This is more reliable than reading from shapeTrackUpdatesRef which may be stale
+      // Use EXACT matching for layer ID or Name to avoid partial matches (e.g. "Layer 1" matching "Layer 10")
+      // And look for the LAST matching track to follow 'last write wins'
       const tracks = timelineContext?.tracks || [];
-      const shapeTrack = tracks.find(t => 
-        t.type === 'shape' && 
-        t.enabled && 
-        (t.targetId?.includes(layer?.name) || t.targetId?.includes(layer?.id))
-      );
+      const matchingTracks = tracks.filter(t => {
+        if (t.type !== 'shape' || !t.enabled || !t.targetId) return false;
+        
+        // targetId format: "layer:LAYER_ID_OR_NAME:shape"
+        const parts = t.targetId.split(':');
+        if (parts.length < 3 || parts[0] !== 'layer' || parts[parts.length-1] !== 'shape') return false;
+        
+        // The middle part is the identifier (might contain colons if name has colons, so rejoin)
+        const targetIdentifier = parts.slice(1, parts.length - 1).join(':');
+        
+        return targetIdentifier === layer?.id || targetIdentifier === layer?.name;
+      });
+      
+      if (matchingTracks.length > 1) {
+        console.warn('[NodeEdit] Multiple shape tracks found for layer:', layer?.name, 'count:', matchingTracks.length, 'IDs:', matchingTracks.map(t => t.id));
+      }
+
+      const shapeTrack = matchingTracks.length > 0 ? matchingTracks[matchingTracks.length - 1] : undefined;
       
       let shapeUpdate = null;
       if (shapeTrack) {
@@ -515,9 +533,16 @@ const MainApp = () => {
         const sorted = [...(shapeTrack.keyframes || [])].sort((a, b) => a.timeSeconds - b.timeSeconds);
         const beforeKf = sorted.filter(kf => kf.timeSeconds <= positionSeconds).pop();
         const afterKf = sorted.find(kf => kf.timeSeconds > positionSeconds);
+        let nearestKf = beforeKf || afterKf || null;
+        if (beforeKf && afterKf) {
+          const dtBefore = Math.abs(beforeKf.timeSeconds - positionSeconds);
+          const dtAfter = Math.abs(afterKf.timeSeconds - positionSeconds);
+          nearestKf = dtBefore <= dtAfter ? beforeKf : afterKf;
+        }
         console.debug('[NodeEdit] Bracketing keyframes:', 
           'before:', beforeKf?.timeSeconds, 'nodes:', beforeKf?.nodes?.length, 'first:', beforeKf?.nodes?.[0],
-          'after:', afterKf?.timeSeconds, 'nodes:', afterKf?.nodes?.length, 'first:', afterKf?.nodes?.[0]
+          'after:', afterKf?.timeSeconds, 'nodes:', afterKf?.nodes?.length, 'first:', afterKf?.nodes?.[0],
+          'nearestId:', nearestKf?.id, 'nearestTime:', nearestKf?.timeSeconds
         );
         
         shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
@@ -528,13 +553,21 @@ const MainApp = () => {
       
       // During playback, prefer the ref which has the most current frame's data
       // During pause/scrub, the direct evaluation should be accurate
+      const isPlaying = timelineContext?.isPlaying;
       const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
-      if (refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
-        // Use ref if it has geometry data (more current during playback)
-        console.debug('[NodeEdit] Using ref (current frame), nodes:', refUpdate?.nodes?.length, 'subpaths:', refUpdate?.subpaths?.length);
+      
+      if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
+        // Use ref only during playback to ensure synchronization with animation loop
+        console.debug('[NodeEdit] Using ref (playback active), nodes:', refUpdate?.nodes?.length, 'subpaths:', refUpdate?.subpaths?.length);
         shapeUpdate = refUpdate;
       } else if (!shapeUpdate) {
-        console.debug('[NodeEdit] No shape update from evaluation or ref');
+        // Fallback to ref if direct evaluation failed (even if paused)
+        if (refUpdate) {
+             console.debug('[NodeEdit] Using ref fallback (evaluation failed), nodes:', refUpdate?.nodes?.length);
+             shapeUpdate = refUpdate;
+        } else {
+             console.debug('[NodeEdit] No shape update from evaluation or ref');
+        }
       }
       
       if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
@@ -549,11 +582,17 @@ const MainApp = () => {
           
           // Apply geometry (nodes or subpaths)
           if (shapeUpdate.subpaths) {
-            updated.subpaths = shapeUpdate.subpaths;
+            // Deep clone to prevent reference leakage
+            updated.subpaths = JSON.parse(JSON.stringify(shapeUpdate.subpaths));
             updated.nodes = undefined;
           } else if (shapeUpdate.nodes) {
-            updated.nodes = shapeUpdate.nodes;
+            // Deep clone to prevent reference leakage
+            updated.nodes = shapeUpdate.nodes.map(n => ({ ...n }));
             updated.subpaths = undefined;
+            // Prevent Canvas from resampling these timeline-provided nodes back to a
+            // canonical polygon when numSides changes. Once we enter node edit mode
+            // with evaluated geometry, we want to preserve the exact nodes.
+            updated.syncNodesToNumSides = false;
           }
           
           // Apply position (same as useTimelineModulation)
