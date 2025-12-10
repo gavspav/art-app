@@ -1329,12 +1329,45 @@ const MainApp = () => {
     const useTransients = timelineContext.transients?.length > 0 && 
       window.confirm('Use transient markers for keyframe times?');
     
+    // Node modulation options
+    const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+    let nodeMod = null;
+    if (useNodeMod) {
+      const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+      const amount = parseFloat(amountStr);
+      const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+      const cycles = parseFloat(cyclesStr);
+      nodeMod = {
+        enabled: true,
+        mode: 'sineRadial',
+        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+        mask: 'all',
+        phaseSpread: 0.5,
+      };
+    }
+    
+    // Energy influence options (only if audio loaded)
+    let energyInfluence = 0;
+    if (timelineContext.energyMap?.length > 0) {
+      const useEnergy = window.confirm('Scale variation by audio energy? (calm = less variation)');
+      if (useEnergy) {
+        const influenceStr = window.prompt('Energy influence (0=none, 1=max effect):', '0.5');
+        const inf = parseFloat(influenceStr);
+        energyInfluence = Number.isFinite(inf) ? Math.max(0, Math.min(1, inf)) : 0.5;
+      }
+    }
+    
     const keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, layer, count, {
       useTransients,
+      nodeMod,
+      energyInfluence,
     });
     
     if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, 'random keyframes');
+      console.log('Generated', keyframeIds.length, 'random keyframes', 
+        nodeMod ? 'with node modulation' : '', 
+        energyInfluence > 0 ? `with energy influence ${energyInfluence}` : '');
     }
   }, [timelineContext, layers, selectedLayerIndex]);
 
@@ -1373,12 +1406,43 @@ const MainApp = () => {
     const count = parseInt(countStr, 10);
     if (!Number.isFinite(count) || count < 1) return;
     
+    // Node modulation options
+    const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+    let nodeMod = null;
+    if (useNodeMod) {
+      const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+      const amount = parseFloat(amountStr);
+      const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+      const cycles = parseFloat(cyclesStr);
+      nodeMod = {
+        enabled: true,
+        mode: 'sineRadial',
+        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+        mask: 'all',
+        phaseSpread: 0.5,
+      };
+    }
+    
+    // Energy influence options (only if audio loaded)
+    let energyInfluence = 0;
+    if (timelineContext.energyMap?.length > 0) {
+      const useEnergy = window.confirm('Scale variation by audio energy? (calm = less variation)');
+      if (useEnergy) {
+        const influenceStr = window.prompt('Energy influence (0=none, 1=max effect):', '0.5');
+        const inf = parseFloat(influenceStr);
+        energyInfluence = Number.isFinite(inf) ? Math.max(0, Math.min(1, inf)) : 0.5;
+      }
+    }
+    
     const keyframeIds = timelineContext.generateKeyframesBetween?.(
-      shapeTrack.id, layer, startTime, endTime, count
+      shapeTrack.id, layer, startTime, endTime, count, { nodeMod, energyInfluence }
     );
     
     if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, 'keyframes between', startTime, 'and', endTime);
+      console.log('Generated', keyframeIds.length, 'keyframes between', startTime, 'and', endTime, 
+        nodeMod ? 'with node modulation' : '',
+        energyInfluence > 0 ? `with energy influence ${energyInfluence}` : '');
     }
   }, [timelineContext, layers, selectedLayerIndex]);
 

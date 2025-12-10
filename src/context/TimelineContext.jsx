@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
-import { computeEnergyFlux, detectTransientsFromFlux, sensitivityToThreshold } from '../utils/audioTransients.js';
+import { 
+  computeEnergyFlux, 
+  detectTransientsFromFlux, 
+  sensitivityToThreshold,
+  buildEnergyMap,
+  getEnergyAtTime,
+  scaleWeightsByEnergy,
+} from '../utils/audioTransients.js';
 import { 
   generateVariedLayer, 
   extractKeyframeData, 
@@ -10,6 +17,12 @@ import {
   generateRerollSeed,
 } from '../utils/variationKeyframe.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
+import { 
+  applyNodeModulation, 
+  applyNodeModulationToSubpaths, 
+  generateKeyframePhase,
+  DEFAULT_NODE_MOD_CONFIG,
+} from '../utils/nodeModulation.js';
 
 /**
  * TimelineContext - Global timeline automation state provider
@@ -200,6 +213,7 @@ export const TimelineProvider = ({ children }) => {
   const [transientSettings, setTransientSettings] = useState(DEFAULT_TRANSIENT_SETTINGS);
   const [transients, setTransients] = useState([]); // Array of { time, strength }
   const audioFluxRef = useRef(null); // Cached flux data for re-detection on threshold change
+  const [energyMap, setEnergyMap] = useState([]); // Array of { time, energy, normalized }
 
   // Refs for RAF loop
   const lastUpdateTimeRef = useRef(null);
@@ -796,9 +810,10 @@ export const TimelineProvider = ({ children }) => {
 
   const clearAudio = useCallback(() => {
     setSession(prev => ({ ...prev, audio: null }));
-    // Clear transient data when audio is removed
+    // Clear transient and energy data when audio is removed
     audioFluxRef.current = null;
     setTransients([]);
+    setEnergyMap([]);
   }, []);
 
   // --- Transient Detection ---
@@ -811,6 +826,7 @@ export const TimelineProvider = ({ children }) => {
     if (!audioBuffer) {
       audioFluxRef.current = null;
       setTransients([]);
+      setEnergyMap([]);
       return;
     }
 
@@ -822,6 +838,14 @@ export const TimelineProvider = ({ children }) => {
       if (!audioFluxRef.current) {
         const { flux, hopSize, frameSize } = computeEnergyFlux(mono, sampleRate);
         audioFluxRef.current = { flux, hopSize, frameSize, sampleRate };
+        
+        // Also compute energy map (only once per audio file)
+        const energy = buildEnergyMap(mono, sampleRate, {
+          windowSizeSec: 0.25,
+          hopSizeSec: 0.1,
+          smoothWindow: 5,
+        });
+        setEnergyMap(energy);
       }
 
       // Detect transients using current sensitivity
@@ -841,6 +865,7 @@ export const TimelineProvider = ({ children }) => {
     } catch (error) {
       console.warn('Failed to compute transients:', error);
       setTransients([]);
+      setEnergyMap([]);
     }
   }, [transientSettings.maxMarkers]);
 
@@ -971,7 +996,7 @@ export const TimelineProvider = ({ children }) => {
    * @param {string} trackId - The shape track ID
    * @param {object} baseLayer - The base layer to vary from
    * @param {number[]} times - Array of times to generate keyframes at
-   * @param {object} options - { variationWeights, affectCategories, evaluateAtTime }
+   * @param {object} options - { variationWeights, affectCategories, evaluateAtTime, nodeMod, energyInfluence }
    * @returns {string[]} Array of new keyframe IDs
    */
   const generateVariationKeyframesAtTimes = useCallback((trackId, baseLayer, times, options = {}) => {
@@ -982,6 +1007,14 @@ export const TimelineProvider = ({ children }) => {
     
     const categories = track.categories || { shape: true, animation: false, color: false };
     const keyframeIds = [];
+    
+    // Node modulation config (merge with defaults)
+    const nodeMod = options.nodeMod?.enabled 
+      ? { ...DEFAULT_NODE_MOD_CONFIG, ...options.nodeMod }
+      : null;
+    
+    // Energy influence (0 = no effect, 1 = max effect)
+    const energyInfluence = options.energyInfluence ?? 0;
     
     for (let i = 0; i < times.length; i++) {
       const time = times[i];
@@ -1005,29 +1038,67 @@ export const TimelineProvider = ({ children }) => {
         }
       }
       
+      // Get base variation weights
+      let variationWeights = options.variationWeights || {
+        shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
+        anim: baseLayer.variationAnim ?? baseLayer.variation ?? 0.2,
+        color: baseLayer.variationColor ?? baseLayer.variation ?? 0.2,
+        position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
+        scale: baseLayer.variationScale ?? 0,
+      };
+      
+      // Apply energy-based scaling if energy map exists and influence > 0
+      let energyAtTime = 0.5; // Default mid-energy
+      if (energyInfluence > 0 && energyMap.length > 0) {
+        energyAtTime = getEnergyAtTime(energyMap, time);
+        variationWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
+      }
+      
       // Generate varied layer
       const variedLayer = generateVariedLayer(layerToVary, {
         seed,
-        variationWeights: options.variationWeights,
+        variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
       });
       
       // Extract keyframe data
-      const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
+      let { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
+      
+      // Apply node modulation if enabled
+      if (nodeMod) {
+        const phase = generateKeyframePhase(i, times.length, nodeMod.cycles || 1);
+        const modConfig = {
+          ...nodeMod,
+          phase,
+          seed: seed, // Use keyframe seed for stable per-node phases
+        };
+        
+        if (nodes && nodes.length > 0) {
+          nodes = applyNodeModulation(nodes, modConfig);
+        }
+        if (subpaths && subpaths.length > 0) {
+          subpaths = applyNodeModulationToSubpaths(subpaths, modConfig);
+        }
+        
+        // Store nodeMod config in extras for reference/reroll
+        extras.nodeMod = { ...nodeMod, appliedPhase: phase };
+      }
       
       // Add variation metadata
       extras.variation = {
         baseSeed: seed,
         baseTime: time,
-        weights: options.variationWeights || {
-          shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
-          anim: baseLayer.variationAnim ?? baseLayer.variation ?? 0.2,
-          color: baseLayer.variationColor ?? baseLayer.variation ?? 0.2,
-          position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
-          scale: baseLayer.variationScale ?? 0,
-        },
+        weights: variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
       };
+      
+      // Store energy info if used
+      if (energyInfluence > 0) {
+        extras.energy = {
+          value: energyAtTime,
+          influence: energyInfluence,
+        };
+      }
       
       // Add the keyframe (need to temporarily seek to this time)
       const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
@@ -1035,7 +1106,7 @@ export const TimelineProvider = ({ children }) => {
     }
     
     return keyframeIds;
-  }, [session.tracks, addShapeKeyframe]);
+  }, [session.tracks, addShapeKeyframe, energyMap]);
 
   /**
    * Generate N keyframes between two existing keyframes.
@@ -1262,6 +1333,9 @@ export const TimelineProvider = ({ children }) => {
     transientSettings,
     setTransientSensitivity,
     setTransientsEnabled,
+    
+    // Energy map for variation scaling
+    energyMap,
 
     // Variation keyframe generation
     generateVariationKeyframe,
@@ -1327,6 +1401,7 @@ export const TimelineProvider = ({ children }) => {
     transientSettings,
     setTransientSensitivity,
     setTransientsEnabled,
+    energyMap,
     generateVariationKeyframe,
     generateVariationKeyframesAtTimes,
     generateKeyframesBetween,
