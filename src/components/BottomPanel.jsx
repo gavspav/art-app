@@ -395,6 +395,10 @@ const BottomPanel = ({
   setMorphMode,
   applyVariationInstantly,
   setApplyVariationInstantly,
+  randomizeColorsPerLayer,
+  setRandomizeColorsPerLayer,
+  uniformColorCount,
+  setUniformColorCount,
 }) => {
   const initialLock = useMemo(() => readInitialLock(), []);
   const initialPanelState = useMemo(() => readInitialPanelState(initialLock), [initialLock]);
@@ -776,6 +780,10 @@ const BottomPanel = ({
               setMorphMode={setMorphMode}
               applyVariationInstantly={applyVariationInstantly}
               setApplyVariationInstantly={setApplyVariationInstantly}
+              randomizeColorsPerLayer={randomizeColorsPerLayer}
+              setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+              uniformColorCount={uniformColorCount}
+              setUniformColorCount={setUniformColorCount}
             />
           </div>
         );

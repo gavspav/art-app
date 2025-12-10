@@ -91,6 +91,10 @@ const MainApp = () => {
     // Color randomization toggles
     randomizePalette, setRandomizePalette,
     randomizeNumColors, setRandomizeNumColors,
+    randomizeColorsPerLayer,
+    setRandomizeColorsPerLayer,
+    uniformColorCount,
+    setUniformColorCount,
     syncLayerColorsToFirst, setSyncLayerColorsToFirst,
     parameterTargetMode, setParameterTargetMode,
     // Global: fade while frozen
@@ -1167,6 +1171,8 @@ const MainApp = () => {
     selectedLayerIndex,
     randomizePalette,
     randomizeNumColors,
+    randomizeColorsPerLayer,
+    uniformColorCount,
     colorCountMin,
     colorCountMax,
     classicMode,
@@ -1858,6 +1864,10 @@ const MainApp = () => {
               setMorphMode={setMorphMode}
               applyVariationInstantly={applyVariationInstantly}
               setApplyVariationInstantly={setApplyVariationInstantly}
+              randomizeColorsPerLayer={randomizeColorsPerLayer}
+              setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+              uniformColorCount={uniformColorCount}
+              setUniformColorCount={setUniformColorCount}
             />
             </div>
           </div>
@@ -1989,6 +1999,10 @@ const MainApp = () => {
                 setMorphMode={setMorphMode}
                 applyVariationInstantly={applyVariationInstantly}
                 setApplyVariationInstantly={setApplyVariationInstantly}
+                randomizeColorsPerLayer={randomizeColorsPerLayer}
+                setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+                uniformColorCount={uniformColorCount}
+                setUniformColorCount={setUniformColorCount}
               />
               </div>
             </div>

@@ -40,9 +40,9 @@ const mergeWithDefaults = (savedParams) => {
         merged.defaultValue = Math.min(hi, Math.max(lo, dv));
       }
 
-      // Force hardcoded options for movementStyle to ensure 'still' and 'orbit' are present regardless of saved metadata
+      // Force hardcoded options for movementStyle to ensure all modern styles are present regardless of saved metadata
       if (merged.id === 'movementStyle') {
-        merged = { ...merged, options: ['bounce','drift','still','orbit'] };
+        merged = { ...merged, options: ['bounce','drift','still','orbit','spin'] };
       }
 
       return merged;

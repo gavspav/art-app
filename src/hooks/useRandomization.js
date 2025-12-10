@@ -14,6 +14,8 @@ export function useRandomization({
   selectedLayerIndex: _selectedLayerIndex,
   randomizePalette,
   randomizeNumColors,
+  randomizeColorsPerLayer = true,
+  uniformColorCount = 3,
   colorCountMin = 1,
   colorCountMax = 8,
   classicMode,
@@ -319,7 +321,14 @@ export function useRandomization({
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
       const pMovementStyle = getParam('movementStyle');
       if (pMovementStyle && pMovementStyle.isRandomizable) {
-        const styles = ['bounce', 'drift', 'still', 'orbit', 'spin'];
+        const baseOptions = Array.isArray(pMovementStyle.options) && pMovementStyle.options.length
+          ? pMovementStyle.options
+          : ['bounce', 'drift', 'still', 'orbit', 'spin'];
+        const allowed = Array.isArray(pMovementStyle.randomOptions) && pMovementStyle.randomOptions.length
+          ? pMovementStyle.randomOptions.filter((opt) => baseOptions.includes(opt))
+          : baseOptions;
+
+        const styles = allowed.length ? allowed : baseOptions;
         const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
         let nextStyle = cur;
         const changeProb = Math.max(0.3, wAnim); // ensure some chance even at low variation
@@ -443,6 +452,11 @@ export function useRandomization({
         }
       } else {
         // Respect per-layer color randomization settings (global toggles control behavior)
+        // If randomizeColorsPerLayer is false, use uniformColorCount for all layers
+        const cMin = Math.max(1, Math.floor(colorCountMin));
+        const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
+        // Pre-compute uniform color count if not randomizing per layer
+        const uniformN = !randomizeColorsPerLayer ? Math.max(1, Math.min(32, uniformColorCount)) : null;
         for (let i = 0; i < layersOut.length; i++) {
           const prev = layers[i] || DEFAULT_LAYER;
           const curColors = Array.isArray(prev.colors) ? prev.colors : [];
@@ -450,13 +464,19 @@ export function useRandomization({
           const perLayerPalette = randomizePalette
             ? (pickPaletteColors(palettes, rand, curColors) || curColors)
             : curColors;
-          const cMin = Math.max(1, Math.floor(colorCountMin));
-          const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
           const maxN = Math.min(cMaxCap, (perLayerPalette.length || cMaxCap));
           const minN = cMin;
-          const n = randomizeNumColors
-            ? (maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1))
-            : (prev.numColors || curColors.length || 1);
+          let n;
+          if (!randomizeColorsPerLayer) {
+            // Use uniform color count for all layers
+            n = uniformN;
+          } else if (randomizeNumColors) {
+            // Random color count per layer
+            n = maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1);
+          } else {
+            // Keep existing color count
+            n = prev.numColors || curColors.length || 1;
+          }
           const next = sampleColorsEven(perLayerPalette.length ? perLayerPalette : curColors, Math.max(1, n));
           layersOut[i].colors = next;
           layersOut[i].numColors = next.length;
@@ -498,7 +518,7 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
@@ -548,14 +568,18 @@ export function useRandomization({
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     // Only change global base colors if Include (palette) is ON
     if (!incPalette) baseColors = currentBase.length ? currentBase : baseColors;
-    if (randomizeNumColors) {
+    // Determine color count: if not randomizing per layer, use uniform count
+    let colorCount;
+    if (!randomizeColorsPerLayer) {
+      colorCount = Math.max(1, Math.min(32, uniformColorCount));
+    } else if (randomizeNumColors) {
       const maxN = Math.min(5, baseColors.length || 5);
       const minN = Math.min(3, maxN);
-      const n = Math.floor(rnd() * (maxN - minN + 1)) + minN;
-      baseColors = sampleColorsEven(baseColors, n);
+      colorCount = Math.floor(rnd() * (maxN - minN + 1)) + minN;
     } else {
-      baseColors = sampleColorsEven(baseColors, Math.max(1, currentN));
+      colorCount = Math.max(1, currentN);
     }
+    baseColors = sampleColorsEven(baseColors, colorCount);
 
     // Layers count
     const layersParam = parameters.find(p => p.id === 'layersCount');
@@ -725,7 +749,7 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const randomizeScene = useCallback(() => {
     const layers = getLayersSnapshot();

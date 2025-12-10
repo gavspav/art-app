@@ -44,23 +44,39 @@ export const AppStateProvider = ({ children }) => {
     if (l && typeof l === 'object' && typeof l.id === 'string' && l.id.length > 0) return l;
     return { ...l, id: makeLayerId() };
   }, [makeLayerId]);
+
   const assignIds = useCallback((layers = []) => {
     const list = Array.isArray(layers) ? layers : [];
     const seen = new Set();
-    return list.map((layer) => {
-      let out = ensureLayerId(layer);
-      let id = out.id;
-      if (seen.has(id)) {
-        // Generate a fresh unique id when a duplicate is detected
-        const newId = makeLayerId();
-        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: id, new: newId }); } catch { /* noop */ }
-        out = { ...out, id: newId };
-        id = newId;
+    let hasChanges = false;
+    
+    // Pass 1: Check for duplicates or missing IDs
+    const result = list.map((layer) => {
+      const out = ensureLayerId(layer);
+      
+      // Check if ensureLayerId created a new object (meaning ID was missing)
+      if (out !== layer) {
+        hasChanges = true;
       }
-      seen.add(id);
+      
+      if (seen.has(out.id)) {
+        // Duplicate detected
+        hasChanges = true;
+        const newId = makeLayerId();
+        try { console.debug('[AppState] Duplicate layer id detected; reassigning', { old: out.id, new: newId }); } catch { /* noop */ }
+        seen.add(newId);
+        return { ...out, id: newId };
+      }
+      
+      seen.add(out.id);
       return out;
     });
+
+    // Optimization: If no changes were made, return the original array to preserve referential identity
+    // This allows React.memo and useEffect dependencies to skip updates
+    return hasChanges ? result : list;
   }, [ensureLayerId, makeLayerId]);
+
   // Main app state that should be saveable
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
@@ -86,6 +102,9 @@ export const AppStateProvider = ({ children }) => {
     // Global randomization toggles for palette and color count
     randomizePalette: true,
     randomizeNumColors: true,
+    // When false, all layers get the same number of colors (uniformColorCount)
+    randomizeColorsPerLayer: true,
+    uniformColorCount: 3,
     // Global: allow colour fading to continue while frozen
     colorFadeWhileFrozen: true,
     // Keep every layer in sync with layer 1 colours when enabled
@@ -148,7 +167,7 @@ export const AppStateProvider = ({ children }) => {
 
   const noteUserInteraction = useCallback(() => {
     lastInteractionRef.current = Date.now();
-    dirtyGuardRef.current = Math.max(0, dirtyGuardRef.current - 1);
+    // Do not modify dirtyGuardRef here - it is managed by runWithoutDirty
   }, []);
 
   // Check if user is currently interacting (within hold-off window)
@@ -295,11 +314,19 @@ export const AppStateProvider = ({ children }) => {
   // Important: support functional updates correctly to avoid stale state reappearing.
   // If an updater function is provided, call it with prev.layers inside setAppState.
   const setLayers = useCallback((value) => {
-    if (typeof value === 'function') {
-      setAppState(prev => ({ ...prev, layers: assignIds(value(prev.layers)) }));
-    } else {
-      setAppState(prev => ({ ...prev, layers: assignIds(value) }));
-    }
+    setAppState(prev => {
+      const nextLayersRaw = typeof value === 'function' ? value(prev.layers) : value;
+      const nextLayers = assignIds(nextLayersRaw);
+      
+      // Optimization: If assignIds returns the exact same array reference,
+      // and we are not forcing an update via some other means,
+      // return the previous state object to completely skip the React update.
+      if (nextLayers === prev.layers) {
+        return prev;
+      }
+      
+      return { ...prev, layers: nextLayers };
+    });
     markDirty();
   }, [assignIds, markDirty]);
 
@@ -347,6 +374,17 @@ export const AppStateProvider = ({ children }) => {
 
   const setRandomizeNumColors = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizeNumColors: !!value }));
+    markDirty();
+  }, [markDirty]);
+
+  const setRandomizeColorsPerLayer = useCallback((value) => {
+    setAppState(prev => ({ ...prev, randomizeColorsPerLayer: !!value }));
+    markDirty();
+  }, [markDirty]);
+
+  const setUniformColorCount = useCallback((value) => {
+    const v = parseInt(value, 10);
+    setAppState(prev => ({ ...prev, uniformColorCount: Number.isFinite(v) ? Math.max(1, Math.min(32, v)) : prev.uniformColorCount }));
     markDirty();
   }, [markDirty]);
 
@@ -660,6 +698,10 @@ export const AppStateProvider = ({ children }) => {
     setZIgnore,
     setRandomizePalette,
     setRandomizeNumColors,
+    randomizeColorsPerLayer: appState.randomizeColorsPerLayer,
+    setRandomizeColorsPerLayer,
+    uniformColorCount: appState.uniformColorCount,
+    setUniformColorCount,
     setColorFadeWhileFrozen,
     syncLayerColorsToFirst: appState.syncLayerColorsToFirst,
     setSyncLayerColorsToFirst,
@@ -726,6 +768,8 @@ export const AppStateProvider = ({ children }) => {
     setZIgnore,
     setRandomizePalette,
     setRandomizeNumColors,
+    setRandomizeColorsPerLayer,
+    setUniformColorCount,
     setColorFadeWhileFrozen,
     setSyncLayerColorsToFirst,
     setApplyVariationInstantly,

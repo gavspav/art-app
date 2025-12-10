@@ -833,6 +833,23 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     updateParameter(id, 'isRandomizable', !!e.target.checked);
   };
 
+  const onToggleOptionRandomizable = (option) => (e) => {
+    e.stopPropagation();
+    const baseOptions = Array.isArray(options) ? options : [];
+    const current = Array.isArray(param.randomOptions) && param.randomOptions.length
+      ? param.randomOptions.filter((opt) => baseOptions.includes(opt))
+      : baseOptions;
+
+    let next;
+    if (e.target.checked) {
+      next = current.includes(option) ? current : [...current, option];
+    } else {
+      next = current.filter((opt) => opt !== option);
+    }
+
+    updateParameter(id, 'randomOptions', next);
+  };
+
   const onMetaChange = (field) => (input) => {
     let nextValue = input;
     if (input && typeof input === 'object' && 'target' in input) {
@@ -1004,6 +1021,35 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           </div>
         ) : (
           <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
+        )}
+        {type === 'dropdown' && Array.isArray(options) && options.length > 0 && (
+          <div style={{ marginTop: '0.6rem' }}>
+            <div style={{ fontSize: '0.85rem', opacity: 0.9, marginBottom: '0.25rem' }}>
+              Movement styles allowed in Randomize All
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {options.map((opt) => {
+                const allowed = Array.isArray(param.randomOptions) && param.randomOptions.length
+                  ? param.randomOptions.includes(opt)
+                  : true;
+                return (
+                  <label
+                    key={opt}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}
+                    onMouseDown={(e) => { e.stopPropagation(); }}
+                    onClick={(e) => { e.stopPropagation(); }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowed}
+                      onChange={onToggleOptionRandomizable(opt)}
+                    />
+                    <span>{opt}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         )}
         <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <label

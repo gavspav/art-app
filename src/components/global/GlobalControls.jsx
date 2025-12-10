@@ -826,6 +826,11 @@ const GlobalControls = ({
   setMorphMode,
   applyVariationInstantly,
   setApplyVariationInstantly,
+  // Randomize colors per layer setting
+  randomizeColorsPerLayer,
+  setRandomizeColorsPerLayer,
+  uniformColorCount,
+  setUniformColorCount,
 }) => {
   const layerSeedNonceRef = useRef(0);
   const generateLayerSeed = useCallback(() => {
@@ -2289,6 +2294,39 @@ const GlobalControls = ({
                   onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)}
                 />
               </label>
+            </div>
+          </div>
+
+          {/* Randomize Colors Per Layer */}
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <label
+                className="compact-label"
+                title="When checked, each layer gets a random number of colours. When unchecked, all layers use the same colour count."
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!randomizeColorsPerLayer}
+                  onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)}
+                />
+                <span>Randomise colours per layer</span>
+              </label>
+              {!randomizeColorsPerLayer && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
+                  <BufferedNumberInput
+                    value={uniformColorCount ?? 3}
+                    min={1}
+                    max={32}
+                    step={1}
+                    onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))}
+                    className="compact-number"
+                    style={{ width: '3.5rem', padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                    inputMode="numeric"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
