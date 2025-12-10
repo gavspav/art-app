@@ -16,6 +16,7 @@ const TimelineWaveform = ({
   loop,
   height = 80,
   timelineWidth,
+  transients = [],
 }) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -119,6 +120,34 @@ const TimelineWaveform = ({
     ctx.lineTo(waveformEndX, centerY);
     ctx.stroke();
 
+    // Draw transient markers
+    // These are aligned with the waveform (x=0 is time=0)
+    if (transients && transients.length > 0) {
+      ctx.strokeStyle = '#ff9800';
+      ctx.lineWidth = 1;
+      
+      // Find max strength for normalization
+      let maxStrength = 0;
+      for (const t of transients) {
+        if (t.strength > maxStrength) maxStrength = t.strength;
+      }
+      
+      for (const transient of transients) {
+        const x = transient.time * pixelsPerSecond;
+        if (x >= 0 && x <= renderWidth) {
+          // Vary opacity based on strength (0.3 to 1.0)
+          const normalizedStrength = maxStrength > 0 ? transient.strength / maxStrength : 1;
+          const alpha = 0.3 + normalizedStrength * 0.7;
+          ctx.strokeStyle = `rgba(255, 152, 0, ${alpha})`;
+          
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, renderHeight);
+          ctx.stroke();
+        }
+      }
+    }
+
     // Draw playhead line
     const playheadX = positionSeconds * pixelsPerSecond;
     if (playheadX >= 0 && playheadX <= renderWidth) {
@@ -129,7 +158,7 @@ const TimelineWaveform = ({
       ctx.lineTo(playheadX, renderHeight);
       ctx.stroke();
     }
-  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth]);
+  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth, transients]);
 
   // Handle click/drag to seek
   const handleMouseDown = useCallback((e) => {

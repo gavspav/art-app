@@ -67,6 +67,10 @@ const TimelinePanel = ({
     setScrollLeft,
     setVisible,
     getPositionSeconds,
+    transients,
+    transientSettings,
+    setTransientSensitivity,
+    setTransientsEnabled,
   } = timeline || {};
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
@@ -294,14 +298,8 @@ const TimelinePanel = ({
     const track = tracks?.find(t => t.id === trackId);
     const categories = track?.categories || { shape: true, animation: false, color: false };
     
-    // Always capture shape data (nodes/subpaths) - this is the base requirement
+    // Capture shape data (nodes/subpaths) when available; allow capture even if missing
     const { nodes, subpaths } = layer;
-    if (!nodes && !subpaths) {
-      console.warn('[Timeline] Cannot capture shape: layer has no nodes or subpaths', layerId);
-      return;
-    }
-    
-    // Deep clone the geometry to avoid reference issues
     const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
     const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
     
@@ -352,6 +350,31 @@ const TimelinePanel = ({
     
     addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths, '', extras);
   }, [addShapeKeyframe, layers, tracks, positionSeconds]);
+
+  // Handle rerolling a variation keyframe
+  const handleRerollVariation = useCallback((trackId, keyframeId) => {
+    if (!timeline?.rerollVariationKeyframe) return;
+    
+    // Find the track and keyframe
+    const track = tracks?.find(t => t.id === trackId);
+    if (!track || track.type !== 'shape') return;
+    
+    // Get the layer for this track
+    const targetId = track.targetId || '';
+    const parts = targetId.split(':');
+    const layerName = parts.length >= 2 ? parts[1] : null;
+    const layer = layers.find(l => l?.name === layerName || l?.id === layerName);
+    
+    if (!layer) {
+      console.warn('[Timeline] Cannot reroll: layer not found for track', trackId);
+      return;
+    }
+    
+    const success = timeline.rerollVariationKeyframe(trackId, keyframeId, layer);
+    if (success) {
+      console.log('Rerolled variation keyframe:', keyframeId);
+    }
+  }, [timeline, tracks, layers]);
 
   // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
   useEffect(() => {
@@ -565,23 +588,60 @@ const TimelinePanel = ({
           {/* Waveform row (acts like first track) */}
           {audio && showWaveform && (
             <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'sticky', top: 0, zIndex: 12, background: 'rgba(20,20,30,0.98)' }}>
-              <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', position: 'sticky', left: 0, background: 'rgba(30,30,40,0.98)', zIndex: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowWaveform(false)}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.7)',
-                    cursor: 'pointer',
-                    fontSize: '0.8rem',
-                    padding: '2px 4px',
-                  }}
-                  title="Hide waveform"
-                >
-                  ◀
-                </button>
-                Audio
+              <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255,255,255,0.1)', padding: '6px 8px', fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', position: 'sticky', left: 0, background: 'rgba(30,30,40,0.98)', zIndex: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowWaveform(false)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.7)',
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                      padding: '2px 4px',
+                    }}
+                    title="Hide waveform"
+                  >
+                    ◀
+                  </button>
+                  Audio
+                  <button
+                    type="button"
+                    onClick={() => setTransientsEnabled?.(!transientSettings?.enabled)}
+                    style={{
+                      background: transientSettings?.enabled ? 'rgba(255,152,0,0.3)' : 'transparent',
+                      border: '1px solid rgba(255,152,0,0.5)',
+                      borderRadius: 3,
+                      color: transientSettings?.enabled ? '#ff9800' : 'rgba(255,255,255,0.5)',
+                      cursor: 'pointer',
+                      fontSize: '0.6rem',
+                      padding: '1px 4px',
+                      marginLeft: 'auto',
+                    }}
+                    title={transientSettings?.enabled ? 'Hide transient markers' : 'Show transient markers'}
+                  >
+                    ⚡
+                  </button>
+                </div>
+                {transientSettings?.enabled && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Sens:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={transientSettings?.sensitivity ?? 50}
+                      onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
+                      style={{ flex: 1, height: 12, cursor: 'pointer' }}
+                      title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
+                    />
+                    <span style={{ color: '#ff9800', minWidth: 20, textAlign: 'right' }}>
+                      {transients?.length || 0}
+                    </span>
+                  </div>
+                )}
               </div>
               <div style={{ flex: 1, width: contentWidth }}>
                 <TimelineWaveform
@@ -594,6 +654,7 @@ const TimelinePanel = ({
                   onSeek={seekTo}
                   loop={loop}
                   height={WAVEFORM_HEIGHT}
+                  transients={transientSettings?.enabled ? transients : []}
                 />
               </div>
             </div>
@@ -783,6 +844,7 @@ const TimelinePanel = ({
                 onCopyKeyframe={(kfId) => copyKeyframe?.(track.id, kfId)}
                 onPasteKeyframe={(time) => pasteKeyframe?.(track.id, time)}
                 onPasteKeyframeToTrack={(targetTrackId, time) => pasteKeyframeToTrack?.(targetTrackId, time)}
+                onRerollVariation={(kfId) => handleRerollVariation(track.id, kfId)}
                 hasClipboard={!!keyframeClipboard}
                 clipboardTrackType={clipboardTrackType}
                 clipboardSourceTargetId={clipboardSourceTargetId}

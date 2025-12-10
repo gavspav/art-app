@@ -28,6 +28,7 @@ const TimelineTrackRow = ({
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,
+  onRerollVariation,
   hasClipboard = false,
   clipboardTrackType = null,
   clipboardSourceTargetId = null,
@@ -414,6 +415,7 @@ const TimelineTrackRow = ({
           onCopyKeyframe={onCopyKeyframe}
           onPasteKeyframe={onPasteKeyframe}
           onPasteKeyframeToTrack={onPasteKeyframeToTrack}
+          onRerollVariation={onRerollVariation}
           hasClipboard={hasClipboard}
           clipboardTrackType={clipboardTrackType}
           clipboardSourceTargetId={clipboardSourceTargetId}

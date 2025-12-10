@@ -1,5 +1,15 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { evaluateTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
+import { computeEnergyFlux, detectTransientsFromFlux, sensitivityToThreshold } from '../utils/audioTransients.js';
+import { 
+  generateVariedLayer, 
+  extractKeyframeData, 
+  generateEvenlySpacedTimes, 
+  generateRandomTimes, 
+  selectTopTransientTimes,
+  generateRerollSeed,
+} from '../utils/variationKeyframe.js';
+import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 
 /**
  * TimelineContext - Global timeline automation state provider
@@ -144,6 +154,13 @@ const DEFAULT_SETTINGS = {
   scrollLeft: 0,
 };
 
+// Default transient detection settings
+const DEFAULT_TRANSIENT_SETTINGS = {
+  enabled: true,
+  sensitivity: 50, // 0-100, higher = more transients
+  maxMarkers: 500,
+};
+
 export const TimelineProvider = ({ children }) => {
   // Timeline session state (persisted)
   const [session, setSession] = useState(() => {
@@ -178,6 +195,11 @@ export const TimelineProvider = ({ children }) => {
 
   // Keyframe clipboard (for copy/paste)
   const [keyframeClipboard, setKeyframeClipboard] = useState(null);
+
+  // Transient detection state
+  const [transientSettings, setTransientSettings] = useState(DEFAULT_TRANSIENT_SETTINGS);
+  const [transients, setTransients] = useState([]); // Array of { time, strength }
+  const audioFluxRef = useRef(null); // Cached flux data for re-detection on threshold change
 
   // Refs for RAF loop
   const lastUpdateTimeRef = useRef(null);
@@ -774,7 +796,80 @@ export const TimelineProvider = ({ children }) => {
 
   const clearAudio = useCallback(() => {
     setSession(prev => ({ ...prev, audio: null }));
+    // Clear transient data when audio is removed
+    audioFluxRef.current = null;
+    setTransients([]);
   }, []);
+
+  // --- Transient Detection ---
+
+  /**
+   * Compute transients from audio buffer.
+   * Called when audio is loaded or when sensitivity changes.
+   */
+  const computeTransients = useCallback((audioBuffer, sensitivity) => {
+    if (!audioBuffer) {
+      audioFluxRef.current = null;
+      setTransients([]);
+      return;
+    }
+
+    try {
+      const mono = audioBuffer.getChannelData(0);
+      const sampleRate = audioBuffer.sampleRate;
+
+      // Compute flux only if not already cached
+      if (!audioFluxRef.current) {
+        const { flux, hopSize, frameSize } = computeEnergyFlux(mono, sampleRate);
+        audioFluxRef.current = { flux, hopSize, frameSize, sampleRate };
+      }
+
+      // Detect transients using current sensitivity
+      const { thresholdFactor, minStrength } = sensitivityToThreshold(sensitivity);
+      const detected = detectTransientsFromFlux(
+        audioFluxRef.current.flux,
+        audioFluxRef.current.sampleRate,
+        audioFluxRef.current.hopSize,
+        {
+          thresholdFactor,
+          minStrength,
+          maxMarkers: transientSettings.maxMarkers,
+        }
+      );
+
+      setTransients(detected);
+    } catch (error) {
+      console.warn('Failed to compute transients:', error);
+      setTransients([]);
+    }
+  }, [transientSettings.maxMarkers]);
+
+  /**
+   * Update transient sensitivity and recompute transients
+   */
+  const setTransientSensitivity = useCallback((sensitivity) => {
+    const newSensitivity = Math.max(0, Math.min(100, sensitivity));
+    setTransientSettings(prev => ({ ...prev, sensitivity: newSensitivity }));
+    
+    // Recompute transients with new sensitivity if we have audio
+    if (session.audio?.buffer) {
+      computeTransients(session.audio.buffer, newSensitivity);
+    }
+  }, [session.audio?.buffer, computeTransients]);
+
+  /**
+   * Toggle transient markers visibility
+   */
+  const setTransientsEnabled = useCallback((enabled) => {
+    setTransientSettings(prev => ({ ...prev, enabled }));
+  }, []);
+
+  // Compute transients when audio is loaded
+  useEffect(() => {
+    if (session.audio?.buffer && transientSettings.enabled) {
+      computeTransients(session.audio.buffer, transientSettings.sensitivity);
+    }
+  }, [session.audio?.buffer, transientSettings.enabled, transientSettings.sensitivity, computeTransients]);
 
   // --- Evaluation ---
 
@@ -817,6 +912,223 @@ export const TimelineProvider = ({ children }) => {
     }
     return values;
   }, [session.tracks]);
+
+  // --- Variation Keyframe Generation ---
+
+  /**
+   * Generate a single variation keyframe at the current playhead position.
+   * Uses the evaluated shape at that time as the base, applies variation, and adds a keyframe.
+   * 
+   * @param {string} trackId - The shape track ID
+   * @param {object} layer - The layer to use as base (should be evaluated at current time)
+   * @param {object} options - { seed, variationWeights, affectCategories }
+   * @returns {string|null} The new keyframe ID, or null if failed
+   */
+  const generateVariationKeyframe = useCallback((trackId, layer, options = {}) => {
+    if (!trackId || !layer) return null;
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'shape') return null;
+    
+    const time = positionRef.current;
+    const seed = options.seed ?? Date.now();
+    
+    // Get track categories for what to include in keyframe
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    
+    // Generate varied layer
+    const variedLayer = generateVariedLayer(layer, {
+      seed,
+      variationWeights: options.variationWeights,
+      affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+    });
+    
+    // Extract keyframe data
+    const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
+    
+    // Add variation metadata for reroll support
+    extras.variation = {
+      baseSeed: seed,
+      baseTime: time,
+      weights: options.variationWeights || {
+        shape: layer.variationShape ?? layer.variation ?? 0.2,
+        anim: layer.variationAnim ?? layer.variation ?? 0.2,
+        color: layer.variationColor ?? layer.variation ?? 0.2,
+        position: layer.variationPosition ?? layer.variation ?? 0.2,
+        scale: layer.variationScale ?? 0,
+      },
+      affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+    };
+    
+    // Add the keyframe
+    const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
+    return keyframeId;
+  }, [session.tracks, addShapeKeyframe]);
+
+  /**
+   * Generate multiple variation keyframes at specified times.
+   * 
+   * @param {string} trackId - The shape track ID
+   * @param {object} baseLayer - The base layer to vary from
+   * @param {number[]} times - Array of times to generate keyframes at
+   * @param {object} options - { variationWeights, affectCategories, evaluateAtTime }
+   * @returns {string[]} Array of new keyframe IDs
+   */
+  const generateVariationKeyframesAtTimes = useCallback((trackId, baseLayer, times, options = {}) => {
+    if (!trackId || !baseLayer || !Array.isArray(times) || times.length === 0) return [];
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'shape') return [];
+    
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    const keyframeIds = [];
+    
+    for (let i = 0; i < times.length; i++) {
+      const time = times[i];
+      const seed = (options.baseSeed ?? Date.now()) + i * 16807;
+      
+      // If evaluateAtTime is true, evaluate the track at this time to get interpolated base
+      let layerToVary = baseLayer;
+      if (options.evaluateAtTime) {
+        const evaluated = evaluateShapeTrackAtTime(track, time, lerpNodes, lerpSubpaths);
+        if (evaluated) {
+          // Merge evaluated data back into a layer-like object
+          layerToVary = {
+            ...baseLayer,
+            nodes: evaluated.nodes || baseLayer.nodes,
+            subpaths: evaluated.subpaths || baseLayer.subpaths,
+            position: { ...baseLayer.position, ...evaluated.position },
+            ...(evaluated.shapeParams || {}),
+            ...(evaluated.animation || {}),
+            colors: evaluated.colors || baseLayer.colors,
+          };
+        }
+      }
+      
+      // Generate varied layer
+      const variedLayer = generateVariedLayer(layerToVary, {
+        seed,
+        variationWeights: options.variationWeights,
+        affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+      });
+      
+      // Extract keyframe data
+      const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
+      
+      // Add variation metadata
+      extras.variation = {
+        baseSeed: seed,
+        baseTime: time,
+        weights: options.variationWeights || {
+          shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
+          anim: baseLayer.variationAnim ?? baseLayer.variation ?? 0.2,
+          color: baseLayer.variationColor ?? baseLayer.variation ?? 0.2,
+          position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
+          scale: baseLayer.variationScale ?? 0,
+        },
+        affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+      };
+      
+      // Add the keyframe (need to temporarily seek to this time)
+      const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
+      if (keyframeId) keyframeIds.push(keyframeId);
+    }
+    
+    return keyframeIds;
+  }, [session.tracks, addShapeKeyframe]);
+
+  /**
+   * Generate N keyframes between two existing keyframes.
+   * 
+   * @param {string} trackId - The shape track ID
+   * @param {object} baseLayer - The base layer
+   * @param {number} startTime - Start time
+   * @param {number} endTime - End time
+   * @param {number} count - Number of keyframes to generate
+   * @param {object} options - { variationWeights, affectCategories }
+   * @returns {string[]} Array of new keyframe IDs
+   */
+  const generateKeyframesBetween = useCallback((trackId, baseLayer, startTime, endTime, count, options = {}) => {
+    const times = generateEvenlySpacedTimes(startTime, endTime, count);
+    return generateVariationKeyframesAtTimes(trackId, baseLayer, times, {
+      ...options,
+      evaluateAtTime: true, // Use interpolated shape at each time
+    });
+  }, [generateVariationKeyframesAtTimes]);
+
+  /**
+   * Generate N keyframes at random times or transient times.
+   * 
+   * @param {string} trackId - The shape track ID
+   * @param {object} baseLayer - The base layer
+   * @param {number} count - Number of keyframes to generate
+   * @param {object} options - { useTransients, startTime, endTime, variationWeights, affectCategories }
+   * @returns {string[]} Array of new keyframe IDs
+   */
+  const generateRandomKeyframes = useCallback((trackId, baseLayer, count, options = {}) => {
+    const startTime = options.startTime ?? 0;
+    const endTime = options.endTime ?? session.lengthSeconds;
+    
+    let times;
+    if (options.useTransients && transients.length > 0) {
+      times = selectTopTransientTimes(transients, count, startTime, endTime);
+    } else {
+      times = generateRandomTimes(startTime, endTime, count, Date.now());
+    }
+    
+    return generateVariationKeyframesAtTimes(trackId, baseLayer, times, {
+      ...options,
+      evaluateAtTime: false, // Use base layer for all
+    });
+  }, [session.lengthSeconds, transients, generateVariationKeyframesAtTimes]);
+
+  /**
+   * Reroll a variation keyframe with a new seed.
+   * 
+   * @param {string} trackId - The track ID
+   * @param {string} keyframeId - The keyframe ID to reroll
+   * @param {object} baseLayer - The base layer to regenerate from
+   * @returns {boolean} Success
+   */
+  const rerollVariationKeyframe = useCallback((trackId, keyframeId, baseLayer) => {
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'shape') return false;
+    
+    const keyframe = track.keyframes?.find(kf => kf.id === keyframeId);
+    if (!keyframe) return false;
+    
+    const variationMeta = keyframe.variation;
+    if (!variationMeta) return false;
+    
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    const newSeed = generateRerollSeed(variationMeta.baseSeed);
+    
+    // Generate new varied layer
+    const variedLayer = generateVariedLayer(baseLayer, {
+      seed: newSeed,
+      variationWeights: variationMeta.weights,
+      affectCategories: variationMeta.affectCategories,
+    });
+    
+    // Extract keyframe data
+    const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
+    
+    // Update variation metadata
+    extras.variation = {
+      ...variationMeta,
+      baseSeed: newSeed,
+      rerollCount: (variationMeta.rerollCount || 0) + 1,
+    };
+    
+    // Update the keyframe
+    updateKeyframe(trackId, keyframeId, {
+      nodes,
+      subpaths,
+      ...extras,
+    });
+    
+    return true;
+  }, [session.tracks, updateKeyframe]);
 
   // --- Settings ---
 
@@ -945,6 +1257,19 @@ export const TimelineProvider = ({ children }) => {
     // Audio stream for recording (returns MediaStream or null)
     getAudioStream: () => audioDestinationRef.current?.stream || null,
 
+    // Transient detection
+    transients,
+    transientSettings,
+    setTransientSensitivity,
+    setTransientsEnabled,
+
+    // Variation keyframe generation
+    generateVariationKeyframe,
+    generateVariationKeyframesAtTimes,
+    generateKeyframesBetween,
+    generateRandomKeyframes,
+    rerollVariationKeyframe,
+
     // Evaluation
     getTrackValue,
     getAllTrackValues,
@@ -998,6 +1323,15 @@ export const TimelineProvider = ({ children }) => {
     pasteKeyframeToTrack,
     setAudio,
     clearAudio,
+    transients,
+    transientSettings,
+    setTransientSensitivity,
+    setTransientsEnabled,
+    generateVariationKeyframe,
+    generateVariationKeyframesAtTimes,
+    generateKeyframesBetween,
+    generateRandomKeyframes,
+    rerollVariationKeyframe,
     getTrackValue,
     getAllTrackValues,
     getTrackValuesAtTime,

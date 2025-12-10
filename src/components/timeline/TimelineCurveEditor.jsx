@@ -27,6 +27,7 @@ const TimelineCurveEditor = ({
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,
+  onRerollVariation,
   hasClipboard = false,
   clipboardTrackType = null,
   clipboardSourceTargetId = null,
@@ -948,6 +949,33 @@ const TimelineCurveEditor = ({
               >
                 📋 Copy (⌘C)
               </button>
+              
+              {/* Reroll variation (only for keyframes with variation metadata) */}
+              {isShapeTrack && selectedMenuKeyframe?.variation && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onRerollVariation) {
+                      onRerollVariation(curveMenuKeyframeId);
+                    }
+                    setShowCurveMenu(false);
+                    setCurveMenuKeyframeId(null);
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ff9800',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🎲 Reroll Variation
+                </button>
+              )}
               
               {/* Delete keyframe */}
               <button

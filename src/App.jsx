@@ -1254,6 +1254,110 @@ const MainApp = () => {
     else modernRandomizeAll();
   }, [classicMode, classicRandomizeAll, modernRandomizeAll]);
 
+  // --- Variation Keyframe Generation Handlers ---
+
+  // Generate a single variation keyframe at current playhead position
+  const handleGenerateVariationKeyframe = useCallback(() => {
+    if (!timelineContext?.visible) return;
+    
+    // Find the shape track for the selected layer
+    const layer = layers[selectedLayerIndex];
+    if (!layer) return;
+    
+    const layerId = layer.id || layer.name;
+    const shapeTrack = timelineContext.tracks?.find(
+      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+    );
+    
+    if (!shapeTrack) {
+      console.warn('No shape track found for selected layer');
+      return;
+    }
+    
+    // Use current layer state as base
+    const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, layer);
+    if (keyframeId) {
+      console.log('Generated variation keyframe:', keyframeId);
+    }
+  }, [timelineContext, layers, selectedLayerIndex]);
+
+  // Generate random keyframes (prompts for count)
+  const handleGenerateRandomKeyframes = useCallback(() => {
+    if (!timelineContext?.visible) return;
+    
+    const layer = layers[selectedLayerIndex];
+    if (!layer) return;
+    
+    const layerId = layer.id || layer.name;
+    const shapeTrack = timelineContext.tracks?.find(
+      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+    );
+    
+    if (!shapeTrack) {
+      console.warn('No shape track found for selected layer');
+      return;
+    }
+    
+    const countStr = window.prompt('Number of keyframes to generate:', '5');
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+    
+    const useTransients = timelineContext.transients?.length > 0 && 
+      window.confirm('Use transient markers for keyframe times?');
+    
+    const keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, layer, count, {
+      useTransients,
+    });
+    
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, 'random keyframes');
+    }
+  }, [timelineContext, layers, selectedLayerIndex]);
+
+  // Fill keyframes between two selected keyframes (prompts for count)
+  const handleFillKeyframesBetween = useCallback(() => {
+    if (!timelineContext?.visible) return;
+    
+    const layer = layers[selectedLayerIndex];
+    if (!layer) return;
+    
+    const layerId = layer.id || layer.name;
+    const shapeTrack = timelineContext.tracks?.find(
+      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+    );
+    
+    if (!shapeTrack || !shapeTrack.keyframes?.length) {
+      console.warn('No shape track or keyframes found for selected layer');
+      return;
+    }
+    
+    // Get sorted keyframes
+    const sorted = [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+    if (sorted.length < 2) {
+      window.alert('Need at least 2 keyframes to fill between');
+      return;
+    }
+    
+    // Use first and last keyframe times as range
+    const startTime = sorted[0].timeSeconds;
+    const endTime = sorted[sorted.length - 1].timeSeconds;
+    
+    const countStr = window.prompt(
+      `Fill between ${startTime.toFixed(2)}s and ${endTime.toFixed(2)}s.\nNumber of keyframes to generate:`,
+      '3'
+    );
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+    
+    const keyframeIds = timelineContext.generateKeyframesBetween?.(
+      shapeTrack.id, layer, startTime, endTime, count
+    );
+    
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, 'keyframes between', startTime, 'and', endTime);
+    }
+  }, [timelineContext, layers, selectedLayerIndex]);
+
   // Keyboard shortcuts
   useKeyboardShortcuts({
     setIsFrozen,
@@ -1280,6 +1384,10 @@ const MainApp = () => {
     stopTimeline: timelineContext?.stop,
     timelineVisible: timelineContext?.visible,
     timelineIsPlaying: timelineContext?.isPlaying,
+    // Variation keyframe generation
+    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
+    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
+    onFillKeyframesBetween: handleFillKeyframesBetween,
   });
 
   // MIDI helper refs and handlers integration

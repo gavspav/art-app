@@ -28,13 +28,18 @@ export function useKeyboardShortcuts({
   stopTimeline,
   timelineVisible,
   timelineIsPlaying,
+  // Variation keyframe generation
+  onGenerateVariationKeyframe,
+  onGenerateRandomKeyframes,
+  onFillKeyframesBetween,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
       const key = (e.key || '').toLowerCase();
       
       // F key for fullscreen should ALWAYS work, even when inputs are focused
-      if (key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Use plain "f" only so Shift+F can be used for other actions (e.g. timeline fill)
+      if (key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         toggleFullscreen?.();
         return;
@@ -196,6 +201,27 @@ export function useKeyboardShortcuts({
           return;
         }
       }
+
+      // Shift+V -> Generate variation keyframe at current position (when timeline visible)
+      if (e.shiftKey && key === 'v' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        onGenerateVariationKeyframe?.();
+        return;
+      }
+
+      // Shift+R -> Generate random keyframes on active track (when timeline visible)
+      if (e.shiftKey && key === 'r' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        onGenerateRandomKeyframes?.();
+        return;
+      }
+
+      // Shift+F -> Fill keyframes between two selected keyframes (when timeline visible)
+      if (e.shiftKey && key === 'f' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        onFillKeyframesBetween?.();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -226,5 +252,8 @@ export function useKeyboardShortcuts({
     stopTimeline,
     timelineVisible,
     timelineIsPlaying,
+    onGenerateVariationKeyframe,
+    onGenerateRandomKeyframes,
+    onFillKeyframesBetween,
   ]);
 }
