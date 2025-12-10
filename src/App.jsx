@@ -171,20 +171,38 @@ const MainApp = () => {
     setIsRecording(false);
   }, []);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     if (isRecording) {
       return;
     }
-    const canvasHandle = canvasRef.current;
-    const canvasEl = canvasHandle?.canvas || canvasHandle;
+
+    // Resolve the underlying canvas element (forwardRef exposes a handle with .canvas)
+    let canvasHandle = canvasRef.current;
+    let canvasEl = canvasHandle?.canvas || canvasHandle;
+
+    // If the canvas has not been sized yet (0x0), wait one frame for layout to settle
+    if (canvasEl && (!canvasEl.width || !canvasEl.height)) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      canvasHandle = canvasRef.current || canvasHandle;
+      canvasEl = canvasHandle?.canvas || canvasHandle;
+    }
+
     if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
       window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
       return;
     }
 
+    // Final safety: avoid recording from a 0x0 canvas, which would produce a blank video
+    if (!canvasEl.width || !canvasEl.height) {
+      console.warn('Recording aborted: canvas has zero size', { width: canvasEl.width, height: canvasEl.height });
+      window.alert('Unable to start recording: canvas is not visible or has zero size.');
+      return;
+    }
+
     let videoStream;
     try {
-      videoStream = canvasEl.captureStream(60);
+      // Let the browser pick an appropriate frame rate; 60 can be too aggressive on some setups
+      videoStream = canvasEl.captureStream();
     } catch (error) {
       console.warn('Failed to capture canvas stream', error);
       window.alert('Unable to start recording: canvas capture stream failed.');
@@ -199,7 +217,7 @@ const MainApp = () => {
     // Try to get audio stream from timeline (if audio is loaded and playing)
     let combinedStream = videoStream;
     const audioStream = timelineContext?.getAudioStream?.();
-    if (audioStream) {
+    if (audioStream && audioStream.getAudioTracks().length > 0) {
       try {
         // Combine video and audio tracks into a single stream
         const videoTracks = videoStream.getVideoTracks();
@@ -211,7 +229,7 @@ const MainApp = () => {
         combinedStream = videoStream;
       }
     } else {
-      console.log('Recording video only (no timeline audio available)');
+      console.log('Recording video only (no usable timeline audio stream available)');
     }
 
     const preferredMime = pickBestRecorderMime();
