@@ -1551,7 +1551,7 @@ const MainApp = () => {
   }, [timelineContext, layers, selectedLayerIndex]);
 
   // Keyboard shortcuts
-  useKeyboardShortcuts({
+	  useKeyboardShortcuts({
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
@@ -1569,13 +1569,13 @@ const MainApp = () => {
     saveQuickPresetToMemory: handleRamPresetSave,
     recallQuickPresetFromMemory: handleRamPresetRecall,
     toggleBPM: bpmForAnimation?.togglePlay,
-    toggleAudio: audioReactive?.toggleAudio,
-    // Timeline controls
-    toggleTimeline: timelineContext?.toggleVisible,
-    toggleTimelinePlay: timelineContext?.togglePlay,
-    stopTimeline: timelineContext?.stop,
-    timelineVisible: timelineContext?.visible,
-    timelineIsPlaying: timelineContext?.isPlaying,
+	    toggleAudio: audioReactive?.toggleAudio,
+	    // Timeline controls
+	    toggleTimeline: () => setTimelineMode?.((v) => !v),
+	    toggleTimelinePlay: timelineContext?.togglePlay,
+	    stopTimeline: timelineContext?.stop,
+	    timelineVisible: timelineContext?.visible,
+	    timelineIsPlaying: timelineContext?.isPlaying,
     // Variation keyframe generation
     onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
     onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
