@@ -12,6 +12,7 @@ import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 import AutosaveRecovery from './AutosaveRecovery.jsx';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
+import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -573,6 +574,7 @@ const BPMControlRow = React.memo(({ paramId }) => {
     }
   });
   const [playheadPosition, setPlayheadPosition] = useState(null);
+  const [indicatorPhase, setIndicatorPhase] = useState(0);
   
   if (!bpm) return null;
   
@@ -647,6 +649,39 @@ const BPMControlRow = React.memo(({ paramId }) => {
     console.debug('[GlobalControls] handleEnvelopeChange', { paramId, newEnvelope });
     setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: newEnvelope });
   };
+
+  // Lightweight indicator (does not mutate actual slider values):
+  // show current phase so users can see BPM automation is active even if UI controls are not animated.
+  useEffect(() => {
+    if (!isEnabled || typeof getPhaseForParam !== 'function') {
+      setIndicatorPhase(0);
+      return undefined;
+    }
+
+    let frameId = null;
+    let last = 0;
+    const THROTTLE_MS = 50; // ~20fps
+
+    const tick = () => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (now - last >= THROTTLE_MS) {
+        last = now;
+        const phase = getPhaseForParam(paramId);
+        setIndicatorPhase(Number.isFinite(phase) ? phase : 0);
+      }
+      frameId = requestAnimationFrame(tick);
+    };
+
+    // Only animate when playing; otherwise keep a static snapshot.
+    if (isPlaying) {
+      frameId = requestAnimationFrame(tick);
+      return () => { if (frameId) cancelAnimationFrame(frameId); };
+    }
+
+    const phase = getPhaseForParam(paramId);
+    setIndicatorPhase(Number.isFinite(phase) ? phase : 0);
+    return undefined;
+  }, [isEnabled, isPlaying, getPhaseForParam, paramId]);
   
   return (
     <div style={{ marginTop: '0.25rem' }}>
@@ -710,6 +745,32 @@ const BPMControlRow = React.memo(({ paramId }) => {
         )}
         {isPlaying && isEnabled && (
           <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>♪</span>
+        )}
+        {isEnabled && (
+          <span
+            title={isPlaying ? 'BPM automation active' : 'BPM automation enabled (paused)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              width: 44,
+              height: 6,
+              borderRadius: 6,
+              background: 'rgba(255,255,255,0.12)',
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 6,
+                background: isPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.55)',
+                transform: `translateX(${Math.max(0, Math.min(1, indicatorPhase)) * 38}px)`,
+                transition: isPlaying ? 'none' : 'transform 150ms ease',
+              }}
+            />
+          </span>
         )}
       </div>
       
@@ -871,8 +932,42 @@ const GlobalControls = ({
   // which causes re-renders on every animation frame
   const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
-  const { applyAudioSnapshot } = useAudioReactive() || {};
-  const { applyBPMSnapshot } = useBPM() || {};
+  const audioContext = useAudioReactive() || {};
+  const { applyAudioSnapshot } = audioContext;
+  const bpmContext = useBPM() || {};
+  const { applyBPMSnapshot } = bpmContext;
+
+  const [canvasFps, setCanvasFpsState] = useState(() => getCanvasFps());
+  useEffect(() => subscribeCanvasFps(setCanvasFpsState), []);
+
+  const renderAutomationBadge = useCallback((paramId) => {
+    const bpmEnabled = !!bpmContext?.mappings?.[paramId]?.enabled;
+    const audioMapping = audioContext?.mappings?.[paramId];
+    const audioEnabled = !!(audioMapping && audioMapping.band && audioMapping.band !== 'none');
+    if (!bpmEnabled && !audioEnabled) return null;
+    const bpmPlaying = !!bpmContext?.isPlaying;
+    const audioActive = !!audioContext?.settings?.enabled;
+    return (
+      <span
+        title={
+          audioEnabled
+            ? (audioActive ? 'Audio automation mapped' : 'Audio automation mapped (disabled)')
+            : (bpmPlaying ? 'BPM automation mapped' : 'BPM automation mapped (paused)')
+        }
+        aria-label={audioEnabled ? 'Audio automation mapped' : 'BPM automation mapped'}
+        style={{
+          fontSize: '0.85rem',
+          color: audioEnabled
+            ? (audioActive ? '#4ade80' : 'rgba(74,222,128,0.6)')
+            : (bpmPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.6)'),
+          lineHeight: 1,
+          marginLeft: 6,
+        }}
+      >
+        ♪
+      </span>
+    );
+  }, [bpmContext, audioContext]);
 
   // Autosave recovery state
   const [showAutosaveRecovery, setShowAutosaveRecovery] = useState(false);
@@ -1854,6 +1949,30 @@ const GlobalControls = ({
       <div className="control-group" style={{ margin: 0 }}>
         <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <label className="compact-label">Canvas FPS</label>
+            <label className="compact-label" title="Helps performance by limiting draw rate">
+              <input
+                type="checkbox"
+                checked={canvasFps <= 30}
+                onChange={(e) => setCanvasFps(e.target.checked ? 30 : 60)}
+              /> 30fps limit
+            </label>
+          </div>
+          <select
+            className="compact-select"
+            value={canvasFps}
+            onChange={(e) => setCanvasFps(Number(e.target.value))}
+            title="Canvas draw rate (lower = more responsive UI)"
+          >
+            <option value={15}>15 fps</option>
+            <option value={24}>24 fps</option>
+            <option value={30}>30 fps</option>
+            <option value={60}>60 fps</option>
+          </select>
+        </div>
+
+        <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
             <label className="compact-label" htmlFor="global-target-mode">Target</label>
             <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
               {targetMode === 'global' ? 'Apply changes to every layer' : 'Edit only the active layer/selection'}
@@ -1961,7 +2080,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
+              <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}{renderAutomationBadge('globalSpeedMultiplier')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2019,7 +2138,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Palette</label>
+              <label className="compact-label">Palette{renderAutomationBadge('globalPaletteIndex')}</label>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2066,7 +2185,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Style</label>
+              <label className="compact-label">Style{renderAutomationBadge('globalBlendMode')}</label>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2118,7 +2237,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Opacity</span>
+              <span className="compact-label">Global Opacity{renderAutomationBadge('globalOpacity')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2189,7 +2308,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Layers</span>
+              <span className="compact-label">Layers{renderAutomationBadge('layersCount')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2332,7 +2451,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}</span>
+              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}{renderAutomationBadge('variationPosition')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2399,7 +2518,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}</span>
+              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}{renderAutomationBadge('variationShape')}</span>
               <button type="button" className="icon-btn sm" title="Variation settings" aria-label="Variation settings" onClick={(e) => { e.stopPropagation(); setShowVariationShapeSettings(s => !s); }}>⚙</button>
               <label className="compact-label" title="Include Shape Variation in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('variationShape')} onChange={(e) => setIsRnd('variationShape', e.target.checked)} /> Include
@@ -2460,7 +2579,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}</span>
+              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}{renderAutomationBadge('variationAnim')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2527,7 +2646,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}</span>
+              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}{renderAutomationBadge('variationColor')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -2594,7 +2713,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Scale Variation: {Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0).toFixed(2)}</span>
+              <span className="compact-label">Scale Variation: {Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0).toFixed(2)}{renderAutomationBadge('variationScale')}</span>
               <button
                 type="button"
                 className="icon-btn sm"

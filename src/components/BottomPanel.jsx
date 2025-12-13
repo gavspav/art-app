@@ -333,6 +333,8 @@ const BottomPanel = ({
   setParameterTargetMode,
   onQuickSave,
   onQuickLoad,
+  timelineMode,
+  setTimelineMode,
   layers,
   sampleColorsEven,
   assignOneColorPerLayer,
@@ -959,6 +961,21 @@ const BottomPanel = ({
             aria-label="Autosave recovery"
           >
             🛟
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof setTimelineMode !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              setTimelineMode?.((v) => !v);
+            }}
+            title={timelineMode ? 'Timeline mode (BPM + Audio disabled)' : 'Free mode (no timeline)'}
+            aria-label={timelineMode ? 'Disable timeline mode' : 'Enable timeline mode'}
+            style={{ opacity: timelineMode ? 1 : 0.35 }}
+          >
+            {timelineMode ? '🕒' : '⏱️'}
           </button>
           <BeatIndicator panelExpanded={panelState === 'expanded'} />
           <AudioIndicator panelExpanded={panelState === 'expanded'} />

@@ -4,6 +4,7 @@ import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
+import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
@@ -990,6 +991,7 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 // --- Canvas Component ---
 const Canvas = forwardRef(({
     layers,
+    layersRef,
     backgroundColor,
     globalSeed,
     globalBlendMode,
@@ -1075,6 +1077,14 @@ const Canvas = forwardRef(({
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
     const lastSlowRenderLogRef = useRef(0); // throttle repeated slow-render warnings
+    const targetFpsRef = useRef(60);
+    const lastRenderMsRef = useRef(0);
+    useEffect(() => {
+        targetFpsRef.current = getCanvasFps();
+        return subscribeCanvasFps((fps) => {
+            targetFpsRef.current = fps;
+        });
+    }, []);
 
     const clearDragState = () => {
         draggingNodeIndexRef.current = null;
@@ -1364,6 +1374,8 @@ const Canvas = forwardRef(({
 
     // While frozen with color-fade enabled, drive a lightweight RAF to animate colours visibly
     useEffect(() => {
+        // In ref-driven animation mode, Canvas is already driven by a RAF loop; avoid extra React state churn.
+        if (layersRef) return;
         if (!(isFrozen && colorFadeWhileFrozen)) return;
         let rafId;
         const loop = () => {
@@ -1373,15 +1385,18 @@ const Canvas = forwardRef(({
         };
         rafId = requestAnimationFrame(loop);
         return () => { if (rafId) cancelAnimationFrame(rafId); };
-    }, [isFrozen, colorFadeWhileFrozen]);
+    }, [isFrozen, colorFadeWhileFrozen, layersRef]);
 
     // Optimized render effect with selective updates
-    useEffect(() => {
+    const renderFrame = useCallback(() => {
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
+        const layersForRender = isNodeEditMode
+            ? layers
+            : ((layersRef && layersRef.current) ? layersRef.current : layers);
         
         // Store canvas dimensions globally for bounce detection in useAnimation
         if (typeof window !== 'undefined') {
@@ -1399,7 +1414,7 @@ const Canvas = forwardRef(({
             // Force a render when node edit mode toggles or selected layer changes
             const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
 
-        const countChanged = prevLayersCountRef.current !== layers.length;
+        const countChanged = prevLayersCountRef.current !== (layersForRender?.length || 0);
         // Always repaint the background so color changes show immediately (even when frozen)
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = backgroundColor;
@@ -1473,7 +1488,7 @@ const Canvas = forwardRef(({
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : timeNow;
-            layers.forEach((layer, index) => {
+            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
                 if (!isLayerVisible(layer)) {
                     renderedPointsRef.current.delete(index);
@@ -1577,7 +1592,7 @@ const Canvas = forwardRef(({
         const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
             ? (Date.now() * 0.001 + colorWallOffsetRef.current)
             : nowSec;
-        layers.forEach((layer, index) => {
+        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
                 return;
@@ -1677,7 +1692,7 @@ const Canvas = forwardRef(({
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
             }
-            layers.forEach(l => {
+            (Array.isArray(layersForRender) ? layersForRender : []).forEach(l => {
                 const lx = Number(l?.position?.x);
                 const ly = Number(l?.position?.y);
                 const offsetX = (Number(l?.xOffset) || 0) * width;
@@ -1807,7 +1822,7 @@ const Canvas = forwardRef(({
 
         // Update trackers after a pass
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
-        prevLayersCountRef.current = layers.length;
+        prevLayersCountRef.current = (layersForRender?.length || 0);
         } finally {
             ctx.restore();
         }
@@ -1828,6 +1843,7 @@ const Canvas = forwardRef(({
         canvasSize.height,
         canvasSize.pixelRatio,
         layers,
+        layersRef,
         selectedLayerIdsCtx,
         getActiveTargetLayerIdsProp,
         getActiveTargetLayerIdsCtx,
@@ -1836,6 +1852,31 @@ const Canvas = forwardRef(({
         isLayerVisible,
         showLayerOutlines,
     ]);
+
+    // Render on relevant changes (initial paint, resize, selection changes, etc.)
+    useEffect(() => {
+        renderFrame();
+    }, [renderFrame]);
+
+    // In ref-driven animation mode, render continuously without React state updates.
+    useEffect(() => {
+        if (!layersRef) return;
+        if (isNodeEditMode) return;
+        if (isFrozen && !colorFadeWhileFrozen) return;
+        let rafId = null;
+        const loop = () => {
+            const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const targetFps = Number(targetFpsRef.current) || 60;
+            const minDeltaMs = targetFps > 0 ? (1000 / targetFps) : (1000 / 60);
+            if ((nowMs - lastRenderMsRef.current) >= minDeltaMs) {
+                lastRenderMsRef.current = nowMs;
+                renderFrame();
+            }
+            rafId = requestAnimationFrame(loop);
+        };
+        rafId = requestAnimationFrame(loop);
+        return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, [layersRef, isNodeEditMode, isFrozen, colorFadeWhileFrozen, renderFrame]);
 
     // Initialize nodes when entering node edit mode if missing
     useEffect(() => {

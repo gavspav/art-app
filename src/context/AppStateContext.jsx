@@ -129,6 +129,9 @@ export const AppStateProvider = ({ children }) => {
     morphLoopMode: 'loop', // 'loop' | 'pingpong'
     morphMode: 'tween', // 'tween' | 'fade'
     morphNodes: false, // interpolate node geometry (requires matching topology)
+
+    // Two-mode UI: when true, timeline is the authority.
+    timelineMode: false,
   });
   const appStateRef = useRef(appState);
   useEffect(() => { appStateRef.current = appState; }, [appState]);
@@ -182,6 +185,7 @@ export const AppStateProvider = ({ children }) => {
     if (typeof window === 'undefined') return () => {};
 
     const handlePointer = () => { noteUserInteraction(); };
+    const handlePointerMove = () => { noteUserInteraction(); };
     const handleKey = (event) => {
       if (!event || typeof event.key !== 'string') {
         noteUserInteraction();
@@ -195,11 +199,13 @@ export const AppStateProvider = ({ children }) => {
 
     window.addEventListener('pointerdown', handlePointer, passiveOpts);
     window.addEventListener('pointerup', handlePointer, passiveOpts);
+    window.addEventListener('pointermove', handlePointerMove, passiveOpts);
     window.addEventListener('keydown', handleKey, true);
 
     return () => {
       window.removeEventListener('pointerdown', handlePointer, passiveOpts);
       window.removeEventListener('pointerup', handlePointer, passiveOpts);
+      window.removeEventListener('pointermove', handlePointerMove, passiveOpts);
       window.removeEventListener('keydown', handleKey, true);
     };
   }, [noteUserInteraction]);
@@ -363,6 +369,14 @@ export const AppStateProvider = ({ children }) => {
   // Toggle Z-Ignore (disable Z movement)
   const setZIgnore = useCallback((value) => {
     setAppState(prev => ({ ...prev, zIgnore: !!value }));
+    markDirty();
+  }, [markDirty]);
+
+  const setTimelineMode = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      timelineMode: (typeof value === 'function') ? !!value(!!prev.timelineMode) : !!value,
+    }));
     markDirty();
   }, [markDirty]);
 
@@ -656,6 +670,7 @@ export const AppStateProvider = ({ children }) => {
       showLayerOutlines: false,
       isolateMode: false,
       syncLayerColorsToFirst: false,
+      timelineMode: false,
     });
     markDirty();
   }, [markDirty]);
@@ -696,6 +711,7 @@ export const AppStateProvider = ({ children }) => {
     setIsNodeEditMode,
     setClassicMode,
     setZIgnore,
+    setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
     randomizeColorsPerLayer: appState.randomizeColorsPerLayer,
@@ -766,6 +782,7 @@ export const AppStateProvider = ({ children }) => {
     setIsNodeEditMode,
     setClassicMode,
     setZIgnore,
+    setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
     setRandomizeColorsPerLayer,

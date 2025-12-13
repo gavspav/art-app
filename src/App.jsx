@@ -147,6 +147,8 @@ const MainApp = () => {
 
   // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
   const timelineContext = useTimeline();
+  const timelineContextRef = useRef(timelineContext);
+  useEffect(() => { timelineContextRef.current = timelineContext; }, [timelineContext]);
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -383,6 +385,9 @@ const MainApp = () => {
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
+
+  // Animated layers are produced by useAnimation without touching React state (prevents UI re-render thrash).
+  const animatedLayersRef = useRef(layers);
   // Throttled snapshot of layers for UI (avoid re-rendering Global tab every animation frame)
   const [uiLayers, setUiLayers] = useState(layers);
   const lastUiLayersUpdateRef = useRef(0);
@@ -478,6 +483,63 @@ const MainApp = () => {
   // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
   const modulationStore = useModulationStore();
 
+  const { timelineMode, setTimelineMode } = appStateCtx;
+
+  // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
+  useEffect(() => {
+    if (typeof setTimelineVisible !== 'function') return;
+    setTimelineVisible(!!timelineMode);
+  }, [timelineMode, setTimelineVisible]);
+
+  // When Timeline mode is active, disable competing automation sources (BPM + Audio),
+  // and restore previous runtime state when switching back to Free mode.
+  const automationRestoreRef = useRef({ audioEnabled: null, bpmWasPlaying: null });
+  const lastTimelineModeRef = useRef(false);
+  useEffect(() => {
+    const was = lastTimelineModeRef.current;
+    const now = !!timelineMode;
+    if (was === now) return;
+    lastTimelineModeRef.current = now;
+
+    if (now) {
+      automationRestoreRef.current = {
+        audioEnabled: !!audioReactive?.settings?.enabled,
+        bpmWasPlaying: !!bpmForAnimation?.isPlaying,
+      };
+
+      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
+      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
+      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
+      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
+
+      try { modulationStore?.clearAllMods?.('bpm'); } catch { /* noop */ }
+      try { modulationStore?.clearAllMods?.('audio'); } catch { /* noop */ }
+      return;
+    }
+
+    // Restoring Free mode
+    const { audioEnabled, bpmWasPlaying } = automationRestoreRef.current || {};
+    if (audioEnabled) {
+      try { audioReactive?.setAudioEnabled?.(true); } catch { /* noop */ }
+    }
+    if (bpmWasPlaying) {
+      try { bpmForAnimation?.play?.(); } catch { /* noop */ }
+    }
+  }, [timelineMode, audioReactive, bpmForAnimation, modulationStore]);
+
+  // Enforce "Timeline mode disables BPM + Audio" even if the user toggles them on.
+  useEffect(() => {
+    if (!timelineMode) return;
+    if (bpmForAnimation?.isPlaying) {
+      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
+    }
+    if (audioReactive?.settings?.enabled) {
+      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
+      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
+      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
+    }
+  }, [timelineMode, bpmForAnimation?.isPlaying, audioReactive?.settings?.enabled, audioReactive, bpmForAnimation]);
+
   // When timeline playback starts from t=0 and a timeline start preset exists,
   // recall that preset app state before timeline automation is applied.
   const lastTimelinePlayingRef = useRef(false);
@@ -509,12 +571,16 @@ const MainApp = () => {
   // the layer has the correct shape before Canvas node-init effects run
   const handleSetNodeEditMode = useCallback((value) => {
     if (value) {
+      const layersNow = layersRef.current || [];
+      const selectedIndex = selectedLayerIndexRef.current || 0;
+      const timelineNow = timelineContextRef.current;
+
       // Entering node edit mode - capture context
-      const layer = layers[selectedLayerIndex];
+      const layer = layersNow[selectedIndex];
       
       // Use getPositionSeconds() if available to get the most up-to-date time from the ref
       // This avoids using stale state which updates less frequently
-      const positionSeconds = timelineContext?.getPositionSeconds?.() ?? timelineContext?.positionSeconds ?? 0;
+      const positionSeconds = timelineNow?.getPositionSeconds?.() ?? timelineNow?.positionSeconds ?? 0;
       
       const context = {
         layerId: layer?.id || null,
@@ -525,7 +591,7 @@ const MainApp = () => {
       // Find the shape track for this layer and evaluate it directly at current position
       // Use EXACT matching for layer ID or Name to avoid partial matches (e.g. "Layer 1" matching "Layer 10")
       // And look for the LAST matching track to follow 'last write wins'
-      const tracks = timelineContext?.tracks || [];
+      const tracks = timelineNow?.tracks || [];
       const matchingTracks = tracks.filter(t => {
         if (t.type !== 'shape' || !t.enabled || !t.targetId) return false;
         
@@ -553,7 +619,7 @@ const MainApp = () => {
       
       // During playback, prefer the ref which has the most current frame's data
       // During pause/scrub, the direct evaluation should be accurate
-      const isPlaying = timelineContext?.isPlaying;
+      const isPlaying = timelineNow?.isPlaying;
       const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
       
       if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
@@ -567,7 +633,7 @@ const MainApp = () => {
       if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
         // Apply ALL shape update properties to ensure layer matches timeline exactly
         setLayers(prev => prev.map((l, i) => {
-          if (i !== selectedLayerIndex) return l;
+          if (i !== selectedIndex) return l;
           const updated = { ...l };
           
           // Apply geometry (nodes or subpaths)
@@ -642,12 +708,12 @@ const MainApp = () => {
       // Exiting node edit mode - clear context
       setIsNodeEditMode(false);
     }
-  }, [layers, selectedLayerIndex, timelineContext?.positionSeconds, timelineContext?.tracks, setIsNodeEditMode, setLayers]);
+  }, [setIsNodeEditMode, setLayers]);
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
   // Shape track updates are passed via shapeTrackUpdatesRef for smooth 60fps interpolation
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef);
+  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef);
 
   // Config save/load from contexts
   const {
@@ -723,6 +789,21 @@ const MainApp = () => {
     // Default: use the selected layer index
     return layerSource[clampedSelectedIndex] || layerSource[0];
   }, [uiLayers, layers, clampedSelectedIndex, editTarget, layerGroups]);
+
+  const baseColors = useMemo(() => (
+    Array.isArray(uiLayers?.[0]?.colors) ? uiLayers[0].colors : []
+  ), [uiLayers]);
+
+  const baseNumColors = useMemo(() => {
+    const first = uiLayers?.[0];
+    if (Number.isFinite(first?.numColors)) return first.numColors;
+    if (Array.isArray(first?.colors)) return first.colors.length;
+    return 1;
+  }, [uiLayers]);
+
+  const uiLayerNames = useMemo(() => (
+    (Array.isArray(uiLayers) ? uiLayers : []).map((l, i) => l?.name || `Layer ${i + 1}`)
+  ), [uiLayers]);
 
   const getExportMeta = useCallback(() => {
     const handle = canvasRef.current;
@@ -1748,7 +1829,7 @@ const MainApp = () => {
         />
 
         {/* Full canvas mode when timeline is hidden */}
-        {!isFullscreen && !timelineVisible && (
+        {!isFullscreen && !timelineMode && (
           <div
             className="canvas-container"
             style={{
@@ -1764,6 +1845,7 @@ const MainApp = () => {
             <Canvas
               ref={canvasRef}
               layers={layers}
+              layersRef={animatedLayersRef}
               isFrozen={isFrozen}
               colorFadeWhileFrozen={colorFadeWhileFrozen}
               backgroundColor={backgroundColor}
@@ -1807,7 +1889,7 @@ const MainApp = () => {
             
             <button
               type="button"
-              onClick={() => setTimelineVisible?.(!timelineVisible)}
+              onClick={() => setTimelineMode?.((v) => !v)}
               style={{
                 position: 'absolute',
                 bottom: 16,
@@ -1869,6 +1951,8 @@ const MainApp = () => {
               setParameterTargetMode={setParameterTargetMode}
               onQuickSave={handleQuickSave}
               onQuickLoad={handleQuickLoad}
+              timelineMode={timelineMode}
+              setTimelineMode={setTimelineMode}
               layers={uiLayers}
               selectedLayerIds={selectedLayerIds}
               toggleLayerSelection={toggleLayerSelection}
@@ -1889,8 +1973,8 @@ const MainApp = () => {
               randomizeCurrentLayer={randomizeCurrentLayer}
               randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
               randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-              baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
-              baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+              baseColors={baseColors}
+              baseNumColors={baseNumColors}
               isNodeEditMode={isNodeEditMode}
               setIsNodeEditMode={handleSetNodeEditMode}
               randomizePalette={randomizePalette}
@@ -1903,7 +1987,7 @@ const MainApp = () => {
               colorCountMax={colorCountMax}
               setColorCountMin={setColorCountMin}
               setColorCountMax={setColorCountMax}
-              layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
+              layerNames={uiLayerNames}
               selectedLayerIndex={clampedSelectedIndex}
               selectLayer={selectLayer}
               addNewLayer={addNewLayer}
@@ -1938,7 +2022,7 @@ const MainApp = () => {
         )}
 
         {/* Split layout when timeline is visible */}
-        {!isFullscreen && timelineVisible && (
+        {!isFullscreen && timelineMode && timelineVisible && (
           <div
             style={{
               position: 'fixed',
@@ -2002,6 +2086,8 @@ const MainApp = () => {
                 setParameterTargetMode={setParameterTargetMode}
                 onQuickSave={handleQuickSave}
                 onQuickLoad={handleQuickLoad}
+                timelineMode={timelineMode}
+                setTimelineMode={setTimelineMode}
                 layers={uiLayers}
                 selectedLayerIds={selectedLayerIds}
                 toggleLayerSelection={toggleLayerSelection}
@@ -2023,8 +2109,8 @@ const MainApp = () => {
                 randomizeCurrentLayer={randomizeCurrentLayer}
                 randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
                 randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-                baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
-                baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
+                baseColors={baseColors}
+                baseNumColors={baseNumColors}
                 isNodeEditMode={isNodeEditMode}
                 setIsNodeEditMode={handleSetNodeEditMode}
                 randomizePalette={randomizePalette}
@@ -2037,7 +2123,7 @@ const MainApp = () => {
                 colorCountMax={colorCountMax}
                 setColorCountMin={setColorCountMin}
                 setColorCountMax={setColorCountMax}
-                layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
+                layerNames={uiLayerNames}
                 selectedLayerIndex={clampedSelectedIndex}
                 selectLayer={selectLayer}
                 addNewLayer={addNewLayer}
@@ -2093,6 +2179,7 @@ const MainApp = () => {
               <Canvas
                 ref={canvasRef}
                 layers={layers}
+                layersRef={animatedLayersRef}
                 isFrozen={isFrozen}
                 colorFadeWhileFrozen={colorFadeWhileFrozen}
                 backgroundColor={backgroundColor}
@@ -2139,7 +2226,7 @@ const MainApp = () => {
               {/* Timeline toggle button */}
               <button
                 type="button"
-                onClick={() => setTimelineVisible?.(!timelineVisible)}
+                onClick={() => setTimelineMode?.((v) => !v)}
                 style={{
                   position: 'absolute',
                   bottom: 16,
@@ -2178,14 +2265,15 @@ const MainApp = () => {
               height: '100%',
             }}
           >
-            <Canvas
-              ref={canvasRef}
-              layers={layers}
-              isFrozen={isFrozen}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              backgroundColor={backgroundColor}
-              globalSeed={globalSeed}
-              globalBlendMode={globalBlendMode}
+              <Canvas
+                ref={canvasRef}
+                layers={layers}
+                layersRef={animatedLayersRef}
+                isFrozen={isFrozen}
+                colorFadeWhileFrozen={colorFadeWhileFrozen}
+                backgroundColor={backgroundColor}
+                globalSeed={globalSeed}
+                globalBlendMode={globalBlendMode}
               isNodeEditMode={isNodeEditMode}
               selectedLayerIndex={selectedLayerIndex}
               setLayers={setLayers}
@@ -2209,7 +2297,7 @@ const MainApp = () => {
         )}
         
         {/* Timeline Panel - shown in lower portion when visible */}
-        {!isFullscreen && timelineVisible && (
+        {!isFullscreen && timelineMode && timelineVisible && (
           <>
             {/* Vertical Divider between top and timeline */}
             <DraggableDivider
@@ -2238,7 +2326,7 @@ const MainApp = () => {
             >
               <TimelinePanel
                 layers={layers}
-                onClose={() => setTimelineVisible?.(false)}
+                onClose={() => setTimelineMode?.(false)}
                 isRecording={isRecording}
                 onStartRecording={startRecording}
                 onStopRecording={stopRecording}

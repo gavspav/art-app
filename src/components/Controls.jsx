@@ -579,6 +579,17 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     learnParamId,
     supported: midiSupported,
   } = useMidi() || {};
+
+  const bpm = useBPM();
+  const audioReactive = useAudioReactive();
+  const bpmParamId = useMemo(
+    () => `layer:${(currentLayer?.name || 'Layer').toString()}:${id}`,
+    [currentLayer?.name, id],
+  );
+  const bpmMapped = !!bpm?.mappings?.[bpmParamId]?.enabled;
+  const bpmPlaying = !!bpm?.isPlaying;
+  const audioMapped = !!(audioReactive?.mappings?.[bpmParamId] && audioReactive.mappings[bpmParamId].band && audioReactive.mappings[bpmParamId].band !== 'none');
+  const audioEnabled = !!audioReactive?.settings?.enabled;
   
   // Note: Audio and BPM modulation is now handled in the animation loop (useAnimation.js)
   // to prevent excessive re-renders. Handlers are not registered here.
@@ -932,6 +943,25 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto' }}>
       <div>{children}</div>
       <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none' }}>
+        {(bpmMapped || audioMapped) && (
+          <span
+            title={
+              audioMapped
+                ? (audioEnabled ? 'Audio automation mapped' : 'Audio automation mapped (disabled)')
+                : (bpmPlaying ? 'BPM automation mapped' : 'BPM automation mapped (paused)')
+            }
+            aria-label={audioMapped ? 'Audio automation mapped' : 'BPM automation mapped'}
+            style={{
+              fontSize: '0.85rem',
+              color: audioMapped
+                ? (audioEnabled ? '#4ade80' : 'rgba(74,222,128,0.6)')
+                : (bpmPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.6)'),
+              lineHeight: 1,
+            }}
+          >
+            ♪
+          </span>
+        )}
         <button
           type="button"
           onClick={onClickRandomize}
