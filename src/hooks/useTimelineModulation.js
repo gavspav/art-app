@@ -50,7 +50,7 @@ const stripMorphFields = (state) => {
 export function useTimelineModulation({
   modulationStore,
   layers,
-  // Context hooks for clearing other mappings (exclusivity)
+  // Context hooks (timeline mode is authoritative; we don't clear user mappings)
   bpmContext,
   audioContext,
   midiContext,
@@ -72,7 +72,7 @@ export function useTimelineModulation({
   shapeTrackUpdatesRef,
 }) {
   const timeline = useTimeline();
-  const { isNodeEditMode, nodeEditContext } = useAppState() || {};
+  const { isNodeEditMode, nodeEditContext, timelineMode } = useAppState() || {};
   
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
@@ -152,54 +152,8 @@ export function useTimelineModulation({
     return null;
   }, []);
 
-  /**
-   * Clear other modulation sources for a parameter (exclusivity)
-   */
-  const clearOtherMappings = useCallback((targetId) => {
-    const parsed = parseTargetId(targetId);
-    if (!parsed) return;
-    
-    if (parsed.type === 'layer') {
-      const { layerId, paramId } = parsed;
-      const layerName = layersRef.current?.find(l => l?.id === layerId)?.name;
-      const fullParamId = layerName ? `layer:${layerName}:${paramId}` : null;
-      
-      // Clear BPM mapping
-      if (fullParamId && bpmContextRef.current?.clearMapping) {
-        bpmContextRef.current.clearMapping(fullParamId);
-      }
-      
-      // Clear Audio mapping
-      if (fullParamId && audioContextRef.current?.setMapping) {
-        audioContextRef.current.setMapping(fullParamId, { band: 'none' });
-      }
-      
-      // Clear MIDI mapping
-      if (fullParamId && midiContextRef.current?.clearMapping) {
-        midiContextRef.current.clearMapping(fullParamId);
-      }
-    } else if (parsed.type === 'global') {
-      const { paramId } = parsed;
-      
-      // Clear BPM mapping for global param
-      if (bpmContextRef.current?.clearMapping) {
-        bpmContextRef.current.clearMapping(paramId);
-      }
-      
-      // Clear Audio mapping for global param
-      if (audioContextRef.current?.setMapping) {
-        audioContextRef.current.setMapping(paramId, { band: 'none' });
-      }
-      
-      // Clear MIDI mapping for global param
-      if (midiContextRef.current?.clearMapping) {
-        midiContextRef.current.clearMapping(paramId);
-      }
-    }
-  }, [parseTargetId]);
-
-  // Track which targetIds we've cleared mappings for (to avoid repeated clears)
-  const clearedTargetsRef = useRef(new Set());
+  // In the "two-mode" model, timeline mode is authoritative and BPM/Audio are disabled.
+  // Avoid destructive clearing of user mappings.
 
   // Get direct position access from timeline (for RAF-based updates)
   const getPositionSeconds = timeline?.getPositionSeconds;
@@ -213,6 +167,16 @@ export function useTimelineModulation({
   // Note: During playback, the RAF loop below handles layer parameter updates for smoother animation
   useEffect(() => {
     if (!timeline) return;
+    if (!timelineMode) {
+      const store = modulationStoreRef.current;
+      if (store) {
+        store.clearAllMods('timeline');
+      }
+      if (shapeTrackUpdatesRef) {
+        shapeTrackUpdatesRef.current = new Map();
+      }
+      return;
+    }
     
     const { isPlaying, positionSeconds, tracks } = timeline;
     const store = modulationStoreRef.current;
@@ -231,12 +195,6 @@ export function useTimelineModulation({
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
-      
-      // Ensure exclusivity (clear other mappings once per target)
-      if (!clearedTargetsRef.current.has(track.targetId)) {
-        clearOtherMappings(track.targetId);
-        clearedTargetsRef.current.add(track.targetId);
-      }
       
       // Handle shape tracks separately (now includes position, animation, colors)
       if (track.type === 'shape') {
@@ -806,23 +764,19 @@ export function useTimelineModulation({
     timeline?.positionSeconds,
     timeline?.tracks,
     parseTargetId,
-    clearOtherMappings,
     setGlobalSpeedMultiplier,
     setLayers,
     isNodeEditMode,
     nodeEditContext,
+    timelineMode,
   ]);
-
-  // Reset cleared targets when tracks change
-  useEffect(() => {
-    clearedTargetsRef.current.clear();
-  }, [timeline?.tracks]);
 
   // RAF-based modulation update during playback
   // This ensures modulations are applied every frame, not just when React re-renders
   // Now also evaluates shape tracks and stores in shapeTrackUpdatesRef for smooth 60fps interpolation
   useEffect(() => {
     if (!timeline?.isPlaying || !timeline?.visible) return;
+    if (!timelineMode) return;
     
     const getPos = getPositionSecondsRef.current;
     if (!getPos) return;
@@ -921,11 +875,11 @@ export function useTimelineModulation({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef]);
+  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef, timelineMode]);
 
   // Clean up timeline modulations when timeline is hidden or stopped
   useEffect(() => {
-    if (!timeline?.visible || !timeline?.isPlaying) {
+    if (!timelineMode || !timeline?.visible || !timeline?.isPlaying) {
       const store = modulationStoreRef.current;
       if (store) {
         store.clearAllMods('timeline');
@@ -938,11 +892,10 @@ export function useTimelineModulation({
       layerPoolRef.current = [];
       maxLayerCountRef.current = 0;
     }
-  }, [timeline?.visible, timeline?.isPlaying, shapeTrackUpdatesRef]);
+  }, [timeline?.visible, timeline?.isPlaying, shapeTrackUpdatesRef, timelineMode]);
 
   return {
     parseTargetId,
-    clearOtherMappings,
   };
 }
 

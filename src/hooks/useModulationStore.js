@@ -184,6 +184,13 @@ export function useModulationStore() {
           ...modifiedLayer,
           position: { ...(modifiedLayer.position || {}), scale: value },
         };
+      } else if (paramId === 'numSides') {
+        const v = Number(value);
+        const nextSides = Number.isFinite(v) ? Math.max(3, Math.round(v)) : modifiedLayer.numSides;
+        modifiedLayer = {
+          ...modifiedLayer,
+          numSides: nextSides,
+        };
       } else if (paramId === 'colors' && Array.isArray(value)) {
         // Colors array
         modifiedLayer = {
@@ -285,6 +292,17 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
       modifiedLayer = {
         ...modifiedLayer,
         position: { ...(modifiedLayer.position || {}), scale: value },
+      };
+    } else if (paramId === 'numSides') {
+      const v = Number(value);
+      // Keep polygon sides discrete + sane; fractional sides can cause visual "no change"
+      // and excessive churn from tiny per-frame updates.
+      const nextSides = Number.isFinite(v)
+        ? Math.max(3, Math.min(256, Math.round(v)))
+        : modifiedLayer.numSides;
+      modifiedLayer = {
+        ...modifiedLayer,
+        numSides: nextSides,
       };
     } else if (paramId === 'movementStyle') {
       // Map numeric value to discrete movement style string

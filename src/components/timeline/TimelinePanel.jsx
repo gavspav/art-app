@@ -526,12 +526,12 @@ const TimelinePanel = ({
     }
   }, [setAudio, setLengthSeconds, lengthSeconds]);
 
-  if (!visible) return null;
-
   const contentWidth = useMemo(() => {
     const base = lengthSeconds * pixelsPerSecond;
     return Math.max(timelineWidth || 0, base, 800);
   }, [timelineWidth, lengthSeconds, pixelsPerSecond]);
+
+  if (!visible) return null;
   const WAVEFORM_HEIGHT = 80;
 
   return (

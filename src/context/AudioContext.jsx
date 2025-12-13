@@ -97,7 +97,7 @@ export const AudioProvider = ({ children }) => {
   const {
     isActive,
     error,
-    features,
+    getFeatures: getFeaturesFromHook,
     availableDevices,
     currentDeviceId,
     initMic,
@@ -122,13 +122,13 @@ export const AudioProvider = ({ children }) => {
     deviceId: settings.deviceId,
   });
 
-  // Use a ref for features to avoid re-renders on every audio frame
-  const featuresRef = useRef(features);
-  
-  // Update the ref whenever features change (useEffect ensures this runs after render)
-  useEffect(() => {
-    featuresRef.current = features;
-  }, [features]);
+  // Stable getter for features (doesn't cause re-renders)
+  const getFeatures = useCallback(() => {
+    if (typeof getFeaturesFromHook === 'function') {
+      return getFeaturesFromHook();
+    }
+    return { rms: 0, bass: 0, mids: 0, highs: 0 };
+  }, [getFeaturesFromHook]);
 
   // Persist settings
   useEffect(() => {
@@ -270,7 +270,7 @@ export const AudioProvider = ({ children }) => {
       }
 
       const mappings = effectiveMappingsRef.current;
-      const currentFeatures = featuresRef.current;
+      const currentFeatures = getFeatures();
 
       handlers.forEach((handlerSet, paramId) => {
         const mapping = mappings[paramId];
@@ -304,7 +304,7 @@ export const AudioProvider = ({ children }) => {
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [isActive, settings.enabled]); // Remove 'features' from deps - read from ref instead
+  }, [isActive, settings.enabled, getFeatures]); // Read fresh features from ref getter
 
   // Toggle audio on/off
   const toggleAudio = useCallback(() => {
@@ -342,13 +342,11 @@ export const AudioProvider = ({ children }) => {
     }
   }, [switchDevice]);
 
-  // Stable getter for features (doesn't cause re-renders)
-  const getFeatures = useCallback(() => featuresRef.current, []);
-
   // Get the audio level for a specific band
   const getBandValue = useCallback((band) => {
-    return featuresRef.current[band] || 0;
-  }, []);
+    const features = getFeatures();
+    return features?.[band] || 0;
+  }, [getFeatures]);
 
   // Get a snapshot of audio settings and mappings for export/preset save
   const getAudioSnapshot = useCallback(() => ({

@@ -609,14 +609,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       buildTargetSet,
       targetMode,
     });
-    try {
-      // Diagnostics: confirm which targets we are about to update for this control
-      console.debug('[applyUpdateToTargets]', {
-        paramId: id,
-        targetMode,
-        targets: Array.from(targets || []),
-      });
-    } catch { /* noop */ }
     const factory = typeof patchFactory === 'function'
       ? patchFactory
       : (() => patchFactory || {});
@@ -1366,10 +1358,6 @@ const Controls = forwardRef(({
       : (() => updater || {});
 
     const ids = Array.from(targets || []);
-    try {
-      console.debug('[Controls] applyTargetedUpdate', targetMode, ids);
-    } catch { /* noop */ }
-
     if (targetMode === 'individual' && ids.length === 1) {
       const nextPatch = factory(currentLayer);
       if (nextPatch && typeof updateLayer === 'function') {
@@ -1398,14 +1386,6 @@ const Controls = forwardRef(({
       buildTargetSet,
       targetMode,
     });
-    try {
-      // Diagnostics: confirm targets for rotation updates
-      console.debug('[applyRotation]', {
-        targetMode,
-        targets: Array.from(targets || []),
-        value: wrapped,
-      });
-    } catch { /* noop */ }
     if (typeof setLayers === 'function' && targets.size > 0) {
       setLayers(prev => applyWithVary({
         layers: prev,
@@ -1417,14 +1397,11 @@ const Controls = forwardRef(({
     }
   }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
 
-  // Diagnostics: observe targetMode changes live
+  // Optional: expose for manual inspection from DevTools when settings debug is enabled
   useEffect(() => {
-    try {
-      console.debug('[Controls] targetMode changed:', targetMode);
-      // Expose for quick manual inspection from DevTools if needed
-      window.__artapp_targetMode = targetMode;
-    } catch { /* noop */ }
-  }, [targetMode]);
+    if (!debugSettingsEnabled) return;
+    try { window.__artapp_targetMode = targetMode; } catch { /* noop */ }
+  }, [targetMode, debugSettingsEnabled]);
 
   const handleTargetSelect = useCallback((e) => {
     const value = e.target.value;

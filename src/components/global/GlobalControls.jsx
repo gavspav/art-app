@@ -397,14 +397,19 @@ const BPMSection = ({ showBeatCounter = false }) => {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
           <span className="compact-label" style={{ fontSize: '0.75rem' }}>BPM:</span>
-          <input
-            type="number"
-            min="20"
-            max="300"
-            step="1"
+          <BufferedNumberInput
             value={currentBPM}
-            onChange={(e) => setBPM(parseFloat(e.target.value))}
-            style={{ width: '4rem', fontSize: '0.75rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            min={20}
+            max={300}
+            step={1}
+            onCommit={(next) => {
+              const v = Number(next);
+              if (!Number.isFinite(v)) return;
+              setBPM(Math.max(20, Math.min(300, Math.round(v))));
+            }}
+            className="compact-number"
+            style={{ width: '4rem', fontSize: '0.75rem', padding: '2px 4px' }}
+            inputMode="numeric"
           />
         </div>
         

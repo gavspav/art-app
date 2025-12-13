@@ -21,8 +21,9 @@ export const useBPMClock = ({
 } = {}) => {
   const [bpm, setBPM] = useState(initialBPM);
   const [isPlaying, setIsPlaying] = useState(autoStart);
-  const [currentBeat, setCurrentBeat] = useState(0);
-  const [beatPhase, setBeatPhase] = useState(0); // 0-1 within current beat
+  // Keep per-frame beat state in refs (avoid React re-renders at frame rate).
+  const currentBeatRef = useRef(0);
+  const beatPhaseRef = useRef(0); // 0-1 within current beat
   
   // Internal state
   const startTimeRef = useRef(null);
@@ -48,8 +49,8 @@ export const useBPMClock = ({
     const beat = Math.floor(totalBeats) % (beatsPerBar * 1000); // Wrap at large number for long sessions
     const phase = totalBeats - Math.floor(totalBeats);
 
-    setCurrentBeat(beat);
-    setBeatPhase(phase);
+    currentBeatRef.current = beat;
+    beatPhaseRef.current = phase;
 
     // Track last beat time for tap tempo
     const beatChanged = lastBeatTimeRef.current !== beat;
@@ -71,12 +72,12 @@ export const useBPMClock = ({
     } else {
       // Adjust start time to maintain current beat position
       const beatDuration = beatDurationMs();
-      const currentOffset = (currentBeat + beatPhase) * beatDuration;
+      const currentOffset = (currentBeatRef.current + beatPhaseRef.current) * beatDuration;
       startTimeRef.current = now - currentOffset;
     }
     
     setIsPlaying(true);
-  }, [isPlaying, currentBeat, beatPhase, beatDurationMs]);
+  }, [isPlaying, beatDurationMs]);
 
   // Pause playback
   const pause = useCallback(() => {
@@ -100,8 +101,8 @@ export const useBPMClock = ({
   const reset = useCallback(() => {
     startTimeRef.current = performance.now();
     lastBeatTimeRef.current = null;
-    setCurrentBeat(0);
-    setBeatPhase(0);
+    currentBeatRef.current = 0;
+    beatPhaseRef.current = 0;
   }, []);
 
   // Set BPM
@@ -113,10 +114,10 @@ export const useBPMClock = ({
     if (startTimeRef.current !== null) {
       const now = performance.now();
       const beatDuration = (60 / clamped) * 1000;
-      const currentOffset = (currentBeat + beatPhase) * beatDuration;
+      const currentOffset = (currentBeatRef.current + beatPhaseRef.current) * beatDuration;
       startTimeRef.current = now - currentOffset;
     }
-  }, [currentBeat, beatPhase]);
+  }, []);
 
   // Tap tempo - calculate BPM from tap intervals
   const tap = useCallback(() => {
@@ -170,8 +171,6 @@ export const useBPMClock = ({
     // State
     bpm,
     isPlaying,
-    currentBeat,
-    beatPhase,
     beatsPerBar,
     
     // Actions
@@ -184,5 +183,10 @@ export const useBPMClock = ({
     
     // Helpers
     beatDurationMs: beatDurationMs(),
+    // For animation/automation loops (read fresh beat state without subscribing)
+    getClockState: () => ({
+      currentBeat: currentBeatRef.current,
+      beatPhase: beatPhaseRef.current,
+    }),
   };
 };

@@ -239,8 +239,11 @@ export const BPMProvider = ({ children }) => {
     const currentClock = clockRef.current;
     if (!currentClock) return null;
     
-    const currentBeat = currentClock.currentBeat ?? 0;
-    const beatPhase = currentClock.beatPhase ?? 0;
+    const clockState = typeof currentClock.getClockState === 'function'
+      ? currentClock.getClockState()
+      : currentClock;
+    const currentBeat = clockState?.currentBeat ?? 0;
+    const beatPhase = clockState?.beatPhase ?? 0;
     const { speed, loopMode } = mapping;
     
     // Calculate phase within the cycle (0-1)
@@ -291,8 +294,11 @@ export const BPMProvider = ({ children }) => {
       const mappings = effectiveMappingsRef.current;
       // Read fresh clock values from ref
       const currentClock = clockRef.current;
-      const currentBeat = currentClock?.currentBeat ?? 0;
-      const beatPhase = currentClock?.beatPhase ?? 0;
+      const clockState = typeof currentClock?.getClockState === 'function'
+        ? currentClock.getClockState()
+        : currentClock;
+      const currentBeat = clockState?.currentBeat ?? 0;
+      const beatPhase = clockState?.beatPhase ?? 0;
       
       handlers.forEach((handlerSet, paramId) => {
         const mapping = mappings[paramId];
@@ -344,7 +350,13 @@ export const BPMProvider = ({ children }) => {
 
   // Stable getters that read from ref (don't cause re-renders)
   // clockRef is already declared above for the dispatch loop
-  const getClockState = useCallback(() => clockRef.current, []);
+  const getClockState = useCallback(() => {
+    const currentClock = clockRef.current;
+    if (currentClock && typeof currentClock.getClockState === 'function') {
+      return currentClock.getClockState();
+    }
+    return currentClock;
+  }, []);
 
   // Get a snapshot of BPM settings and mappings for export/preset save
   const getBPMSnapshot = useCallback(() => ({

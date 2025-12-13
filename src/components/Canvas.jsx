@@ -134,6 +134,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         curviness,
         wobble = 0.5,
         colors = [],
+        numColors,
+        selectedColor = 0,
         /*blendMode,*/
         opacity = 1,
         noiseAmount = 0,
@@ -458,11 +460,16 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         gRadius = Math.max(1, maxDist);
     }
 
+    const paletteStops = Array.isArray(colors) ? colors : [];
+    const requestedColors = Number.isFinite(Number(numColors))
+        ? Math.max(1, Math.round(Number(numColors)))
+        : paletteStops.length;
+
     // Color fill: if animating colours, fill with a single blended colour (no gradient)
     // Otherwise, use the existing radial gradient from the palette.
-    const baseStops = (Array.isArray(colors) && colors.length >= 2)
-        ? colors
-        : (Array.isArray(colors) && colors.length === 1 ? [colors[0], colors[0]] : ['#000000', '#000000']);
+    const baseStops = (paletteStops.length >= 2)
+        ? paletteStops
+        : (paletteStops.length === 1 ? [paletteStops[0], paletteStops[0]] : ['#000000', '#000000']);
 
     if (colorFadeEnabled && baseStops.length >= 2 && (Number(colorFadeSpeed) || 0) > 0) {
         const n = baseStops.length;
@@ -483,6 +490,19 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         return;
     }
 
+    // Respect "Num Colours": when it's 1, render a solid fill (even if paletteStops contains a full palette).
+    if (requestedColors <= 1) {
+        const idx = Math.max(0, Math.min(paletteStops.length - 1, Math.round(Number(selectedColor) || 0)));
+        const solid = paletteStops[idx] || paletteStops[0] || '#000000';
+        ctx.fillStyle = solid;
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
+
+    // For gradients, use only the requested number of palette stops.
+    const gradientStops = baseStops.slice(0, Math.max(2, requestedColors));
+
     // Non-animated: use gradient between palette stops
     const safeGX = Number.isFinite(gCenterX) ? gCenterX : centerX;
     const safeGY = Number.isFinite(gCenterY) ? gCenterY : centerY;
@@ -491,9 +511,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         safeGX, safeGY, 0,
         safeGX, safeGY, safeGR
     );
-    const denom = (baseStops.length - 1) || 1;
-    for (let i = 0; i < baseStops.length; i++) {
-        gradient.addColorStop(i / denom, baseStops[i]);
+    const denom = (gradientStops.length - 1) || 1;
+    for (let i = 0; i < gradientStops.length; i++) {
+        gradient.addColorStop(i / denom, gradientStops[i]);
     }
     ctx.fillStyle = gradient;
     ctx.fill();

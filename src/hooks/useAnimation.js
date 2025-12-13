@@ -335,6 +335,7 @@ export const useAnimation = (
     // Only sync to React every N frames to prevent "Maximum update depth exceeded" errors
     const frameCountRef = useRef(0);
     const UPDATE_EVERY_N_FRAMES = 2; // React mode: sync every 2 frames (~30fps)
+    const lastFrozenModsUpdateMsRef = useRef(0);
 
     const animatedPrevRef = useRef(null);
     const lastBaseLayersRef = useRef(null);
@@ -459,12 +460,18 @@ export const useAnimation = (
             if (shouldSyncToReact) {
                 frameCountRef.current = 0;
                 if (refMode) {
-                    // Apply modulations (if any) to the frozen snapshot and publish to Canvas.
-                    const next = applyStoreModulations(Array.isArray(animatedPrevRef.current)
-                        ? animatedPrevRef.current
-                        : (sourceLayersRefLocal.current?.current || []));
-                    animatedPrevRef.current = next;
-                    outRef.current = next;
+                    // Apply modulations (if any) to the frozen snapshot, but throttle to avoid
+                    // doing full-layer maps every RAF tick while the scene is frozen.
+                    const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                    const THROTTLE_MS = 50; // ~20fps, matches BPM/Audio dispatch cadence
+                    if (nowMs - lastFrozenModsUpdateMsRef.current >= THROTTLE_MS) {
+                        lastFrozenModsUpdateMsRef.current = nowMs;
+                        const next = applyStoreModulations(Array.isArray(animatedPrevRef.current)
+                            ? animatedPrevRef.current
+                            : (sourceLayersRefLocal.current?.current || []));
+                        animatedPrevRef.current = next;
+                        outRef.current = next;
+                    }
                 } else {
                     applyModulationsOnly();
                 }

@@ -129,12 +129,8 @@ export const useAudio = ({
   const [error, setError] = useState(null);
   const [availableDevices, setAvailableDevices] = useState([]);
   const [currentDeviceId, setCurrentDeviceId] = useState(deviceId);
-  const [features, setFeatures] = useState({
-    rms: 0,
-    bass: 0,
-    mids: 0,
-    highs: 0,
-  });
+  // Keep per-frame audio features in a ref to avoid re-rendering the whole app at audio-frame rate.
+  const featuresRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0 });
   
   // File playback state
   const [isFileMode, setIsFileMode] = useState(false);
@@ -244,7 +240,11 @@ export const useAudio = ({
       highs: Math.min(1, smooth.highs * currentSensitivity),
     };
 
-    setFeatures(scaled);
+    // Mutate in place to avoid allocations; consumers read via getFeatures().
+    featuresRef.current.rms = scaled.rms;
+    featuresRef.current.bass = scaled.bass;
+    featuresRef.current.mids = scaled.mids;
+    featuresRef.current.highs = scaled.highs;
 
     rafIdRef.current = requestAnimationFrame(updateAudio);
   }, [getAudioFeatures]); // Only depends on getAudioFeatures, settings read from refs
@@ -368,7 +368,7 @@ export const useAudio = ({
 
     // Reset smoothed values
     smoothRef.current = { rms: 0, bass: 0, mids: 0, highs: 0 };
-    setFeatures({ rms: 0, bass: 0, mids: 0, highs: 0 });
+    featuresRef.current = { rms: 0, bass: 0, mids: 0, highs: 0 };
     setIsActive(false);
     setError(null);
   }, []);
@@ -610,7 +610,7 @@ export const useAudio = ({
   return {
     isActive,
     error,
-    features,
+    getFeatures: () => featuresRef.current,
     availableDevices,
     currentDeviceId,
     initMic,
