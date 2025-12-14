@@ -57,6 +57,10 @@ const TimelinePanel = ({
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
+    addGlobalShapeKeyframe,
+    captureGlobalShapeKeyframe,
+    generateGlobalVariationKeyframe,
+    rerollGlobalShapeKeyframe,
     keyframeClipboard,
     copyKeyframe,
     pasteKeyframe,
@@ -280,6 +284,31 @@ const TimelinePanel = ({
       addTrack(`Track ${(tracks?.length || 0) + 1}`, '');
     }
   }, [addTrack, tracks?.length]);
+
+  // Handle adding a global shape track
+  const handleAddGlobalShapeTrack = useCallback(() => {
+    if (addTrack) {
+      addTrack('Global Shape', 'global:globalShape', null, null, 'globalShape');
+    }
+  }, [addTrack]);
+
+  // Handle capturing a global shape keyframe (all layers at current time)
+  const handleCaptureGlobalShapeKeyframe = useCallback((trackId) => {
+    if (!captureGlobalShapeKeyframe || !layers?.length) return;
+    captureGlobalShapeKeyframe(trackId, layers);
+  }, [captureGlobalShapeKeyframe, layers]);
+
+  // Handle generating a global variation keyframe (apply variation to all layers)
+  const handleGenerateGlobalVariationKeyframe = useCallback((trackId) => {
+    if (!generateGlobalVariationKeyframe || !layers?.length) return;
+    generateGlobalVariationKeyframe(trackId, layers);
+  }, [generateGlobalVariationKeyframe, layers]);
+
+  // Handle rerolling a global shape keyframe
+  const handleRerollGlobalShapeKeyframe = useCallback((trackId, keyframeId) => {
+    if (!rerollGlobalShapeKeyframe || !layers?.length) return;
+    rerollGlobalShapeKeyframe(trackId, keyframeId, layers);
+  }, [rerollGlobalShapeKeyframe, layers]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName) => {
@@ -841,6 +870,9 @@ const TimelinePanel = ({
                 onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
                 onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
                 onCaptureShapeKeyframe={handleCaptureShapeKeyframe}
+                onCaptureGlobalShapeKeyframe={handleCaptureGlobalShapeKeyframe}
+                onGenerateGlobalVariationKeyframe={handleGenerateGlobalVariationKeyframe}
+                onRerollGlobalShapeKeyframe={handleRerollGlobalShapeKeyframe}
                 onCopyKeyframe={(kfId) => copyKeyframe?.(track.id, kfId)}
                 onPasteKeyframe={(time) => pasteKeyframe?.(track.id, time)}
                 onPasteKeyframeToTrack={(targetTrackId, time) => pasteKeyframeToTrack?.(targetTrackId, time)}
@@ -871,6 +903,8 @@ const TimelinePanel = ({
                   background: 'rgba(30, 30, 40, 0.95)',
                   padding: '8px',
                   borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+                  display: 'flex',
+                  gap: '4px',
                 }}
               >
                 <button
@@ -880,14 +914,31 @@ const TimelinePanel = ({
                     background: 'rgba(79, 195, 247, 0.2)',
                     border: '1px dashed rgba(79, 195, 247, 0.5)',
                     borderRadius: 4,
-                    padding: '6px 12px',
+                    padding: '6px 8px',
                     color: '#4fc3f7',
-                    fontSize: '0.75rem',
+                    fontSize: '0.65rem',
                     cursor: 'pointer',
-                    width: '100%',
+                    flex: 1,
                   }}
                 >
-                  + Add Track
+                  + Track
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddGlobalShapeTrack}
+                  style={{
+                    background: 'rgba(156, 39, 176, 0.2)',
+                    border: '1px dashed rgba(156, 39, 176, 0.5)',
+                    borderRadius: 4,
+                    padding: '6px 8px',
+                    color: '#ce93d8',
+                    fontSize: '0.65rem',
+                    cursor: 'pointer',
+                    flex: 1,
+                  }}
+                  title="Add a Global Shape track to tween all layers between keyframes"
+                >
+                  + Global Shape
                 </button>
               </div>
 

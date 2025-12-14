@@ -19,6 +19,10 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   preserveSeeds = false,
   isParamRandomizable,
   allowUnknownParams = true,
+  randomizeColorsPerLayer = true,
+  uniformColorCount = 3,
+  colorCountMin = 1,
+  colorCountMax = 8,
 } = {}) {
   const normalizeSeed = (seedVal) => {
     const n = Math.abs(Number.isFinite(seedVal) ? Math.floor(seedVal) : 0);
@@ -60,9 +64,9 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       ? randomSeed
       : (Number.isFinite(prev?.seed) ? prev.seed : DEFAULT_LAYER.seed || 1),
   );
-  const rngSeed = preserveSeeds
-    ? sourceSeed
-    : normalizeSeed(sourceSeed + (nameIndex * 1013904223));
+  // Always use nameIndex to offset seed for unique per-layer randomness
+  // preserveSeeds only affects whether we update the layer's stored seed
+  const rngSeed = normalizeSeed(sourceSeed + (nameIndex * 1013904223));
   const rng = createSeededRandom(rngSeed);
   const random01 = () => {
     const val = rng();
@@ -212,11 +216,11 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   if (includeAnim && varyFlags.imageSaturation && isAllowed('imageSaturation')) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
   if (includeAnim && varyFlags.imageDistortion && isAllowed('imageDistortion')) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
 
-  // Position jitter (use wAnim)
-  if (includeAnim) {
+  // Position jitter (use wPosition weight, triggered by includePosition)
+  if (includePosition && wPosition > 0) {
     const baseX = prev.position?.x ?? 0.5;
     const baseY = prev.position?.y ?? 0.5;
-    const jitter = 0.15 * wAnim;
+    const jitter = 0.15 * wPosition;
     const jx = (random01() * 2 - 1) * jitter;
     const jy = (random01() * 2 - 1) * jitter;
     const nx = clamp(baseX + jx, 0.0, 1.0);
@@ -285,7 +289,22 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   if (includeColor && Array.isArray(prev.colors) && prev.colors.length) {
     const canVaryColors = !!(varyFlags.colors && isAllowed('colors'));
     const canVaryCount = !!(varyFlags.numColors && isAllowed('numColors'));
-    const baseCount = Number.isFinite(prev.numColors) ? Math.max(1, Math.round(prev.numColors)) : Math.max(1, prev.colors.length);
+    // If not randomizing per layer, use uniformColorCount; otherwise start from the layer's current count.
+    const baseCount = !randomizeColorsPerLayer
+      ? Math.max(1, Math.min(32, Math.round(Number(uniformColorCount) || 3)))
+      : (Number.isFinite(prev.numColors) ? Math.max(1, Math.round(prev.numColors)) : Math.max(1, prev.colors.length));
+    const minCount = Math.max(1, Math.min(32, Math.floor(Number(colorCountMin) || 1)));
+    const maxCount = Math.max(minCount, Math.min(32, Math.floor(Number(colorCountMax) || minCount)));
+    const shouldVaryCount = (() => {
+      if (!canVaryCount) return false;
+      if (!randomizeColorsPerLayer) return false; // uniform count handled via baseCount
+      // At high colour variation levels, reliably vary count; at lower values keep stable.
+      const chance = clamp((wColor - 0.7) / 0.25, 0, 1);
+      return random01() < chance;
+    })();
+    const desiredCount = (canVaryCount && randomizeColorsPerLayer && shouldVaryCount)
+      ? randomIntInclusive(minCount, maxCount)
+      : baseCount;
     const fitColors = (arr, n) => {
       const src = Array.isArray(arr) ? arr : [];
       const out = src.slice(0, Math.max(1, n));
@@ -296,14 +315,15 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     if (canVaryColors || canVaryCount) {
       if (wColor <= 0) {
         const next = [...prev.colors];
-        const finalColors = canVaryCount ? next : fitColors(next, baseCount);
+        // When per-layer colour counts are enabled, allow count to vary at high colour variation.
+        const finalColors = fitColors(next, desiredCount);
         varied.colors = finalColors;
         varied.numColors = finalColors.length;
       } else if (wColor >= 0.6) {
         const nextPalette = pickPaletteColors(palettes, random01, prev.colors) || prev.colors;
         const paletteColors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
         const next = canVaryColors ? paletteColors : [...prev.colors];
-        const finalColors = canVaryCount ? next : fitColors(next, baseCount);
+        const finalColors = fitColors(next, desiredCount);
         varied.colors = finalColors;
         varied.numColors = finalColors.length;
       } else {
@@ -364,13 +384,17 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
         }
 
         const next = canVaryColors ? mutated : [...prev.colors];
-        const finalColors = canVaryCount ? next : fitColors(next, baseCount);
+        const finalColors = fitColors(next, desiredCount);
         varied.colors = finalColors;
         varied.numColors = finalColors.length;
       }
     } else {
-      varied.colors = [...prev.colors];
-      varied.numColors = prev.numColors ?? prev.colors.length;
+      // When not varying colors, still respect uniform color count setting
+      const finalColors = !randomizeColorsPerLayer 
+        ? fitColors([...prev.colors], Math.max(1, Math.min(32, uniformColorCount)))
+        : [...prev.colors];
+      varied.colors = finalColors;
+      varied.numColors = finalColors.length;
     }
   }
 

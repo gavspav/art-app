@@ -947,22 +947,18 @@ const MainApp = () => {
   }, [setLayers]);
 
   // Parameter-level "Include in Randomize All" toggles live on ParameterContext parameters (`param.isRandomizable`).
-  // Keep a ref of currently-allowed param ids so variation-based generation can respect them without re-render churn.
-  const randomizableParamIdsRef = useRef(new Set());
-  useEffect(() => {
-    try {
-      const ids = new Set();
-      (Array.isArray(parameters) ? parameters : []).forEach((p) => {
-        if (p && p.id && p.isRandomizable) ids.add(p.id);
-      });
-      randomizableParamIdsRef.current = ids;
-    } catch {
-      randomizableParamIdsRef.current = new Set();
-    }
+  // Use current render values (not a post-render effect) so generation immediately respects changes.
+  const randomizableParamMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((p) => {
+      if (p && p.id) map.set(p.id, !!p.isRandomizable);
+    });
+    return map;
   }, [parameters]);
   const isParamRandomizable = useCallback((id) => {
-    return randomizableParamIdsRef.current.has(id);
-  }, []);
+    if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
+    return undefined;
+  }, [randomizableParamMap]);
 
   // Build a new layer by varying from a previous layer using split variation weights
   const buildVariedLayerFrom = useCallback(
@@ -970,9 +966,11 @@ const MainApp = () => {
       DEFAULT_LAYER,
       palettes,
       isParamRandomizable,
+      randomizeColorsPerLayer,
+      uniformColorCount,
       ...options,
     }),
-    [],
+    [DEFAULT_LAYER, palettes, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
   );
 
   const handleImportFile = useCallback(async (e) => {

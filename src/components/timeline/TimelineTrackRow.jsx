@@ -25,6 +25,9 @@ const TimelineTrackRow = ({
   onUpdateKeyframe,
   onRemoveKeyframe,
   onCaptureShapeKeyframe,
+  onCaptureGlobalShapeKeyframe,
+  onGenerateGlobalVariationKeyframe,
+  onRerollGlobalShapeKeyframe,
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,
@@ -38,6 +41,7 @@ const TimelineTrackRow = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
+  const isGlobalShapeTrack = track?.type === 'globalShape';
 
   // Parse current target to get layer and parameter
   // Note: layerId here is actually the layer NAME (for stable targeting across layer recreation)
@@ -327,7 +331,7 @@ const TimelineTrackRow = ({
           </div>
         )}
         {/* Shape track info and capture button */}
-        {isExpanded && isShapeTrack && (
+        {isExpanded && isShapeTrack && !isGlobalShapeTrack && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.6rem' }}>
               <button
@@ -352,6 +356,86 @@ const TimelineTrackRow = ({
               </span>
             </div>
             {/* Category toggles for shape tracks */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.55rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.shape !== false}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...(track.categories || {}), shape: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Shape
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.animation === true}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...(track.categories || {}), animation: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Anim
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={track.categories?.color === true}
+                  onChange={(e) => onUpdateTrack?.({
+                    categories: { ...(track.categories || {}), color: e.target.checked }
+                  })}
+                  style={{ width: 10, height: 10, cursor: 'pointer' }}
+                />
+                Color
+              </label>
+            </div>
+          </div>
+        )}
+        {/* Global Shape track controls */}
+        {isExpanded && isGlobalShapeTrack && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => onCaptureGlobalShapeKeyframe?.(track.id)}
+                style={{
+                  background: 'rgba(76, 175, 80, 0.3)',
+                  border: '1px solid rgba(76, 175, 80, 0.5)',
+                  borderRadius: 3,
+                  padding: '3px 6px',
+                  color: '#a5d6a7',
+                  fontSize: '0.55rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Capture current state of all layers at playhead"
+              >
+                ⬡ Capture
+              </button>
+              <button
+                type="button"
+                onClick={() => onGenerateGlobalVariationKeyframe?.(track.id)}
+                style={{
+                  background: 'rgba(33, 150, 243, 0.3)',
+                  border: '1px solid rgba(33, 150, 243, 0.5)',
+                  borderRadius: 3,
+                  padding: '3px 6px',
+                  color: '#90caf9',
+                  fontSize: '0.55rem',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Generate new variation of all layers using variation sliders"
+              >
+                ✦ Generate
+              </button>
+              <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic', fontSize: '0.55rem' }}>
+                {track.keyframes?.length || 0} kf · {layers.length} layers
+              </span>
+            </div>
+            {/* Category toggles for global shape tracks */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.55rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
                 <input

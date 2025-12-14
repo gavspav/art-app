@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
 import { 
   computeEnergyFlux, 
   detectTransientsFromFlux, 
@@ -108,15 +108,63 @@ const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = 
 };
 
 /**
+ * Create a global shape keyframe (stores ALL layers' geometry snapshots)
+ * Used by global shape tracks to tween all layers at once.
+ *
+ * @param {number} timeSeconds - Time position
+ * @param {Array} layers - Array of layer data objects, each containing:
+ *   { nodes, subpaths, position, shapeParams, animation, colors }
+ * @param {string} label - Optional label
+ * @param {Object} extras - Additional metadata (variation, curve, tension, etc.)
+ */
+const createGlobalShapeKeyframe = (timeSeconds, layers, label = '', extras = {}) => {
+  return {
+    id: generateId(),
+    timeSeconds,
+    layers: layers || [],
+    label,
+    // Proxy value for curve editor visualization (use average x position or 0.5)
+    value01: 0.5,
+    // Curve settings for interpolation
+    curve: extras.curve || 'linear',
+    tension: extras.tension !== undefined ? extras.tension : 0.5,
+    // Variation metadata for regeneration
+    variation: extras.variation || null,
+    enabled: extras.enabled !== undefined ? extras.enabled : true,
+  };
+};
+
+/**
  * Create a default track
  * @param {string} name - Track display name
- * @param {string} targetId - e.g., 'layer:abc123:radiusFactor' or 'global:globalSpeedMultiplier' or 'layer:abc123:shape'
+ * @param {string} targetId - e.g., 'layer:abc123:radiusFactor' or 'global:globalSpeedMultiplier' or 'layer:abc123:shape' or 'global:globalShape'
  * @param {string} color - Track color
  * @param {number} lengthSeconds - Timeline length
- * @param {'numeric'|'shape'} type - Track type (default: 'numeric')
+ * @param {'numeric'|'shape'|'globalShape'} type - Track type (default: 'numeric')
  */
 const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => {
-  const isShape = type === 'shape' || (targetId && targetId.endsWith(':shape'));
+  const isShape = type === 'shape' || (targetId && targetId.endsWith(':shape') && !targetId.startsWith('global:globalShape'));
+  const isGlobalShape = type === 'globalShape' || targetId === 'global:globalShape';
+  
+  if (isGlobalShape) {
+    return {
+      id: generateId(),
+      name: name || 'Global Shape',
+      color,
+      enabled: true,
+      targetId: 'global:globalShape',
+      type: 'globalShape',
+      range: null,
+      keyframes: [],
+      // Category toggles for what to interpolate
+      categories: {
+        shape: true,      // Interpolate nodes/subpaths
+        animation: false, // Interpolate animation params
+        color: false,     // Interpolate colors array
+      },
+    };
+  }
+  
   return {
     id: generateId(),
     name,
@@ -577,8 +625,8 @@ export const TimelineProvider = ({ children }) => {
         if (track.id !== trackId) return track;
         
         // Don't allow removing if only 2 keyframes left (for numeric tracks)
-        // Shape tracks can have any number of keyframes (including 0)
-        if (track.type !== 'shape' && track.keyframes.length <= 2) return track;
+        // Shape and globalShape tracks can have any number of keyframes (including 0)
+        if (track.type !== 'shape' && track.type !== 'globalShape' && track.keyframes.length <= 2) return track;
         
         return {
           ...track,
@@ -635,6 +683,52 @@ export const TimelineProvider = ({ children }) => {
         }
         
         return { ...track, type: 'shape', keyframes };
+      }),
+    }));
+  }, []);
+
+  /**
+   * Add or update a global shape keyframe on a globalShape track
+   * Stores snapshots of ALL layers at the given time
+   * @param {string} trackId - Track ID
+   * @param {number} timeSeconds - Time position
+   * @param {Array} layers - Array of layer data objects
+   * @param {string} label - Optional label
+   * @param {Object} extras - Extended data { variation, curve, tension }
+   */
+  const addGlobalShapeKeyframe = useCallback((trackId, timeSeconds, layers, label = '', extras = {}) => {
+    const TIME_EPSILON = 0.01;
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(track => {
+        if (track.id !== trackId || track.type !== 'globalShape') return track;
+        
+        const existingIndex = track.keyframes.findIndex(
+          kf => Math.abs(kf.timeSeconds - timeSeconds) < TIME_EPSILON
+        );
+        
+        let keyframes;
+        if (existingIndex >= 0) {
+          // Update existing keyframe
+          keyframes = track.keyframes.map((kf, i) =>
+            i === existingIndex
+              ? {
+                  ...kf,
+                  layers: layers || [],
+                  label,
+                  curve: extras.curve || kf.curve || 'linear',
+                  tension: extras.tension !== undefined ? extras.tension : kf.tension,
+                  variation: extras.variation || kf.variation || null,
+                }
+              : kf
+          );
+        } else {
+          // Add new keyframe
+          const newKeyframe = createGlobalShapeKeyframe(timeSeconds, layers, label, extras);
+          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        }
+        
+        return { ...track, keyframes };
       }),
     }));
   }, []);
@@ -1201,6 +1295,245 @@ export const TimelineProvider = ({ children }) => {
     return true;
   }, [session.tracks, updateKeyframe]);
 
+  // --- Global Shape Track Keyframe Generation ---
+
+  /**
+   * Capture current state of all layers as a global shape keyframe
+   * @param {string} trackId - The global shape track ID
+   * @param {Array} layers - Current layers array
+   * @param {Object} options - { label, curve, tension }
+   */
+  const captureGlobalShapeKeyframe = useCallback((trackId, layers, options = {}) => {
+    if (!trackId || !Array.isArray(layers) || layers.length === 0) return null;
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return null;
+    
+    const time = positionRef.current;
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    
+    // Extract data from each layer
+    const layersData = layers.map(layer => {
+      const data = {
+        nodes: Array.isArray(layer.nodes) ? JSON.parse(JSON.stringify(layer.nodes)) : null,
+        subpaths: Array.isArray(layer.subpaths) ? JSON.parse(JSON.stringify(layer.subpaths)) : null,
+        position: {
+          x: layer.position?.x ?? 0.5,
+          y: layer.position?.y ?? 0.5,
+          scale: layer.position?.scale ?? 1,
+          xOffset: layer.xOffset ?? 0,
+          yOffset: layer.yOffset ?? 0,
+        },
+        shapeParams: {
+          numSides: layer.numSides ?? 6,
+          curviness: layer.curviness ?? 1.0,
+          radiusFactor: layer.radiusFactor ?? 0.125,
+          radiusFactorX: layer.radiusFactorX ?? layer.radiusFactor ?? 0.125,
+          radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
+          rotation: layer.rotation ?? 0,
+        },
+      };
+      
+      if (categories.animation) {
+        data.animation = {
+          movementStyle: layer.movementStyle ?? 'bounce',
+          movementSpeed: layer.movementSpeed ?? 1,
+          movementAngle: layer.movementAngle ?? 45,
+          scaleSpeed: layer.scaleSpeed ?? 0.05,
+          scaleMin: layer.scaleMin ?? 0,
+          scaleMax: layer.scaleMax ?? 1.5,
+        };
+      }
+      
+      if (categories.color && Array.isArray(layer.colors)) {
+        data.colors = [...layer.colors];
+      }
+      
+      return data;
+    });
+    
+    addGlobalShapeKeyframe(trackId, time, layersData, options.label || '', {
+      curve: options.curve || 'linear',
+      tension: options.tension ?? 0.5,
+    });
+    
+    return time;
+  }, [session.tracks, addGlobalShapeKeyframe]);
+
+  /**
+   * Generate a global shape keyframe with variation applied to all layers
+   * Uses the variation sliders to create new variations of all layers at once
+   * @param {string} trackId - The global shape track ID
+   * @param {Array} baseLayers - Current layers array to vary from
+   * @param {Object} options - { seed, variationWeights, affectCategories }
+   */
+  const generateGlobalVariationKeyframe = useCallback((trackId, baseLayers, options = {}) => {
+    if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0) return null;
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return null;
+    
+    const time = positionRef.current;
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    const baseSeed = options.seed ?? Date.now();
+    
+    // Get variation weights from first layer or options
+    const firstLayer = baseLayers[0];
+    const variationWeights = options.variationWeights || {
+      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
+      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
+      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
+      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
+      scale: firstLayer.variationScale ?? 0,
+    };
+    
+    const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position'];
+    
+    // Generate varied version of each layer
+    const layersData = baseLayers.map((layer, index) => {
+      // Use different seed for each layer to get unique variations
+      const layerSeed = baseSeed + index * 16807;
+      
+      const variedLayer = generateVariedLayer(layer, {
+        seed: layerSeed,
+        variationWeights,
+        affectCategories,
+      });
+      
+      const data = {
+        nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
+        subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+        position: {
+          x: variedLayer.position?.x ?? 0.5,
+          y: variedLayer.position?.y ?? 0.5,
+          scale: variedLayer.position?.scale ?? 1,
+          xOffset: variedLayer.xOffset ?? 0,
+          yOffset: variedLayer.yOffset ?? 0,
+        },
+        shapeParams: {
+          numSides: variedLayer.numSides ?? 6,
+          curviness: variedLayer.curviness ?? 1.0,
+          radiusFactor: variedLayer.radiusFactor ?? 0.125,
+          radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
+          radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
+          rotation: variedLayer.rotation ?? 0,
+        },
+      };
+      
+      if (categories.animation) {
+        data.animation = {
+          movementStyle: variedLayer.movementStyle ?? 'bounce',
+          movementSpeed: variedLayer.movementSpeed ?? 1,
+          movementAngle: variedLayer.movementAngle ?? 45,
+          scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
+          scaleMin: variedLayer.scaleMin ?? 0,
+          scaleMax: variedLayer.scaleMax ?? 1.5,
+        };
+      }
+      
+      if (categories.color && Array.isArray(variedLayer.colors)) {
+        data.colors = [...variedLayer.colors];
+      }
+      
+      return data;
+    });
+    
+    // Add keyframe with variation metadata for reroll support
+    addGlobalShapeKeyframe(trackId, time, layersData, '', {
+      curve: options.curve || 'linear',
+      tension: options.tension ?? 0.5,
+      variation: {
+        baseSeed,
+        baseTime: time,
+        weights: variationWeights,
+        affectCategories,
+        layerCount: baseLayers.length,
+      },
+    });
+    
+    return time;
+  }, [session.tracks, addGlobalShapeKeyframe]);
+
+  /**
+   * Regenerate (reroll) a global shape keyframe with new random seed
+   * @param {string} trackId - The track ID
+   * @param {string} keyframeId - The keyframe ID to reroll
+   * @param {Array} baseLayers - Base layers to regenerate from
+   */
+  const rerollGlobalShapeKeyframe = useCallback((trackId, keyframeId, baseLayers) => {
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return false;
+    
+    const keyframe = track.keyframes?.find(kf => kf.id === keyframeId);
+    if (!keyframe) return false;
+    
+    const variationMeta = keyframe.variation;
+    if (!variationMeta) return false;
+    
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    const newSeed = generateRerollSeed(variationMeta.baseSeed);
+    
+    // Generate new varied layers
+    const layersData = baseLayers.map((layer, index) => {
+      const layerSeed = newSeed + index * 16807;
+      
+      const variedLayer = generateVariedLayer(layer, {
+        seed: layerSeed,
+        variationWeights: variationMeta.weights,
+        affectCategories: variationMeta.affectCategories,
+      });
+      
+      const data = {
+        nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
+        subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+        position: {
+          x: variedLayer.position?.x ?? 0.5,
+          y: variedLayer.position?.y ?? 0.5,
+          scale: variedLayer.position?.scale ?? 1,
+          xOffset: variedLayer.xOffset ?? 0,
+          yOffset: variedLayer.yOffset ?? 0,
+        },
+        shapeParams: {
+          numSides: variedLayer.numSides ?? 6,
+          curviness: variedLayer.curviness ?? 1.0,
+          radiusFactor: variedLayer.radiusFactor ?? 0.125,
+          radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
+          radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
+          rotation: variedLayer.rotation ?? 0,
+        },
+      };
+      
+      if (categories.animation) {
+        data.animation = {
+          movementStyle: variedLayer.movementStyle ?? 'bounce',
+          movementSpeed: variedLayer.movementSpeed ?? 1,
+          movementAngle: variedLayer.movementAngle ?? 45,
+          scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
+          scaleMin: variedLayer.scaleMin ?? 0,
+          scaleMax: variedLayer.scaleMax ?? 1.5,
+        };
+      }
+      
+      if (categories.color && Array.isArray(variedLayer.colors)) {
+        data.colors = [...variedLayer.colors];
+      }
+      
+      return data;
+    });
+    
+    // Update the keyframe
+    updateKeyframe(trackId, keyframeId, {
+      layers: layersData,
+      variation: {
+        ...variationMeta,
+        baseSeed: newSeed,
+        rerollCount: (variationMeta.rerollCount || 0) + 1,
+      },
+    });
+    
+    return true;
+  }, [session.tracks, updateKeyframe]);
+
   // --- Settings ---
 
   const setVisible = useCallback((visible) => {
@@ -1314,6 +1647,7 @@ export const TimelineProvider = ({ children }) => {
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
+    addGlobalShapeKeyframe,
 
     // Keyframe clipboard
     keyframeClipboard,
@@ -1343,6 +1677,11 @@ export const TimelineProvider = ({ children }) => {
     generateKeyframesBetween,
     generateRandomKeyframes,
     rerollVariationKeyframe,
+
+    // Global shape track keyframe generation
+    captureGlobalShapeKeyframe,
+    generateGlobalVariationKeyframe,
+    rerollGlobalShapeKeyframe,
 
     // Evaluation
     getTrackValue,
@@ -1391,6 +1730,7 @@ export const TimelineProvider = ({ children }) => {
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
+    addGlobalShapeKeyframe,
     keyframeClipboard,
     copyKeyframe,
     pasteKeyframe,
@@ -1407,6 +1747,9 @@ export const TimelineProvider = ({ children }) => {
     generateKeyframesBetween,
     generateRandomKeyframes,
     rerollVariationKeyframe,
+    captureGlobalShapeKeyframe,
+    generateGlobalVariationKeyframe,
+    rerollGlobalShapeKeyframe,
     getTrackValue,
     getAllTrackValues,
     getTrackValuesAtTime,

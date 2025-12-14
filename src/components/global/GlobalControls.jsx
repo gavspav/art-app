@@ -1432,6 +1432,14 @@ const GlobalControls = ({
                 scaleDirection: originalScaleDirection,
               };
             }
+          } else {
+            // When scale IS in the category set, ensure varied.position.scale is preserved
+            if (varied.position && typeof varied.position.scale === 'number') {
+              merged.position = {
+                ...(original.position || {}),
+                ...(varied.position || {}),
+              };
+            }
           }
         }
         rebuilt.push(merged);

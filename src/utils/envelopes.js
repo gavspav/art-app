@@ -539,6 +539,181 @@ export const DEFAULT_ENVELOPE = {
   preset: 'linear',
 };
 
+/**
+ * Evaluate a global shape track at a given time
+ * Global shape tracks store snapshots of ALL layers at each keyframe
+ * Returns { layers: [...interpolatedLayers] } or null if no keyframes
+ * 
+ * Each keyframe has structure:
+ * {
+ *   id, timeSeconds, enabled,
+ *   layers: [{ nodes, subpaths, position, shapeParams, animation, colors }, ...]
+ * }
+ */
+export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubpaths) => {
+  if (!track || track.type !== 'globalShape') return null;
+  
+  const keyframes = track.keyframes || [];
+  if (keyframes.length === 0) return null;
+  
+  // Get category toggles (default: shape only)
+  const categories = track.categories || { shape: true, animation: false, color: false };
+  
+  // Sort by time
+  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  
+  const isEnabled = (kf) => kf && kf.enabled !== false;
+  
+  // Helper to build result from a single keyframe
+  const buildSingleResult = (kf) => {
+    if (!isEnabled(kf)) return null;
+    if (!Array.isArray(kf.layers)) return null;
+    
+    return {
+      layers: kf.layers.map(layerData => ({
+        nodes: categories.shape ? layerData.nodes : null,
+        subpaths: categories.shape ? layerData.subpaths : null,
+        position: layerData.position ? { ...layerData.position } : null,
+        shapeParams: layerData.shapeParams ? { ...layerData.shapeParams } : null,
+        animation: categories.animation && layerData.animation ? { ...layerData.animation } : null,
+        colors: categories.color && layerData.colors ? [...layerData.colors] : null,
+      })),
+    };
+  };
+  
+  // Before first keyframe
+  if (timeSeconds <= sorted[0].timeSeconds) {
+    return buildSingleResult(sorted[0]);
+  }
+  
+  // After last keyframe
+  if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
+    return buildSingleResult(sorted[sorted.length - 1]);
+  }
+  
+  // Find bracketing keyframes
+  let left = sorted[0];
+  let right = sorted[sorted.length - 1];
+  
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
+      left = sorted[i];
+      right = sorted[i + 1];
+      break;
+    }
+  }
+  
+  // Same keyframe or very close
+  if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
+    return buildSingleResult(left);
+  }
+  
+  // If leading keyframe is disabled, return null
+  if (!isEnabled(left)) return null;
+  
+  // Calculate local t (0-1)
+  const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
+  const clampedT = Math.max(0, Math.min(1, localT));
+  
+  // Apply easing from left keyframe
+  const curveType = left.curve || 'linear';
+  const tension = left.tension !== undefined ? left.tension : 0.5;
+  const easedT = interpolateValue(clampedT, 0, 1, curveType, tension);
+  
+  // Interpolate each layer
+  const leftLayers = left.layers || [];
+  const rightLayers = right.layers || [];
+  const maxLayers = Math.max(leftLayers.length, rightLayers.length);
+  
+  const interpolatedLayers = [];
+  
+  for (let i = 0; i < maxLayers; i++) {
+    const layerA = leftLayers[i] || {};
+    const layerB = rightLayers[i] || layerA;
+    
+    const result = {
+      nodes: null,
+      subpaths: null,
+      position: null,
+      shapeParams: null,
+      animation: null,
+      colors: null,
+    };
+    
+    // Interpolate shape (nodes/subpaths) if enabled
+    if (categories.shape) {
+      if (layerA.subpaths && layerB.subpaths && lerpSubpaths) {
+        const interpolated = lerpSubpaths(layerA.subpaths, layerB.subpaths, clampedT);
+        if (interpolated) result.subpaths = interpolated;
+      }
+      
+      if (!result.subpaths && layerA.nodes && layerB.nodes && lerpNodes) {
+        const interpolated = lerpNodes(layerA.nodes, layerB.nodes, clampedT);
+        if (interpolated) result.nodes = interpolated;
+      }
+      
+      // Topology mismatch: hold previous
+      if (!result.nodes && !result.subpaths) {
+        result.nodes = layerA.nodes;
+        result.subpaths = layerA.subpaths;
+      }
+    }
+    
+    // Interpolate position
+    if (layerA.position || layerB.position) {
+      const posA = layerA.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
+      const posB = layerB.position || posA;
+      
+      result.position = {
+        x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
+        y: lerp(posA.y ?? 0.5, posB.y ?? 0.5, easedT),
+        scale: lerp(posA.scale ?? 1, posB.scale ?? 1, easedT),
+        xOffset: lerp(posA.xOffset ?? 0, posB.xOffset ?? 0, easedT),
+        yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, easedT),
+      };
+    }
+    
+    // Interpolate shape params
+    if (layerA.shapeParams || layerB.shapeParams) {
+      const spA = layerA.shapeParams || {};
+      const spB = layerB.shapeParams || spA;
+      
+      result.shapeParams = {
+        numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, easedT)),
+        curviness: lerp(spA.curviness ?? 1.0, spB.curviness ?? 1.0, easedT),
+        radiusFactor: lerp(spA.radiusFactor ?? 0.125, spB.radiusFactor ?? 0.125, easedT),
+        radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, easedT),
+        radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, easedT),
+        rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
+      };
+    }
+    
+    // Interpolate animation if enabled
+    if (categories.animation && (layerA.animation || layerB.animation)) {
+      const animA = layerA.animation || {};
+      const animB = layerB.animation || animA;
+      
+      result.animation = {
+        movementStyle: animA.movementStyle ?? animB.movementStyle ?? 'bounce',
+        movementSpeed: lerp(animA.movementSpeed ?? 1, animB.movementSpeed ?? 1, easedT),
+        movementAngle: lerp(animA.movementAngle ?? 45, animB.movementAngle ?? 45, easedT),
+        scaleSpeed: lerp(animA.scaleSpeed ?? 0.05, animB.scaleSpeed ?? 0.05, easedT),
+        scaleMin: lerp(animA.scaleMin ?? 0, animB.scaleMin ?? 0, easedT),
+        scaleMax: lerp(animA.scaleMax ?? 1.5, animB.scaleMax ?? 1.5, easedT),
+      };
+    }
+    
+    // Interpolate colors if enabled
+    if (categories.color && (layerA.colors || layerB.colors)) {
+      result.colors = lerpColorArrays(layerA.colors || [], layerB.colors || [], easedT);
+    }
+    
+    interpolatedLayers.push(result);
+  }
+  
+  return { layers: interpolatedLayers };
+};
+
 // Preset envelope curves (same as BPMEnvelopeEditor)
 export const ENVELOPE_PRESETS = {
   linear: {

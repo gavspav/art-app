@@ -186,6 +186,26 @@ export const PARAMETERS = [
     showInOverlay: true,
     group: 'Appearance',
   },
+  {
+    id: 'colors',
+    label: 'Colors',
+    type: 'palette',
+    isRandomizable: true,
+    showInOverlay: false,
+    group: 'Appearance',
+  },
+  {
+    id: 'numColors',
+    label: 'Number of Colors',
+    type: 'slider',
+    min: 1,
+    max: 10,
+    step: 1,
+    defaultValue: 1,
+    isRandomizable: true,
+    showInOverlay: false,
+    group: 'Appearance',
+  },
 
   // Movement - keeping modern features
   {

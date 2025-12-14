@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
 import { useAppState } from '../context/AppStateContext.jsx';
-import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
@@ -195,6 +195,37 @@ export function useTimelineModulation({
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
+      
+      // Handle global shape tracks (affects ALL layers at once)
+      // During playback, the RAF loop handles this for smooth 60fps updates
+      // When paused (scrubbing), we add to shapeUpdates for the scrubbing preview below
+      if (track.type === 'globalShape') {
+        if (!isPlaying) {
+          const globalResult = evaluateGlobalShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
+          if (globalResult && Array.isArray(globalResult.layers)) {
+            // Add each layer's interpolated data to shapeUpdates
+            globalResult.layers.forEach((interpolatedData, index) => {
+              const layer = layers[index];
+              if (!layer || !interpolatedData) return;
+              
+              const updateData = {
+                layerId: layer.id,
+                layerName: layer.name,
+                nodes: interpolatedData.nodes,
+                subpaths: interpolatedData.subpaths,
+                position: interpolatedData.position,
+                shapeParams: interpolatedData.shapeParams,
+                animation: interpolatedData.animation,
+                colors: interpolatedData.colors,
+                isGlobalShapeTrack: true,
+              };
+              
+              shapeUpdates.push(updateData);
+            });
+          }
+        }
+        continue;
+      }
       
       // Handle shape tracks separately (now includes position, animation, colors)
       if (track.type === 'shape') {
@@ -796,6 +827,37 @@ export function useTimelineModulation({
         
         for (const track of tracks) {
           if (!track.enabled || !track.targetId) continue;
+          
+          // Handle global shape tracks - affects ALL layers at once
+          if (track.type === 'globalShape') {
+            const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
+            if (globalResult && Array.isArray(globalResult.layers)) {
+              const currentLayers = layersRef.current;
+              if (Array.isArray(currentLayers)) {
+                // Store update for each layer by index, using layer id/name as key
+                globalResult.layers.forEach((interpolatedData, index) => {
+                  const layer = currentLayers[index];
+                  if (!layer || !interpolatedData) return;
+                  
+                  const updateData = {
+                    layerId: layer.id,
+                    nodes: interpolatedData.nodes,
+                    subpaths: interpolatedData.subpaths,
+                    position: interpolatedData.position,
+                    shapeParams: interpolatedData.shapeParams,
+                    animation: interpolatedData.animation,
+                    colors: interpolatedData.colors,
+                    isGlobalShapeTrack: true, // Flag to identify source
+                  };
+                  
+                  // Store by layer id and name
+                  if (layer.id) shapeUpdates.set(layer.id, updateData);
+                  if (layer.name) shapeUpdates.set(layer.name, updateData);
+                });
+              }
+            }
+            continue;
+          }
           
           // Handle shape tracks - evaluate and store in ref for animation loop
           if (track.type === 'shape') {

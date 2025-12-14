@@ -339,8 +339,9 @@ export const useAnimation = (
 
     const animatedPrevRef = useRef(null);
     const lastBaseLayersRef = useRef(null);
+    const lastBasePosByIdRef = useRef(new Map());
 
-    const mergeBaseIntoAnimated = useCallback((baseLayers, prevAnimated) => {
+    const mergeBaseIntoAnimated = useCallback((baseLayers, prevAnimated, prevBasePosById) => {
         if (!Array.isArray(baseLayers) || baseLayers.length === 0) return Array.isArray(baseLayers) ? baseLayers : [];
         if (!Array.isArray(prevAnimated) || prevAnimated.length === 0) return baseLayers;
 
@@ -356,6 +357,23 @@ export const useAnimation = (
             const mergedPosition = (prevPos && typeof prevPos === 'object')
                 ? { ...(basePos && typeof basePos === 'object' ? basePos : {}), ...prevPos }
                 : basePos;
+
+            // If the base layer explicitly changed its position scale (e.g. via the Scale Variation slider),
+            // let that change through immediately even in ref-mode (otherwise we keep the previous animated scale).
+            // We detect this by comparing to the last base position snapshot.
+            try {
+                const lastBasePos = (prevBasePosById && baseLayer?.id) ? prevBasePosById.get(baseLayer.id) : null;
+                const baseScale = basePos && typeof basePos === 'object' ? basePos.scale : undefined;
+                const lastScale = lastBasePos && typeof lastBasePos === 'object' ? lastBasePos.scale : undefined;
+                if (
+                    mergedPosition && typeof mergedPosition === 'object'
+                    && Number.isFinite(Number(baseScale))
+                    && Number.isFinite(Number(lastScale))
+                    && Number(baseScale) !== Number(lastScale)
+                ) {
+                    mergedPosition.scale = Number(baseScale);
+                }
+            } catch { /* noop */ }
 
             return {
                 ...baseLayer,
@@ -447,8 +465,25 @@ export const useAnimation = (
         if (refMode) {
             const baseLayers = sourceLayersRefLocal.current?.current;
             if (baseLayers && baseLayers !== lastBaseLayersRef.current) {
+                const prevBasePosById = lastBasePosByIdRef.current;
                 lastBaseLayersRef.current = baseLayers;
-                animatedPrevRef.current = mergeBaseIntoAnimated(baseLayers, animatedPrevRef.current);
+                animatedPrevRef.current = mergeBaseIntoAnimated(baseLayers, animatedPrevRef.current, prevBasePosById);
+                // Snapshot base positions for change detection next time.
+                try {
+                    const nextMap = new Map();
+                    (Array.isArray(baseLayers) ? baseLayers : []).forEach((l) => {
+                        if (l?.id && l?.position && typeof l.position === 'object') {
+                            nextMap.set(l.id, {
+                                x: l.position.x,
+                                y: l.position.y,
+                                scale: l.position.scale,
+                            });
+                        }
+                    });
+                    lastBasePosByIdRef.current = nextMap;
+                } catch {
+                    lastBasePosByIdRef.current = new Map();
+                }
                 // Ensure Canvas sees new layers immediately (even if there are no modulations).
                 outRef.current = applyStoreModulations(animatedPrevRef.current);
             }
