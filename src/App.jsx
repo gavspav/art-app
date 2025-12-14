@@ -567,11 +567,38 @@ const MainApp = () => {
   ]);
 
   // Wrapper for setIsNodeEditMode that sets context with layer info and timeline position
-  // When entering node edit mode, first apply any pending timeline geometry to ensure
-  // the layer has the correct shape before Canvas node-init effects run
+  // When entering node edit mode, first sync animated positions to React state so Canvas
+  // (which switches to using `layers` in node edit mode) shows the correct positions
   const handleSetNodeEditMode = useCallback((value) => {
     if (value) {
-      const layersNow = layersRef.current || [];
+      // CRITICAL: Sync animated positions to React state before entering node edit mode
+      // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode
+      // Without this sync, entering node edit mode causes a visual jump to original positions
+      const animatedLayers = animatedLayersRef.current;
+      if (Array.isArray(animatedLayers) && animatedLayers.length > 0) {
+        setLayers(prev => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((layer, i) => {
+            const animated = animatedLayers[i];
+            if (!animated || !animated.position) return layer;
+            // Sync position (x, y, scale) from animated to base layer
+            return {
+              ...layer,
+              position: {
+                ...layer.position,
+                x: animated.position.x ?? layer.position?.x ?? 0.5,
+                y: animated.position.y ?? layer.position?.y ?? 0.5,
+                scale: animated.position.scale ?? layer.position?.scale ?? 1,
+              },
+              // Also sync orbit/spin angles if present
+              orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
+              spinAngle: animated.spinAngle ?? layer.spinAngle,
+            };
+          });
+        });
+      }
+
+      const layersNow = animatedLayersRef.current || layersRef.current || [];
       const selectedIndex = selectedLayerIndexRef.current || 0;
       const timelineNow = timelineContextRef.current;
 
@@ -619,15 +646,22 @@ const MainApp = () => {
       
       // During playback, prefer the ref which has the most current frame's data
       // During pause/scrub, the direct evaluation should be accurate
+      // IMPORTANT: Only use refUpdate if we actually found a shape track for this layer.
+      // The ref may contain data from global shape tracks that we shouldn't apply here
+      // unless there's an actual per-layer shape track.
       const isPlaying = timelineNow?.isPlaying;
-      const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
       
-      if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
-        // Use ref only during playback to ensure synchronization with animation loop
-        shapeUpdate = refUpdate;
-      } else if (!shapeUpdate && refUpdate) {
-        // Fallback to ref if direct evaluation failed (even if paused)
-        shapeUpdate = refUpdate;
+      if (shapeTrack) {
+        const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
+        
+        if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
+          // Use ref only during playback to ensure synchronization with animation loop
+          shapeUpdate = refUpdate;
+        } else if (!shapeUpdate && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
+          // Fallback to ref if direct evaluation failed (even if paused)
+          // But only if the ref has actual geometry data (not just position from global track)
+          shapeUpdate = refUpdate;
+        }
       }
       
       if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {

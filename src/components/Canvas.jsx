@@ -1414,9 +1414,35 @@ const Canvas = forwardRef(({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
-        const layersForRender = isNodeEditMode
-            ? layers
-            : ((layersRef && layersRef.current) ? layersRef.current : layers);
+        // In node edit mode, we need to use `layers` (React state) for node geometry,
+        // but we should preserve animated positions from `layersRef` to avoid position jumps.
+        // Merge: use layers for geometry/nodes, but layersRef for positions.
+        let layersForRender;
+        if (isNodeEditMode) {
+            const animatedLayers = (layersRef && layersRef.current) ? layersRef.current : null;
+            if (animatedLayers && Array.isArray(animatedLayers) && animatedLayers.length === layers.length) {
+                // Merge: use React state layers but with animated positions
+                layersForRender = layers.map((layer, i) => {
+                    const animated = animatedLayers[i];
+                    if (!animated || !animated.position) return layer;
+                    return {
+                        ...layer,
+                        position: {
+                            ...layer.position,
+                            x: animated.position.x ?? layer.position?.x ?? 0.5,
+                            y: animated.position.y ?? layer.position?.y ?? 0.5,
+                            scale: animated.position.scale ?? layer.position?.scale ?? 1,
+                        },
+                        orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
+                        spinAngle: animated.spinAngle ?? layer.spinAngle,
+                    };
+                });
+            } else {
+                layersForRender = layers;
+            }
+        } else {
+            layersForRender = (layersRef && layersRef.current) ? layersRef.current : layers;
+        }
         
         // Store canvas dimensions globally for bounce detection in useAnimation
         if (typeof window !== 'undefined') {
@@ -1879,9 +1905,11 @@ const Canvas = forwardRef(({
     }, [renderFrame]);
 
     // In ref-driven animation mode, render continuously without React state updates.
+    // NOTE: We no longer skip this loop in node edit mode - animation should continue
+    // so that positions stay in sync. The renderFrame function handles merging
+    // animated positions with React state geometry when in node edit mode.
     useEffect(() => {
         if (!layersRef) return;
-        if (isNodeEditMode) return;
         if (isFrozen && !colorFadeWhileFrozen) return;
         let rafId = null;
         const loop = () => {
@@ -1896,7 +1924,7 @@ const Canvas = forwardRef(({
         };
         rafId = requestAnimationFrame(loop);
         return () => { if (rafId) cancelAnimationFrame(rafId); };
-    }, [layersRef, isNodeEditMode, isFrozen, colorFadeWhileFrozen, renderFrame]);
+    }, [layersRef, isFrozen, colorFadeWhileFrozen, renderFrame]);
 
     // Initialize nodes when entering node edit mode if missing
     useEffect(() => {
