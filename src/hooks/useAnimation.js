@@ -341,7 +341,7 @@ export const useAnimation = (
     const lastBaseLayersRef = useRef(null);
     const lastBasePosByIdRef = useRef(new Map());
 
-    const mergeBaseIntoAnimated = useCallback((baseLayers, prevAnimated, prevBasePosById) => {
+    const mergeBaseIntoAnimated = useCallback((baseLayers, prevAnimated, _prevBasePosById) => {
         if (!Array.isArray(baseLayers) || baseLayers.length === 0) return Array.isArray(baseLayers) ? baseLayers : [];
         if (!Array.isArray(prevAnimated) || prevAnimated.length === 0) return baseLayers;
 
@@ -354,55 +354,47 @@ export const useAnimation = (
 
             const prevPos = prev?.position;
             const basePos = baseLayer?.position;
-            // Merge positions: start with prev animated position, but let base position
-            // override for properties that have explicitly changed in the base layer.
-            // The key insight is that animated x/y should be preserved (they're the current
-            // trajectory position), but other base properties should flow through.
+            const prevBasePos = (baseLayer?.id && _prevBasePosById instanceof Map)
+                ? _prevBasePosById.get(baseLayer.id)
+                : null;
+
+            const approxEqual = (a, b, eps = 1e-6) => {
+                if (!Number.isFinite(a) || !Number.isFinite(b)) return Object.is(a, b);
+                return Math.abs(a - b) <= eps;
+            };
+            const didBasePositionChange = (() => {
+                if (!prevBasePos || !basePos || typeof basePos !== 'object') return false;
+                return !approxEqual(basePos.x, prevBasePos.x)
+                    || !approxEqual(basePos.y, prevBasePos.y)
+                    || !approxEqual(basePos.scale, prevBasePos.scale);
+            })();
+            
+            // ALWAYS preserve animated position from prevAnimated.
+            // The animation loop is the source of truth for x, y, scale during animation.
+            // Base layer changes (colors, numSides, etc.) should flow through, but position
+            // should come from the animation state.
             const mergedPosition = (prevPos && typeof prevPos === 'object')
                 ? {
-                    // Start with base position properties (non-animated values like vx, vy, scaleDirection)
+                    // Start with base position properties (non-animated values)
                     ...(basePos && typeof basePos === 'object' ? basePos : {}),
-                    // Preserve animated x, y from previous frame (the actual trajectory position)
-                    x: prevPos.x ?? basePos?.x ?? 0.5,
-                    y: prevPos.y ?? basePos?.y ?? 0.5,
-                    // Preserve animated scale (z-axis oscillation)
-                    scale: prevPos.scale ?? basePos?.scale ?? 1,
+                    // ALWAYS use animated position - this is the key fix
+                    // If the base position changed (e.g. user adjusted scale/position), treat base as authoritative.
+                    x: didBasePositionChange ? (basePos?.x ?? prevPos.x) : prevPos.x,
+                    y: didBasePositionChange ? (basePos?.y ?? prevPos.y) : prevPos.y,
+                    scale: didBasePositionChange ? (basePos?.scale ?? prevPos.scale) : prevPos.scale,
                     scaleDirection: prevPos.scaleDirection ?? basePos?.scaleDirection ?? 1,
+                    vx: prevPos.vx ?? basePos?.vx ?? 0,
+                    vy: prevPos.vy ?? basePos?.vy ?? 0,
                 }
                 : basePos;
-
-            // If the base layer explicitly changed its position (e.g. via UI drag or slider),
-            // let that change through immediately even in ref-mode (otherwise we keep the previous animated position).
-            // We detect this by comparing to the last base position snapshot.
-            try {
-                const lastBasePos = (prevBasePosById && baseLayer?.id) ? prevBasePosById.get(baseLayer.id) : null;
-                if (lastBasePos && mergedPosition && typeof mergedPosition === 'object' && basePos && typeof basePos === 'object') {
-                    // Check if x changed in base layer
-                    const baseX = basePos.x;
-                    const lastX = lastBasePos.x;
-                    if (Number.isFinite(Number(baseX)) && Number.isFinite(Number(lastX)) && Number(baseX) !== Number(lastX)) {
-                        mergedPosition.x = Number(baseX);
-                    }
-                    // Check if y changed in base layer
-                    const baseY = basePos.y;
-                    const lastY = lastBasePos.y;
-                    if (Number.isFinite(Number(baseY)) && Number.isFinite(Number(lastY)) && Number(baseY) !== Number(lastY)) {
-                        mergedPosition.y = Number(baseY);
-                    }
-                    // Check if scale changed in base layer
-                    const baseScale = basePos.scale;
-                    const lastScale = lastBasePos.scale;
-                    if (Number.isFinite(Number(baseScale)) && Number.isFinite(Number(lastScale)) && Number(baseScale) !== Number(lastScale)) {
-                        mergedPosition.scale = Number(baseScale);
-                    }
-                }
-            } catch { /* noop */ }
 
             return {
                 ...baseLayer,
                 position: mergedPosition,
                 orbitAngle: prev?.orbitAngle ?? baseLayer?.orbitAngle,
                 spinAngle: prev?.spinAngle ?? baseLayer?.spinAngle,
+                // Also preserve movementAngle from animation (for bounce direction)
+                movementAngle: prev?.movementAngle ?? baseLayer?.movementAngle,
             };
         });
     }, []);
@@ -488,24 +480,9 @@ export const useAnimation = (
         if (refMode) {
             const baseLayers = sourceLayersRefLocal.current?.current;
             if (baseLayers && baseLayers !== lastBaseLayersRef.current) {
-                // Debug: log when merge is triggered
-                if (animatedPrevRef.current?.[0]?.position) {
-                    console.log('[useAnimation] MERGE triggered - prevAnimated[0].pos:', 
-                        animatedPrevRef.current[0].position.x?.toFixed(3), 
-                        animatedPrevRef.current[0].position.y?.toFixed(3),
-                        'baseLayers[0].pos:',
-                        baseLayers[0]?.position?.x?.toFixed(3),
-                        baseLayers[0]?.position?.y?.toFixed(3));
-                }
                 const prevBasePosById = lastBasePosByIdRef.current;
                 lastBaseLayersRef.current = baseLayers;
                 animatedPrevRef.current = mergeBaseIntoAnimated(baseLayers, animatedPrevRef.current, prevBasePosById);
-                // Debug: log result after merge
-                if (animatedPrevRef.current?.[0]?.position) {
-                    console.log('[useAnimation] AFTER MERGE - animatedPrev[0].pos:', 
-                        animatedPrevRef.current[0].position.x?.toFixed(3), 
-                        animatedPrevRef.current[0].position.y?.toFixed(3));
-                }
                 // Snapshot base positions for change detection next time.
                 try {
                     const nextMap = new Map();
@@ -561,21 +538,11 @@ export const useAnimation = (
         // shapeTrackUpdatesRefLocal.current.current is the actual Map
         const shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
         
-        // Debug: log when we have shape updates
-        if (shapeUpdatesMap.size > 0 && Math.random() < 0.016) {
-            console.log('[Animation] receiving shapeUpdates:', shapeUpdatesMap.size, 'entries');
-        }
-
         const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, idx) => {
             // Check if this layer has shape track updates
             // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
             const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);
             const hasShapeUpdate = !!shapeUpdate;
-            
-            // Debug: log shape update application
-            if (hasShapeUpdate && idx === 0 && Math.random() < 0.016) {
-                console.log('[Animation] applying shapeUpdate to layer', layer?.name, 'pos:', shapeUpdate.position?.x?.toFixed(2), shapeUpdate.position?.y?.toFixed(2));
-            }
             
             // 1. Update layer animation (movement, scale oscillation, etc.)
             // Skip if shape track is controlling this layer (to avoid conflicts with keyframe interpolation)

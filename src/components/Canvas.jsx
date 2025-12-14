@@ -731,12 +731,20 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
     const negY = extentInfo.extentsY?.neg ?? ry;
 
     // Determine which neighbor offsets are needed
+    // Use artboard boundaries (ax, ax+spanX) for wrap detection since positions are in artboard coords
+    // The wrap offset should be spanX/spanY (artboard size) not w/h (canvas size)
     const offsetsX = [0];
     const offsetsY = [0];
-    if (cx - negX < 0) offsetsX.push(w);      // needs +W copy
-    if (cx + posX > w) offsetsX.push(-w);     // needs -W copy
-    if (cy - negY < 0) offsetsY.push(h);      // needs +H copy
-    if (cy + posY > h) offsetsY.push(-h);     // needs -H copy
+    const artLeft = ax;
+    const artRight = ax + spanX;
+    const artTop = ay;
+    const artBottom = ay + spanY;
+    
+    // Check if shape extends beyond artboard boundaries and needs wrapping
+    if (cx - negX < artLeft) offsetsX.push(spanX);      // needs +spanX copy (wrap from left to right)
+    if (cx + posX > artRight) offsetsX.push(-spanX);    // needs -spanX copy (wrap from right to left)
+    if (cy - negY < artTop) offsetsY.push(spanY);       // needs +spanY copy (wrap from top to bottom)
+    if (cy + posY > artBottom) offsetsY.push(-spanY);   // needs -spanY copy (wrap from bottom to top)
 
     for (let oy of offsetsY) {
         for (let ox of offsetsX) {

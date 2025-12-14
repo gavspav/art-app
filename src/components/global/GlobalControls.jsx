@@ -1433,11 +1433,39 @@ const GlobalControls = ({
               };
             }
           } else {
-            // When scale IS in the category set, ensure varied.position.scale is preserved
-            if (varied.position && typeof varied.position.scale === 'number') {
+            // When scale IS in the category set, compute scale variation relative to ORIGINAL layer's scale
+            // (not prevLayer's scale, which would cause cumulative scaling)
+            const rawScaleVar = Number(baseVar.scale || 0);
+            const originalScale = original.position?.scale ?? 1.0;
+            
+            if (rawScaleVar !== 0) {
+              // Use seeded random based on layer index for consistent results
+              const layerSeed = (firstLayer?.seed ?? 1) + (i * 1013904223);
+              const rng = () => {
+                const x = Math.sin(layerSeed * 9999) * 10000;
+                return x - Math.floor(x);
+              };
+              
+              const absWeight = Math.min(Math.abs(rawScaleVar) / 3, 1);
+              const minScale = 0.05;
+              const maxScale = 5;
+              
+              let newScale;
+              if (rawScaleVar < 0) {
+                // Negative variation shrinks relative to original scale
+                const shrinkIntensity = 0.95 * absWeight;
+                const ratio = Math.max(0.05, 1 - rng() * shrinkIntensity);
+                newScale = Math.max(minScale, Math.min(maxScale, originalScale * ratio));
+              } else {
+                // Positive variation grows relative to original scale
+                const growthIntensity = 1.2 * absWeight;
+                const ratio = 1 + rng() * growthIntensity;
+                newScale = Math.max(minScale, Math.min(maxScale, originalScale * ratio));
+              }
+              
               merged.position = {
                 ...(original.position || {}),
-                ...(varied.position || {}),
+                scale: newScale,
               };
             }
           }
@@ -1448,7 +1476,7 @@ const GlobalControls = ({
 
       return rebuilt;
     });
-  }, [applyVariationInstantly, buildVariedLayerFrom, DEFAULT_LAYER.variationAnim, DEFAULT_LAYER.variationColor, DEFAULT_LAYER.variationPosition, DEFAULT_LAYER.variationShape, setLayers]);
+  }, [applyVariationInstantly, buildVariedLayerFrom, DEFAULT_LAYER.variationAnim, DEFAULT_LAYER.variationColor, DEFAULT_LAYER.variationPosition, DEFAULT_LAYER.variationShape, DEFAULT_LAYER.variationScale, setLayers]);
 
   // Presets: helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
