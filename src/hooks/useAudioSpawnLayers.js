@@ -156,8 +156,10 @@ export function useAudioSpawnLayers({
           const scaleSpd = (layer.scaleSpeed || 0.05) * dtSec * 60;
           let nextScale = (pos.scale || 1) + scaleDir * scaleSpd;
           let nextDir = scaleDir;
-          const sMin = layer.scaleMin ?? 0.2;
-          const sMax = layer.scaleMax ?? 1.5;
+          const rawMin = Number.isFinite(layer.scaleMin) ? layer.scaleMin : 0.2;
+          const rawMax = Number.isFinite(layer.scaleMax) ? layer.scaleMax : 1.5;
+          const sMin = Math.max(0.05, rawMin);
+          const sMax = Math.max(sMin, rawMax);
           if (nextScale >= sMax) { nextScale = sMax; nextDir = -1; }
           else if (nextScale <= sMin) { nextScale = sMin; nextDir = 1; }
           layer.position = { ...(layer.position || pos), scale: nextScale, scaleDirection: nextDir };
