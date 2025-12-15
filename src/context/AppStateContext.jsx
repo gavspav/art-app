@@ -83,6 +83,14 @@ export const AppStateProvider = ({ children }) => {
     enableBreathing: false,
     enableEnergyScaling: false,
     energyInfluence: 0.5,
+    // Live audio spawn mode (non-timeline, runtime-only layers)
+    audioSpawnEnabled: false,
+    audioSpawnBand: 'rms',
+    audioSpawnThreshold: 0.6,
+    audioSpawnCooldownMs: 250,
+    audioSpawnHalfLifeMs: 1500,
+    audioSpawnHalfLifeEnergyFactor: 1.0,
+    audioSpawnMaxLayers: 12,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
@@ -305,17 +313,69 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-	  const setEnergyInfluence = useCallback((value) => {
-	    setAppState(prev => {
-	      const raw = (typeof value === 'function') ? value(prev.energyInfluence) : value;
-	      const next = Number.isFinite(raw) ? Math.max(0, Math.min(2, raw)) : prev.energyInfluence;
-	      return {
-	        ...prev,
-	        energyInfluence: next,
-	      };
-	    });
-	    markDirty();
-	  }, [markDirty]);
+  const setEnergyInfluence = useCallback((value) => {
+    setAppState(prev => {
+      const raw = (typeof value === 'function') ? value(prev.energyInfluence) : value;
+      const next = Number.isFinite(raw) ? Math.max(0, Math.min(2, raw)) : prev.energyInfluence;
+      return {
+        ...prev,
+        energyInfluence: next,
+      };
+    });
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnEnabled = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnEnabled: (typeof value === 'function') ? !!value(prev.audioSpawnEnabled) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnBand = useCallback((value) => {
+    const allowed = new Set(['rms', 'bass', 'mids', 'highs']);
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnBand: allowed.has(value) ? value : prev.audioSpawnBand,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnThreshold = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnThreshold) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(1, Number(raw))) : appStateRef.current.audioSpawnThreshold;
+    setAppState(prev => ({ ...prev, audioSpawnThreshold: next }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnCooldownMs = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnCooldownMs) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(10_000, Math.round(Number(raw)))) : appStateRef.current.audioSpawnCooldownMs;
+    setAppState(prev => ({ ...prev, audioSpawnCooldownMs: next }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnHalfLifeMs = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnHalfLifeMs) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(50, Math.min(60_000, Math.round(Number(raw)))) : appStateRef.current.audioSpawnHalfLifeMs;
+    setAppState(prev => ({ ...prev, audioSpawnHalfLifeMs: next }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnHalfLifeEnergyFactor = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnHalfLifeEnergyFactor) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(4, Number(raw))) : appStateRef.current.audioSpawnHalfLifeEnergyFactor;
+    setAppState(prev => ({ ...prev, audioSpawnHalfLifeEnergyFactor: next }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnMaxLayers = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnMaxLayers) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(200, Math.round(Number(raw)))) : appStateRef.current.audioSpawnMaxLayers;
+    setAppState(prev => ({ ...prev, audioSpawnMaxLayers: next }));
+    markDirty();
+  }, [markDirty]);
 
   const setBackgroundColor = useCallback((value) => {
     setAppState(prev => ({ ...prev, backgroundColor: value }));
@@ -683,6 +743,13 @@ export const AppStateProvider = ({ children }) => {
       enableBreathing: false,
       enableEnergyScaling: false,
       energyInfluence: 0.5,
+      audioSpawnEnabled: false,
+      audioSpawnBand: 'rms',
+      audioSpawnThreshold: 0.6,
+      audioSpawnCooldownMs: 250,
+      audioSpawnHalfLifeMs: 1500,
+      audioSpawnHalfLifeEnergyFactor: 1.0,
+      audioSpawnMaxLayers: 12,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: generateSeed(),
@@ -737,6 +804,13 @@ export const AppStateProvider = ({ children }) => {
     setEnableBreathing,
     setEnableEnergyScaling,
     setEnergyInfluence,
+    setAudioSpawnEnabled,
+    setAudioSpawnBand,
+    setAudioSpawnThreshold,
+    setAudioSpawnCooldownMs,
+    setAudioSpawnHalfLifeMs,
+    setAudioSpawnHalfLifeEnergyFactor,
+    setAudioSpawnMaxLayers,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,
@@ -811,6 +885,13 @@ export const AppStateProvider = ({ children }) => {
     setEnableBreathing,
     setEnableEnergyScaling,
     setEnergyInfluence,
+    setAudioSpawnEnabled,
+    setAudioSpawnBand,
+    setAudioSpawnThreshold,
+    setAudioSpawnCooldownMs,
+    setAudioSpawnHalfLifeMs,
+    setAudioSpawnHalfLifeEnergyFactor,
+    setAudioSpawnMaxLayers,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,

@@ -370,6 +370,186 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
   );
 };
 
+const AudioSpawnSection = ({
+  isActiveTab = true,
+  timelineMode = false,
+  energyInfluence = 0,
+  setEnergyInfluence = null,
+  audioSpawnEnabled = false,
+  setAudioSpawnEnabled = null,
+  audioSpawnBand = 'rms',
+  setAudioSpawnBand = null,
+  audioSpawnThreshold = 0.6,
+  setAudioSpawnThreshold = null,
+  audioSpawnCooldownMs = 250,
+  setAudioSpawnCooldownMs = null,
+  audioSpawnHalfLifeMs = 1500,
+  setAudioSpawnHalfLifeMs = null,
+  audioSpawnHalfLifeEnergyFactor = 1.0,
+  setAudioSpawnHalfLifeEnergyFactor = null,
+  audioSpawnMaxLayers = 12,
+  setAudioSpawnMaxLayers = null,
+} = {}) => {
+  const audio = useAudioReactive();
+  const [bandValue, setBandValue] = useState(0);
+
+  const enabled = !!audio?.settings?.enabled;
+  const getFeatures = audio?.getFeatures;
+
+  useEffect(() => {
+    if (!isActiveTab || !enabled || typeof getFeatures !== 'function') {
+      setBandValue(0);
+      return undefined;
+    }
+
+    let intervalId;
+    const tick = () => {
+      const features = getFeatures?.() || {};
+      const v = typeof features?.[audioSpawnBand] === 'number' ? features[audioSpawnBand] : 0;
+      setBandValue(v);
+    };
+    intervalId = setInterval(tick, 50);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isActiveTab, enabled, getFeatures, audioSpawnBand]);
+
+  const disabledByTimeline = !!timelineMode;
+  const canRun = !disabledByTimeline && enabled;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>⚡ Audio Spawn (Live)</span>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Spawn temporary layers on audio threshold crossings (not exported)">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnEnabled}
+            disabled={!setAudioSpawnEnabled || disabledByTimeline}
+            onChange={(e) => setAudioSpawnEnabled?.(!!e.target.checked)}
+          />
+          Enabled
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+        <span className="compact-label" style={{ width: 58 }}>Band</span>
+        <select
+          className="compact-select"
+          style={{ fontSize: '0.75rem', flex: 1 }}
+          value={audioSpawnBand || 'rms'}
+          disabled={!setAudioSpawnBand || disabledByTimeline}
+          onChange={(e) => setAudioSpawnBand?.(e.target.value)}
+        >
+          <option value="rms">Level</option>
+          <option value="bass">Bass</option>
+          <option value="mids">Mids</option>
+          <option value="highs">Highs</option>
+        </select>
+        <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7, minWidth: 48, textAlign: 'right' }}>
+          {Number.isFinite(bandValue) ? bandValue.toFixed(2) : '0.00'}
+        </span>
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">Sensitivity</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number(audioSpawnThreshold || 0).toFixed(2)}</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6}
+          disabled={!setAudioSpawnThreshold || disabledByTimeline}
+          onChange={(e) => setAudioSpawnThreshold?.(Number(e.target.value))}
+          title="Lower = more sensitive (triggers on smaller transients)"
+        />
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">Energy → Variance</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number.isFinite(energyInfluence) ? Number(energyInfluence).toFixed(2) : '0.00'}</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="2"
+          step="0.01"
+          value={Number.isFinite(energyInfluence) ? energyInfluence : 0}
+          disabled={!setEnergyInfluence || disabledByTimeline}
+          onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 6rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
+        <span className="compact-label">Cooldown (ms)</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnCooldownMs) ? audioSpawnCooldownMs : 250}
+          step={25}
+          min={0}
+          max={10000}
+          onCommit={setAudioSpawnCooldownMs}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnCooldownMs || disabledByTimeline}
+        />
+
+        <span className="compact-label">Half-life (ms)</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnHalfLifeMs) ? audioSpawnHalfLifeMs : 1500}
+          step={50}
+          min={50}
+          max={60000}
+          onCommit={setAudioSpawnHalfLifeMs}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnHalfLifeMs || disabledByTimeline}
+        />
+
+        <span className="compact-label">Half-life Energy Factor</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0}
+          step={0.1}
+          min={0}
+          max={4}
+          onCommit={setAudioSpawnHalfLifeEnergyFactor}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnHalfLifeEnergyFactor || disabledByTimeline}
+        />
+
+        <span className="compact-label">Max Layers</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12}
+          step={1}
+          min={0}
+          max={200}
+          onCommit={setAudioSpawnMaxLayers}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnMaxLayers || disabledByTimeline}
+        />
+      </div>
+
+      {!enabled && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', opacity: 0.7 }}>
+          Enable Audio Input above to use live spawning.
+        </div>
+      )}
+      {disabledByTimeline && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', opacity: 0.7 }}>
+          Disabled while Timeline mode is active.
+        </div>
+      )}
+    </div>
+  );
+};
+
 // BPM/Beat Sync Section Component - Master BPM controls
 const BPMSection = ({ showBeatCounter = false }) => {
   const bpm = useBPM();
@@ -822,6 +1002,7 @@ const BPMControlRow = React.memo(({ paramId }) => {
 const GlobalControls = ({
   // Tab visibility for gating animations
   isActiveTab = true,
+  timelineMode = false,
   // State and actions
   backgroundColor,
   setBackgroundColor,
@@ -831,6 +1012,22 @@ const GlobalControls = ({
   setIsFrozen,
   enableBreathing,
   setEnableBreathing,
+  energyInfluence,
+  setEnergyInfluence,
+  audioSpawnEnabled,
+  setAudioSpawnEnabled,
+  audioSpawnBand,
+  setAudioSpawnBand,
+  audioSpawnThreshold,
+  setAudioSpawnThreshold,
+  audioSpawnCooldownMs,
+  setAudioSpawnCooldownMs,
+  audioSpawnHalfLifeMs,
+  setAudioSpawnHalfLifeMs,
+  audioSpawnHalfLifeEnergyFactor,
+  setAudioSpawnHalfLifeEnergyFactor,
+  audioSpawnMaxLayers,
+  setAudioSpawnMaxLayers,
   zIgnore,
   setZIgnore,
   classicMode,
@@ -2274,6 +2471,28 @@ const GlobalControls = ({
 
           {/* Audio Reactive Section */}
           <AudioReactiveSection isActiveTab={isActiveTab} />
+
+          {/* Live audio spawn (non-export overlays) */}
+          <AudioSpawnSection
+            isActiveTab={isActiveTab}
+            timelineMode={timelineMode}
+            energyInfluence={energyInfluence}
+            setEnergyInfluence={setEnergyInfluence}
+            audioSpawnEnabled={audioSpawnEnabled}
+            setAudioSpawnEnabled={setAudioSpawnEnabled}
+            audioSpawnBand={audioSpawnBand}
+            setAudioSpawnBand={setAudioSpawnBand}
+            audioSpawnThreshold={audioSpawnThreshold}
+            setAudioSpawnThreshold={setAudioSpawnThreshold}
+            audioSpawnCooldownMs={audioSpawnCooldownMs}
+            setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+            audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+            setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+            audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+            setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+            audioSpawnMaxLayers={audioSpawnMaxLayers}
+            setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+          />
 
           {/* BPM/Beat Sync Section */}
           <BPMSection />

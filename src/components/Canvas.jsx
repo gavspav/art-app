@@ -1031,6 +1031,9 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 const Canvas = forwardRef(({
     layers,
     layersRef,
+    overlayLayersRef,
+    renderOverlayLayers = true,
+    hideLayerIndex = -1,
     backgroundColor,
     globalSeed,
     globalBlendMode,
@@ -1555,6 +1558,7 @@ const Canvas = forwardRef(({
                 : timeNow;
             (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
+                if (hideLayerIndex >= 0 && index === hideLayerIndex) return;
                 if (!isLayerVisible(layer)) {
                     renderedPointsRef.current.delete(index);
                     return;
@@ -1573,6 +1577,18 @@ const Canvas = forwardRef(({
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow), [], { renderedPoints });
                 }
             });
+            // Ephemeral overlay layers (non-interactive / non-selectable)
+            if (renderOverlayLayers && overlayLayersRef?.current?.length) {
+                const overlayList = overlayLayersRef.current;
+                overlayList.forEach((layer) => {
+                    if (!layer || !layer.position || !layer.visible) return;
+                    if (layer.image && layer.image.src) {
+                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
+                    } else {
+                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints: null });
+                    }
+                });
+            }
             // Do not return; continue to draw overlays (debug grid, node handles)
         }
 
@@ -1663,6 +1679,7 @@ const Canvas = forwardRef(({
                 return;
             }
             if (!layer.visible) return;
+            if (hideLayerIndex >= 0 && index === hideLayerIndex) return;
             if (!isLayerVisible(layer)) {
                 renderedPointsRef.current.delete(index);
                 return;
@@ -1692,6 +1709,19 @@ const Canvas = forwardRef(({
                 }
             }
         });
+
+        // Ephemeral overlay layers (non-interactive / non-selectable)
+        if (renderOverlayLayers && overlayLayersRef?.current?.length) {
+            const overlayList = overlayLayersRef.current;
+            overlayList.forEach((layer) => {
+                if (!layer || !layer.position || !layer.visible) return;
+                if (layer.image && layer.image.src) {
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
+                } else {
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, nowSec, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints: null });
+                }
+            });
+        }
 
         if (classicMode) {
             ctx.filter = 'none';

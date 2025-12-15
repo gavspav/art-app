@@ -335,6 +335,22 @@ const BottomPanel = ({
   setParameterTargetMode,
   onQuickSave,
   onQuickLoad,
+  energyInfluence,
+  setEnergyInfluence,
+  audioSpawnEnabled,
+  setAudioSpawnEnabled,
+  audioSpawnBand,
+  setAudioSpawnBand,
+  audioSpawnThreshold,
+  setAudioSpawnThreshold,
+  audioSpawnCooldownMs,
+  setAudioSpawnCooldownMs,
+  audioSpawnHalfLifeMs,
+  setAudioSpawnHalfLifeMs,
+  audioSpawnHalfLifeEnergyFactor,
+  setAudioSpawnHalfLifeEnergyFactor,
+  audioSpawnMaxLayers,
+  setAudioSpawnMaxLayers,
   timelineMode,
   setTimelineMode,
   layers,
@@ -718,24 +734,41 @@ const BottomPanel = ({
       case 'global':
         return (
           <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
-            <GlobalControls
-              key={`glob-${parameterTargetMode}`}
-              isActiveTab={activeTab === 'global'}
-              autosaveToggleToken={autosaveToggleToken}
-              backgroundColor={backgroundColor}
-              setBackgroundColor={setBackgroundColor}
-              backgroundImage={backgroundImage}
-              setBackgroundImage={setBackgroundImage}
-              isFrozen={isFrozen}
-              setIsFrozen={setIsFrozen}
-              enableBreathing={enableBreathing}
-              setEnableBreathing={setEnableBreathing}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
-              zIgnore={zIgnore}
-              setZIgnore={setZIgnore}
+	            <GlobalControls
+	              key={`glob-${parameterTargetMode}`}
+	              isActiveTab={activeTab === 'global'}
+	              autosaveToggleToken={autosaveToggleToken}
+	              timelineMode={timelineMode}
+	              backgroundColor={backgroundColor}
+	              setBackgroundColor={setBackgroundColor}
+	              backgroundImage={backgroundImage}
+	              setBackgroundImage={setBackgroundImage}
+	              isFrozen={isFrozen}
+	              setIsFrozen={setIsFrozen}
+	              enableBreathing={enableBreathing}
+	              setEnableBreathing={setEnableBreathing}
+	              energyInfluence={energyInfluence}
+	              setEnergyInfluence={setEnergyInfluence}
+	              audioSpawnEnabled={audioSpawnEnabled}
+	              setAudioSpawnEnabled={setAudioSpawnEnabled}
+	              audioSpawnBand={audioSpawnBand}
+	              setAudioSpawnBand={setAudioSpawnBand}
+	              audioSpawnThreshold={audioSpawnThreshold}
+	              setAudioSpawnThreshold={setAudioSpawnThreshold}
+	              audioSpawnCooldownMs={audioSpawnCooldownMs}
+	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+	              audioSpawnMaxLayers={audioSpawnMaxLayers}
+	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+	              classicMode={classicMode}
+	              setClassicMode={setClassicMode}
+	              zIgnore={zIgnore}
+	              setZIgnore={setZIgnore}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
@@ -747,10 +780,10 @@ const BottomPanel = ({
               globalBlendMode={globalBlendMode}
               setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
-              setParameterTargetMode={setParameterTargetMode}
-              midiSupported={midiSupported}
-              beginLearn={beginLearn}
-              clearMapping={clearMapping}
+	              setParameterTargetMode={setParameterTargetMode}
+	              midiSupported={midiSupported}
+	              beginLearn={beginLearn}
+	              clearMapping={clearMapping}
               midiMappings={midiMappings}
               mappingLabel={mappingLabel}
               learnParamId={learnParamId}
@@ -1053,12 +1086,21 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.backgroundImage, next.backgroundImage)) return fail('backgroundImage changed');
   if (!Object.is(prev.isFrozen, next.isFrozen)) return fail('isFrozen changed');
   if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
+  if (!Object.is(prev.energyInfluence, next.energyInfluence)) return fail('energyInfluence changed');
+  if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
+  if (!Object.is(prev.audioSpawnBand, next.audioSpawnBand)) return fail('audioSpawnBand changed');
+  if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return fail('audioSpawnThreshold changed');
+  if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return fail('audioSpawnCooldownMs changed');
+  if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return fail('audioSpawnHalfLifeMs changed');
+  if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return fail('audioSpawnHalfLifeEnergyFactor changed');
+  if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return fail('audioSpawnMaxLayers changed');
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
   if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
   if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
   if (!Object.is(prev.globalSeed, next.globalSeed)) return fail('globalSeed changed');
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return fail('globalSpeedMultiplier changed');
   if (!Object.is(prev.globalBlendMode, next.globalBlendMode)) return fail('globalBlendMode changed');
+  if (!Object.is(prev.timelineMode, next.timelineMode)) return fail('timelineMode changed');
   if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
   if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
   if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
@@ -1081,12 +1123,21 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setBackgroundImage',
     'setIsFrozen',
     'setEnableBreathing',
+    'setEnergyInfluence',
+    'setAudioSpawnEnabled',
+    'setAudioSpawnBand',
+    'setAudioSpawnThreshold',
+    'setAudioSpawnCooldownMs',
+    'setAudioSpawnHalfLifeMs',
+    'setAudioSpawnHalfLifeEnergyFactor',
+    'setAudioSpawnMaxLayers',
     'setColorFadeWhileFrozen',
     'setClassicMode',
     'setZIgnore',
     'setGlobalSeed',
     'setGlobalSpeedMultiplier',
     'setGlobalBlendMode',
+    'setTimelineMode',
     'setParameterTargetMode',
     'onQuickSave',
     'onQuickLoad',

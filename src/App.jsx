@@ -15,6 +15,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
 import { useAudioHandlers } from './hooks/useAudioHandlers.js';
 import { useAudioLayerHandlers } from './hooks/useAudioLayerHandlers.js';
+import { useAudioSpawnLayers } from './hooks/useAudioSpawnLayers.js';
 import { useBPMHandlers } from './hooks/useBPMHandlers.js';
 import { useBPMLayerHandlers } from './hooks/useBPMLayerHandlers.js';
 import { useModulationStore } from './hooks/useModulationStore.js';
@@ -75,12 +76,27 @@ const MainApp = () => {
   const appStateCtx = useAppState();
   const {
     isFrozen, setIsFrozen,
-    enableBreathing, setEnableBreathing,
-    enableEnergyScaling,
-    energyInfluence,
-    backgroundColor, setBackgroundColor,
-    backgroundImage, setBackgroundImage,
-    globalSeed, setGlobalSeed,
+	    enableBreathing, setEnableBreathing,
+	    enableEnergyScaling,
+	    energyInfluence,
+	    setEnergyInfluence,
+	    audioSpawnEnabled,
+	    audioSpawnBand,
+	    audioSpawnThreshold,
+	    audioSpawnCooldownMs,
+	    audioSpawnHalfLifeMs,
+	    audioSpawnHalfLifeEnergyFactor,
+	    audioSpawnMaxLayers,
+	    setAudioSpawnEnabled,
+	    setAudioSpawnBand,
+	    setAudioSpawnThreshold,
+	    setAudioSpawnCooldownMs,
+	    setAudioSpawnHalfLifeMs,
+	    setAudioSpawnHalfLifeEnergyFactor,
+	    setAudioSpawnMaxLayers,
+	    backgroundColor, setBackgroundColor,
+	    backgroundImage, setBackgroundImage,
+	    globalSeed, setGlobalSeed,
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
     globalBlendMode, setGlobalBlendMode,
     layers, setLayers,
@@ -161,6 +177,7 @@ const MainApp = () => {
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   const [isRecording, setIsRecording] = useState(false);
+  const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
   const latestRecordingNameRef = useRef('art-recording');
@@ -174,19 +191,27 @@ const MainApp = () => {
         });
       }
     } catch { /* noop */ }
-    recorderRef.current = { mediaRecorder: null, stream: null };
-    recordedChunksRef.current = [];
-    setIsRecording(false);
-  }, []);
+	    recorderRef.current = { mediaRecorder: null, stream: null };
+	    recordedChunksRef.current = [];
+	    setIsRecording(false);
+	    setSuppressEphemeralOverlays(false);
+	  }, []);
 
-  const startRecording = useCallback(async () => {
-    if (isRecording) {
-      return;
-    }
+	  const startRecording = useCallback(async () => {
+	    if (isRecording) {
+	      return;
+	    }
 
-    // Resolve the underlying canvas element (forwardRef exposes a handle with .canvas)
-    let canvasHandle = canvasRef.current;
-    let canvasEl = canvasHandle?.canvas || canvasHandle;
+	    // Exclude ephemeral overlays from the captured canvas stream.
+	    const wasSuppressing = suppressEphemeralOverlays;
+	    if (!wasSuppressing) {
+	      setSuppressEphemeralOverlays(true);
+	    }
+	    await new Promise(resolve => requestAnimationFrame(resolve));
+
+	    // Resolve the underlying canvas element (forwardRef exposes a handle with .canvas)
+	    let canvasHandle = canvasRef.current;
+	    let canvasEl = canvasHandle?.canvas || canvasHandle;
 
     // If the canvas has not been sized yet (0x0), wait one frame for layout to settle
     if (canvasEl && (!canvasEl.width || !canvasEl.height)) {
@@ -195,32 +220,36 @@ const MainApp = () => {
       canvasEl = canvasHandle?.canvas || canvasHandle;
     }
 
-    if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
-      window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
-      return;
-    }
+	    if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
+	      window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
     // Final safety: avoid recording from a 0x0 canvas, which would produce a blank video
-    if (!canvasEl.width || !canvasEl.height) {
-      console.warn('Recording aborted: canvas has zero size', { width: canvasEl.width, height: canvasEl.height });
-      window.alert('Unable to start recording: canvas is not visible or has zero size.');
-      return;
-    }
+	    if (!canvasEl.width || !canvasEl.height) {
+	      console.warn('Recording aborted: canvas has zero size', { width: canvasEl.width, height: canvasEl.height });
+	      window.alert('Unable to start recording: canvas is not visible or has zero size.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
     let videoStream;
     try {
       // Let the browser pick an appropriate frame rate; 60 can be too aggressive on some setups
       videoStream = canvasEl.captureStream();
-    } catch (error) {
-      console.warn('Failed to capture canvas stream', error);
-      window.alert('Unable to start recording: canvas capture stream failed.');
-      return;
-    }
+	    } catch (error) {
+	      console.warn('Failed to capture canvas stream', error);
+	      window.alert('Unable to start recording: canvas capture stream failed.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
-    if (!videoStream) {
-      window.alert('Unable to start recording: no stream produced.');
-      return;
-    }
+	    if (!videoStream) {
+	      window.alert('Unable to start recording: no stream produced.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
     // Try to get audio stream from timeline (if audio is loaded and playing)
     let combinedStream = videoStream;
@@ -247,15 +276,16 @@ const MainApp = () => {
       mediaRecorder = new MediaRecorder(combinedStream, options);
     } catch (error) {
       console.warn('Failed to create MediaRecorder with options', options, error);
-      try {
-        mediaRecorder = new MediaRecorder(combinedStream);
-      } catch (fallbackError) {
-        console.warn('Failed to create MediaRecorder without options', fallbackError);
-        window.alert('Unable to start recording: MediaRecorder could not be initialized.');
-        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
-        return;
-      }
-    }
+	      try {
+	        mediaRecorder = new MediaRecorder(combinedStream);
+	      } catch (fallbackError) {
+	        console.warn('Failed to create MediaRecorder without options', fallbackError);
+	        window.alert('Unable to start recording: MediaRecorder could not be initialized.');
+	        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+	        if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	        return;
+	      }
+	    }
 
     recordedChunksRef.current = [];
 
@@ -303,18 +333,19 @@ const MainApp = () => {
 
     recorderRef.current = { mediaRecorder, stream: combinedStream };
 
-    try {
-      mediaRecorder.start(1000);
-    } catch (error) {
-      console.warn('MediaRecorder.start failed', error);
-      window.alert('Unable to start recording: MediaRecorder start failed.');
-      combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
-      cleanupRecorder();
-      return;
-    }
+	    try {
+	      mediaRecorder.start(1000);
+	    } catch (error) {
+	      console.warn('MediaRecorder.start failed', error);
+	      window.alert('Unable to start recording: MediaRecorder start failed.');
+	      combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+	      cleanupRecorder();
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
-    setIsRecording(true);
-  }, [cleanupRecorder, isRecording, timelineContext]);
+	    setIsRecording(true);
+	  }, [cleanupRecorder, isRecording, suppressEphemeralOverlays, timelineContext]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
@@ -486,6 +517,20 @@ const MainApp = () => {
   const modulationStore = useModulationStore();
 
   const { timelineMode, setTimelineMode } = appStateCtx;
+
+  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
+    enabled: !!audioSpawnEnabled && !timelineMode,
+    paused: !!suppressEphemeralOverlays || !!isRecording,
+    layers,
+    selectedLayerIndex,
+    energyInfluence,
+    band: audioSpawnBand,
+    threshold: audioSpawnThreshold,
+    cooldownMs: audioSpawnCooldownMs,
+    halfLifeMs: audioSpawnHalfLifeMs,
+    halfLifeEnergyFactor: audioSpawnHalfLifeEnergyFactor,
+    maxLayers: audioSpawnMaxLayers,
+  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
   useEffect(() => {
@@ -1870,7 +1915,11 @@ const MainApp = () => {
   // Download helper – choose resolution, freeze time during export
   const downloadImage = useCallback(async () => {
     const wasFrozen = isFrozen;
+    const wasSuppressing = suppressEphemeralOverlays;
     try {
+      if (!wasSuppressing) {
+        setSuppressEphemeralOverlays(true);
+      }
       if (!wasFrozen) {
         setIsFrozen(true);
       }
@@ -1931,8 +1980,15 @@ const MainApp = () => {
           /* noop */
         }
       }
+      if (!wasSuppressing) {
+        try {
+          setSuppressEphemeralOverlays(false);
+        } catch {
+          /* noop */
+        }
+      }
     }
-  }, [isFrozen, setIsFrozen]);
+  }, [isFrozen, setIsFrozen, suppressEphemeralOverlays]);
 
   return (
     <div ref={containerRef} className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
@@ -1992,23 +2048,26 @@ const MainApp = () => {
               height: '100%',
             }}
           >
-            <Canvas
-              ref={canvasRef}
-              layers={layers}
-              layersRef={animatedLayersRef}
-              isFrozen={isFrozen}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              backgroundColor={backgroundColor}
-              globalSeed={globalSeed}
+	            <Canvas
+	              ref={canvasRef}
+	              layers={layers}
+	              layersRef={animatedLayersRef}
+	              overlayLayersRef={audioSpawnOverlayLayersRef}
+	              renderOverlayLayers={!suppressEphemeralOverlays}
+	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+	              isFrozen={isFrozen}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              backgroundColor={backgroundColor}
+	              globalSeed={globalSeed}
               globalBlendMode={globalBlendMode}
               isNodeEditMode={isNodeEditMode}
               selectedLayerIndex={selectedLayerIndex}
               setLayers={setLayers}
               setSelectedLayerIndex={setSelectedLayerIndex}
               classicMode={classicMode}
-              isolateMode={isolateMode}
-              getActiveTargetLayerIds={getActiveTargetLayerIds}
-            />
+	              isolateMode={isolateMode}
+	              getActiveTargetLayerIds={getActiveTargetLayerIds}
+	            />
             
             {showImportAdjust && (
               <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
@@ -2074,11 +2133,11 @@ const MainApp = () => {
                 borderTop: '1px solid rgba(255, 255, 255, 0.1)',
               }}
             >
-              <BottomPanel
-              backgroundColor={backgroundColor}
-              setBackgroundColor={setBackgroundColor}
-              backgroundImage={backgroundImage}
-              setBackgroundImage={setBackgroundImage}
+	              <BottomPanel
+	              backgroundColor={backgroundColor}
+	              setBackgroundColor={setBackgroundColor}
+	              backgroundImage={backgroundImage}
+	              setBackgroundImage={setBackgroundImage}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
               enableBreathing={enableBreathing}
@@ -2101,12 +2160,28 @@ const MainApp = () => {
               setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
               setParameterTargetMode={setParameterTargetMode}
-              onQuickSave={handleQuickSave}
-              onQuickLoad={handleQuickLoad}
-              timelineMode={timelineMode}
-              setTimelineMode={setTimelineMode}
-              layers={uiLayers}
-              selectedLayerIds={selectedLayerIds}
+	              onQuickSave={handleQuickSave}
+	              onQuickLoad={handleQuickLoad}
+	              energyInfluence={energyInfluence}
+	              setEnergyInfluence={setEnergyInfluence}
+	              audioSpawnEnabled={audioSpawnEnabled}
+	              setAudioSpawnEnabled={setAudioSpawnEnabled}
+	              audioSpawnBand={audioSpawnBand}
+	              setAudioSpawnBand={setAudioSpawnBand}
+	              audioSpawnThreshold={audioSpawnThreshold}
+	              setAudioSpawnThreshold={setAudioSpawnThreshold}
+	              audioSpawnCooldownMs={audioSpawnCooldownMs}
+	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+	              audioSpawnMaxLayers={audioSpawnMaxLayers}
+	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+	              timelineMode={timelineMode}
+	              setTimelineMode={setTimelineMode}
+	              layers={uiLayers}
+	              selectedLayerIds={selectedLayerIds}
               toggleLayerSelection={toggleLayerSelection}
               clearSelection={clearSelection}
               layerGroups={layerGroups}
@@ -2330,23 +2405,26 @@ const MainApp = () => {
                 overflow: 'hidden',
               }}
             >
-              <Canvas
-                ref={canvasRef}
-                layers={layers}
-                layersRef={animatedLayersRef}
-                isFrozen={isFrozen}
-                colorFadeWhileFrozen={colorFadeWhileFrozen}
-                backgroundColor={backgroundColor}
-                globalSeed={globalSeed}
+	            <Canvas
+	              ref={canvasRef}
+	              layers={layers}
+	              layersRef={animatedLayersRef}
+	              overlayLayersRef={audioSpawnOverlayLayersRef}
+	              renderOverlayLayers={!suppressEphemeralOverlays}
+	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+	              isFrozen={isFrozen}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              backgroundColor={backgroundColor}
+	              globalSeed={globalSeed}
                 globalBlendMode={globalBlendMode}
                 isNodeEditMode={isNodeEditMode}
                 selectedLayerIndex={selectedLayerIndex}
                 setLayers={setLayers}
                 setSelectedLayerIndex={setSelectedLayerIndex}
                 classicMode={classicMode}
-                isolateMode={isolateMode}
-                getActiveTargetLayerIds={getActiveTargetLayerIds}
-              />
+	              isolateMode={isolateMode}
+	              getActiveTargetLayerIds={getActiveTargetLayerIds}
+	            />
               
               {/* Import Adjust Panel (multi-file SVG import) */}
               {showImportAdjust && (
@@ -2419,14 +2497,17 @@ const MainApp = () => {
               height: '100%',
             }}
           >
-              <Canvas
-                ref={canvasRef}
-                layers={layers}
-                layersRef={animatedLayersRef}
-                isFrozen={isFrozen}
-                colorFadeWhileFrozen={colorFadeWhileFrozen}
-                backgroundColor={backgroundColor}
-                globalSeed={globalSeed}
+	              <Canvas
+	                ref={canvasRef}
+	                layers={layers}
+	                layersRef={animatedLayersRef}
+	                overlayLayersRef={audioSpawnOverlayLayersRef}
+	                renderOverlayLayers={!suppressEphemeralOverlays}
+	                hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+	                isFrozen={isFrozen}
+	                colorFadeWhileFrozen={colorFadeWhileFrozen}
+	                backgroundColor={backgroundColor}
+	                globalSeed={globalSeed}
                 globalBlendMode={globalBlendMode}
               isNodeEditMode={isNodeEditMode}
               selectedLayerIndex={selectedLayerIndex}

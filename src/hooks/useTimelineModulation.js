@@ -942,7 +942,7 @@ export function useTimelineModulation({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef, timelineMode]);
+  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef, timelineMode, setBackgroundColor]);
 
   // Clean up timeline modulations when timeline is hidden or stopped
   useEffect(() => {
