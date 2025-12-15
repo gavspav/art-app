@@ -829,6 +829,8 @@ const GlobalControls = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
+  enableBreathing,
+  setEnableBreathing,
   zIgnore,
   setZIgnore,
   classicMode,

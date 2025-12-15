@@ -260,6 +260,8 @@ export function useTimelineModulation({
           if (parsed?.type === 'layer' && parsed.paramId === 'color') {
             // Store the color in the modulation store as 'colors' array
             store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+          } else if (parsed?.type === 'global' && parsed.paramId === 'backgroundColor') {
+            if (typeof setBackgroundColor === 'function') setBackgroundColor(colorResult);
           }
         }
         continue;
@@ -908,6 +910,8 @@ export function useTimelineModulation({
               const parsed = parseTargetId(track.targetId);
               if (parsed?.type === 'layer' && parsed.paramId === 'color') {
                 store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+              } else if (parsed?.type === 'global' && parsed.paramId === 'backgroundColor') {
+                if (typeof setBackgroundColor === 'function') setBackgroundColor(colorResult);
               }
             }
             continue;

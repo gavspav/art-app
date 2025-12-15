@@ -23,6 +23,7 @@ export function generateVariedLayer(baseLayer, options = {}) {
     seed = Date.now(),
     variationWeights,
     affectCategories = ['shape', 'anim', 'color', 'position'],
+    isParamRandomizable,
   } = options;
 
   // Build variation weights from layer defaults or overrides
@@ -43,6 +44,7 @@ export function generateVariedLayer(baseLayer, options = {}) {
       randomSeed: seed,
       affectCategories,
       preserveSeeds: false,
+      isParamRandomizable,
     }
   );
 

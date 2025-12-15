@@ -160,6 +160,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     if (!Number.isFinite(ps)) ps = 1;
     const x = px, y = py, scale = ps;
     const random = createSeededRandom((Number(globalSeed) || 1) + (Number(noiseSeed) || 0));
+    // In node edit mode we render the *editable* base geometry, not the time/noise-deformed result,
+    // otherwise dragging a handle (which inverts an undeformed transform) can cause large jumps.
+    const effectiveNoiseAmount = _isNodeEditMode ? 0 : noiseAmount;
 
     // Precompute frequencies and symmetry factor for noise deformation (shared between node and procedural shapes)
     const actualFreq1 = freq1 + (random() - 0.5) * 3;
@@ -234,7 +237,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
         // Canvas-relative deformation
         const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075; // 7.5% of current radius
-        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
+        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
         const dx = baseX - centerX;
         const dy = baseY - centerY;
         const dist = Math.hypot(dx, dy) || 1;
@@ -401,7 +404,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 
             // Apply noise to radius in radial direction
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
-            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
+            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
             
             // Base position on circle/ellipse (scale then rotate)
             const sx = Math.cos(angle) * radiusX;
@@ -537,6 +540,13 @@ const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCent
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     if (!(canvasWidth > 0) || !(canvasHeight > 0)) return ZERO_WRAP_OFFSET;
 
+    // Wrap in the same coordinate system used by rendering: the centered-square artboard.
+    const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
+    const artLeft = ax;
+    const artRight = ax + spanX;
+    const artTop = ay;
+    const artBottom = ay + spanY;
+
     const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: basePoints });
     const negX = extentInfo.extentsX?.neg ?? extentInfo.rx;
     const posX = extentInfo.extentsX?.pos ?? extentInfo.rx;
@@ -545,10 +555,12 @@ const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCent
 
     const offsetsX = [0];
     const offsetsY = [0];
-    if ((baseCenterX - negX) < 0) offsetsX.push(canvasWidth);
-    if ((baseCenterX + posX) > canvasWidth) offsetsX.push(-canvasWidth);
-    if ((baseCenterY - negY) < 0) offsetsY.push(canvasHeight);
-    if ((baseCenterY + posY) > canvasHeight) offsetsY.push(-canvasHeight);
+    // Determine which neighbor offsets are needed based on artboard bounds (not the full canvas).
+    // Use artboard spans for the wrap translation, to match drawLayerWithWrap().
+    if ((baseCenterX - negX) < artLeft) offsetsX.push(spanX);
+    if ((baseCenterX + posX) > artRight) offsetsX.push(-spanX);
+    if ((baseCenterY - negY) < artTop) offsetsY.push(spanY);
+    if ((baseCenterY + posY) > artBottom) offsetsY.push(-spanY);
 
     const combos = [];
     offsetsY.forEach(oy => {
@@ -1666,8 +1678,13 @@ const Canvas = forwardRef(({
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
-                        renderedPointsRef.current.set(index, renderedPoints);
+                        if (!isNodeEditMode) {
+                            renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+                            renderedPointsRef.current.set(index, renderedPoints);
+                        } else {
+                            // In node edit mode, keep handles stable and aligned with editable geometry.
+                            renderedPointsRef.current.delete(index);
+                        }
                     } else {
                         renderedPointsRef.current.delete(index);
                     }
@@ -1980,6 +1997,13 @@ const Canvas = forwardRef(({
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
+        // Avoid fighting the user's drag gesture by re-syncing/resizing nodes mid-drag.
+        if (
+            draggingNodeIndexRef.current != null ||
+            draggingMidIndexRef.current != null ||
+            draggingCenterRef.current ||
+            draggingOrbitCenterRef.current
+        ) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
@@ -2120,6 +2144,20 @@ const Canvas = forwardRef(({
         const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
         const wrapOx = wrapOffset.ox;
         const wrapOy = wrapOffset.oy;
+        const gestureGeometry = {
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+            sinR,
+            cosR,
+            artOffsetX,
+            artOffsetY,
+            offsetXPx,
+            offsetYPx,
+            spanX,
+            spanY,
+        };
 
         // Orbit center handle can be dragged regardless of node presence
         {
@@ -2134,7 +2172,7 @@ const Canvas = forwardRef(({
                 draggingMidIndexRef.current = null;
                 draggingCenterRef.current = false;
                 draggingKindRef.current = 'orbitCenter';
-                gestureRef.current = { layerId, layerIndex, type: 'orbitCenter' };
+                gestureRef.current = { layerId, layerIndex, type: 'orbitCenter', wrapOffset, geometry: gestureGeometry };
                 return;
             }
         }
@@ -2170,7 +2208,7 @@ const Canvas = forwardRef(({
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
-            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx };
+            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx, wrapOffset, geometry: gestureGeometry };
             return;
         }
         // Try midpoints next
@@ -2195,7 +2233,27 @@ const Canvas = forwardRef(({
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'mid';
-            gestureRef.current = { layerId, layerIndex, type: 'mid', midIndex: midIdx };
+            const nodes = Array.isArray(layer.nodes) ? layer.nodes : [];
+            const N = nodes.length;
+            const aIdx = midIdx;
+            const bIdx = (midIdx + 1) % (N || 1);
+            const startA = nodes[aIdx] ? { x: nodes[aIdx].x, y: nodes[aIdx].y } : { x: 0, y: 0 };
+            const startB = nodes[bIdx] ? { x: nodes[bIdx].x, y: nodes[bIdx].y } : { x: 0, y: 0 };
+            gestureRef.current = {
+                layerId,
+                layerIndex,
+                type: 'mid',
+                midIndex: midIdx,
+                wrapOffset,
+                geometry: gestureGeometry,
+                midDrag: {
+                    aIdx,
+                    bIdx,
+                    startA,
+                    startB,
+                    startMouse: { x: pos.x, y: pos.y },
+                },
+            };
             return;
         }
         // Try center cross (use centroid to match the drawn crosshair position)
@@ -2214,13 +2272,12 @@ const Canvas = forwardRef(({
                 draggingMidIndexRef.current = null;
                 draggingOrbitCenterRef.current = false;
                 draggingKindRef.current = 'center';
-                gestureRef.current = { layerId, layerIndex, type: 'center' };
+                gestureRef.current = { layerId, layerIndex, type: 'center', wrapOffset, geometry: gestureGeometry };
                 // Store initial offset: where the mouse is relative to the actual layer center
                 const currentPosX = layer.position?.x ?? 0.5;
                 const currentPosY = layer.position?.y ?? 0.5;
-                const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
-                const posBaseX = pos.x - wrapOffset.ox;
-                const posBaseY = pos.y - wrapOffset.oy;
+                const posBaseX = pos.x - wrapOx;
+                const posBaseY = pos.y - wrapOy;
                 const clickNormX = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
                 const clickNormY = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
                 dragStartOffsetRef.current = {
@@ -2246,7 +2303,9 @@ const Canvas = forwardRef(({
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || !layer.position) return;
-        const geometry = getLayerGeometry(layer, canvas);
+        const gestureGeometry = gestureRef.current?.geometry;
+        const liveGeometry = getLayerGeometry(layer, canvas);
+        const geometry = (gestureGeometry && gestureRef.current?.layerIndex === selIndex) ? gestureGeometry : liveGeometry;
         if (!geometry) return;
         const {
             centerX,
@@ -2264,7 +2323,9 @@ const Canvas = forwardRef(({
         } = geometry;
 
         const pos = getMousePos(e);
-        const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
+        const wrapOffset = layer?.movementStyle === 'drift'
+            ? (gestureRef.current?.wrapOffset || getDriftWrapOffset(layer, canvas))
+            : ZERO_WRAP_OFFSET;
         const wrapOx = wrapOffset.ox;
         const wrapOy = wrapOffset.oy;
         const posBaseX = pos.x - wrapOx;
@@ -2462,50 +2523,43 @@ const Canvas = forwardRef(({
                 });
             }
         } else if (mid != null) {
-            // Calculate the delta for midpoint drag
-            const nodes = [...(layer.nodes || [])];
-            const N = nodes.length;
-            const aIdx = mid;
-            const bIdx = (mid + 1) % N;
-            const arx = nodes[aIdx].x * cosR - nodes[aIdx].y * sinR;
-            const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
-            const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
-            const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
-            const ax = centerX + wrapOx + arx * radiusX;
-            const ay = centerY + wrapOy + ary * radiusY;
-            const bx = centerX + wrapOx + brx * radiusX;
-            const by = centerY + wrapOy + bry * radiusY;
-            const mx = (ax + bx) / 2;
-            const my = (ay + by) / 2;
-            const dxCanvas = pos.x - mx;
-            const dyCanvas = pos.y - my;
-            const dLocalX = (dxCanvas / radiusX);
-            const dLocalY = (dyCanvas / radiusY);
+            // Stable midpoint drag: use delta from the gesture start, not current midpoint,
+            // to avoid feedback oscillation/jitter.
+            const md = gestureRef.current?.midDrag;
+            const aIdx = (md && Number.isInteger(md.aIdx)) ? md.aIdx : mid;
+            const bIdx = (md && Number.isInteger(md.bIdx)) ? md.bIdx : ((mid + 1) % (layer.nodes?.length || 1));
+            const startMouse = md?.startMouse || { x: pos.x, y: pos.y };
+            const dxCanvas = pos.x - startMouse.x;
+            const dyCanvas = pos.y - startMouse.y;
+            const dLocalX = radiusX !== 0 ? (dxCanvas / radiusX) : 0;
+            const dLocalY = radiusY !== 0 ? (dyCanvas / radiusY) : 0;
             const invDx = dLocalX * cosR + dLocalY * sinR;
             const invDy = -dLocalX * sinR + dLocalY * cosR;
+            const startA = md?.startA || layer.nodes?.[aIdx] || { x: 0, y: 0 };
+            const startB = md?.startB || layer.nodes?.[bIdx] || { x: 0, y: 0 };
+            const nextA = { x: (Number(startA.x) || 0) + invDx, y: (Number(startA.y) || 0) + invDy };
+            const nextB = { x: (Number(startB.x) || 0) + invDx, y: (Number(startB.y) || 0) + invDy };
             
             // Store update for RAF batching
             pendingDragUpdateRef.current = { 
                 type: 'midDrag', 
                 selIndex, 
-                mid, 
-                invDx, 
-                invDy 
+                aIdx,
+                bIdx,
+                a: nextA,
+                b: nextB,
             };
             // If no RAF scheduled, apply immediately for responsive feedback
             if (!dragUpdateRafRef.current) {
                 setLayers(prev => prev.map((l, i) => {
                     if (i !== selIndex) return l;
                     const nodes = [...(l.nodes || [])];
-                    const N = nodes.length;
-                    const aIdx = mid;
-                    const bIdx = (mid + 1) % N;
-                    nodes[aIdx] = { x: nodes[aIdx].x + invDx, y: nodes[aIdx].y + invDy };
-                    nodes[bIdx] = { x: nodes[bIdx].x + invDx, y: nodes[bIdx].y + invDy };
+                    if (nodes[aIdx]) nodes[aIdx] = { x: nextA.x, y: nextA.y };
+                    if (nodes[bIdx]) nodes[bIdx] = { x: nextB.x, y: nextB.y };
                     const cache = nodesCacheRef.current.get(selIndex);
                     if (Array.isArray(cache) && cache.length >= nodes.length) {
-                        cache[aIdx] = { ...nodes[aIdx] };
-                        cache[bIdx] = { ...nodes[bIdx] };
+                        if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
+                        if (nodes[bIdx]) cache[bIdx] = { ...nodes[bIdx] };
                     }
                     return { ...l, nodes, syncNodesToNumSides: false };
                 }));
@@ -2554,15 +2608,14 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            const N = nodes.length;
-                            const aIdx = update.mid;
-                            const bIdx = (update.mid + 1) % N;
-                            nodes[aIdx] = { x: nodes[aIdx].x + update.invDx, y: nodes[aIdx].y + update.invDy };
-                            nodes[bIdx] = { x: nodes[bIdx].x + update.invDx, y: nodes[bIdx].y + update.invDy };
+                            const aIdx = update.aIdx;
+                            const bIdx = update.bIdx;
+                            if (nodes[aIdx] && update.a) nodes[aIdx] = { x: update.a.x, y: update.a.y };
+                            if (nodes[bIdx] && update.b) nodes[bIdx] = { x: update.b.x, y: update.b.y };
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
-                                cache[aIdx] = { ...nodes[aIdx] };
-                                cache[bIdx] = { ...nodes[bIdx] };
+                                if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
+                                if (nodes[bIdx]) cache[bIdx] = { ...nodes[bIdx] };
                             }
                             return { ...l, nodes, syncNodesToNumSides: false };
                         }));
@@ -2631,6 +2684,7 @@ const Canvas = forwardRef(({
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingKindRef.current = null;
+        gestureRef.current = null;
 
         // nothing else to do here
     };

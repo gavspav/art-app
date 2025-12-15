@@ -80,6 +80,9 @@ export const AppStateProvider = ({ children }) => {
   // Main app state that should be saveable
   const [appState, setAppState] = useState({
     isFrozen: DEFAULTS.isFrozen,
+    enableBreathing: false,
+    enableEnergyScaling: false,
+    energyInfluence: 0.5,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
@@ -285,6 +288,34 @@ export const AppStateProvider = ({ children }) => {
     }));
     markDirty();
   }, [markDirty]);
+
+  const setEnableBreathing = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      enableBreathing: (typeof value === 'function') ? value(prev.enableBreathing) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setEnableEnergyScaling = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      enableEnergyScaling: (typeof value === 'function') ? value(prev.enableEnergyScaling) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+	  const setEnergyInfluence = useCallback((value) => {
+	    setAppState(prev => {
+	      const raw = (typeof value === 'function') ? value(prev.energyInfluence) : value;
+	      const next = Number.isFinite(raw) ? Math.max(0, Math.min(2, raw)) : prev.energyInfluence;
+	      return {
+	        ...prev,
+	        energyInfluence: next,
+	      };
+	    });
+	    markDirty();
+	  }, [markDirty]);
 
   const setBackgroundColor = useCallback((value) => {
     setAppState(prev => ({ ...prev, backgroundColor: value }));
@@ -649,6 +680,9 @@ export const AppStateProvider = ({ children }) => {
   const resetAppState = useCallback(() => {
     setAppState({
       isFrozen: DEFAULTS.isFrozen,
+      enableBreathing: false,
+      enableEnergyScaling: false,
+      energyInfluence: 0.5,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: generateSeed(),
@@ -698,8 +732,11 @@ export const AppStateProvider = ({ children }) => {
     clearPresetSlot,
     getPresetSlot,
 
-    // Individual setters for backward compatibility
+    // Individual setters
     setIsFrozen,
+    setEnableBreathing,
+    setEnableEnergyScaling,
+    setEnergyInfluence,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,
@@ -771,6 +808,9 @@ export const AppStateProvider = ({ children }) => {
     clearPresetSlot,
     getPresetSlot,
     setIsFrozen,
+    setEnableBreathing,
+    setEnableEnergyScaling,
+    setEnergyInfluence,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,

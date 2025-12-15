@@ -75,6 +75,9 @@ const MainApp = () => {
   const appStateCtx = useAppState();
   const {
     isFrozen, setIsFrozen,
+    enableBreathing, setEnableBreathing,
+    enableEnergyScaling,
+    energyInfluence,
     backgroundColor, setBackgroundColor,
     backgroundImage, setBackgroundImage,
     globalSeed, setGlobalSeed,
@@ -154,6 +157,7 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Shape track updates ref - shared between useTimelineModulation and useAnimation
   const shapeTrackUpdatesRef = useRef(new Map());
+  const variationBaseRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   const [isRecording, setIsRecording] = useState(false);
@@ -651,8 +655,8 @@ const MainApp = () => {
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
-  // Shape track updates are passed via shapeTrackUpdatesRef for smooth 60fps interpolation
-  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef);
+  // Shape track updates are evaluated directly during playback for frame-accurate interpolation
+  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
 
   // Config save/load from contexts
   const {
@@ -1319,173 +1323,359 @@ const MainApp = () => {
     else modernRandomizeAll();
   }, [classicMode, classicRandomizeAll, modernRandomizeAll]);
 
+  useEffect(() => {
+    variationBaseRef.current.clear();
+  }, [selectedLayerIndex]);
+
   // --- Variation Keyframe Generation Handlers ---
 
   // Generate a single variation keyframe at current playhead position
+  // Supports both single-layer shape tracks and global shape tracks
   const handleGenerateVariationKeyframe = useCallback(() => {
     if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
     
-    // Find the shape track for the selected layer
+    if (globalShapeTrack) {
+      // Global shape track: generate variation for ALL layers
+      const firstLayer = layers[0];
+      const variationWeights = {
+        shape: firstLayer?.variationShape ?? firstLayer?.variation ?? 0.2,
+        anim: firstLayer?.variationAnim ?? firstLayer?.variation ?? 0.2,
+        color: firstLayer?.variationColor ?? firstLayer?.variation ?? 0.2,
+        position: firstLayer?.variationPosition ?? firstLayer?.variation ?? 0.2,
+        scale: firstLayer?.variationScale ?? 0,
+      };
+
+      const time = timelineContext.generateGlobalVariationKeyframe?.(globalShapeTrack.id, layers, {
+        variationWeights,
+        isParamRandomizable,
+      });
+      if (time != null) {
+        console.log('Generated global variation keyframe at', time);
+      }
+      return;
+    }
+
+    // Fall back to single-layer shape track
     const layer = layers[selectedLayerIndex];
     if (!layer) return;
-    
+
     const layerId = layer.id || layer.name;
     const shapeTrack = timelineContext.tracks?.find(
       t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
     );
-    
+
     if (!shapeTrack) {
       console.warn('No shape track found for selected layer');
       return;
     }
-    
-    // Use current layer state as base
-    const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, layer);
+
+    const baseKey = layer.id || layer.name;
+    let baseLayer = variationBaseRef.current.get(baseKey);
+    if (!baseLayer) {
+      baseLayer = JSON.parse(JSON.stringify(layer));
+      variationBaseRef.current.set(baseKey, baseLayer);
+    }
+
+    const variationWeights = {
+      shape: layer.variationShape ?? layer.variation ?? 0.2,
+      anim: layer.variationAnim ?? layer.variation ?? 0.2,
+      color: layer.variationColor ?? layer.variation ?? 0.2,
+      position: layer.variationPosition ?? layer.variation ?? 0.2,
+      scale: layer.variationScale ?? 0,
+    };
+
+    const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, {
+      variationWeights,
+      isParamRandomizable,
+    });
     if (keyframeId) {
       console.log('Generated variation keyframe:', keyframeId);
     }
-  }, [timelineContext, layers, selectedLayerIndex]);
+  }, [timelineContext, layers, selectedLayerIndex, isParamRandomizable]);
 
   // Generate random keyframes (prompts for count)
+  // Supports both single-layer shape tracks and global shape tracks
   const handleGenerateRandomKeyframes = useCallback(() => {
     if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    const isGlobal = !!globalShapeTrack;
     
-    const layer = layers[selectedLayerIndex];
-    if (!layer) return;
+    // For single-layer mode, get the selected layer's track
+    let shapeTrack = globalShapeTrack;
+    let layer = layers[selectedLayerIndex];
     
-    const layerId = layer.id || layer.name;
-    const shapeTrack = timelineContext.tracks?.find(
-      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
-    );
-    
-    if (!shapeTrack) {
-      console.warn('No shape track found for selected layer');
-      return;
-    }
-    
-    const countStr = window.prompt('Number of keyframes to generate:', '5');
-    const count = parseInt(countStr, 10);
-    if (!Number.isFinite(count) || count < 1) return;
-    
-    const useTransients = timelineContext.transients?.length > 0 && 
-      window.confirm('Use transient markers for keyframe times?');
-    
-    // Node modulation options
-    const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
-    let nodeMod = null;
-    if (useNodeMod) {
-      const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
-      const amount = parseFloat(amountStr);
-      const cyclesStr = window.prompt('Number of breathing cycles:', '1');
-      const cycles = parseFloat(cyclesStr);
-      nodeMod = {
-        enabled: true,
-        mode: 'sineRadial',
-        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
-        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
-        mask: 'all',
-        phaseSpread: 0.5,
-      };
-    }
-    
-    // Energy influence options (only if audio loaded)
-    let energyInfluence = 0;
-    if (timelineContext.energyMap?.length > 0) {
-      const useEnergy = window.confirm('Scale variation by audio energy? (calm = less variation)');
-      if (useEnergy) {
-        const influenceStr = window.prompt('Energy influence (0=none, 1=max effect):', '0.5');
-        const inf = parseFloat(influenceStr);
-        energyInfluence = Number.isFinite(inf) ? Math.max(0, Math.min(1, inf)) : 0.5;
+    if (!isGlobal) {
+      if (!layer) return;
+      const layerId = layer.id || layer.name;
+      shapeTrack = timelineContext.tracks?.find(
+        t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+      );
+
+      if (!shapeTrack) {
+        console.warn('No shape track found for selected layer');
+        return;
       }
     }
-    
-    const keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, layer, count, {
-      useTransients,
-      nodeMod,
-      energyInfluence,
-    });
-    
-    if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, 'random keyframes', 
-        nodeMod ? 'with node modulation' : '', 
-        energyInfluence > 0 ? `with energy influence ${energyInfluence}` : '');
-    }
-  }, [timelineContext, layers, selectedLayerIndex]);
 
-  // Fill keyframes between two selected keyframes (prompts for count)
-  const handleFillKeyframesBetween = useCallback(() => {
-    if (!timelineContext?.visible) return;
-    
-    const layer = layers[selectedLayerIndex];
-    if (!layer) return;
-    
-    const layerId = layer.id || layer.name;
-    const shapeTrack = timelineContext.tracks?.find(
-      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
-    );
-    
-    if (!shapeTrack || !shapeTrack.keyframes?.length) {
-      console.warn('No shape track or keyframes found for selected layer');
+    // For single-layer, cache base layer
+    let baseLayer = layer;
+    if (!isGlobal && layer) {
+      const baseKey = layer.id || layer.name;
+      baseLayer = variationBaseRef.current.get(baseKey);
+      if (!baseLayer) {
+        baseLayer = JSON.parse(JSON.stringify(layer));
+        variationBaseRef.current.set(baseKey, baseLayer);
+      }
+    }
+
+    const countStr = window.prompt(`Number of ${isGlobal ? 'global ' : ''}keyframes to generate:`, '5');
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+
+    const playheadSeconds = timelineContext?.getPositionSeconds?.()
+      ?? timelineContext?.positionSeconds
+      ?? timelinePositionSeconds
+      ?? 0;
+    const defaultStartTime = Number.isFinite(playheadSeconds) ? Math.max(0, playheadSeconds) : 0;
+
+    const sortedKeyframes = Array.isArray(shapeTrack.keyframes)
+      ? [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds)
+      : [];
+    const TIME_EPSILON = 0.01;
+    const nextKeyframe = sortedKeyframes.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > defaultStartTime + TIME_EPSILON);
+    const timelineEndSeconds =
+      timelineContext?.audio?.durationSeconds
+      ?? timelineContext?.lengthSeconds
+      ?? 0;
+    const defaultEndTime = nextKeyframe?.timeSeconds
+      ?? (Number.isFinite(timelineEndSeconds) ? timelineEndSeconds : 0);
+
+    const startStr = window.prompt('Start time (seconds):', defaultStartTime.toFixed(2));
+    if (startStr == null) return;
+    const startTime = parseFloat(startStr);
+
+    const endStr = window.prompt('End time (seconds):', defaultEndTime.toFixed(2));
+    if (endStr == null) return;
+    const endTime = parseFloat(endStr);
+
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
+      window.alert('Invalid time range. Start time must be less than end time.');
       return;
     }
+
+    // Get variation weights from first layer (for global) or selected layer
+    const refLayer = isGlobal ? layers[0] : layer;
+    const variationWeights = {
+      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
+      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
+      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
+      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
+      scale: refLayer?.variationScale ?? 0,
+    };
+
+    const useTransients = timelineContext.transients?.length > 0 &&
+      window.confirm('Use transient markers for keyframe times?');
+
+    // Node modulation only for single-layer tracks (not global)
+    let nodeMod = null;
+    if (!isGlobal && enableBreathing) {
+      const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+      if (useNodeMod) {
+        const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+        const amount = parseFloat(amountStr);
+        const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+        const cycles = parseFloat(cyclesStr);
+        nodeMod = {
+          enabled: true,
+          mode: 'sineRadial',
+          amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+          cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+          mask: 'all',
+          phaseSpread: 0.5,
+        };
+      }
+    }
+
+    let energyInfluenceValue = 0;
+    if (enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+      energyInfluenceValue = Number.isFinite(energyInfluence)
+        ? Math.max(0, Math.min(2, energyInfluence))
+        : 0.5;
+    }
+
+    let keyframeIds;
+    if (isGlobal) {
+      // Global shape track: generate for all layers
+      keyframeIds = timelineContext.generateGlobalRandomKeyframes?.(globalShapeTrack.id, layers, count, {
+        useTransients,
+        startTime,
+        endTime,
+        energyInfluence: energyInfluenceValue,
+        variationWeights,
+        isParamRandomizable,
+      });
+    } else {
+      // Single-layer shape track
+      keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, baseLayer, count, {
+        useTransients,
+        startTime,
+        endTime,
+        nodeMod,
+        energyInfluence: energyInfluenceValue,
+        variationWeights,
+        isParamRandomizable,
+      });
+    }
+
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'random keyframes',
+        nodeMod ? 'with node modulation' : '',
+        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
+    }
+  }, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence]);
+
+  // Fill keyframes between nearest keyframes around playhead (prompts for count)
+  // Supports both single-layer shape tracks and global shape tracks
+  const handleFillKeyframesBetween = useCallback(() => {
+    if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    const isGlobal = !!globalShapeTrack;
     
-    // Get sorted keyframes
+    // For single-layer mode, get the selected layer's track
+    let shapeTrack = globalShapeTrack;
+    let layer = layers[selectedLayerIndex];
+    
+    if (!isGlobal) {
+      if (!layer) return;
+      const layerId = layer.id || layer.name;
+      shapeTrack = timelineContext.tracks?.find(
+        t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+      );
+
+      if (!shapeTrack || !shapeTrack.keyframes?.length) {
+        console.warn('No shape track or keyframes found for selected layer');
+        return;
+      }
+    }
+
+    if (!shapeTrack?.keyframes?.length) {
+      console.warn('No keyframes found on track');
+      return;
+    }
+
     const sorted = [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
     if (sorted.length < 2) {
       window.alert('Need at least 2 keyframes to fill between');
       return;
     }
-    
-    // Use first and last keyframe times as range
-    const startTime = sorted[0].timeSeconds;
-    const endTime = sorted[sorted.length - 1].timeSeconds;
-    
+
+    const playheadSeconds = timelineContext?.getPositionSeconds?.()
+      ?? timelineContext?.positionSeconds
+      ?? timelinePositionSeconds
+      ?? 0;
+    const pos = Number.isFinite(playheadSeconds) ? playheadSeconds : 0;
+    const TIME_EPSILON = 0.01;
+
+    const left = [...sorted].reverse().find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds < pos - TIME_EPSILON);
+    const right = sorted.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > pos + TIME_EPSILON);
+
+    if (!left || !right) {
+      window.alert('Need a keyframe on both sides of the playhead to fill between.');
+      return;
+    }
+
+    const startTime = left.timeSeconds;
+    const endTime = right.timeSeconds;
+
     const countStr = window.prompt(
-      `Fill between ${startTime.toFixed(2)}s and ${endTime.toFixed(2)}s.\nNumber of keyframes to generate:`,
+      `Fill ${isGlobal ? 'global ' : ''}keyframes between ${startTime.toFixed(2)}s and ${endTime.toFixed(2)}s.\nNumber of keyframes to generate:`,
       '3'
     );
     const count = parseInt(countStr, 10);
     if (!Number.isFinite(count) || count < 1) return;
-    
-    // Node modulation options
-    const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+
+    // Get variation weights from first layer (for global) or selected layer
+    const refLayer = isGlobal ? layers[0] : layer;
+    const variationWeights = {
+      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
+      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
+      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
+      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
+      scale: refLayer?.variationScale ?? 0,
+    };
+
+    // Node modulation only for single-layer tracks (not global)
     let nodeMod = null;
-    if (useNodeMod) {
-      const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
-      const amount = parseFloat(amountStr);
-      const cyclesStr = window.prompt('Number of breathing cycles:', '1');
-      const cycles = parseFloat(cyclesStr);
-      nodeMod = {
-        enabled: true,
-        mode: 'sineRadial',
-        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
-        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
-        mask: 'all',
-        phaseSpread: 0.5,
-      };
-    }
-    
-    // Energy influence options (only if audio loaded)
-    let energyInfluence = 0;
-    if (timelineContext.energyMap?.length > 0) {
-      const useEnergy = window.confirm('Scale variation by audio energy? (calm = less variation)');
-      if (useEnergy) {
-        const influenceStr = window.prompt('Energy influence (0=none, 1=max effect):', '0.5');
-        const inf = parseFloat(influenceStr);
-        energyInfluence = Number.isFinite(inf) ? Math.max(0, Math.min(1, inf)) : 0.5;
+    if (!isGlobal && enableBreathing) {
+      const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+      if (useNodeMod) {
+        const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+        const amount = parseFloat(amountStr);
+        const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+        const cycles = parseFloat(cyclesStr);
+        nodeMod = {
+          enabled: true,
+          mode: 'sineRadial',
+          amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+          cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+          mask: 'all',
+          phaseSpread: 0.5,
+        };
       }
     }
-    
-    const keyframeIds = timelineContext.generateKeyframesBetween?.(
-      shapeTrack.id, layer, startTime, endTime, count, { nodeMod, energyInfluence }
-    );
-    
-    if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, 'keyframes between', startTime, 'and', endTime, 
-        nodeMod ? 'with node modulation' : '',
-        energyInfluence > 0 ? `with energy influence ${energyInfluence}` : '');
+
+    let energyInfluenceValue = 0;
+    if (enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+      energyInfluenceValue = Number.isFinite(energyInfluence)
+        ? Math.max(0, Math.min(2, energyInfluence))
+        : 0.5;
     }
-  }, [timelineContext, layers, selectedLayerIndex]);
+
+    let keyframeIds;
+    if (isGlobal) {
+      // Global shape track: generate for all layers
+      keyframeIds = timelineContext.generateGlobalKeyframesBetween?.(
+        globalShapeTrack.id,
+        layers,
+        startTime,
+        endTime,
+        count,
+        {
+          energyInfluence: energyInfluenceValue,
+          variationWeights,
+          isParamRandomizable,
+        }
+      );
+    } else {
+      // Single-layer shape track
+      keyframeIds = timelineContext.generateKeyframesBetween?.(
+        shapeTrack.id,
+        layer,
+        startTime,
+        endTime,
+        count,
+        {
+          nodeMod,
+          energyInfluence: energyInfluenceValue,
+          variationWeights,
+          isParamRandomizable,
+        }
+      );
+    }
+
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'keyframes between', startTime, 'and', endTime,
+        nodeMod ? 'with node modulation' : '',
+        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
+    }
+  }, [timelineContext, layers, selectedLayerIndex, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence]);
 
   // Keyboard shortcuts
 	  useKeyboardShortcuts({
@@ -1891,6 +2081,8 @@ const MainApp = () => {
               setBackgroundImage={setBackgroundImage}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
+              enableBreathing={enableBreathing}
+              setEnableBreathing={setEnableBreathing}
               colorFadeWhileFrozen={colorFadeWhileFrozen}
               setColorFadeWhileFrozen={setColorFadeWhileFrozen}
               classicMode={classicMode}
@@ -2026,6 +2218,8 @@ const MainApp = () => {
                 setBackgroundImage={setBackgroundImage}
                 isFrozen={isFrozen}
                 setIsFrozen={setIsFrozen}
+                enableBreathing={enableBreathing}
+                setEnableBreathing={setEnableBreathing}
                 colorFadeWhileFrozen={colorFadeWhileFrozen}
                 setColorFadeWhileFrozen={setColorFadeWhileFrozen}
                 classicMode={classicMode}

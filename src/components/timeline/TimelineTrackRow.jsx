@@ -84,10 +84,11 @@ const TimelineTrackRow = ({
   const handleParamChange = useCallback((newParamId) => {
     if (targetType === 'global') {
       const param = globalParameters.find(p => p.id === newParamId);
+      const isColor = param?.type === 'color';
       onUpdateTrack?.({
         targetId: `global:${newParamId}`,
-        range: param?.range || { outputMin: 0, outputMax: 1 },
-        type: param?.type || 'numeric',
+        range: isColor ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
+        type: isColor ? 'color' : (param?.type || 'numeric'),
         // Clear keyframes when changing parameter type to avoid incompatible data
         keyframes: [],
       });

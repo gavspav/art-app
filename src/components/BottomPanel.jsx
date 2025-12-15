@@ -313,6 +313,8 @@ const BottomPanel = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
+  enableBreathing,
+  setEnableBreathing,
   colorFadeWhileFrozen,
   setColorFadeWhileFrozen,
   classicMode,
@@ -726,6 +728,8 @@ const BottomPanel = ({
               setBackgroundImage={setBackgroundImage}
               isFrozen={isFrozen}
               setIsFrozen={setIsFrozen}
+              enableBreathing={enableBreathing}
+              setEnableBreathing={setEnableBreathing}
               colorFadeWhileFrozen={colorFadeWhileFrozen}
               setColorFadeWhileFrozen={setColorFadeWhileFrozen}
               classicMode={classicMode}
@@ -1048,6 +1052,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.backgroundColor, next.backgroundColor)) return fail('backgroundColor changed');
   if (!Object.is(prev.backgroundImage, next.backgroundImage)) return fail('backgroundImage changed');
   if (!Object.is(prev.isFrozen, next.isFrozen)) return fail('isFrozen changed');
+  if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
   if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
   if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
@@ -1075,6 +1080,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setBackgroundColor',
     'setBackgroundImage',
     'setIsFrozen',
+    'setEnableBreathing',
     'setColorFadeWhileFrozen',
     'setClassicMode',
     'setZIgnore',

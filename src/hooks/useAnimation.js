@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { applyModulationsToLayer } from './useModulationStore.js';
+import { evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
+import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 
 // Pure function to calculate new movement angle after boundary collision
 const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
@@ -270,9 +272,10 @@ const applyAudioModulations = (layer, audioContext) => {
  * @param {number} globalSpeedMultiplier - Speed multiplier
  * @param {boolean} zIgnore - Whether to ignore Z-axis movement
  * @param {Object} modulationStore - The modulation store from useModulationStore()
- * @param {Object} shapeTrackUpdatesRef - Ref containing shape track updates from timeline
+ * @param {Object} shapeTrackUpdatesRef - Ref containing shape track updates from timeline (fallback)
  * @param {Object} sourceLayersRef - Optional ref to base layers (for ref-mode animation)
  * @param {Object} animatedLayersRef - Optional ref to write animated layers into (avoids React updates)
+ * @param {Object} timelineContext - Optional timeline context for direct shape track evaluation
  */
 export const useAnimation = (
     setLayers,
@@ -283,6 +286,7 @@ export const useAnimation = (
     shapeTrackUpdatesRef = null,
     sourceLayersRef = null,
     animatedLayersRef = null,
+    timelineContext = null,
 ) => {
     const animationFrameId = useRef(null);
     const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext } = useAppState() || {};
@@ -306,6 +310,10 @@ export const useAnimation = (
     
     const nodeEditContextRef = useRef(nodeEditContext);
     useEffect(() => { nodeEditContextRef.current = nodeEditContext; }, [nodeEditContext]);
+
+    // Timeline context ref for direct shape track evaluation during playback
+    const timelineContextRef = useRef(timelineContext);
+    useEffect(() => { timelineContextRef.current = timelineContext; }, [timelineContext]);
 
     // Store setLayers and runWithoutDirty in refs to avoid recreating animate callback
     const setLayersRef = useRef(setLayers);
@@ -533,10 +541,78 @@ export const useAnimation = (
         const speedMultiplier = globalSpeedMultiplierRef.current;
         const zIgnoreVal = zIgnoreRef.current;
 
-        // Get shape track updates from the ref (set by useTimelineModulation)
-        // shapeTrackUpdatesRefLocal.current is the ref object passed in
-        // shapeTrackUpdatesRefLocal.current.current is the actual Map
-        const shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
+        // Evaluate shape tracks directly during playback for frame-accurate interpolation
+        // This eliminates race conditions between separate RAF loops
+        const tlCtx = timelineContextRef.current;
+        let shapeUpdatesMap = new Map();
+        
+        if (tlCtx?.isPlaying && tlCtx?.visible && Array.isArray(tlCtx?.tracks)) {
+            // Direct evaluation: get current position and evaluate all shape tracks
+            const pos = tlCtx.getPositionSeconds?.() ?? tlCtx.positionSeconds ?? 0;
+            const currentLayers = sourceLayersRefLocal.current?.current || animatedPrevRef.current || [];
+            
+            for (const track of tlCtx.tracks) {
+                if (!track.enabled || !track.targetId) continue;
+                
+                // Handle global shape tracks
+                if (track.type === 'globalShape') {
+                    const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
+                    if (globalResult && Array.isArray(globalResult.layers)) {
+                        globalResult.layers.forEach((interpolatedData, index) => {
+                            const layer = currentLayers[index];
+                            if (!layer || !interpolatedData) return;
+                            
+                            const updateData = {
+                                layerId: layer.id,
+                                nodes: interpolatedData.nodes,
+                                subpaths: interpolatedData.subpaths,
+                                position: interpolatedData.position,
+                                shapeParams: interpolatedData.shapeParams,
+                                animation: interpolatedData.animation,
+                                colors: interpolatedData.colors,
+                                isGlobalShapeTrack: true,
+                            };
+                            
+                            if (layer.id) shapeUpdatesMap.set(layer.id, updateData);
+                            if (layer.name) shapeUpdatesMap.set(layer.name, updateData);
+                        });
+                    }
+                    continue;
+                }
+                
+                // Handle single-layer shape tracks
+                if (track.type === 'shape') {
+                    const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
+                    if (shapeResult) {
+                        const parts = track.targetId.split(':');
+                        const layerName = parts.length >= 2 ? parts[1] : null;
+                        
+                        if (layerName) {
+                            const updateData = {
+                                layerId: layerName,
+                                nodes: shapeResult.nodes,
+                                subpaths: shapeResult.subpaths,
+                                position: shapeResult.position,
+                                shapeParams: shapeResult.shapeParams,
+                                animation: shapeResult.animation,
+                                colors: shapeResult.colors,
+                            };
+                            shapeUpdatesMap.set(layerName, updateData);
+                            
+                            // Also store by layer id if we can find it
+                            const matchingLayer = currentLayers.find(l => l?.name === layerName);
+                            if (matchingLayer?.id && matchingLayer.id !== layerName) {
+                                shapeUpdatesMap.set(matchingLayer.id, updateData);
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
+        } else {
+            // Fallback: use pre-computed shape updates from useTimelineModulation (for scrubbing/paused)
+            shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
+        }
         
         const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, idx) => {
             // Check if this layer has shape track updates

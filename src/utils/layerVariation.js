@@ -217,7 +217,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   if (includeAnim && varyFlags.imageDistortion && isAllowed('imageDistortion')) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
 
   // Position jitter (use wPosition weight, triggered by includePosition)
-  if (includePosition && wPosition > 0) {
+  if (includePosition && wPosition > 0 && isAllowed('position')) {
     const baseX = prev.position?.x ?? 0.5;
     const baseY = prev.position?.y ?? 0.5;
     const jitter = 0.15 * wPosition;
@@ -236,7 +236,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
 
   // Scale variation (independent of animation variation)
   // Supports both positive (larger scales) and negative (smaller scales) variation
-  if (includeScale) {
+  if (includeScale && isAllowed('scale')) {
     const baseScale = (() => {
       const raw = prev.position?.scale;
       if (Number.isFinite(raw) && raw > 0) return raw;
@@ -419,10 +419,16 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
           }
         }
         const jitterAmt = 0.12 * wShape;
-        varied.nodes = nodes.map(n => ({
-          x: Math.max(-1, Math.min(1, n.x + (random01() * 2 - 1) * jitterAmt)),
-          y: Math.max(-1, Math.min(1, n.y + (random01() * 2 - 1) * jitterAmt)),
-        }));
+        // Only jitter nodes if 'nodes' parameter is allowed
+        if (isAllowed('nodes')) {
+          varied.nodes = nodes.map(n => ({
+            x: Math.max(-1, Math.min(1, n.x + (random01() * 2 - 1) * jitterAmt)),
+            y: Math.max(-1, Math.min(1, n.y + (random01() * 2 - 1) * jitterAmt)),
+          }));
+        } else {
+          // Keep original nodes without jitter
+          varied.nodes = prevNodes ? prevNodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : null;
+        }
         varied.syncNodesToNumSides = prev.syncNodesToNumSides;
       } else {
         varied.nodes = null;

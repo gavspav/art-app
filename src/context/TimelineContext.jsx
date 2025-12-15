@@ -76,6 +76,15 @@ const createKeyframe = (timeSeconds, value01, curve = 'linear', tension = 0.5) =
 });
 
 /**
+ * Create a color keyframe (stores a hex string)
+ */
+const createColorKeyframe = (timeSeconds, color = '#ffffff') => ({
+  id: generateId(),
+  timeSeconds,
+  color,
+});
+
+/**
  * Create a shape keyframe (stores node geometry snapshot)
  * Extended to optionally include animation and color parameters.
  *
@@ -140,11 +149,12 @@ const createGlobalShapeKeyframe = (timeSeconds, layers, label = '', extras = {})
  * @param {string} targetId - e.g., 'layer:abc123:radiusFactor' or 'global:globalSpeedMultiplier' or 'layer:abc123:shape' or 'global:globalShape'
  * @param {string} color - Track color
  * @param {number} lengthSeconds - Timeline length
- * @param {'numeric'|'shape'|'globalShape'} type - Track type (default: 'numeric')
+ * @param {'numeric'|'shape'|'globalShape'|'color'} type - Track type (default: 'numeric')
  */
 const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => {
   const isShape = type === 'shape' || (targetId && targetId.endsWith(':shape') && !targetId.startsWith('global:globalShape'));
   const isGlobalShape = type === 'globalShape' || targetId === 'global:globalShape';
+  const isColor = type === 'color';
   
   if (isGlobalShape) {
     return {
@@ -171,11 +181,12 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
     color,
     enabled: true,
     targetId,
-    type: isShape ? 'shape' : 'numeric',
+    type: isShape ? 'shape' : isColor ? 'color' : 'numeric',
     // Numeric tracks have range and numeric keyframes
     // Shape tracks have shape keyframes (no range needed)
-    range: isShape ? null : { outputMin: 0, outputMax: 1 },
-    keyframes: isShape ? [] : [
+    // Color tracks have color keyframes (no range needed)
+    range: isShape || isColor ? null : { outputMin: 0, outputMax: 1 },
+    keyframes: isShape ? [] : isColor ? [] : [
       createKeyframe(0, 0),
       createKeyframe(lengthSeconds, 1),
     ],
@@ -219,7 +230,7 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_TRANSIENT_SETTINGS = {
   enabled: true,
   sensitivity: 50, // 0-100, higher = more transients
-  maxMarkers: 500,
+  maxMarkers: 1000,
 };
 
 export const TimelineProvider = ({ children }) => {
@@ -598,6 +609,19 @@ export const TimelineProvider = ({ children }) => {
     }));
   }, []);
 
+  const addColorKeyframe = useCallback((trackId, timeSeconds, color = '#ffffff') => {
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(track => {
+        if (track.id !== trackId) return track;
+
+        const newKeyframe = createColorKeyframe(timeSeconds, color);
+        const keyframes = [...(track.keyframes || []), newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        return { ...track, keyframes };
+      }),
+    }));
+  }, []);
+
   const updateKeyframe = useCallback((trackId, keyframeId, updates) => {
     setSession(prev => ({
       ...prev,
@@ -777,10 +801,12 @@ export const TimelineProvider = ({ children }) => {
         if (!trackTargetId || track.targetId !== trackTargetId) return track;
 
         // Check track type compatibility
-        const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
-        const isShapeKeyframe = trackType === 'shape';
+        const isShapeTrack = track.type === 'shape' || track.type === 'globalShape' || track.targetId?.endsWith(':shape');
+        const isShapeKeyframe = trackType === 'shape' || trackType === 'globalShape';
+        const isColorTrack = track.type === 'color';
+        const isColorKeyframe = trackType === 'color';
 
-        if (isShapeTrack !== isShapeKeyframe) {
+        if (isShapeTrack !== isShapeKeyframe || isColorTrack !== isColorKeyframe) {
           console.warn('Cannot paste: keyframe type does not match track type');
           return track;
         }
@@ -832,10 +858,12 @@ export const TimelineProvider = ({ children }) => {
         if (track.id !== targetTrackId) return track;
 
         // Check track type compatibility
-        const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
-        const isShapeKeyframe = trackType === 'shape';
+        const isShapeTrack = track.type === 'shape' || track.type === 'globalShape' || track.targetId?.endsWith(':shape');
+        const isShapeKeyframe = trackType === 'shape' || trackType === 'globalShape';
+        const isColorTrack = track.type === 'color';
+        const isColorKeyframe = trackType === 'color';
 
-        if (isShapeTrack !== isShapeKeyframe) {
+        if (isShapeTrack !== isShapeKeyframe || isColorTrack !== isColorKeyframe) {
           console.warn('Cannot paste: keyframe type does not match track type');
           return track;
         }
@@ -1060,6 +1088,7 @@ export const TimelineProvider = ({ children }) => {
       seed,
       variationWeights: options.variationWeights,
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+      isParamRandomizable: options.isParamRandomizable,
     });
     
     // Extract keyframe data
@@ -1153,6 +1182,7 @@ export const TimelineProvider = ({ children }) => {
         seed,
         variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+        isParamRandomizable: options.isParamRandomizable,
       });
       
       // Extract keyframe data
@@ -1312,6 +1342,15 @@ export const TimelineProvider = ({ children }) => {
     const time = Number.isFinite(options.timeSecondsOverride) ? options.timeSecondsOverride : positionRef.current;
     const categories = track.categories || { shape: true, animation: false, color: false };
     
+    // Check for layer count consistency with existing keyframes
+    const existingKeyframes = track.keyframes || [];
+    if (existingKeyframes.length > 0) {
+      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
+      if (firstKfLayerCount > 0 && layers.length !== firstKfLayerCount) {
+        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${layers.length}. Interpolation may not work correctly.`);
+      }
+    }
+    
     // Extract data from each layer
     const layersData = layers.map(layer => {
       const data = {
@@ -1375,6 +1414,15 @@ export const TimelineProvider = ({ children }) => {
     
     const time = positionRef.current;
     const categories = track.categories || { shape: true, animation: false, color: false };
+    
+    // Check for layer count consistency with existing keyframes
+    const existingKeyframes = track.keyframes || [];
+    if (existingKeyframes.length > 0) {
+      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
+      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
+        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
+      }
+    }
     const baseSeed = options.seed ?? Date.now();
     
     // Get variation weights from first layer or options
@@ -1398,6 +1446,7 @@ export const TimelineProvider = ({ children }) => {
         seed: layerSeed,
         variationWeights,
         affectCategories,
+        isParamRandomizable: options.isParamRandomizable,
       });
       
       const data = {
@@ -1446,6 +1495,7 @@ export const TimelineProvider = ({ children }) => {
         weights: variationWeights,
         affectCategories,
         layerCount: baseLayers.length,
+        isParamRandomizable: options.isParamRandomizable,
       },
     });
     
@@ -1529,6 +1579,257 @@ export const TimelineProvider = ({ children }) => {
     
     return true;
   }, [session.tracks, updateKeyframe]);
+
+  /**
+   * Generate multiple global shape keyframes at random or transient times
+   * Similar to generateRandomKeyframes but for global shape tracks (all layers)
+   * @param {string} trackId - The global shape track ID
+   * @param {Array} baseLayers - Current layers array to vary from
+   * @param {number} count - Number of keyframes to generate
+   * @param {Object} options - { useTransients, startTime, endTime, variationWeights, energyInfluence, isParamRandomizable }
+   */
+  const generateGlobalRandomKeyframes = useCallback((trackId, baseLayers, count, options = {}) => {
+    if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0 || count < 1) return [];
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return [];
+    
+    // Check for layer count consistency with existing keyframes
+    const existingKeyframes = track.keyframes || [];
+    if (existingKeyframes.length > 0) {
+      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
+      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
+        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
+      }
+    }
+    
+    const startTime = options.startTime ?? 0;
+    const endTime = options.endTime ?? session.lengthSeconds;
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    
+    // Get times (transient or random)
+    let times;
+    if (options.useTransients && transients.length > 0) {
+      times = selectTopTransientTimes(transients, count, startTime, endTime);
+    } else {
+      times = generateRandomTimes(startTime, endTime, count, Date.now());
+    }
+    
+    if (times.length === 0) return [];
+    
+    // Get variation weights from first layer or options
+    const firstLayer = baseLayers[0];
+    const variationWeights = options.variationWeights || {
+      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
+      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
+      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
+      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
+      scale: firstLayer.variationScale ?? 0,
+    };
+    
+    const energyInfluence = options.energyInfluence ?? 0;
+    const keyframeIds = [];
+    
+    for (let i = 0; i < times.length; i++) {
+      const time = times[i];
+      const baseSeed = Date.now() + i * 16807;
+      
+      // Apply energy-based scaling if energy map exists and influence > 0
+      let scaledWeights = { ...variationWeights };
+      if (energyInfluence > 0 && energyMap.length > 0) {
+        const energyAtTime = getEnergyAtTime(energyMap, time);
+        scaledWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
+      }
+      
+      // Generate varied version of each layer
+      const layersData = baseLayers.map((layer, layerIndex) => {
+        const layerSeed = baseSeed + layerIndex * 16807;
+        
+        const variedLayer = generateVariedLayer(layer, {
+          seed: layerSeed,
+          variationWeights: scaledWeights,
+          affectCategories: ['shape', 'anim', 'color', 'position'],
+          isParamRandomizable: options.isParamRandomizable,
+        });
+        
+        const data = {
+          nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
+          subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+          position: {
+            x: variedLayer.position?.x ?? 0.5,
+            y: variedLayer.position?.y ?? 0.5,
+            scale: variedLayer.position?.scale ?? 1,
+            xOffset: variedLayer.xOffset ?? 0,
+            yOffset: variedLayer.yOffset ?? 0,
+          },
+          shapeParams: {
+            numSides: variedLayer.numSides ?? 6,
+            curviness: variedLayer.curviness ?? 1.0,
+            radiusFactor: variedLayer.radiusFactor ?? 0.125,
+            radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
+            radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
+            rotation: variedLayer.rotation ?? 0,
+          },
+        };
+        
+        if (categories.animation) {
+          data.animation = {
+            movementStyle: variedLayer.movementStyle ?? 'bounce',
+            movementSpeed: variedLayer.movementSpeed ?? 1,
+            movementAngle: variedLayer.movementAngle ?? 45,
+            scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
+            scaleMin: variedLayer.scaleMin ?? 0,
+            scaleMax: variedLayer.scaleMax ?? 1.5,
+          };
+        }
+        
+        data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
+        
+        return data;
+      });
+      
+      // Add keyframe with variation metadata
+      addGlobalShapeKeyframe(trackId, time, layersData, '', {
+        curve: 'linear',
+        tension: 0.5,
+        variation: {
+          baseSeed,
+          baseTime: time,
+          weights: scaledWeights,
+          affectCategories: ['shape', 'anim', 'color', 'position'],
+          layerCount: baseLayers.length,
+        },
+        energy: energyInfluence > 0 ? {
+          value: energyMap.length > 0 ? getEnergyAtTime(energyMap, time) : 0.5,
+          influence: energyInfluence,
+        } : undefined,
+      });
+      
+      keyframeIds.push(`global-kf-${time}`);
+    }
+    
+    return keyframeIds;
+  }, [session.tracks, session.lengthSeconds, transients, energyMap, addGlobalShapeKeyframe]);
+
+  /**
+   * Fill global shape keyframes between two times (evenly spaced)
+   * @param {string} trackId - The global shape track ID
+   * @param {Array} baseLayers - Current layers array to vary from
+   * @param {number} startTime - Start time in seconds
+   * @param {number} endTime - End time in seconds
+   * @param {number} count - Number of keyframes to generate
+   * @param {Object} options - { variationWeights, energyInfluence, isParamRandomizable }
+   */
+  const generateGlobalKeyframesBetween = useCallback((trackId, baseLayers, startTime, endTime, count, options = {}) => {
+    if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0 || count < 1) return [];
+    
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return [];
+    
+    // Check for layer count consistency with existing keyframes
+    const existingKeyframes = track.keyframes || [];
+    if (existingKeyframes.length > 0) {
+      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
+      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
+        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
+      }
+    }
+    
+    // Generate evenly spaced times
+    const times = generateEvenlySpacedTimes(startTime, endTime, count);
+    if (times.length === 0) return [];
+    
+    const categories = track.categories || { shape: true, animation: false, color: false };
+    
+    // Get variation weights from first layer or options
+    const firstLayer = baseLayers[0];
+    const variationWeights = options.variationWeights || {
+      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
+      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
+      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
+      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
+      scale: firstLayer.variationScale ?? 0,
+    };
+    
+    const energyInfluence = options.energyInfluence ?? 0;
+    const keyframeIds = [];
+    
+    for (let i = 0; i < times.length; i++) {
+      const time = times[i];
+      const baseSeed = Date.now() + i * 16807;
+      
+      // Apply energy-based scaling if energy map exists and influence > 0
+      let scaledWeights = { ...variationWeights };
+      if (energyInfluence > 0 && energyMap.length > 0) {
+        const energyAtTime = getEnergyAtTime(energyMap, time);
+        scaledWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
+      }
+      
+      // Generate varied version of each layer
+      const layersData = baseLayers.map((layer, layerIndex) => {
+        const layerSeed = baseSeed + layerIndex * 16807;
+        
+        const variedLayer = generateVariedLayer(layer, {
+          seed: layerSeed,
+          variationWeights: scaledWeights,
+          affectCategories: ['shape', 'anim', 'color', 'position'],
+          isParamRandomizable: options.isParamRandomizable,
+        });
+        
+        const data = {
+          nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
+          subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+          position: {
+            x: variedLayer.position?.x ?? 0.5,
+            y: variedLayer.position?.y ?? 0.5,
+            scale: variedLayer.position?.scale ?? 1,
+            xOffset: variedLayer.xOffset ?? 0,
+            yOffset: variedLayer.yOffset ?? 0,
+          },
+          shapeParams: {
+            numSides: variedLayer.numSides ?? 6,
+            curviness: variedLayer.curviness ?? 1.0,
+            radiusFactor: variedLayer.radiusFactor ?? 0.125,
+            radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
+            radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
+            rotation: variedLayer.rotation ?? 0,
+          },
+        };
+        
+        if (categories.animation) {
+          data.animation = {
+            movementStyle: variedLayer.movementStyle ?? 'bounce',
+            movementSpeed: variedLayer.movementSpeed ?? 1,
+            movementAngle: variedLayer.movementAngle ?? 45,
+            scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
+            scaleMin: variedLayer.scaleMin ?? 0,
+            scaleMax: variedLayer.scaleMax ?? 1.5,
+          };
+        }
+        
+        data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
+        
+        return data;
+      });
+      
+      // Add keyframe with variation metadata
+      addGlobalShapeKeyframe(trackId, time, layersData, '', {
+        curve: 'linear',
+        tension: 0.5,
+        variation: {
+          baseSeed,
+          baseTime: time,
+          weights: scaledWeights,
+          affectCategories: ['shape', 'anim', 'color', 'position'],
+          layerCount: baseLayers.length,
+        },
+      });
+      
+      keyframeIds.push(`global-kf-${time}`);
+    }
+    
+    return keyframeIds;
+  }, [session.tracks, energyMap, addGlobalShapeKeyframe]);
 
   // --- Settings ---
 
@@ -1640,6 +1941,7 @@ export const TimelineProvider = ({ children }) => {
 
     // Keyframe CRUD
     addKeyframe,
+    addColorKeyframe,
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
@@ -1677,6 +1979,8 @@ export const TimelineProvider = ({ children }) => {
     // Global shape track keyframe generation
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,
+    generateGlobalRandomKeyframes,
+    generateGlobalKeyframesBetween,
     rerollGlobalShapeKeyframe,
 
     // Evaluation
@@ -1723,6 +2027,7 @@ export const TimelineProvider = ({ children }) => {
     removeTrack,
     reorderTracks,
     addKeyframe,
+    addColorKeyframe,
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
@@ -1745,6 +2050,8 @@ export const TimelineProvider = ({ children }) => {
     rerollVariationKeyframe,
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,
+    generateGlobalRandomKeyframes,
+    generateGlobalKeyframesBetween,
     rerollGlobalShapeKeyframe,
     getTrackValue,
     getAllTrackValues,

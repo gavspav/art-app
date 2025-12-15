@@ -25,7 +25,20 @@ const TimelinePanel = ({
   onStopRecording,
 }) => {
   const timeline = useTimeline();
-  const { getCurrentAppState, loadAppState, setIsFrozen, isFrozen, isNodeEditMode, nodeEditContext } = useAppState() || {};
+  const {
+    getCurrentAppState,
+    loadAppState,
+    setIsFrozen,
+    isFrozen,
+    enableBreathing,
+    setEnableBreathing,
+    enableEnergyScaling,
+    setEnableEnergyScaling,
+    energyInfluence,
+    setEnergyInfluence,
+    isNodeEditMode,
+    nodeEditContext,
+  } = useAppState() || {};
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -56,6 +69,7 @@ const TimelinePanel = ({
     updateTrack,
     removeTrack,
     addKeyframe,
+    addColorKeyframe,
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
@@ -77,7 +91,10 @@ const TimelinePanel = ({
     transientSettings,
     setTransientSensitivity,
     setTransientsEnabled,
+    energyMap,
   } = timeline || {};
+
+  const rulerHeight = 44;
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
@@ -202,7 +219,7 @@ const TimelinePanel = ({
           const key = `${trackId}:${keyframeId}`;
           const lastHash = lastCommittedNodeHashByKeyRef.current.get(key);
           if (lastHash === hash) return;
-          updateKeyframe?.(trackId, keyframeId, { nodes: nodesSnap, subpaths: subpathsSnap });
+          updateKeyframe?.(trackId, keyframeId, { nodes: nodesSnap, subpaths: subpathsSnap, ...(snap.extras || {}) });
           lastCommittedNodeHashByKeyRef.current.set(key, hash);
         });
         return;
@@ -246,7 +263,7 @@ const TimelinePanel = ({
     (Array.isArray(snap.shapeTracks) ? snap.shapeTracks : []).forEach((t) => {
       const kf = (Array.isArray(t.keyframes) ? t.keyframes : []).find(k => Math.abs((k?.timeSeconds ?? -1) - snap.snappedTime) < TIME_EPSILON);
       if (kf) {
-        updateKeyframe?.(t.id, kf.id, { nodes: nodesSnap, subpaths: subpathsSnap });
+        updateKeyframe?.(t.id, kf.id, { nodes: nodesSnap, subpaths: subpathsSnap, ...(snap.extras || {}) });
       }
       // Don't auto-create keyframes on exit - user must explicitly capture them
     });
@@ -409,6 +426,7 @@ const TimelinePanel = ({
     { id: 'globalPaletteIndex', label: 'Palette', range: { outputMin: 0, outputMax: 20 } },
     { id: 'globalBlendMode', label: 'Style', range: { outputMin: 0, outputMax: 1 } },
     { id: 'globalOpacity', label: 'Opacity', range: { outputMin: 0, outputMax: 1 } },
+    { id: 'backgroundColor', label: 'Background', type: 'color' },
     { id: 'layersCount', label: 'Layers', range: { outputMin: 1, outputMax: 20 } },
     { id: 'variationPosition', label: 'Position Variation', range: { outputMin: 0, outputMax: 1 } },
     { id: 'variationShape', label: 'Shape Variation', range: { outputMin: 0, outputMax: 1 } },
@@ -456,22 +474,49 @@ const TimelinePanel = ({
   }, [addTrack]);
 
   // Handle capturing a global shape keyframe (all layers at current time)
+  // Use animatedLayersRef to get current rendered geometry (procedural shapes have null nodes in React state)
   const handleCaptureGlobalShapeKeyframe = useCallback((trackId) => {
-    if (!captureGlobalShapeKeyframe || !layers?.length) return;
-    captureGlobalShapeKeyframe(trackId, layers);
-  }, [captureGlobalShapeKeyframe, layers]);
+    if (!captureGlobalShapeKeyframe) return;
+    
+    // Prefer animated layers (has rendered geometry) over React state layers
+    const animatedLayers = animatedLayersRef?.current;
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
+      ? animatedLayers 
+      : layers;
+    
+    if (!sourceLayers?.length) return;
+    captureGlobalShapeKeyframe(trackId, sourceLayers);
+  }, [captureGlobalShapeKeyframe, layers, animatedLayersRef]);
 
   // Handle generating a global variation keyframe (apply variation to all layers)
+  // Use animatedLayersRef to get current rendered geometry for procedural shapes
   const handleGenerateGlobalVariationKeyframe = useCallback((trackId) => {
-    if (!generateGlobalVariationKeyframe || !layers?.length) return;
-    generateGlobalVariationKeyframe(trackId, layers);
-  }, [generateGlobalVariationKeyframe, layers]);
+    if (!generateGlobalVariationKeyframe) return;
+    
+    // Prefer animated layers (has rendered geometry) over React state layers
+    const animatedLayers = animatedLayersRef?.current;
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
+      ? animatedLayers 
+      : layers;
+    
+    if (!sourceLayers?.length) return;
+    generateGlobalVariationKeyframe(trackId, sourceLayers);
+  }, [generateGlobalVariationKeyframe, layers, animatedLayersRef]);
 
   // Handle rerolling a global shape keyframe
+  // Use animatedLayersRef to get current rendered geometry for procedural shapes
   const handleRerollGlobalShapeKeyframe = useCallback((trackId, keyframeId) => {
-    if (!rerollGlobalShapeKeyframe || !layers?.length) return;
-    rerollGlobalShapeKeyframe(trackId, keyframeId, layers);
-  }, [rerollGlobalShapeKeyframe, layers]);
+    if (!rerollGlobalShapeKeyframe) return;
+    
+    // Prefer animated layers (has rendered geometry) over React state layers
+    const animatedLayers = animatedLayersRef?.current;
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
+      ? animatedLayers 
+      : layers;
+    
+    if (!sourceLayers?.length) return;
+    rerollGlobalShapeKeyframe(trackId, keyframeId, sourceLayers);
+  }, [rerollGlobalShapeKeyframe, layers, animatedLayersRef]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName, timeSecondsOverride = null) => {
@@ -845,21 +890,40 @@ const TimelinePanel = ({
                   </button>
                 </div>
                 {transientSettings?.enabled && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
-                    <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Sens:</span>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={transientSettings?.sensitivity ?? 50}
-                      onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
-                      style={{ flex: 1, height: 12, cursor: 'pointer' }}
-                      title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
-                    />
-                    <span style={{ color: '#ff9800', minWidth: 20, textAlign: 'right' }}>
-                      {transients?.length || 0}
-                    </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Sens:</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={transientSettings?.sensitivity ?? 50}
+                        onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
+                        style={{ flex: 1, height: 12, cursor: 'pointer' }}
+                        title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
+                      />
+                      <span style={{ color: '#ff9800', minWidth: 20, textAlign: 'right' }}>
+                        {transients?.length || 0}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
+                      <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Energy:</span>
+	                      <input
+	                        type="range"
+	                        min="0"
+	                        max="2"
+	                        step="0.01"
+	                        value={Number.isFinite(energyInfluence) ? energyInfluence : 0.5}
+	                        disabled={!energyMap?.length || !enableEnergyScaling}
+	                        onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
+	                        style={{ flex: 1, height: 12, cursor: (!energyMap?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
+	                        title={`Energy influence: ${(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}`}
+	                      />
+                      <span style={{ color: 'rgba(255,255,255,0.5)', minWidth: 20, textAlign: 'right' }}>
+                        {(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -910,7 +974,7 @@ const TimelinePanel = ({
               position: 'sticky',
               top: showWaveform && audio ? WAVEFORM_HEIGHT : 0,
               left: 0,
-              height: 24,
+              height: rulerHeight,
               background: 'rgba(30, 30, 40, 0.95)',
               borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
               zIndex: 10,
@@ -919,9 +983,70 @@ const TimelinePanel = ({
           >
             {/* Track list header + timeline preset button */}
             <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem' }}>
-                <span>Tracks</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span>Tracks</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={isRecording ? onStopRecording : onStartRecording}
+                      title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '999px',
+                        border: isRecording
+                          ? '2px solid #f44336'
+                          : '2px solid rgba(255, 255, 255, 0.35)',
+                        background: isRecording
+                          ? 'rgba(244, 67, 54, 0.3)'
+                          : 'transparent',
+                        color: isRecording ? '#f44336' : 'rgba(255, 255, 255, 0.7)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 600,
+                        fontSize: '0.7rem',
+                        padding: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isRecording ? '⏹' : '⏺'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTimelinePresetClick}
+                      title={
+                        hasTimelinePreset
+                          ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
+                          : 'Timeline Preset\nClick or Shift+Click: Save current scene for t=0\nAlt+Click: Clear preset'
+                      }
+                      style={{
+                        width: 22,
+                        height: 22,
+                        borderRadius: '999px',
+                        border: hasTimelinePreset
+                          ? '2px solid #4fc3f7'
+                          : '2px dashed rgba(255, 255, 255, 0.35)',
+                        background: hasTimelinePreset
+                          ? 'rgba(79,195,247,0.18)'
+                          : 'transparent',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 600,
+                        fontSize: '0.65rem',
+                        padding: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      TL
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: 'pointer', color: 'rgba(255, 255, 255, 0.7)' }}>
                     <input
                       type="checkbox"
@@ -931,64 +1056,32 @@ const TimelinePanel = ({
                     />
                     <span>Freeze</span>
                   </label>
-                  {/* Record button */}
-                  <button
-                    type="button"
-                    onClick={isRecording ? onStopRecording : onStartRecording}
-                    title={isRecording ? 'Stop Recording' : 'Start Recording'}
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: '999px',
-                      border: isRecording
-                        ? '2px solid #f44336'
-                        : '2px solid rgba(255, 255, 255, 0.35)',
-                      background: isRecording
-                        ? 'rgba(244, 67, 54, 0.3)'
-                        : 'transparent',
-                      color: isRecording ? '#f44336' : 'rgba(255, 255, 255, 0.7)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 600,
-                      fontSize: '0.7rem',
-                      padding: 0,
-                      cursor: 'pointer',
-                    }}
+                  <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: 'pointer', color: 'rgba(255, 255, 255, 0.7)' }}
+                    title="Enable breathing (node modulation) prompts for generated keyframes"
                   >
-                    {isRecording ? '⏹' : '⏺'}
-                  </button>
-                  {/* Timeline preset button */}
-                  <button
-                    type="button"
-                    onClick={handleTimelinePresetClick}
-                    title={
-                      hasTimelinePreset
-                        ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
-                        : 'Timeline Preset\nClick or Shift+Click: Save current scene for t=0\nAlt+Click: Clear preset'
-                    }
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: '999px',
-                      border: hasTimelinePreset
-                        ? '2px solid #4fc3f7'
-                        : '2px dashed rgba(255, 255, 255, 0.35)',
-                      background: hasTimelinePreset
-                        ? 'rgba(79,195,247,0.18)'
-                        : 'transparent',
-                      color: '#fff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 600,
-                      fontSize: '0.65rem',
-                      padding: 0,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    TL
-                  </button>
+                    <input
+                      type="checkbox"
+                      checked={!!enableBreathing}
+                      onChange={(e) => setEnableBreathing?.(!!e.target.checked)}
+                      style={{ margin: 0, cursor: 'pointer' }}
+                    />
+                    <span>Breathing</span>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="Scale variation by audio energy (requires audio energy map)">
+                    <label
+                      style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: energyMap?.length ? 'pointer' : 'not-allowed', color: 'rgba(255, 255, 255, 0.7)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!!enableEnergyScaling}
+                        disabled={!energyMap?.length}
+                        onChange={(e) => setEnableEnergyScaling?.(!!e.target.checked)}
+                        style={{ margin: 0, cursor: energyMap?.length ? 'pointer' : 'not-allowed' }}
+                      />
+                      <span>Energy</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -996,7 +1089,7 @@ const TimelinePanel = ({
             <div style={{ flex: 1, position: 'relative', minWidth: contentWidth, width: contentWidth }}>
               <svg
                 width={contentWidth}
-                height={24}
+                height={rulerHeight}
                 style={{ display: 'block' }}
               >
                 {/* Second markers */}
@@ -1008,16 +1101,16 @@ const TimelinePanel = ({
                     <g key={i}>
                       <line
                         x1={x}
-                        y1={isMinute ? 0 : (is10Sec ? 8 : 14)}
+                        y1={isMinute ? 0 : (is10Sec ? 14 : 22)}
                         x2={x}
-                        y2={24}
+                        y2={rulerHeight}
                         stroke={isMinute ? 'rgba(255,255,255,0.4)' : (is10Sec ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)')}
                         strokeWidth={isMinute ? 2 : 1}
                       />
                       {(isMinute || is10Sec) && (
                         <text
                           x={x + 3}
-                          y={10}
+                          y={12}
                           fill="rgba(255,255,255,0.5)"
                           fontSize="9"
                         >
@@ -1032,7 +1125,7 @@ const TimelinePanel = ({
                   x1={positionSeconds * pixelsPerSecond}
                   y1={0}
                   x2={positionSeconds * pixelsPerSecond}
-                  y2={24}
+                  y2={rulerHeight}
                   stroke="#ff5722"
                   strokeWidth={2}
                 />
@@ -1057,7 +1150,7 @@ const TimelinePanel = ({
                 layerParameters={layerParameters}
                 onUpdateTrack={(updates) => updateTrack(track.id, updates)}
                 onRemoveTrack={() => removeTrack(track.id)}
-                onAddKeyframe={(time, value, curve, tension) => {
+                onAddKeyframe={(time, value, curve, tension, extras) => {
                   // Shape/globalShape tracks need full snapshot keyframes; avoid inserting numeric keyframes that
                   // break interpolation (especially colors).
                   if (track.type === 'shape') {
@@ -1072,6 +1165,30 @@ const TimelinePanel = ({
                     // Capture snapshot of all layers at this time.
                     // Note: this uses current layer state; for evaluated-at-time capture, use the dedicated Global Shape controls.
                     captureGlobalShapeKeyframe?.(track.id, layers, { timeSecondsOverride: time });
+                    return;
+                  }
+                  if (track.type === 'color') {
+                    if (typeof addColorKeyframe !== 'function') return;
+
+                    const parts = String(track.targetId || '').split(':');
+                    const targetType = parts[0] || null;
+                    const targetParam = targetType === 'global' ? parts[1] : (parts.length >= 3 ? parts[2] : null);
+
+                    let defaultColor = '#ffffff';
+                    if (targetType === 'global' && targetParam === 'backgroundColor') {
+                      // Use current app background color if available
+                      defaultColor = (typeof getCurrentAppState === 'function' && getCurrentAppState()?.backgroundColor)
+                        ? getCurrentAppState().backgroundColor
+                        : '#000000';
+                    } else if (targetType === 'layer' && targetParam === 'color') {
+                      const layerName = parts.length >= 2 ? parts[1] : null;
+                      const layer = Array.isArray(layers) ? layers.find(l => l?.name === layerName) : null;
+                      const layerColor = Array.isArray(layer?.colors) && layer.colors.length ? layer.colors[0] : null;
+                      if (typeof layerColor === 'string') defaultColor = layerColor;
+                    }
+
+                    const picked = (extras && typeof extras.color === 'string') ? extras.color : defaultColor;
+                    addColorKeyframe(track.id, time, picked);
                     return;
                   }
                   addKeyframe(track.id, time, value, curve, tension);
