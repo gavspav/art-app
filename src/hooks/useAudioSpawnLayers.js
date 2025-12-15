@@ -4,6 +4,7 @@ import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { clamp } from '../utils/mathUtils.js';
 
 const DEFAULTS = Object.freeze({
+  triggerMode: 'level', // 'level' | 'transient'
   band: 'rms',
   threshold: 0.6,
   cooldownMs: 250,
@@ -11,6 +12,8 @@ const DEFAULTS = Object.freeze({
   halfLifeEnergyFactor: 1.0,
   maxLayers: 12,
   minOpacity: 0.01,
+  repeatWhileAbove: true,
+  hysteresis: 0.08,
 });
 
 const nowMs = () => (
@@ -33,6 +36,7 @@ export function useAudioSpawnLayers({
   energyInfluence = 0,
   useGlobalPalette = false,
   paletteColors = [],
+  triggerMode = DEFAULTS.triggerMode,
   band = DEFAULTS.band,
   threshold = DEFAULTS.threshold,
   cooldownMs = DEFAULTS.cooldownMs,
@@ -40,6 +44,8 @@ export function useAudioSpawnLayers({
   halfLifeEnergyFactor = DEFAULTS.halfLifeEnergyFactor,
   maxLayers = DEFAULTS.maxLayers,
   minOpacity = DEFAULTS.minOpacity,
+  repeatWhileAbove = DEFAULTS.repeatWhileAbove,
+  hysteresis = DEFAULTS.hysteresis,
 } = {}) {
   const audio = useAudioReactive();
   const overlayLayersRef = useRef([]);
@@ -53,6 +59,7 @@ export function useAudioSpawnLayers({
     energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0,
     useGlobalPalette: !!useGlobalPalette,
     paletteColors: Array.isArray(paletteColors) ? paletteColors : [],
+    triggerMode: (triggerMode === 'transient' || triggerMode === 'level') ? triggerMode : DEFAULTS.triggerMode,
     band: typeof band === 'string' ? band : DEFAULTS.band,
     threshold: clamp(Number(threshold) || 0, 0, 1),
     cooldownMs: Math.max(0, Number(cooldownMs) || 0),
@@ -60,14 +67,18 @@ export function useAudioSpawnLayers({
     halfLifeEnergyFactor: clamp(Number(halfLifeEnergyFactor) || 0, 0, 4),
     maxLayers: clamp(Number(maxLayers) || DEFAULTS.maxLayers, 0, 200),
     minOpacity: clamp(Number(minOpacity) || DEFAULTS.minOpacity, 0.0001, 1),
+    repeatWhileAbove: !!repeatWhileAbove,
+    hysteresis: clamp(Number(hysteresis) || 0, 0, 0.5),
   };
 
   const rafRef = useRef(null);
   const lastSpawnMsRef = useRef(-Infinity);
   const counterRef = useRef(0);
+  const armedRef = useRef(true);
   // Transient detection state
   const energyHistoryRef = useRef([]);
   const prevEnergyRef = useRef(0);
+  const prevEnabledRef = useRef(false);
 
   useEffect(() => {
     const stop = () => {
@@ -75,6 +86,7 @@ export function useAudioSpawnLayers({
       rafRef.current = null;
       energyHistoryRef.current = [];
       prevEnergyRef.current = 0;
+      armedRef.current = true;
     };
 
     const clear = () => {
@@ -97,6 +109,14 @@ export function useAudioSpawnLayers({
       const t = nowMs();
       const features = audio.getFeatures() || {};
       const energy = clamp(Number(features[cfg.band]) || 0, 0, 1);
+
+      // Detect enabling edge to avoid carrying trigger state across disables.
+      if (!prevEnabledRef.current && cfg.enabled) {
+        armedRef.current = true;
+        energyHistoryRef.current = [];
+        prevEnergyRef.current = energy;
+      }
+      prevEnabledRef.current = cfg.enabled;
 
       // Update existing ephemeral layers (half-life fade-out + animation)
       const list = overlayLayersRef.current;
@@ -173,32 +193,43 @@ export function useAudioSpawnLayers({
       }
       list.length = writeIndex;
 
-      // Transient detection: trigger on sudden energy increases
-      // threshold slider (0-1) now acts as sensitivity (lower = more sensitive)
-      const history = energyHistoryRef.current;
-      const prevEnergy = prevEnergyRef.current;
-      
-      // Update energy history (keep last ~10 frames for moving average)
-      history.push(energy);
-      if (history.length > 10) history.shift();
-      
-      // Compute moving average of recent energy
-      const avgEnergy = history.length > 1
-        ? history.slice(0, -1).reduce((a, b) => a + b, 0) / (history.length - 1)
-        : 0;
-      
-      // Compute flux (positive energy increase relative to average)
-      const flux = Math.max(0, energy - avgEnergy);
-      
-      // Sensitivity: threshold 0.1 = very sensitive, 0.9 = only big transients
-      // Map threshold to a flux threshold: lower threshold = lower required flux
-      const fluxThreshold = 0.02 + cfg.threshold * 0.3; // Range: 0.02 to 0.32
-      
-      // Detect transient: flux exceeds threshold AND energy is rising
-      const isTransient = flux > fluxThreshold && energy > prevEnergy;
-      prevEnergyRef.current = energy;
+      const canSpawn = (t - lastSpawnMsRef.current) >= cfg.cooldownMs;
+      let shouldSpawn = false;
 
-      if (isTransient && (t - lastSpawnMsRef.current) >= cfg.cooldownMs) {
+      if (cfg.triggerMode === 'level') {
+        const thresholdOn = cfg.threshold;
+        const thresholdOff = clamp(thresholdOn - cfg.hysteresis, 0, 1);
+        if (energy <= thresholdOff) {
+          armedRef.current = true;
+        }
+        if (energy >= thresholdOn && canSpawn && (armedRef.current || cfg.repeatWhileAbove)) {
+          shouldSpawn = true;
+          armedRef.current = false;
+        }
+      } else {
+        // Transient detection: trigger on sudden energy increases.
+        // In this mode, threshold acts as "sensitivity" (lower = more sensitive).
+        const history = energyHistoryRef.current;
+        const prevEnergy = prevEnergyRef.current;
+
+        history.push(energy);
+        if (history.length > 10) history.shift();
+
+        const avgEnergy = history.length > 1
+          ? history.slice(0, -1).reduce((a, b) => a + b, 0) / (history.length - 1)
+          : 0;
+
+        const flux = Math.max(0, energy - avgEnergy);
+        const fluxThreshold = 0.02 + cfg.threshold * 0.3; // Range: 0.02 to 0.32
+        const isTransient = flux > fluxThreshold && energy > prevEnergy;
+        prevEnergyRef.current = energy;
+
+        if (isTransient && canSpawn) {
+          shouldSpawn = true;
+        }
+      }
+
+      if (shouldSpawn) {
         const sourceLayers = cfg.layers;
         const srcIndex = clamp(cfg.selectedLayerIndex, 0, Math.max(0, sourceLayers.length - 1));
         const base = sourceLayers[srcIndex];
@@ -262,4 +293,3 @@ export function useAudioSpawnLayers({
 
   return { overlayLayersRef };
 }
-

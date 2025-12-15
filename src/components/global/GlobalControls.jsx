@@ -377,6 +377,12 @@ const AudioSpawnSection = ({
   setEnergyInfluence = null,
   audioSpawnEnabled = false,
   setAudioSpawnEnabled = null,
+  audioSpawnTriggerMode = 'level',
+  setAudioSpawnTriggerMode = null,
+  audioSpawnRepeatWhileAbove = true,
+  setAudioSpawnRepeatWhileAbove = null,
+  audioSpawnHysteresis = 0.08,
+  setAudioSpawnHysteresis = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
   audioSpawnBand = 'rms',
@@ -418,6 +424,7 @@ const AudioSpawnSection = ({
 
   const disabledByTimeline = !!timelineMode;
   const canRun = !disabledByTimeline && enabled;
+  const mode = (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level';
 
   return (
     <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
@@ -454,8 +461,22 @@ const AudioSpawnSection = ({
       </div>
 
       <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+          <span className="compact-label" style={{ width: 58 }}>Mode</span>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.75rem', flex: 1 }}
+            value={mode}
+            disabled={!setAudioSpawnTriggerMode || disabledByTimeline}
+            onChange={(e) => setAudioSpawnTriggerMode?.(e.target.value)}
+          >
+            <option value="level">Threshold</option>
+            <option value="transient">Transients</option>
+          </select>
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="compact-label">Sensitivity</span>
+          <span className="compact-label">{mode === 'transient' ? 'Sensitivity' : 'Threshold'}</span>
           <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number(audioSpawnThreshold || 0).toFixed(2)}</span>
         </div>
         <input
@@ -467,9 +488,38 @@ const AudioSpawnSection = ({
           value={Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6}
           disabled={!setAudioSpawnThreshold || disabledByTimeline}
           onChange={(e) => setAudioSpawnThreshold?.(Number(e.target.value))}
-          title="Lower = more sensitive (triggers on smaller transients)"
+          title={mode === 'transient'
+            ? 'Lower = more sensitive (triggers on smaller transients)'
+            : 'Spawn when the selected band reaches this level'}
         />
       </div>
+
+      {mode === 'level' && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="If the audio stays above the threshold, spawn repeatedly using the cooldown interval">
+            <input
+              type="checkbox"
+              checked={!!audioSpawnRepeatWhileAbove}
+              disabled={!setAudioSpawnRepeatWhileAbove || disabledByTimeline}
+              onChange={(e) => setAudioSpawnRepeatWhileAbove?.(!!e.target.checked)}
+            />
+            Repeat While Above
+          </label>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span className="compact-label" title="Hysteresis reduces chatter when hovering near the threshold">Hyst</span>
+            <BufferedNumberInput
+              value={Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08}
+              step={0.01}
+              min={0}
+              max={0.5}
+              onCommit={setAudioSpawnHysteresis}
+              className="compact-number"
+              style={{ width: '5.5rem' }}
+              disabled={!setAudioSpawnHysteresis || disabledByTimeline}
+            />
+          </div>
+        </div>
+      )}
 
       <div style={{ marginTop: '0.35rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1033,6 +1083,12 @@ const GlobalControls = ({
   setEnergyInfluence,
   audioSpawnEnabled,
   setAudioSpawnEnabled,
+  audioSpawnTriggerMode,
+  setAudioSpawnTriggerMode,
+  audioSpawnRepeatWhileAbove,
+  setAudioSpawnRepeatWhileAbove,
+  audioSpawnHysteresis,
+  setAudioSpawnHysteresis,
   audioSpawnUseGlobalPalette,
   setAudioSpawnUseGlobalPalette,
   audioSpawnBand,
@@ -2492,17 +2548,23 @@ const GlobalControls = ({
           <AudioReactiveSection isActiveTab={isActiveTab} />
 
           {/* Live audio spawn (non-export overlays) */}
-          <AudioSpawnSection
-            isActiveTab={isActiveTab}
-            timelineMode={timelineMode}
-            energyInfluence={energyInfluence}
-            setEnergyInfluence={setEnergyInfluence}
-            audioSpawnEnabled={audioSpawnEnabled}
-            setAudioSpawnEnabled={setAudioSpawnEnabled}
-            audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-            setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-            audioSpawnBand={audioSpawnBand}
-            setAudioSpawnBand={setAudioSpawnBand}
+	          <AudioSpawnSection
+	            isActiveTab={isActiveTab}
+	            timelineMode={timelineMode}
+	            energyInfluence={energyInfluence}
+	            setEnergyInfluence={setEnergyInfluence}
+	            audioSpawnEnabled={audioSpawnEnabled}
+	            setAudioSpawnEnabled={setAudioSpawnEnabled}
+	            audioSpawnTriggerMode={audioSpawnTriggerMode}
+	            setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+	            audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+	            setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+	            audioSpawnHysteresis={audioSpawnHysteresis}
+	            setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+	            audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+	            setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+	            audioSpawnBand={audioSpawnBand}
+	            setAudioSpawnBand={setAudioSpawnBand}
             audioSpawnThreshold={audioSpawnThreshold}
             setAudioSpawnThreshold={setAudioSpawnThreshold}
             audioSpawnCooldownMs={audioSpawnCooldownMs}

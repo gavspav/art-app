@@ -81,6 +81,9 @@ const MainApp = () => {
 	    energyInfluence,
 	    setEnergyInfluence,
 	    audioSpawnEnabled,
+	    audioSpawnTriggerMode,
+	    audioSpawnRepeatWhileAbove,
+	    audioSpawnHysteresis,
 	    audioSpawnUseGlobalPalette,
 	    audioSpawnBand,
 	    audioSpawnThreshold,
@@ -89,6 +92,9 @@ const MainApp = () => {
 	    audioSpawnHalfLifeEnergyFactor,
 	    audioSpawnMaxLayers,
 	    setAudioSpawnEnabled,
+	    setAudioSpawnTriggerMode,
+	    setAudioSpawnRepeatWhileAbove,
+	    setAudioSpawnHysteresis,
 	    setAudioSpawnUseGlobalPalette,
 	    setAudioSpawnBand,
 	    setAudioSpawnThreshold,
@@ -557,21 +563,24 @@ const MainApp = () => {
     }
   }, [layers, layersRef, palettes, sampleColorsEven]);
 
-  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
-    enabled: !!audioSpawnEnabled && !timelineMode,
-    paused: !!suppressEphemeralOverlays || !!isRecording,
-    layers,
-    selectedLayerIndex,
-    energyInfluence,
-    useGlobalPalette: !!audioSpawnUseGlobalPalette,
-    paletteColors: audioSpawnPaletteColors,
-    band: audioSpawnBand,
-    threshold: audioSpawnThreshold,
-    cooldownMs: audioSpawnCooldownMs,
-    halfLifeMs: audioSpawnHalfLifeMs,
-    halfLifeEnergyFactor: audioSpawnHalfLifeEnergyFactor,
-    maxLayers: audioSpawnMaxLayers,
-  });
+	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
+	    enabled: !!audioSpawnEnabled && !timelineMode,
+	    paused: !!suppressEphemeralOverlays || !!isRecording,
+	    layers,
+	    selectedLayerIndex,
+	    energyInfluence,
+	    useGlobalPalette: !!audioSpawnUseGlobalPalette,
+	    paletteColors: audioSpawnPaletteColors,
+	    triggerMode: audioSpawnTriggerMode,
+	    band: audioSpawnBand,
+	    threshold: audioSpawnThreshold,
+	    cooldownMs: audioSpawnCooldownMs,
+	    halfLifeMs: audioSpawnHalfLifeMs,
+	    halfLifeEnergyFactor: audioSpawnHalfLifeEnergyFactor,
+	    maxLayers: audioSpawnMaxLayers,
+	    repeatWhileAbove: audioSpawnRepeatWhileAbove,
+	    hysteresis: audioSpawnHysteresis,
+	  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
   useEffect(() => {
@@ -2201,12 +2210,18 @@ const MainApp = () => {
 	              onQuickLoad={handleQuickLoad}
 	              energyInfluence={energyInfluence}
 	              setEnergyInfluence={setEnergyInfluence}
-	              audioSpawnEnabled={audioSpawnEnabled}
-	              setAudioSpawnEnabled={setAudioSpawnEnabled}
-	              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-	              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-	              audioSpawnBand={audioSpawnBand}
-	              setAudioSpawnBand={setAudioSpawnBand}
+		              audioSpawnEnabled={audioSpawnEnabled}
+		              setAudioSpawnEnabled={setAudioSpawnEnabled}
+		              audioSpawnTriggerMode={audioSpawnTriggerMode}
+		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+		              audioSpawnHysteresis={audioSpawnHysteresis}
+		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+		              audioSpawnBand={audioSpawnBand}
+		              setAudioSpawnBand={setAudioSpawnBand}
 	              audioSpawnThreshold={audioSpawnThreshold}
 	              setAudioSpawnThreshold={setAudioSpawnThreshold}
 	              audioSpawnCooldownMs={audioSpawnCooldownMs}
@@ -2336,12 +2351,18 @@ const MainApp = () => {
                 setEnableBreathing={setEnableBreathing}
                 energyInfluence={energyInfluence}
                 setEnergyInfluence={setEnergyInfluence}
-                audioSpawnEnabled={audioSpawnEnabled}
-                setAudioSpawnEnabled={setAudioSpawnEnabled}
-                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-                audioSpawnBand={audioSpawnBand}
-                setAudioSpawnBand={setAudioSpawnBand}
+	                audioSpawnEnabled={audioSpawnEnabled}
+	                setAudioSpawnEnabled={setAudioSpawnEnabled}
+	                audioSpawnTriggerMode={audioSpawnTriggerMode}
+	                setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+	                audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+	                setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+	                audioSpawnHysteresis={audioSpawnHysteresis}
+	                setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+	                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+	                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+	                audioSpawnBand={audioSpawnBand}
+	                setAudioSpawnBand={setAudioSpawnBand}
                 audioSpawnThreshold={audioSpawnThreshold}
                 setAudioSpawnThreshold={setAudioSpawnThreshold}
                 audioSpawnCooldownMs={audioSpawnCooldownMs}

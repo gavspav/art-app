@@ -339,6 +339,12 @@ const BottomPanel = ({
   setEnergyInfluence,
   audioSpawnEnabled,
   setAudioSpawnEnabled,
+  audioSpawnTriggerMode,
+  setAudioSpawnTriggerMode,
+  audioSpawnRepeatWhileAbove,
+  setAudioSpawnRepeatWhileAbove,
+  audioSpawnHysteresis,
+  setAudioSpawnHysteresis,
   audioSpawnUseGlobalPalette,
   setAudioSpawnUseGlobalPalette,
   audioSpawnBand,
@@ -751,12 +757,18 @@ const BottomPanel = ({
 	              setEnableBreathing={setEnableBreathing}
 	              energyInfluence={energyInfluence}
 	              setEnergyInfluence={setEnergyInfluence}
-	              audioSpawnEnabled={audioSpawnEnabled}
-	              setAudioSpawnEnabled={setAudioSpawnEnabled}
-	              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-	              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-	              audioSpawnBand={audioSpawnBand}
-	              setAudioSpawnBand={setAudioSpawnBand}
+		              audioSpawnEnabled={audioSpawnEnabled}
+		              setAudioSpawnEnabled={setAudioSpawnEnabled}
+		              audioSpawnTriggerMode={audioSpawnTriggerMode}
+		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+		              audioSpawnHysteresis={audioSpawnHysteresis}
+		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+		              audioSpawnBand={audioSpawnBand}
+		              setAudioSpawnBand={setAudioSpawnBand}
 	              audioSpawnThreshold={audioSpawnThreshold}
 	              setAudioSpawnThreshold={setAudioSpawnThreshold}
 	              audioSpawnCooldownMs={audioSpawnCooldownMs}
@@ -1091,9 +1103,12 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.isFrozen, next.isFrozen)) return fail('isFrozen changed');
   if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
   if (!Object.is(prev.energyInfluence, next.energyInfluence)) return fail('energyInfluence changed');
-  if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
-  if (!Object.is(prev.audioSpawnUseGlobalPalette, next.audioSpawnUseGlobalPalette)) return fail('audioSpawnUseGlobalPalette changed');
-  if (!Object.is(prev.audioSpawnBand, next.audioSpawnBand)) return fail('audioSpawnBand changed');
+	  if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
+	  if (!Object.is(prev.audioSpawnTriggerMode, next.audioSpawnTriggerMode)) return fail('audioSpawnTriggerMode changed');
+	  if (!Object.is(prev.audioSpawnRepeatWhileAbove, next.audioSpawnRepeatWhileAbove)) return fail('audioSpawnRepeatWhileAbove changed');
+	  if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return fail('audioSpawnHysteresis changed');
+	  if (!Object.is(prev.audioSpawnUseGlobalPalette, next.audioSpawnUseGlobalPalette)) return fail('audioSpawnUseGlobalPalette changed');
+	  if (!Object.is(prev.audioSpawnBand, next.audioSpawnBand)) return fail('audioSpawnBand changed');
   if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return fail('audioSpawnThreshold changed');
   if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return fail('audioSpawnCooldownMs changed');
   if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return fail('audioSpawnHalfLifeMs changed');

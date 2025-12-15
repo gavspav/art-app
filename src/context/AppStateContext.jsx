@@ -85,6 +85,9 @@ export const AppStateProvider = ({ children }) => {
     energyInfluence: 0.5,
     // Live audio spawn mode (non-timeline, runtime-only layers)
     audioSpawnEnabled: false,
+    audioSpawnTriggerMode: 'level',
+    audioSpawnRepeatWhileAbove: true,
+    audioSpawnHysteresis: 0.08,
     audioSpawnBand: 'rms',
     audioSpawnThreshold: 0.6,
     audioSpawnCooldownMs: 250,
@@ -350,6 +353,32 @@ export const AppStateProvider = ({ children }) => {
       ...prev,
       audioSpawnBand: allowed.has(value) ? value : prev.audioSpawnBand,
     }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnTriggerMode = useCallback((value) => {
+    const allowed = new Set(['level', 'transient']);
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnTriggerMode: allowed.has(value) ? value : prev.audioSpawnTriggerMode,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnRepeatWhileAbove = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnRepeatWhileAbove: (typeof value === 'function')
+        ? !!value(prev.audioSpawnRepeatWhileAbove)
+        : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnHysteresis = useCallback((value) => {
+    const raw = (typeof value === 'function') ? value(appStateRef.current.audioSpawnHysteresis) : value;
+    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(0.5, Number(raw))) : appStateRef.current.audioSpawnHysteresis;
+    setAppState(prev => ({ ...prev, audioSpawnHysteresis: next }));
     markDirty();
   }, [markDirty]);
 
@@ -755,6 +784,9 @@ export const AppStateProvider = ({ children }) => {
       enableEnergyScaling: false,
       energyInfluence: 0.5,
       audioSpawnEnabled: false,
+      audioSpawnTriggerMode: 'level',
+      audioSpawnRepeatWhileAbove: true,
+      audioSpawnHysteresis: 0.08,
       audioSpawnBand: 'rms',
       audioSpawnThreshold: 0.6,
       audioSpawnCooldownMs: 250,
@@ -819,6 +851,9 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnEnabled,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnBand,
+    setAudioSpawnTriggerMode,
+    setAudioSpawnRepeatWhileAbove,
+    setAudioSpawnHysteresis,
     setAudioSpawnThreshold,
     setAudioSpawnCooldownMs,
     setAudioSpawnHalfLifeMs,
@@ -901,6 +936,9 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnEnabled,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnBand,
+    setAudioSpawnTriggerMode,
+    setAudioSpawnRepeatWhileAbove,
+    setAudioSpawnHysteresis,
     setAudioSpawnThreshold,
     setAudioSpawnCooldownMs,
     setAudioSpawnHalfLifeMs,
