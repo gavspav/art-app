@@ -339,6 +339,8 @@ const BottomPanel = ({
   setEnergyInfluence,
   audioSpawnEnabled,
   setAudioSpawnEnabled,
+  audioSpawnUseGlobalPalette,
+  setAudioSpawnUseGlobalPalette,
   audioSpawnBand,
   setAudioSpawnBand,
   audioSpawnThreshold,
@@ -751,6 +753,8 @@ const BottomPanel = ({
 	              setEnergyInfluence={setEnergyInfluence}
 	              audioSpawnEnabled={audioSpawnEnabled}
 	              setAudioSpawnEnabled={setAudioSpawnEnabled}
+	              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+	              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
 	              audioSpawnBand={audioSpawnBand}
 	              setAudioSpawnBand={setAudioSpawnBand}
 	              audioSpawnThreshold={audioSpawnThreshold}
@@ -1088,6 +1092,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
   if (!Object.is(prev.energyInfluence, next.energyInfluence)) return fail('energyInfluence changed');
   if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
+  if (!Object.is(prev.audioSpawnUseGlobalPalette, next.audioSpawnUseGlobalPalette)) return fail('audioSpawnUseGlobalPalette changed');
   if (!Object.is(prev.audioSpawnBand, next.audioSpawnBand)) return fail('audioSpawnBand changed');
   if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return fail('audioSpawnThreshold changed');
   if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return fail('audioSpawnCooldownMs changed');
@@ -1125,6 +1130,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setEnableBreathing',
     'setEnergyInfluence',
     'setAudioSpawnEnabled',
+    'setAudioSpawnUseGlobalPalette',
     'setAudioSpawnBand',
     'setAudioSpawnThreshold',
     'setAudioSpawnCooldownMs',

@@ -91,6 +91,7 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnHalfLifeMs: 1500,
     audioSpawnHalfLifeEnergyFactor: 1.0,
     audioSpawnMaxLayers: 12,
+    audioSpawnUseGlobalPalette: false,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
@@ -329,6 +330,16 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({
       ...prev,
       audioSpawnEnabled: (typeof value === 'function') ? !!value(prev.audioSpawnEnabled) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnUseGlobalPalette = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnUseGlobalPalette: (typeof value === 'function')
+        ? !!value(prev.audioSpawnUseGlobalPalette)
+        : !!value,
     }));
     markDirty();
   }, [markDirty]);
@@ -750,6 +761,7 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnHalfLifeMs: 1500,
       audioSpawnHalfLifeEnergyFactor: 1.0,
       audioSpawnMaxLayers: 12,
+      audioSpawnUseGlobalPalette: false,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: generateSeed(),
@@ -805,6 +817,7 @@ export const AppStateProvider = ({ children }) => {
     setEnableEnergyScaling,
     setEnergyInfluence,
     setAudioSpawnEnabled,
+    setAudioSpawnUseGlobalPalette,
     setAudioSpawnBand,
     setAudioSpawnThreshold,
     setAudioSpawnCooldownMs,
@@ -886,6 +899,7 @@ export const AppStateProvider = ({ children }) => {
     setEnableEnergyScaling,
     setEnergyInfluence,
     setAudioSpawnEnabled,
+    setAudioSpawnUseGlobalPalette,
     setAudioSpawnBand,
     setAudioSpawnThreshold,
     setAudioSpawnCooldownMs,

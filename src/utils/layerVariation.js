@@ -23,6 +23,8 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   uniformColorCount = 3,
   colorCountMin = 1,
   colorCountMax = 8,
+  constrainColorsToPalette = false,
+  paletteColors = null,
 } = {}) {
   const normalizeSeed = (seedVal) => {
     const n = Math.abs(Number.isFinite(seedVal) ? Math.floor(seedVal) : 0);
@@ -287,6 +289,9 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
 
   // Colors (use wColor) — unified thresholds like Randomize All
   if (includeColor && Array.isArray(prev.colors) && prev.colors.length) {
+    const palettePool = (constrainColorsToPalette && Array.isArray(paletteColors) && paletteColors.length)
+      ? paletteColors.filter(c => typeof c === 'string' && c.length > 0)
+      : null;
     const canVaryColors = !!(varyFlags.colors && isAllowed('colors'));
     const canVaryCount = !!(varyFlags.numColors && isAllowed('numColors'));
     // If not randomizing per layer, use uniformColorCount; otherwise start from the layer's current count.
@@ -316,6 +321,19 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       if (wColor <= 0) {
         const next = [...prev.colors];
         // When per-layer colour counts are enabled, allow count to vary at high colour variation.
+        const finalColors = fitColors(next, desiredCount);
+        varied.colors = finalColors;
+        varied.numColors = finalColors.length;
+      } else if (palettePool) {
+        const pickFromPool = (n) => {
+          if (!palettePool.length) return [];
+          const out = [];
+          for (let k = 0; k < n; k += 1) {
+            out.push(palettePool[randomIntInclusive(0, palettePool.length - 1)]);
+          }
+          return out;
+        };
+        const next = canVaryColors ? pickFromPool(desiredCount) : [...prev.colors];
         const finalColors = fitColors(next, desiredCount);
         varied.colors = finalColors;
         varied.numColors = finalColors.length;

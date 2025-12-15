@@ -31,6 +31,8 @@ export function useAudioSpawnLayers({
   layers = [],
   selectedLayerIndex = 0,
   energyInfluence = 0,
+  useGlobalPalette = false,
+  paletteColors = [],
   band = DEFAULTS.band,
   threshold = DEFAULTS.threshold,
   cooldownMs = DEFAULTS.cooldownMs,
@@ -49,6 +51,8 @@ export function useAudioSpawnLayers({
     layers: Array.isArray(layers) ? layers : [],
     selectedLayerIndex: Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0,
     energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0,
+    useGlobalPalette: !!useGlobalPalette,
+    paletteColors: Array.isArray(paletteColors) ? paletteColors : [],
     band: typeof band === 'string' ? band : DEFAULTS.band,
     threshold: clamp(Number(threshold) || 0, 0, 1),
     cooldownMs: Math.max(0, Number(cooldownMs) || 0),
@@ -217,6 +221,8 @@ export function useAudioSpawnLayers({
 
           const varied = buildVariedLayerFrom(base, spawnIndex, baseVar, {
             randomSeed: (Number.isFinite(base?.seed) ? base.seed : 1) + Math.floor(t) + (spawnIndex * 1013),
+            constrainColorsToPalette: !!cfg.useGlobalPalette,
+            paletteColors: cfg.paletteColors,
           });
 
           varied.id = uniqueId('audio-spawn');

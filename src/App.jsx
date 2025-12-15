@@ -81,6 +81,7 @@ const MainApp = () => {
 	    energyInfluence,
 	    setEnergyInfluence,
 	    audioSpawnEnabled,
+	    audioSpawnUseGlobalPalette,
 	    audioSpawnBand,
 	    audioSpawnThreshold,
 	    audioSpawnCooldownMs,
@@ -88,6 +89,7 @@ const MainApp = () => {
 	    audioSpawnHalfLifeEnergyFactor,
 	    audioSpawnMaxLayers,
 	    setAudioSpawnEnabled,
+	    setAudioSpawnUseGlobalPalette,
 	    setAudioSpawnBand,
 	    setAudioSpawnThreshold,
 	    setAudioSpawnCooldownMs,
@@ -518,12 +520,51 @@ const MainApp = () => {
 
   const { timelineMode, setTimelineMode } = appStateCtx;
 
+  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
+  // Memoized to provide a stable function identity to child components/hooks
+  const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
+
+  const audioSpawnPaletteColors = useMemo(() => {
+    try {
+      const snapshot = Array.isArray(layersRef?.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
+      if (!snapshot.length) return [];
+      const colorsNow = snapshot.map(l => (Array.isArray(l?.colors) && l.colors[0]) ? String(l.colors[0]).toLowerCase() : '#000000');
+      const idx = (palettes || []).findIndex(p => {
+        const src = Array.isArray(p) ? p : (p?.colors || []);
+        const sampled = sampleColorsEven(src, Math.max(1, snapshot.length));
+        return sampled.length === colorsNow.length && sampled.every((c, i) => String(c || '').toLowerCase() === String(colorsNow[i] || ''));
+      });
+      if (idx >= 0 && (palettes || [])[idx]) {
+        const pick = (palettes || [])[idx];
+        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+        return (Array.isArray(src) ? src : []).filter(c => typeof c === 'string' && c.length > 0);
+      }
+
+      const out = [];
+      const seen = new Set();
+      snapshot.forEach(l => {
+        (Array.isArray(l?.colors) ? l.colors : []).forEach(c => {
+          if (typeof c !== 'string' || !c) return;
+          const k = c.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          out.push(c);
+        });
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  }, [layers, layersRef, palettes, sampleColorsEven]);
+
   const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
     enabled: !!audioSpawnEnabled && !timelineMode,
     paused: !!suppressEphemeralOverlays || !!isRecording,
     layers,
     selectedLayerIndex,
     energyInfluence,
+    useGlobalPalette: !!audioSpawnUseGlobalPalette,
+    paletteColors: audioSpawnPaletteColors,
     band: audioSpawnBand,
     threshold: audioSpawnThreshold,
     cooldownMs: audioSpawnCooldownMs,
@@ -897,10 +938,6 @@ const MainApp = () => {
     });
   };
   /* eslint-enable no-unused-vars */
-
-  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
-  // Memoized to provide a stable function identity to child components/hooks
-  const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
   // Timeline modulation - applies timeline track values to the modulation store
   // Uses shapeTrackUpdatesRef for animation loop to consume shape track data
@@ -2166,6 +2203,8 @@ const MainApp = () => {
 	              setEnergyInfluence={setEnergyInfluence}
 	              audioSpawnEnabled={audioSpawnEnabled}
 	              setAudioSpawnEnabled={setAudioSpawnEnabled}
+	              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+	              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
 	              audioSpawnBand={audioSpawnBand}
 	              setAudioSpawnBand={setAudioSpawnBand}
 	              audioSpawnThreshold={audioSpawnThreshold}
@@ -2295,6 +2334,24 @@ const MainApp = () => {
                 setIsFrozen={setIsFrozen}
                 enableBreathing={enableBreathing}
                 setEnableBreathing={setEnableBreathing}
+                energyInfluence={energyInfluence}
+                setEnergyInfluence={setEnergyInfluence}
+                audioSpawnEnabled={audioSpawnEnabled}
+                setAudioSpawnEnabled={setAudioSpawnEnabled}
+                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+                audioSpawnBand={audioSpawnBand}
+                setAudioSpawnBand={setAudioSpawnBand}
+                audioSpawnThreshold={audioSpawnThreshold}
+                setAudioSpawnThreshold={setAudioSpawnThreshold}
+                audioSpawnCooldownMs={audioSpawnCooldownMs}
+                setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+                audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+                setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+                audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+                setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+                audioSpawnMaxLayers={audioSpawnMaxLayers}
+                setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
                 colorFadeWhileFrozen={colorFadeWhileFrozen}
                 setColorFadeWhileFrozen={setColorFadeWhileFrozen}
                 classicMode={classicMode}

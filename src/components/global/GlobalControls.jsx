@@ -377,6 +377,8 @@ const AudioSpawnSection = ({
   setEnergyInfluence = null,
   audioSpawnEnabled = false,
   setAudioSpawnEnabled = null,
+  audioSpawnUseGlobalPalette = false,
+  setAudioSpawnUseGlobalPalette = null,
   audioSpawnBand = 'rms',
   setAudioSpawnBand = null,
   audioSpawnThreshold = 0.6,
@@ -484,6 +486,21 @@ const AudioSpawnSection = ({
           disabled={!setEnergyInfluence || disabledByTimeline}
           onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
         />
+      </div>
+
+      <div className="global-compact-row" style={{ marginTop: '0.35rem', opacity: canRun ? 1 : 0.7 }}>
+        <label
+          className="compact-label"
+          title="When enabled, spawned layer colours are selected only from the current Global palette. When disabled, colours vary as they do currently."
+        >
+          <input
+            type="checkbox"
+            checked={!!audioSpawnUseGlobalPalette}
+            disabled={!setAudioSpawnUseGlobalPalette || disabledByTimeline}
+            onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
+          />
+          Use global palette
+        </label>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 6rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -1016,6 +1033,8 @@ const GlobalControls = ({
   setEnergyInfluence,
   audioSpawnEnabled,
   setAudioSpawnEnabled,
+  audioSpawnUseGlobalPalette,
+  setAudioSpawnUseGlobalPalette,
   audioSpawnBand,
   setAudioSpawnBand,
   audioSpawnThreshold,
@@ -2480,6 +2499,8 @@ const GlobalControls = ({
             setEnergyInfluence={setEnergyInfluence}
             audioSpawnEnabled={audioSpawnEnabled}
             setAudioSpawnEnabled={setAudioSpawnEnabled}
+            audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+            setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
             audioSpawnBand={audioSpawnBand}
             setAudioSpawnBand={setAudioSpawnBand}
             audioSpawnThreshold={audioSpawnThreshold}
