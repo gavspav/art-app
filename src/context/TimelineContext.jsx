@@ -102,7 +102,7 @@ const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = 
     position: pos,                    // { x, y, scale, xOffset, yOffset } - layer position
     shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
     animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
-    colors: extras.colors || null,          // array of hex colors
+    colors: Array.isArray(extras.colors) ? extras.colors : null, // array of hex colors
     enabled: extras.enabled !== undefined ? extras.enabled : true,
   };
 };
@@ -160,7 +160,7 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
       categories: {
         shape: true,      // Interpolate nodes/subpaths
         animation: false, // Interpolate animation params
-        color: false,     // Interpolate colors array
+        color: true,      // Interpolate colors array
       },
     };
   }
@@ -184,7 +184,7 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
     categories: isShape ? {
       shape: true,      // Interpolate nodes/subpaths
       animation: false, // Interpolate animation params (movementStyle, speeds, etc.)
-      color: false,     // Interpolate colors array
+      color: true,      // Interpolate colors array
     } : null,
   };
 };
@@ -669,10 +669,10 @@ export const TimelineProvider = ({ children }) => {
                   nodes: nodes || null,
                   subpaths: subpaths || null,
                   label,
-                  position: extras.position || null,
-                  shapeParams: extras.shapeParams || null,
-                  animation: extras.animation || null,
-                  colors: extras.colors || null,
+                  position: ('position' in extras) ? (extras.position || null) : (kf.position || null),
+                  shapeParams: ('shapeParams' in extras) ? (extras.shapeParams || null) : (kf.shapeParams || null),
+                  animation: ('animation' in extras) ? (extras.animation || null) : (kf.animation || null),
+                  colors: ('colors' in extras) ? (Array.isArray(extras.colors) ? extras.colors : null) : (kf.colors || null),
                 }
               : kf
           );
@@ -1309,7 +1309,7 @@ export const TimelineProvider = ({ children }) => {
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return null;
     
-    const time = positionRef.current;
+    const time = Number.isFinite(options.timeSecondsOverride) ? options.timeSecondsOverride : positionRef.current;
     const categories = track.categories || { shape: true, animation: false, color: false };
     
     // Extract data from each layer
@@ -1345,9 +1345,9 @@ export const TimelineProvider = ({ children }) => {
         };
       }
       
-      if (categories.color && Array.isArray(layer.colors)) {
-        data.colors = [...layer.colors];
-      }
+      // Always store colors so keyframes can later tween correctly when the track's
+      // "Color" category is enabled (the toggle controls playback, not what is stored).
+      data.colors = Array.isArray(layer.colors) ? [...layer.colors] : ['#0000FF'];
       
       return data;
     });
@@ -1431,9 +1431,7 @@ export const TimelineProvider = ({ children }) => {
         };
       }
       
-      if (categories.color && Array.isArray(variedLayer.colors)) {
-        data.colors = [...variedLayer.colors];
-      }
+      data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
       
       return data;
     });
@@ -1514,9 +1512,7 @@ export const TimelineProvider = ({ children }) => {
         };
       }
       
-      if (categories.color && Array.isArray(variedLayer.colors)) {
-        data.colors = [...variedLayer.colors];
-      }
+      data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
       
       return data;
     });

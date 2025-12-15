@@ -215,10 +215,18 @@ export const evaluateTrackAtTime = (track, timeSeconds) => {
  * Makes the shorter array match the longer one by repeating colors
  */
 const normalizeColorArrays = (colorsA, colorsB) => {
+  const aIsArray = Array.isArray(colorsA);
+  const bIsArray = Array.isArray(colorsB);
+  const aLen = aIsArray ? colorsA.length : 0;
+  const bLen = bIsArray ? colorsB.length : 0;
+  // If one side is missing (or empty) but the other side has colors, treat it as "hold" rather than tweening to black.
+  if ((!aIsArray || aLen === 0) && bIsArray && bLen > 0) colorsA = colorsB;
+  if ((!bIsArray || bLen === 0) && aIsArray && aLen > 0) colorsB = colorsA;
+
   if (!Array.isArray(colorsA) || !Array.isArray(colorsB)) {
-    return { a: colorsA || [], b: colorsB || [] };
+    return { a: [], b: [] };
   }
-  
+
   const maxLen = Math.max(colorsA.length, colorsB.length);
   if (maxLen === 0) return { a: [], b: [] };
   
@@ -274,8 +282,9 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   const keyframes = track.keyframes || [];
   if (keyframes.length === 0) return null;
   
-  // Get category toggles (default: shape only)
-  const categories = track.categories || { shape: true, animation: false, color: false };
+  // Get category toggles (default: shape + color)
+  // Color is always enabled by default (even for older tracks that may have stored color:false).
+  const categories = { ...(track.categories || { shape: true, animation: false, color: true }), color: true };
   
   // Sort by time (should already be sorted, but ensure)
   const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
@@ -304,7 +313,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.animation = { ...kf.animation };
     }
     
-    if (categories.color && kf.colors) {
+    if (categories.color && Array.isArray(kf.colors)) {
       result.colors = [...kf.colors];
     }
     
@@ -322,11 +331,15 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   }
   
   // Find bracketing keyframes
-  let left = sorted[0];
-  let right = sorted[sorted.length - 1];
+  let leftIndex = 0;
+  let rightIndex = sorted.length - 1;
+  let left = sorted[leftIndex];
+  let right = sorted[rightIndex];
   
   for (let i = 0; i < sorted.length - 1; i++) {
     if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
+      leftIndex = i;
+      rightIndex = i + 1;
       left = sorted[i];
       right = sorted[i + 1];
       break;
@@ -433,8 +446,42 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   }
   
   // Interpolate colors if enabled
-  if (categories.color && (left.colors || right.colors)) {
-    result.colors = lerpColorArrays(left.colors || [], right.colors || [], easedT);
+  if (categories.color) {
+    const hasColors = (kf) => Array.isArray(kf?.colors) && kf.colors.length > 0;
+    const findPrevWithColors = (start) => {
+      for (let i = start; i >= 0; i--) {
+        const kf = sorted[i];
+        if (isEnabled(kf) && hasColors(kf)) return kf;
+      }
+      return null;
+    };
+    const findNextWithColors = (start) => {
+      for (let i = start; i < sorted.length; i++) {
+        const kf = sorted[i];
+        if (isEnabled(kf) && hasColors(kf)) return kf;
+      }
+      return null;
+    };
+
+    const leftColorKf = hasColors(left) ? left : findPrevWithColors(leftIndex);
+    const rightColorKf = hasColors(right) ? right : findNextWithColors(rightIndex);
+
+    if (leftColorKf && rightColorKf) {
+      if (leftColorKf === rightColorKf || Math.abs(rightColorKf.timeSeconds - leftColorKf.timeSeconds) < 1e-6) {
+        result.colors = [...leftColorKf.colors];
+      } else {
+        const tRaw = (timeSeconds - leftColorKf.timeSeconds) / (rightColorKf.timeSeconds - leftColorKf.timeSeconds);
+        const t = Math.max(0, Math.min(1, tRaw));
+        const cCurve = leftColorKf.curve || 'linear';
+        const cTension = leftColorKf.tension !== undefined ? leftColorKf.tension : 0.5;
+        const easedColorT = interpolateValue(t, 0, 1, cCurve, cTension);
+        result.colors = lerpColorArrays(leftColorKf.colors, rightColorKf.colors, easedColorT);
+      }
+    } else if (leftColorKf) {
+      result.colors = [...leftColorKf.colors];
+    } else if (rightColorKf) {
+      result.colors = [...rightColorKf.colors];
+    }
   }
   
   return result;
@@ -556,11 +603,15 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
   const keyframes = track.keyframes || [];
   if (keyframes.length === 0) return null;
   
-  // Get category toggles (default: shape only)
-  const categories = track.categories || { shape: true, animation: false, color: false };
+  // Get category toggles (default: shape + color)
+  // Color is always enabled by default.
+  const categories = { ...(track.categories || { shape: true, animation: false, color: true }), color: true };
   
-  // Sort by time
-  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  // Sort by time; ignore malformed keyframes (e.g. numeric keyframes accidentally added to a globalShape track)
+  const sorted = [...keyframes]
+    .filter(kf => kf && Array.isArray(kf.layers))
+    .sort((a, b) => a.timeSeconds - b.timeSeconds);
+  if (sorted.length === 0) return null;
   
   const isEnabled = (kf) => kf && kf.enabled !== false;
   
@@ -576,7 +627,7 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
         position: layerData.position ? { ...layerData.position } : null,
         shapeParams: layerData.shapeParams ? { ...layerData.shapeParams } : null,
         animation: categories.animation && layerData.animation ? { ...layerData.animation } : null,
-        colors: categories.color && layerData.colors ? [...layerData.colors] : null,
+        colors: categories.color && Array.isArray(layerData.colors) ? [...layerData.colors] : null,
       })),
     };
   };
@@ -705,7 +756,7 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
     
     // Interpolate colors if enabled
     if (categories.color && (layerA.colors || layerB.colors)) {
-      result.colors = lerpColorArrays(layerA.colors || [], layerB.colors || [], easedT);
+      result.colors = lerpColorArrays(layerA.colors, layerB.colors, easedT);
     }
     
     interpolatedLayers.push(result);

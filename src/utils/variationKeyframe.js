@@ -104,9 +104,12 @@ export function extractKeyframeData(layer, categories = { shape: true, animation
     };
   }
 
-  // Colors (if enabled)
-  if (categories.color && Array.isArray(layer.colors)) {
+  // Always capture colors so keyframes can later tween correctly when the track's
+  // "Color" category is enabled (the toggle controls playback, not what is stored).
+  if (Array.isArray(layer.colors)) {
     extras.colors = [...layer.colors];
+  } else {
+    extras.colors = ['#0000FF'];
   }
 
   // Variation metadata for reroll

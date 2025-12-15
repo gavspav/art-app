@@ -834,10 +834,6 @@ export function useTimelineModulation({
             const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
             if (globalResult && Array.isArray(globalResult.layers)) {
               const currentLayers = layersRef.current;
-              // Debug: log once when we have global shape data
-              if (Math.random() < 0.01) {
-                console.log('[GlobalShape] result layers:', globalResult.layers.length, 'currentLayers:', currentLayers?.length);
-              }
               if (Array.isArray(currentLayers)) {
                 // Store update for each layer by index, using layer id/name as key
                 globalResult.layers.forEach((interpolatedData, index) => {
@@ -932,12 +928,6 @@ export function useTimelineModulation({
         // Update shape track ref (consumed by animation loop)
         if (shapeTrackUpdatesRef) {
           shapeTrackUpdatesRef.current = shapeUpdates;
-          // Debug: log once per second if we have global shape updates
-          if (shapeUpdates.size > 0 && Math.random() < 0.016) {
-            const keys = [...shapeUpdates.keys()];
-            const firstVal = shapeUpdates.get(keys[0]);
-            console.log('[Timeline->Animation] keys:', keys.slice(0, 4), 'pos:', firstVal?.position?.x?.toFixed(2), firstVal?.position?.y?.toFixed(2));
-          }
         }
       }
       

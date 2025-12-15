@@ -91,8 +91,10 @@ const getLayerGeometry = (layer, canvas) => {
     if (spanX <= 0 || spanY <= 0 || artSize <= 0) return null;
     const { position = {} } = layer;
     const { x = 0.5, y = 0.5, scale = 1 } = position;
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvasWidth;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvasHeight;
+    // Offsets are relative to the artboard mapping (not the full canvas) so they remain stable
+    // across aspect-ratio/layout changes (fullscreen vs timeline layout).
+    const offsetXPx = (Number(layer.xOffset) || 0) * spanX;
+    const offsetYPx = (Number(layer.yOffset) || 0) * spanY;
     const centerX = artOffsetX + x * spanX + offsetXPx;
     const centerY = artOffsetY + y * spanY + offsetYPx;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
@@ -172,9 +174,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
 
     // Radius mapping (fully relative): use radiusFactor against reference artboard size
@@ -642,12 +644,11 @@ const buildExtentResult = (rx, ry, extra = {}) => {
 
 export const estimateLayerHalfExtents = (layer, canvas, opts = {}) => {
     try {
-        const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
         const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: minWH } = getLayerCanvasMapping(canvas, layer);
         const scale = Number(layer?.position?.scale ?? 1);
         const { x = 0.5, y = 0.5 } = layer?.position || {};
-        const offsetXPx = (Number(layer?.xOffset) || 0) * canvasWidth;
-        const offsetYPx = (Number(layer?.yOffset) || 0) * canvasHeight;
+        const offsetXPx = (Number(layer?.xOffset) || 0) * spanX;
+        const offsetYPx = (Number(layer?.yOffset) || 0) * spanY;
         const centerX = ax + x * spanX + offsetXPx;
         const centerY = ay + y * spanY + offsetYPx;
         if (layer?.image?.src) {
@@ -718,8 +719,8 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
 
     const { x = 0.5, y = 0.5 } = layer?.position || {};
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvasWidth;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvasHeight;
+    const offsetXPx = (Number(layer.xOffset) || 0) * spanX;
+    const offsetYPx = (Number(layer.yOffset) || 0) * spanY;
     const cx = ax + x * spanX + offsetXPx;
     const cy = ay + y * spanY + offsetYPx;
     const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: opts?.renderedPoints });
@@ -800,9 +801,9 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     const img = cache.img;
 
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
     const iw0 = img.naturalWidth || img.width || 0;
     const ih0 = img.naturalHeight || img.height || 0;
@@ -837,12 +838,11 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
     try {
         if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
-        const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
         const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
         const minWH = artSize;
-        const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
+        const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
         const centerX = ax + x * spanX + offsetXPx2;
-        const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
+        const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
         const centerY = ay + y * spanY + offsetYPx2;
         const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
@@ -908,11 +908,10 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     if (!layer || !canvas || !layer.position || !layer.visible) return path;
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvasWidth;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvasHeight;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
     const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
@@ -1749,9 +1748,9 @@ const Canvas = forwardRef(({
             (Array.isArray(layersForRender) ? layersForRender : []).forEach(l => {
                 const lx = Number(l?.position?.x);
                 const ly = Number(l?.position?.y);
-                const offsetX = (Number(l?.xOffset) || 0) * width;
-                const offsetY = (Number(l?.yOffset) || 0) * height;
                 const { spanX, spanY, offsetX: mapX, offsetY: mapY } = getLayerCanvasMapping(canvas, l);
+                const offsetX = (Number(l?.xOffset) || 0) * spanX;
+                const offsetY = (Number(l?.yOffset) || 0) * spanY;
                 const x = mapX + (Number.isFinite(lx) ? lx : 0.5) * spanX + offsetX;
                 const y = mapY + (Number.isFinite(ly) ? ly : 0.5) * spanY + offsetY;
                 ctx.beginPath();
@@ -1770,8 +1769,8 @@ const Canvas = forwardRef(({
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
-                const offsetXPx = (Number(sel.xOffset) || 0) * width;
-                const offsetYPx = (Number(sel.yOffset) || 0) * height;
+                const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
+                const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
                 const geometry = {
                     centerX: ax + x * spanX + offsetXPx,
                     centerY: ay + y * spanY + offsetYPx,
@@ -1838,8 +1837,8 @@ const Canvas = forwardRef(({
             // Always draw Orbit center handle (white dot with red border)
             {
                 const { spanX, spanY, offsetX: ax, offsetY: ay } = mapping;
-                const offsetXPx = (Number(sel.xOffset) || 0) * width;
-                const offsetYPx = (Number(sel.yOffset) || 0) * height;
+                const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
+                const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
                 const baseCenterX = ax + (Number(sel?.position?.x) ?? 0.5) * spanX + offsetXPx;

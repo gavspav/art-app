@@ -45,7 +45,7 @@ const TimelineCurveEditor = ({
 
   const keyframes = track?.keyframes || [];
   const trackColor = track?.color || '#4fc3f7';
-  const isShapeTrack = track?.type === 'shape';
+  const isShapeTrack = track?.type === 'shape' || track?.type === 'globalShape';
   const isColorTrack = track?.type === 'color';
 
   // Color picker state

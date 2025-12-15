@@ -26,8 +26,6 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
-import { evaluateShapeTrackAtTime } from './utils/envelopes.js';
-import { lerpNodes, lerpSubpaths } from './utils/nodeUtils.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 
 import Canvas from './components/Canvas';
@@ -571,18 +569,18 @@ const MainApp = () => {
   // (which switches to using `layers` in node edit mode) shows the correct positions
   const handleSetNodeEditMode = useCallback((value) => {
     if (value) {
-      // CRITICAL: Sync animated positions to React state before entering node edit mode
-      // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode
-      // Without this sync, entering node edit mode causes a visual jump to original positions
+      // CRITICAL: Sync the currently-rendered (animated) snapshot into React state before entering node edit mode.
+      // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode.
+      // Without this sync, entering node edit mode causes a visual jump (often to a timeline-evaluated shape).
       const animatedLayers = animatedLayersRef.current;
+      const selectedIndex = selectedLayerIndexRef.current || 0;
       if (Array.isArray(animatedLayers) && animatedLayers.length > 0) {
         setLayers(prev => {
           if (!Array.isArray(prev)) return prev;
           return prev.map((layer, i) => {
             const animated = animatedLayers[i];
             if (!animated || !animated.position) return layer;
-            // Sync position (x, y, scale) from animated to base layer
-            return {
+            const next = {
               ...layer,
               position: {
                 ...layer.position,
@@ -594,12 +592,41 @@ const MainApp = () => {
               orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
               spinAngle: animated.spinAngle ?? layer.spinAngle,
             };
+
+            // Also sync the currently-rendered geometry + key shape params for the active layer
+            // so entering node edit mode does not snap to a different evaluated timeline shape.
+            if (i === selectedIndex) {
+              // Geometry (nodes OR subpaths)
+              if (Array.isArray(animated.subpaths) && animated.subpaths.length > 0) {
+                next.subpaths = JSON.parse(JSON.stringify(animated.subpaths));
+                next.nodes = undefined;
+              } else if (Array.isArray(animated.nodes) && animated.nodes.length >= 3) {
+                next.nodes = animated.nodes.map(n => ({ ...n }));
+                next.subpaths = undefined;
+                next.syncNodesToNumSides = false;
+              }
+
+              // Shape tab params (keep what the user is currently seeing)
+              if (typeof animated.numSides !== 'undefined') next.numSides = animated.numSides;
+              if (typeof animated.curviness !== 'undefined') next.curviness = animated.curviness;
+              if (typeof animated.radiusFactor !== 'undefined') next.radiusFactor = animated.radiusFactor;
+              if (typeof animated.radiusFactorX !== 'undefined') next.radiusFactorX = animated.radiusFactorX;
+              if (typeof animated.radiusFactorY !== 'undefined') next.radiusFactorY = animated.radiusFactorY;
+              if (typeof animated.rotation !== 'undefined') next.rotation = animated.rotation;
+
+              // Offsets + colors (optional but helps prevent visible snapping)
+              if (typeof animated.xOffset !== 'undefined') next.xOffset = animated.xOffset;
+              if (typeof animated.yOffset !== 'undefined') next.yOffset = animated.yOffset;
+              if (Array.isArray(animated.colors)) next.colors = [...animated.colors];
+              if (typeof animated.numColors !== 'undefined') next.numColors = animated.numColors;
+            }
+
+            return next;
           });
         });
       }
 
       const layersNow = animatedLayersRef.current || layersRef.current || [];
-      const selectedIndex = selectedLayerIndexRef.current || 0;
       const timelineNow = timelineContextRef.current;
 
       // Entering node edit mode - capture context
@@ -614,130 +641,8 @@ const MainApp = () => {
         layerName: layer?.name || null,
         timelinePosition: positionSeconds,
       };
-      
-      // Find the shape track for this layer and evaluate it directly at current position
-      // Use EXACT matching for layer ID or Name to avoid partial matches (e.g. "Layer 1" matching "Layer 10")
-      // And look for the LAST matching track to follow 'last write wins'
-      const tracks = timelineNow?.tracks || [];
-      const matchingTracks = tracks.filter(t => {
-        if (t.type !== 'shape' || !t.enabled || !t.targetId) return false;
-        
-        // targetId format: "layer:LAYER_ID_OR_NAME:shape"
-        const parts = t.targetId.split(':');
-        if (parts.length < 3 || parts[0] !== 'layer' || parts[parts.length-1] !== 'shape') return false;
-        
-        // The middle part is the identifier (might contain colons if name has colons, so rejoin)
-        const targetIdentifier = parts.slice(1, parts.length - 1).join(':');
-        
-        return targetIdentifier === layer?.id || targetIdentifier === layer?.name;
-      });
-      
-      if (matchingTracks.length > 1) {
-        console.warn('[NodeEdit] Multiple shape tracks found for layer:', layer?.name, 'count:', matchingTracks.length, 'IDs:', matchingTracks.map(t => t.id));
-      }
 
-      const shapeTrack = matchingTracks.length > 0 ? matchingTracks[matchingTracks.length - 1] : undefined;
-      
-      let shapeUpdate = null;
-      if (shapeTrack) {
-        // Directly evaluate the shape track at the current timeline position
-        shapeUpdate = evaluateShapeTrackAtTime(shapeTrack, positionSeconds, lerpNodes, lerpSubpaths);
-      }
-      
-      // During playback, prefer the ref which has the most current frame's data
-      // During pause/scrub, the direct evaluation should be accurate
-      // IMPORTANT: Only use refUpdate if we actually found a shape track for this layer.
-      // The ref may contain data from global shape tracks that we shouldn't apply here
-      // unless there's an actual per-layer shape track.
-      const isPlaying = timelineNow?.isPlaying;
-      
-      if (shapeTrack) {
-        const refUpdate = shapeTrackUpdatesRef.current?.get(layer?.name) || shapeTrackUpdatesRef.current?.get(layer?.id);
-        
-        if (isPlaying && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
-          // Use ref only during playback to ensure synchronization with animation loop
-          shapeUpdate = refUpdate;
-        } else if (!shapeUpdate && refUpdate && (refUpdate.nodes || refUpdate.subpaths)) {
-          // Fallback to ref if direct evaluation failed (even if paused)
-          // But only if the ref has actual geometry data (not just position from global track)
-          shapeUpdate = refUpdate;
-        }
-      }
-      
-      if (shapeUpdate && (shapeUpdate.nodes || shapeUpdate.subpaths)) {
-        // Apply ALL shape update properties to ensure layer matches timeline exactly
-        setLayers(prev => prev.map((l, i) => {
-          if (i !== selectedIndex) return l;
-          const updated = { ...l };
-          
-          // Apply geometry (nodes or subpaths)
-          if (shapeUpdate.subpaths) {
-            // Deep clone to prevent reference leakage
-            updated.subpaths = JSON.parse(JSON.stringify(shapeUpdate.subpaths));
-            updated.nodes = undefined;
-          } else if (shapeUpdate.nodes) {
-            // Deep clone to prevent reference leakage
-            updated.nodes = shapeUpdate.nodes.map(n => ({ ...n }));
-            updated.subpaths = undefined;
-            // Prevent Canvas from resampling these timeline-provided nodes back to a
-            // canonical polygon when numSides changes. Once we enter node edit mode
-            // with evaluated geometry, we want to preserve the exact nodes.
-            updated.syncNodesToNumSides = false;
-          }
-          
-          // Apply position (same as useTimelineModulation)
-          if (shapeUpdate.position) {
-            updated.position = {
-              ...updated.position,
-              x: shapeUpdate.position.x ?? updated.position?.x ?? 0.5,
-              y: shapeUpdate.position.y ?? updated.position?.y ?? 0.5,
-              scale: shapeUpdate.position.scale ?? updated.position?.scale ?? 1,
-            };
-            if (shapeUpdate.position.xOffset !== undefined) {
-              updated.xOffset = shapeUpdate.position.xOffset;
-            }
-            if (shapeUpdate.position.yOffset !== undefined) {
-              updated.yOffset = shapeUpdate.position.yOffset;
-            }
-          }
-          
-          // Apply shape params (Layer Shape Tab: Sides, Curviness, Size, etc.)
-          if (shapeUpdate.shapeParams) {
-            const sp = shapeUpdate.shapeParams;
-            if (sp.numSides !== undefined) updated.numSides = sp.numSides;
-            if (sp.curviness !== undefined) updated.curviness = sp.curviness;
-            if (sp.radiusFactor !== undefined) updated.radiusFactor = sp.radiusFactor;
-            if (sp.radiusFactorX !== undefined) updated.radiusFactorX = sp.radiusFactorX;
-            if (sp.radiusFactorY !== undefined) updated.radiusFactorY = sp.radiusFactorY;
-            if (sp.rotation !== undefined) updated.rotation = sp.rotation;
-          }
-          
-          // Apply animation params
-          if (shapeUpdate.animation) {
-            const anim = shapeUpdate.animation;
-            if (anim.movementStyle !== undefined) updated.movementStyle = anim.movementStyle;
-            if (anim.movementSpeed !== undefined) updated.movementSpeed = anim.movementSpeed;
-            if (anim.movementAngle !== undefined) updated.movementAngle = anim.movementAngle;
-            if (anim.scaleSpeed !== undefined) updated.scaleSpeed = anim.scaleSpeed;
-            if (anim.scaleMin !== undefined) updated.scaleMin = anim.scaleMin;
-            if (anim.scaleMax !== undefined) updated.scaleMax = anim.scaleMax;
-          }
-          
-          // Apply colors
-          if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
-            updated.colors = shapeUpdate.colors;
-            updated.numColors = shapeUpdate.colors.length;
-          }
-          
-          return updated;
-        }));
-        
-        // Set node edit mode synchronously - the setLayers call above will be batched
-        // but React guarantees the state update order
-        setIsNodeEditMode(true, context);
-      } else {
-        setIsNodeEditMode(true, context);
-      }
+      setIsNodeEditMode(true, context);
     } else {
       // Exiting node edit mode - clear context
       setIsNodeEditMode(false);
@@ -2381,6 +2286,7 @@ const MainApp = () => {
             >
               <TimelinePanel
                 layers={layers}
+                animatedLayersRef={animatedLayersRef}
                 onClose={() => setTimelineMode?.(false)}
                 isRecording={isRecording}
                 onStartRecording={startRecording}

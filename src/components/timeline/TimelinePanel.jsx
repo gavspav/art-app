@@ -4,6 +4,7 @@ import { useAppState } from '../../context/AppStateContext.jsx';
 import TimelineWaveform from './TimelineWaveform.jsx';
 import TimelineTrackRow from './TimelineTrackRow.jsx';
 import TimelineTransport from './TimelineTransport.jsx';
+import { computeInitialNodes } from '../../utils/nodeUtils.js';
 
 /**
  * TimelinePanel - Main timeline UI component
@@ -17,13 +18,14 @@ import TimelineTransport from './TimelineTransport.jsx';
  */
 const TimelinePanel = ({
   layers = [],
+  animatedLayersRef,
   onClose,
   isRecording = false,
   onStartRecording,
   onStopRecording,
 }) => {
   const timeline = useTimeline();
-  const { getCurrentAppState, loadAppState, setIsFrozen, isFrozen } = useAppState() || {};
+  const { getCurrentAppState, loadAppState, setIsFrozen, isFrozen, isNodeEditMode, nodeEditContext } = useAppState() || {};
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -88,6 +90,167 @@ const TimelinePanel = ({
   // Get clipboard track type and source for paste menu logic
   const clipboardTrackType = keyframeClipboard?.trackType || null;
   const clipboardSourceTargetId = keyframeClipboard?.trackTargetId || null;
+
+  // While in node edit mode, automatically write node edits back into the active shape keyframe
+  // when the playhead is sitting on that keyframe. This matches "edit keyframe in place" behaviour.
+  const nodeEditCommitTimerRef = useRef(null);
+  const latestNodeEditCommitRef = useRef(null);
+  const lastCommittedNodeHashByKeyRef = useRef(new Map());
+  const lastNodeEditStateRef = useRef(false);
+  
+  useEffect(() => {
+    if (!isNodeEditMode) return;
+    if (!nodeEditContext) return;
+    if (!Array.isArray(tracks) || tracks.length === 0) return;
+    if (!Array.isArray(layers) || layers.length === 0) return;
+    if (isPlaying) return;
+
+    const layerName = nodeEditContext.layerName || null;
+    const layerId = nodeEditContext.layerId || null;
+    
+    // Find layer index to get animated layer data
+    const layerIndex = layers.findIndex(l => (layerId && l?.id === layerId) || (layerName && l?.name === layerName));
+    const editedLayer = layerIndex >= 0 ? layers[layerIndex] : null;
+    if (!editedLayer) return;
+
+    // Get the animated layer which has the current node-edited geometry
+    const animatedLayers = animatedLayersRef?.current;
+    const animatedLayer = Array.isArray(animatedLayers) && layerIndex >= 0 ? animatedLayers[layerIndex] : null;
+
+    const targetLayerName = editedLayer?.name || layerName || null;
+    if (!targetLayerName) return;
+
+    const shapeTracks = tracks.filter((t) => {
+      if (!t || t.type !== 'shape' || !t.targetId) return false;
+      const parts = String(t.targetId).split(':');
+      return parts.length >= 3 && parts[0] === 'layer' && parts[1] === targetLayerName && parts[2] === 'shape';
+    });
+    if (shapeTracks.length === 0) return;
+
+    const TIME_EPSILON = 0.01;
+    const snappedTime = Math.round((Number(positionSeconds) || 0) / TIME_EPSILON) * TIME_EPSILON;
+    
+    // During node edit mode, React state has the authoritative node geometry (Canvas updates it directly)
+    // Animated layers may be stale, so prefer React state first
+    let nodes = null;
+    let subpaths = null;
+    
+    // First try React state layer (has current node edits during node edit mode)
+    if (Array.isArray(editedLayer.subpaths) && editedLayer.subpaths.length > 0) {
+      subpaths = editedLayer.subpaths;
+    } else if (Array.isArray(editedLayer.nodes) && editedLayer.nodes.length >= 3) {
+      nodes = editedLayer.nodes;
+    }
+    
+    // Fall back to animated layer if React state doesn't have geometry
+    if (!nodes && !subpaths && animatedLayer) {
+      if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
+        subpaths = animatedLayer.subpaths;
+      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= 3) {
+        nodes = animatedLayer.nodes;
+      }
+    }
+    
+    // If still no geometry, compute from numSides
+    if (!nodes && !subpaths && editedLayer.layerType === 'shape') {
+      nodes = computeInitialNodes(editedLayer.numSides ?? 6);
+    }
+    
+    if (!nodes && !subpaths) return;
+
+    const extras = {
+      position: {
+        x: editedLayer.position?.x ?? 0.5,
+        y: editedLayer.position?.y ?? 0.5,
+        scale: editedLayer.position?.scale ?? 1,
+        xOffset: editedLayer.xOffset ?? 0,
+        yOffset: editedLayer.yOffset ?? 0,
+      },
+      shapeParams: {
+        numSides: editedLayer.numSides ?? 6,
+        curviness: editedLayer.curviness ?? 1.0,
+        radiusFactor: editedLayer.radiusFactor ?? 0.125,
+        radiusFactorX: editedLayer.radiusFactorX ?? editedLayer.radiusFactor ?? 0.125,
+        radiusFactorY: editedLayer.radiusFactorY ?? editedLayer.radiusFactor ?? 0.125,
+        rotation: editedLayer.rotation ?? 0,
+      },
+      animation: null,
+      colors: Array.isArray(editedLayer.colors) ? JSON.parse(JSON.stringify(editedLayer.colors)) : ['#0000FF'],
+    };
+
+    // Find any keyframe at this time (apply to all matching tracks).
+    const commits = [];
+    shapeTracks.forEach((t) => {
+      const kf = (Array.isArray(t.keyframes) ? t.keyframes : []).find(k => Math.abs((k?.timeSeconds ?? -1) - snappedTime) < TIME_EPSILON);
+      if (kf) commits.push({ trackId: t.id, keyframeId: kf.id });
+    });
+
+    latestNodeEditCommitRef.current = { commits, nodes, subpaths, shapeTracks, snappedTime, extras };
+
+    if (nodeEditCommitTimerRef.current) return;
+    nodeEditCommitTimerRef.current = window.setTimeout(() => {
+      nodeEditCommitTimerRef.current = null;
+      const snap = latestNodeEditCommitRef.current;
+      if (!snap) return;
+
+      const nodesSnap = snap.nodes ? JSON.parse(JSON.stringify(snap.nodes)) : null;
+      const subpathsSnap = snap.subpaths ? JSON.parse(JSON.stringify(snap.subpaths)) : null;
+      const hash = `${nodesSnap ? JSON.stringify(nodesSnap) : ''}|${subpathsSnap ? JSON.stringify(subpathsSnap) : ''}`;
+
+      if (Array.isArray(snap.commits) && snap.commits.length > 0) {
+        snap.commits.forEach(({ trackId, keyframeId }) => {
+          const key = `${trackId}:${keyframeId}`;
+          const lastHash = lastCommittedNodeHashByKeyRef.current.get(key);
+          if (lastHash === hash) return;
+          updateKeyframe?.(trackId, keyframeId, { nodes: nodesSnap, subpaths: subpathsSnap });
+          lastCommittedNodeHashByKeyRef.current.set(key, hash);
+        });
+        return;
+      }
+
+      // NOTE: We no longer auto-create keyframes when the timeline position changes.
+      // Users must explicitly capture keyframes using the UI button.
+      // This effect only UPDATES existing keyframes when the playhead is on them.
+    }, 80);
+
+    return () => {
+      if (nodeEditCommitTimerRef.current) {
+        clearTimeout(nodeEditCommitTimerRef.current);
+        nodeEditCommitTimerRef.current = null;
+      }
+    };
+  }, [isNodeEditMode, nodeEditContext, tracks, layers, animatedLayersRef, positionSeconds, isPlaying, updateKeyframe, addShapeKeyframe]);
+
+  useEffect(() => () => {
+    if (nodeEditCommitTimerRef.current) {
+      clearTimeout(nodeEditCommitTimerRef.current);
+      nodeEditCommitTimerRef.current = null;
+    }
+  }, []);
+
+  // Final safety: when exiting node edit mode, force a last commit so edits don't get lost.
+  useEffect(() => {
+    const prevInEdit = lastNodeEditStateRef.current;
+    const currInEdit = !!isNodeEditMode;
+    lastNodeEditStateRef.current = currInEdit;
+    if (!prevInEdit || currInEdit) return;
+
+    const snap = latestNodeEditCommitRef.current;
+    if (!snap) return;
+    const TIME_EPSILON = 0.01;
+    const nodesSnap = snap.nodes ? JSON.parse(JSON.stringify(snap.nodes)) : null;
+    const subpathsSnap = snap.subpaths ? JSON.parse(JSON.stringify(snap.subpaths)) : null;
+    if (!nodesSnap && !subpathsSnap) return;
+
+    // Only update existing keyframes, don't create new ones on exit
+    (Array.isArray(snap.shapeTracks) ? snap.shapeTracks : []).forEach((t) => {
+      const kf = (Array.isArray(t.keyframes) ? t.keyframes : []).find(k => Math.abs((k?.timeSeconds ?? -1) - snap.snappedTime) < TIME_EPSILON);
+      if (kf) {
+        updateKeyframe?.(t.id, kf.id, { nodes: nodesSnap, subpaths: subpathsSnap });
+      }
+      // Don't auto-create keyframes on exit - user must explicitly capture them
+    });
+  }, [isNodeEditMode, updateKeyframe]);
 
   // Calculate pixels per second based on container width and zoom
   const [containerWidth, setContainerWidth] = useState(800);
@@ -311,24 +474,52 @@ const TimelinePanel = ({
   }, [rerollGlobalShapeKeyframe, layers]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
-  const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName) => {
+  const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName, timeSecondsOverride = null) => {
     if (!addShapeKeyframe || !layerIdOrName) return;
     
     // Find the layer to capture its current state
     // TimelineTrackRow now passes the layer NAME (e.g., 'Layer 2') for stable targeting,
     // so resolve by id OR name.
-    const layer = layers.find(l => l?.id === layerIdOrName || l?.name === layerIdOrName);
+    const layerIndex = layers.findIndex(l => l?.id === layerIdOrName || l?.name === layerIdOrName);
+    const layer = layerIndex >= 0 ? layers[layerIndex] : null;
     if (!layer) {
       console.warn('[Timeline] Cannot capture shape: layer not found', layerIdOrName);
       return;
     }
     
+    // Get the animated layer which has the current node-edited geometry
+    const animatedLayers = animatedLayersRef?.current;
+    const animatedLayer = Array.isArray(animatedLayers) && layerIndex >= 0 ? animatedLayers[layerIndex] : null;
+    
     // Find the track to check which categories are enabled
     const track = tracks?.find(t => t.id === trackId);
     const categories = track?.categories || { shape: true, animation: false, color: false };
     
-    // Capture shape data (nodes/subpaths) when available; allow capture even if missing
-    const { nodes, subpaths } = layer;
+    // Capture shape data - prefer React state (has current node edits during node edit mode)
+    let nodes = null;
+    let subpaths = null;
+    
+    // First try React state layer (has current node edits during node edit mode)
+    if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
+      subpaths = layer.subpaths;
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+      nodes = layer.nodes;
+    }
+    
+    // Fall back to animated layer if React state doesn't have geometry
+    if (!nodes && !subpaths && animatedLayer) {
+      if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
+        subpaths = animatedLayer.subpaths;
+      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= 3) {
+        nodes = animatedLayer.nodes;
+      }
+    }
+    
+    // If still no geometry, compute from numSides
+    if (!nodes && !subpaths && layer.layerType === 'shape') {
+      nodes = computeInitialNodes(layer.numSides ?? 6);
+    }
+    
     const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
     const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
     
@@ -370,15 +561,15 @@ const TimelinePanel = ({
       };
     }
     
-    // Capture colors if enabled
-    if (categories.color) {
-      extras.colors = Array.isArray(layer.colors) 
-        ? JSON.parse(JSON.stringify(layer.colors)) 
-        : ['#0000FF'];
-    }
+    // Always capture colors so keyframes can later tween correctly when the track's
+    // "Color" category is enabled (the toggle controls playback, not what is stored).
+    extras.colors = Array.isArray(layer.colors)
+      ? JSON.parse(JSON.stringify(layer.colors))
+      : ['#0000FF'];
     
-    addShapeKeyframe(trackId, positionSeconds, clonedNodes, clonedSubpaths, '', extras);
-  }, [addShapeKeyframe, layers, tracks, positionSeconds]);
+    const time = (Number.isFinite(timeSecondsOverride) ? timeSecondsOverride : positionSeconds);
+    addShapeKeyframe(trackId, time, clonedNodes, clonedSubpaths, '', extras);
+  }, [addShapeKeyframe, animatedLayersRef, layers, tracks, positionSeconds]);
 
   // Handle rerolling a variation keyframe
   const handleRerollVariation = useCallback((trackId, keyframeId) => {
@@ -866,7 +1057,25 @@ const TimelinePanel = ({
                 layerParameters={layerParameters}
                 onUpdateTrack={(updates) => updateTrack(track.id, updates)}
                 onRemoveTrack={() => removeTrack(track.id)}
-                onAddKeyframe={(time, value, curve, tension) => addKeyframe(track.id, time, value, curve, tension)}
+                onAddKeyframe={(time, value, curve, tension) => {
+                  // Shape/globalShape tracks need full snapshot keyframes; avoid inserting numeric keyframes that
+                  // break interpolation (especially colors).
+                  if (track.type === 'shape') {
+                    const parts = String(track.targetId || '').split(':');
+                    const layerIdOrName = parts.length >= 2 ? parts[1] : null;
+                    if (layerIdOrName) {
+                      handleCaptureShapeKeyframe(track.id, layerIdOrName, time);
+                    }
+                    return;
+                  }
+                  if (track.type === 'globalShape') {
+                    // Capture snapshot of all layers at this time.
+                    // Note: this uses current layer state; for evaluated-at-time capture, use the dedicated Global Shape controls.
+                    captureGlobalShapeKeyframe?.(track.id, layers, { timeSecondsOverride: time });
+                    return;
+                  }
+                  addKeyframe(track.id, time, value, curve, tension);
+                }}
                 onUpdateKeyframe={(kfId, updates) => updateKeyframe(track.id, kfId, updates)}
                 onRemoveKeyframe={(kfId) => removeKeyframe(track.id, kfId)}
                 onCaptureShapeKeyframe={handleCaptureShapeKeyframe}

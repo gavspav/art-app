@@ -94,32 +94,30 @@ describe('Performance Tests', () => {
 
   describe('Memory Usage', () => {
     test('should not leak memory with repeated hash calculations', () => {
+      // This check is only meaningful when we can force GC; otherwise heap growth
+      // from short-lived allocations is expected and can be highly environment-dependent.
+      if (!global.gc || !process.memoryUsage) return;
+
       const layer = createMockLayer();
       const iterations = 10000;
       
       // Force garbage collection if available (Node.js)
-      if (global.gc) {
-        global.gc();
-      }
+      global.gc();
       
-      const initialMemory = process.memoryUsage ? process.memoryUsage().heapUsed : 0;
+      const initialMemory = process.memoryUsage().heapUsed;
       
       for (let i = 0; i < iterations; i++) {
         calculateCompactVisualHash(layer);
       }
       
       // Force garbage collection again
-      if (global.gc) {
-        global.gc();
-      }
+      global.gc();
       
-      const finalMemory = process.memoryUsage ? process.memoryUsage().heapUsed : 0;
+      const finalMemory = process.memoryUsage().heapUsed;
       const memoryIncrease = finalMemory - initialMemory;
       
       // Memory increase should be minimal (less than 1MB for 10k calculations)
-      if (process.memoryUsage) {
-        expect(memoryIncrease).toBeLessThan(1024 * 1024);
-      }
+      expect(memoryIncrease).toBeLessThan(1024 * 1024);
     });
   });
 

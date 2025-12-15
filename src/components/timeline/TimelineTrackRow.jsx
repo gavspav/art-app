@@ -362,7 +362,7 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.shape !== false}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), shape: e.target.checked }
+                    categories: { ...({ shape: true, animation: false, color: true, ...(track.categories || {}) }), shape: e.target.checked, color: true }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
@@ -373,22 +373,11 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.animation === true}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), animation: e.target.checked }
+                    categories: { ...({ shape: true, animation: false, color: true, ...(track.categories || {}) }), animation: e.target.checked, color: true }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
                 Anim
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={track.categories?.color === true}
-                  onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), color: e.target.checked }
-                  })}
-                  style={{ width: 10, height: 10, cursor: 'pointer' }}
-                />
-                Color
               </label>
             </div>
           </div>
@@ -442,7 +431,7 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.shape !== false}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), shape: e.target.checked }
+                    categories: { ...({ shape: true, animation: false, color: true, ...(track.categories || {}) }), shape: e.target.checked, color: true }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
@@ -453,22 +442,11 @@ const TimelineTrackRow = ({
                   type="checkbox"
                   checked={track.categories?.animation === true}
                   onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), animation: e.target.checked }
+                    categories: { ...({ shape: true, animation: false, color: true, ...(track.categories || {}) }), animation: e.target.checked, color: true }
                   })}
                   style={{ width: 10, height: 10, cursor: 'pointer' }}
                 />
                 Anim
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '2px', color: 'rgba(255, 255, 255, 0.7)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={track.categories?.color === true}
-                  onChange={(e) => onUpdateTrack?.({
-                    categories: { ...(track.categories || {}), color: e.target.checked }
-                  })}
-                  style={{ width: 10, height: 10, cursor: 'pointer' }}
-                />
-                Color
               </label>
             </div>
           </div>
