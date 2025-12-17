@@ -32,6 +32,8 @@ export function useKeyboardShortcuts({
   onGenerateVariationKeyframe,
   onGenerateRandomKeyframes,
   onFillKeyframesBetween,
+  // Timeline global track capture
+  onCaptureGlobalKeyframe,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -222,6 +224,13 @@ export function useKeyboardShortcuts({
         onFillKeyframesBetween?.();
         return;
       }
+
+      // Shift+C -> Capture current layers to global shape track (when present)
+      if (e.shiftKey && key === 'c' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        onCaptureGlobalKeyframe?.();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -255,5 +264,6 @@ export function useKeyboardShortcuts({
     onGenerateVariationKeyframe,
     onGenerateRandomKeyframes,
     onFillKeyframesBetween,
+    onCaptureGlobalKeyframe,
   ]);
 }

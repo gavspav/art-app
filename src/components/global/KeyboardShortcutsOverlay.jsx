@@ -46,6 +46,7 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>P</kbd><span>Timeline play / pause</span></div>
           <div><kbd>Home</kbd><span>Stop timeline and go to start</span></div>
           <div><kbd>C</kbd><span>Capture active layer to shape keyframe (when timeline visible)</span></div>
+          <div><kbd>Shift</kbd> + <kbd>C</kbd><span>Capture current scene to global keyframe (Global Shape track)</span></div>
           <div><kbd>Shift</kbd> + <kbd>V</kbd><span>Generate variation keyframe at playhead (active layer&apos;s shape track)</span></div>
           <div><kbd>Shift</kbd> + <kbd>R</kbd><span>Generate N random variation keyframes on active shape track</span></div>
           <div><kbd>Shift</kbd> + <kbd>F</kbd><span>Fill variation keyframes between first and last keyframe on active shape track</span></div>

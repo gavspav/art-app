@@ -1493,7 +1493,7 @@ const MainApp = () => {
     if (keyframeId) {
       console.log('Generated variation keyframe:', keyframeId);
     }
-  }, [timelineContext, layers, selectedLayerIndex, isParamRandomizable]);
+}, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors]);
 
   // Generate random keyframes (prompts for count)
   // Supports both single-layer shape tracks and global shape tracks
@@ -1640,7 +1640,7 @@ const MainApp = () => {
         nodeMod ? 'with node modulation' : '',
         energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
     }
-  }, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence]);
+}, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
 
   // Fill keyframes between nearest keyframes around playhead (prompts for count)
   // Supports both single-layer shape tracks and global shape tracks
@@ -1782,10 +1782,21 @@ const MainApp = () => {
         nodeMod ? 'with node modulation' : '',
         energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
     }
-  }, [timelineContext, layers, selectedLayerIndex, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence]);
+}, [timelineContext, layers, selectedLayerIndex, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
+
+  // Shift+C: capture current layers to a global shape keyframe (if global track exists)
+  const handleCaptureGlobalKeyframe = useCallback(() => {
+    if (!timelineContext?.visible) return;
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    if (!globalShapeTrack) return;
+    const time = timelineContext.captureGlobalShapeKeyframe?.(globalShapeTrack.id, layers, {});
+    if (time != null) {
+      console.log('Captured global shape keyframe at', time);
+    }
+  }, [timelineContext, layers]);
 
   // Keyboard shortcuts
-	  useKeyboardShortcuts({
+		  useKeyboardShortcuts({
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
@@ -1811,10 +1822,11 @@ const MainApp = () => {
 	    timelineVisible: timelineContext?.visible,
 	    timelineIsPlaying: timelineContext?.isPlaying,
     // Variation keyframe generation
-    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
-    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
-    onFillKeyframesBetween: handleFillKeyframesBetween,
-  });
+	    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
+	    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
+	    onFillKeyframesBetween: handleFillKeyframesBetween,
+      onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
+	  });
 
   // MIDI helper refs and handlers integration
   const rndAllPrevRef = useRef(0);
