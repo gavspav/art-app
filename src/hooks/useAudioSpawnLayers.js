@@ -31,6 +31,7 @@ const uniqueId = (prefix = 'spawn') => `${prefix}-${Date.now().toString(36)}-${M
 export function useAudioSpawnLayers({
   enabled = false,
   paused = false,
+  zIgnore = false,
   layers = [],
   selectedLayerIndex = 0,
   energyInfluence = 0,
@@ -54,6 +55,7 @@ export function useAudioSpawnLayers({
   configRef.current = {
     enabled: !!enabled,
     paused: !!paused,
+    zIgnore: !!zIgnore,
     layers: Array.isArray(layers) ? layers : [],
     selectedLayerIndex: Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0,
     energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0,
@@ -174,8 +176,8 @@ export function useAudioSpawnLayers({
         }
         // 'still' = no position update
 
-        // Scale pulsing
-        if (layer.scaleSpeed > 0) {
+        // Scale pulsing (respect Global "Z-Ignore")
+        if (!cfg.zIgnore && layer.scaleSpeed > 0) {
           const scaleDir = pos.scaleDirection || 1;
           const scaleSpd = (layer.scaleSpeed || 0.05) * dtSec * 60;
           let nextScale = (pos.scale || 1) + scaleDir * scaleSpd;

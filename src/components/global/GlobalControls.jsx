@@ -3202,6 +3202,7 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prevBGI.opacity, nextBGI.opacity)) return diff('backgroundImage.opacity');
   if (prevBGI.fit !== nextBGI.fit) return diff('backgroundImage.fit');
   if (prev.isFrozen !== next.isFrozen) return diff('isFrozen');
+  if (!Object.is(prev.energyInfluence, next.energyInfluence)) return diff('energyInfluence');
   if (prev.zIgnore !== next.zIgnore) return diff('zIgnore');
   if (prev.colorFadeWhileFrozen !== next.colorFadeWhileFrozen) return diff('colorFadeWhileFrozen');
   if (prev.syncLayerColorsToFirst !== next.syncLayerColorsToFirst) return diff('syncLayerColorsToFirst');
@@ -3210,6 +3211,17 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return diff('globalSpeedMultiplier');
   if (prev.globalBlendMode !== next.globalBlendMode) return diff('globalBlendMode');
   if (prev.midiInputId !== next.midiInputId) return diff('midiInputId');
+  if (prev.audioSpawnEnabled !== next.audioSpawnEnabled) return diff('audioSpawnEnabled');
+  if (prev.audioSpawnTriggerMode !== next.audioSpawnTriggerMode) return diff('audioSpawnTriggerMode');
+  if (prev.audioSpawnRepeatWhileAbove !== next.audioSpawnRepeatWhileAbove) return diff('audioSpawnRepeatWhileAbove');
+  if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return diff('audioSpawnHysteresis');
+  if (prev.audioSpawnUseGlobalPalette !== next.audioSpawnUseGlobalPalette) return diff('audioSpawnUseGlobalPalette');
+  if (prev.audioSpawnBand !== next.audioSpawnBand) return diff('audioSpawnBand');
+  if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return diff('audioSpawnThreshold');
+  if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return diff('audioSpawnCooldownMs');
+  if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return diff('audioSpawnHalfLifeMs');
+  if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return diff('audioSpawnHalfLifeEnergyFactor');
+  if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return diff('audioSpawnMaxLayers');
   if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
 
   return true;

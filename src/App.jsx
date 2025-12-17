@@ -566,6 +566,7 @@ const MainApp = () => {
 	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
 	    enabled: !!audioSpawnEnabled && !timelineMode,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
+      zIgnore: !!zIgnore,
 	    layers,
 	    selectedLayerIndex,
 	    energyInfluence,
