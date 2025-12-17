@@ -1,6 +1,7 @@
 export const palettes = [
   { name: 'Blues', colors: ['#0d47a1', '#1565c0', '#1976d2', '#1e88e5', '#2196f3'] },
   { name: 'Neon', colors: ['#39ff14', '#00e5ff', '#ffea00', '#ff0266', '#b388ff'] },
+  { name: 'Rasta', colors: ['#d62828', '#ff3b30', '#b91c1c', '#d4af37', '#ffd60a', '#f59e0b', '#1b5e20', '#2e7d32', '#00c853'] },
   { name: 'Sunset', colors: ['#ff6e40', '#ffa040', '#ffd740', '#ffab40', '#ff7043'] },
   { name: 'Ocean', colors: ['#003f5c', '#2f4b7c', '#665191', '#a05195', '#d45087'] },
   { name: 'Aurora', colors: ['#0a2e36', '#2e8b57', '#83cb9e', '#c7f1e8', '#f1faee'] },

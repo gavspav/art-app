@@ -8,6 +8,7 @@ import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
+const wrapDebugLastLogMsByLayerId = new Map();
 
 const DEFAULT_PIXEL_RATIO = 1;
 
@@ -758,6 +759,32 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
     if (cx + posX > artRight) offsetsX.push(-spanX);    // needs -spanX copy (wrap from right to left)
     if (cy - negY < artTop) offsetsY.push(spanY);       // needs +spanY copy (wrap from top to bottom)
     if (cy + posY > artBottom) offsetsY.push(-spanY);   // needs -spanY copy (wrap from bottom to top)
+
+    if (typeof window !== 'undefined' && window.__artapp_debug_wrap) {
+        const copies = offsetsX.length * offsetsY.length;
+        if (copies > 1) {
+            const key = layer?.id || layer?.name || 'layer';
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const last = wrapDebugLastLogMsByLayerId.get(key) || 0;
+            if (now - last > 1000) {
+                wrapDebugLastLogMsByLayerId.set(key, now);
+                // eslint-disable-next-line no-console
+                console.log('[wrap-debug] drawing wrapped copies', {
+                    id: layer?.id,
+                    name: layer?.name,
+                    movementStyle: layer?.movementStyle,
+                    copies,
+                    offsetsX,
+                    offsetsY,
+                    x,
+                    y,
+                    center: { cx, cy },
+                    extents: { posX, negX, posY, negY },
+                    artboard: { left: artLeft, right: artRight, top: artTop, bottom: artBottom, spanX, spanY },
+                });
+            }
+        }
+    }
 
     for (let oy of offsetsY) {
         for (let ox of offsetsX) {
