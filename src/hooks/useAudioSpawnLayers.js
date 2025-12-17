@@ -32,6 +32,7 @@ export function useAudioSpawnLayers({
   enabled = false,
   paused = false,
   zIgnore = false,
+  getIsRnd = null,
   layers = [],
   selectedLayerIndex = 0,
   energyInfluence = 0,
@@ -56,6 +57,7 @@ export function useAudioSpawnLayers({
     enabled: !!enabled,
     paused: !!paused,
     zIgnore: !!zIgnore,
+    getIsRnd: typeof getIsRnd === 'function' ? getIsRnd : null,
     layers: Array.isArray(layers) ? layers : [],
     selectedLayerIndex: Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0,
     energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0,
@@ -236,24 +238,41 @@ export function useAudioSpawnLayers({
         const srcIndex = clamp(cfg.selectedLayerIndex, 0, Math.max(0, sourceLayers.length - 1));
         const base = sourceLayers[srcIndex];
         if (base) {
+          const includeVarPosition = cfg.getIsRnd ? !!cfg.getIsRnd('variationPosition') : true;
+          const includeVarShape = cfg.getIsRnd ? !!cfg.getIsRnd('variationShape') : true;
+          const includeVarAnim = cfg.getIsRnd ? !!cfg.getIsRnd('variationAnim') : true;
+          const includeVarColor = cfg.getIsRnd ? !!cfg.getIsRnd('variationColor') : true;
+          const includeVarScale = cfg.getIsRnd ? !!cfg.getIsRnd('variationScale') : true;
+
           counterRef.current += 1;
           const spawnIndex = counterRef.current;
           // Energy scales variance: at energyInfluence=2 and energy=1, varianceScale = 3
           // buildVariedLayerFrom expects values 0-3 for full effect (divides by 3 internally)
           const varianceScale = 1 + (energy * cfg.energyInfluence);
           const baseVar = {
-            shape: clamp((Number(base?.variationShape ?? base?.variation) || 0) * varianceScale, 0, 3),
-            anim: clamp((Number(base?.variationAnim ?? base?.variation) || 0) * varianceScale, 0, 3),
-            color: clamp((Number(base?.variationColor ?? base?.variation) || 0) * varianceScale, 0, 3),
-            position: clamp((Number(base?.variationPosition ?? base?.variation) || 0) * varianceScale, 0, 3),
-            scale: clamp((Number(base?.variationScale) || 0) * varianceScale, 0, 3),
+            shape: includeVarShape ? clamp((Number(base?.variationShape ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+            anim: includeVarAnim ? clamp((Number(base?.variationAnim ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+            color: includeVarColor ? clamp((Number(base?.variationColor ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+            position: includeVarPosition ? clamp((Number(base?.variationPosition ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+            scale: includeVarScale ? clamp((Number(base?.variationScale) || 0) * varianceScale, 0, 3) : 0,
           };
 
           const hl = cfg.halfLifeMs * (1 + cfg.halfLifeEnergyFactor * energy);
           const baseOpacity = Number.isFinite(base?.opacity) ? clamp(base.opacity, 0, 1) : 0.8;
 
+          const affectCategories = cfg.getIsRnd
+            ? [
+              includeVarShape ? 'shape' : null,
+              includeVarAnim ? 'anim' : null,
+              includeVarColor ? 'color' : null,
+              includeVarPosition ? 'position' : null,
+              includeVarScale ? 'scale' : null,
+            ].filter(Boolean)
+            : null;
+
           const varied = buildVariedLayerFrom(base, spawnIndex, baseVar, {
             randomSeed: (Number.isFinite(base?.seed) ? base.seed : 1) + Math.floor(t) + (spawnIndex * 1013),
+            affectCategories,
             constrainColorsToPalette: !!cfg.useGlobalPalette,
             paletteColors: cfg.paletteColors,
           });

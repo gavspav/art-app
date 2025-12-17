@@ -1034,6 +1034,7 @@ const Canvas = forwardRef(({
     overlayLayersRef,
     renderOverlayLayers = true,
     hideLayerIndex = -1,
+    hideLayerId = null,
     backgroundColor,
     globalSeed,
     globalBlendMode,
@@ -1558,7 +1559,10 @@ const Canvas = forwardRef(({
                 : timeNow;
             (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
-                if (hideLayerIndex >= 0 && index === hideLayerIndex) return;
+                if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
+                    renderedPointsRef.current.delete(index);
+                    return;
+                }
                 if (!isLayerVisible(layer)) {
                     renderedPointsRef.current.delete(index);
                     return;
@@ -1679,7 +1683,10 @@ const Canvas = forwardRef(({
                 return;
             }
             if (!layer.visible) return;
-            if (hideLayerIndex >= 0 && index === hideLayerIndex) return;
+            if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
+                renderedPointsRef.current.delete(index);
+                return;
+            }
             if (!isLayerVisible(layer)) {
                 renderedPointsRef.current.delete(index);
                 return;
@@ -1931,6 +1938,9 @@ const Canvas = forwardRef(({
         layerChanges,
         backgroundChanged,
         colorTick,
+        hideLayerIndex,
+        hideLayerId,
+        renderOverlayLayers,
         backgroundColor,
         globalSeed,
         globalBlendMode,
@@ -1944,6 +1954,7 @@ const Canvas = forwardRef(({
         canvasSize.pixelRatio,
         layers,
         layersRef,
+        overlayLayersRef,
         selectedLayerIdsCtx,
         getActiveTargetLayerIdsProp,
         getActiveTargetLayerIdsCtx,
@@ -2794,6 +2805,11 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.selectedLayerIndex === next.selectedLayerIndex &&
     prev.classicMode === next.classicMode &&
+    prev.renderOverlayLayers === next.renderOverlayLayers &&
+    prev.hideLayerIndex === next.hideLayerIndex &&
+    prev.hideLayerId === next.hideLayerId &&
+    prev.isolateMode === next.isolateMode &&
+    prev.getActiveTargetLayerIds === next.getActiveTargetLayerIds &&
     prev.layers === next.layers
   );
 };

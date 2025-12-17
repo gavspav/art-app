@@ -567,6 +567,7 @@ const MainApp = () => {
 	    enabled: !!audioSpawnEnabled && !timelineMode,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
       zIgnore: !!zIgnore,
+      getIsRnd,
 	    layers,
 	    selectedLayerIndex,
 	    energyInfluence,
@@ -2102,6 +2103,7 @@ const MainApp = () => {
 	              overlayLayersRef={audioSpawnOverlayLayersRef}
 	              renderOverlayLayers={!suppressEphemeralOverlays}
 	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
 	              isFrozen={isFrozen}
 	              colorFadeWhileFrozen={colorFadeWhileFrozen}
 	              backgroundColor={backgroundColor}
@@ -2491,6 +2493,7 @@ const MainApp = () => {
 	              overlayLayersRef={audioSpawnOverlayLayersRef}
 	              renderOverlayLayers={!suppressEphemeralOverlays}
 	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
 	              isFrozen={isFrozen}
 	              colorFadeWhileFrozen={colorFadeWhileFrozen}
 	              backgroundColor={backgroundColor}
@@ -2583,6 +2586,7 @@ const MainApp = () => {
 	                overlayLayersRef={audioSpawnOverlayLayersRef}
 	                renderOverlayLayers={!suppressEphemeralOverlays}
 	                hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                  hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
 	                isFrozen={isFrozen}
 	                colorFadeWhileFrozen={colorFadeWhileFrozen}
 	                backgroundColor={backgroundColor}
