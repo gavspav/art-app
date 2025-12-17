@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import ColorPicker from './ColorPicker';
 import BufferedNumberInput from './common/BufferedNumberInput.jsx';
+import { getOperationalMaxHint } from '../utils/parameterOperationalHints.js';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
@@ -1004,7 +1005,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               inputMode="decimal"
               style={{ width: '4.5rem' }}
             />
-            <label>Max</label>
+            <label>{`Max${getOperationalMaxHint(id)}`}</label>
             <BufferedNumberInput
               value={max}
               step={step}
@@ -1714,7 +1715,7 @@ const Controls = forwardRef(({
                     inputMode="numeric"
                     style={{ width: '4.5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('rotation')}`}</label>
                   <BufferedNumberInput
                     value={Number.isFinite(rotateMax) ? rotateMax : 180}
                     min={-360}

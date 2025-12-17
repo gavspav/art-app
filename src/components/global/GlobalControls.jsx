@@ -13,6 +13,7 @@ import AutosaveRecovery from './AutosaveRecovery.jsx';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
+import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -2428,7 +2429,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('globalSpeedMultiplier')}`}</label>
                   <BufferedNumberInput
                     value={speedMax}
                     step={0.01}
@@ -2627,7 +2628,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('globalOpacity')}`}</label>
                   <BufferedNumberInput
                     value={opacityMax}
                     step={0.01}
@@ -2707,7 +2708,7 @@ const GlobalControls = ({
                     style={{ width: '5rem' }}
                     inputMode="numeric"
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('layersCount')}`}</label>
                   <BufferedNumberInput
                     value={layersMax}
                     step={1}
@@ -2839,7 +2840,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationPosition')}`}</label>
                   <BufferedNumberInput
                     value={variationPositionMax}
                     step={0.01}
@@ -2900,7 +2901,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationShape')}`}</label>
                   <BufferedNumberInput
                     value={variationShapeMax}
                     step={0.01}
@@ -2967,7 +2968,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationAnim')}`}</label>
                   <BufferedNumberInput
                     value={variationAnimMax}
                     step={0.01}
@@ -3034,7 +3035,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationColor')}`}</label>
                   <BufferedNumberInput
                     value={variationColorMax}
                     step={0.01}
@@ -3101,7 +3102,7 @@ const GlobalControls = ({
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">Max</label>
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationScale')}`}</label>
                   <BufferedNumberInput
                     value={variationScaleMax}
                     step={0.01}

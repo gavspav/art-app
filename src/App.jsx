@@ -64,6 +64,22 @@ const pickBestRecorderMime = () => {
   return 'video/webm';
 };
 
+const DEFAULT_INCLUDE_RND = Object.freeze({
+  backgroundColor: true,
+  globalSpeedMultiplier: true,
+  globalBlendMode: true,
+  globalOpacity: true,
+  layersCount: true,
+  // Split variation include flags
+  variationPosition: true,
+  variationShape: true,
+  variationAnim: true,
+  variationColor: true,
+  variationScale: true,
+  // legacy key kept for backward compat with saved states; not used by new UI
+  variation: true,
+});
+
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
   const parametersCtx = useParameters();
@@ -177,6 +193,7 @@ const MainApp = () => {
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const includeRndRef = useRef(DEFAULT_INCLUDE_RND);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
   // Shape track updates ref - shared between useTimelineModulation and useAnimation
@@ -567,7 +584,7 @@ const MainApp = () => {
 	    enabled: !!audioSpawnEnabled && !timelineMode,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
       zIgnore: !!zIgnore,
-      getIsRnd,
+      getIsRnd: (id) => !!includeRndRef.current?.[id],
 	    layers,
 	    selectedLayerIndex,
 	    energyInfluence,
@@ -764,23 +781,11 @@ const MainApp = () => {
     getSavedConfigList,
   } = parametersCtx;
 
-  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
-  const [includeRnd, setIncludeRnd] = useState({
-    backgroundColor: true,
-    globalSpeedMultiplier: true,
-    globalBlendMode: true,
-    globalOpacity: true,
-    layersCount: true,
-    // Split variation include flags
-    variationPosition: true,
-    variationShape: true,
-    variationAnim: true,
-    variationColor: true,
-    // legacy key kept for backward compat with saved states; not used by new UI
-    variation: true,
-  });
-  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
-  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
+	  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
+	  const [includeRnd, setIncludeRnd] = useState(DEFAULT_INCLUDE_RND);
+    useEffect(() => { includeRndRef.current = includeRnd; }, [includeRnd]);
+	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
+	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
 
   // No local popovers; inline checkboxes next to controls
 
