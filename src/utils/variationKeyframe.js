@@ -24,6 +24,8 @@ export function generateVariedLayer(baseLayer, options = {}) {
     variationWeights,
     affectCategories = ['shape', 'anim', 'color', 'position'],
     isParamRandomizable,
+    constrainColorsToPalette = false,
+    paletteColors = null,
   } = options;
 
   // Build variation weights from layer defaults or overrides
@@ -45,6 +47,8 @@ export function generateVariedLayer(baseLayer, options = {}) {
       affectCategories,
       preserveSeeds: false,
       isParamRandomizable,
+      constrainColorsToPalette: !!constrainColorsToPalette,
+      paletteColors,
     }
   );
 

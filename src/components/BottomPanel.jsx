@@ -328,6 +328,8 @@ const BottomPanel = ({
   getIsRnd,
   setIsRnd,
   palettes,
+  globalPaletteIndex,
+  setGlobalPaletteIndex,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -791,10 +793,12 @@ const BottomPanel = ({
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
               getIsRnd={getIsRnd}
               setIsRnd={setIsRnd}
-              palettes={palettes}
-              blendModes={blendModes}
-              globalBlendMode={globalBlendMode}
-              setGlobalBlendMode={setGlobalBlendMode}
+		              palettes={palettes}
+                  globalPaletteIndex={globalPaletteIndex}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+		              blendModes={blendModes}
+		              globalBlendMode={globalBlendMode}
+		              setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
 	              setParameterTargetMode={setParameterTargetMode}
 	              midiSupported={midiSupported}
@@ -1120,6 +1124,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.globalSeed, next.globalSeed)) return fail('globalSeed changed');
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return fail('globalSpeedMultiplier changed');
   if (!Object.is(prev.globalBlendMode, next.globalBlendMode)) return fail('globalBlendMode changed');
+  if (!Object.is(prev.globalPaletteIndex, next.globalPaletteIndex)) return fail('globalPaletteIndex changed');
   if (!Object.is(prev.timelineMode, next.timelineMode)) return fail('timelineMode changed');
   if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
   if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
@@ -1158,6 +1163,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setGlobalSeed',
     'setGlobalSpeedMultiplier',
     'setGlobalBlendMode',
+    'setGlobalPaletteIndex',
     'setTimelineMode',
     'setParameterTargetMode',
     'onQuickSave',

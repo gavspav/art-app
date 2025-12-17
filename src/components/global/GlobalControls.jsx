@@ -384,8 +384,6 @@ const AudioSpawnSection = ({
   setAudioSpawnRepeatWhileAbove = null,
   audioSpawnHysteresis = 0.08,
   setAudioSpawnHysteresis = null,
-  audioSpawnUseGlobalPalette = false,
-  setAudioSpawnUseGlobalPalette = null,
   audioSpawnBand = 'rms',
   setAudioSpawnBand = null,
   audioSpawnThreshold = 0.6,
@@ -537,21 +535,6 @@ const AudioSpawnSection = ({
           disabled={!setEnergyInfluence || disabledByTimeline}
           onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
         />
-      </div>
-
-      <div className="global-compact-row" style={{ marginTop: '0.35rem', opacity: canRun ? 1 : 0.7 }}>
-        <label
-          className="compact-label"
-          title="When enabled, spawned layer colours are selected only from the current Global palette. When disabled, colours vary as they do currently."
-        >
-          <input
-            type="checkbox"
-            checked={!!audioSpawnUseGlobalPalette}
-            disabled={!setAudioSpawnUseGlobalPalette || disabledByTimeline}
-            onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
-          />
-          Use global palette
-        </label>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 6rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -1128,6 +1111,8 @@ const GlobalControls = ({
   learnParamId,
   // Palettes/Blend
   palettes,
+  globalPaletteIndex = 'custom',
+  setGlobalPaletteIndex = null,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -1456,6 +1441,43 @@ const GlobalControls = ({
     }
   }, [palettes, layers, sampleColorsEven]);
 
+  // Back-compat: older scenes inferred the "selected palette" by matching current layer colors.
+  // If the user hasn't explicitly chosen a palette yet (globalPaletteIndex==='custom'),
+  // initialize it from the inferred paletteValue so generation constraints behave as expected.
+  useEffect(() => {
+    if (globalPaletteIndex !== 'custom') return;
+    if (paletteValue === 'custom') return;
+    const idx = parseInt(paletteValue, 10);
+    if (!Number.isFinite(idx)) return;
+    setGlobalPaletteIndex?.(idx);
+  }, [globalPaletteIndex, paletteValue, setGlobalPaletteIndex]);
+
+  const generationPaletteColors = useMemo(() => {
+    try {
+      const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
+      if (Number.isFinite(idx) && idx != null && palettes?.[idx]) {
+        const pick = palettes[idx];
+        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+        return (Array.isArray(src) ? src : []).filter(c => typeof c === 'string' && c.length > 0);
+      }
+
+      const out = [];
+      const seen = new Set();
+      (Array.isArray(layers) ? layers : []).forEach(l => {
+        (Array.isArray(l?.colors) ? l.colors : []).forEach(c => {
+          if (typeof c !== 'string' || !c) return;
+          const k = c.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          out.push(c);
+        });
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  }, [globalPaletteIndex, palettes, layers]);
+
   const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
 
   const handleTargetModeChange = useCallback((event) => {
@@ -1534,7 +1556,11 @@ const GlobalControls = ({
         for (let i = 0; i < addCount; i += 1) {
           const randomSeed = generateLayerSeed();
           const nameIndex = prev.length + additions.length + 1;
-          const layer = buildVariedLayerFrom(prevLayerRef, nameIndex, baseVar, { randomSeed });
+          const layer = buildVariedLayerFrom(prevLayerRef, nameIndex, baseVar, {
+            randomSeed,
+            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+            paletteColors: generationPaletteColors,
+          });
           additions.push(layer);
           prevLayerRef = layer;
         }
@@ -1614,6 +1640,8 @@ const GlobalControls = ({
         const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
           affectCategories,
           preserveSeeds: true,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: generationPaletteColors,
         }) || original;
         const merged = {
           ...original,
@@ -2468,12 +2496,16 @@ const GlobalControls = ({
             </div>
             <select
               className="compact-select"
-              value={paletteValue}
+              value={String(globalPaletteIndex ?? paletteValue)}
               onChange={(e) => {
                 const val = e.target.value;
-                if (val === 'custom') return;
+                if (val === 'custom') {
+                  setGlobalPaletteIndex?.('custom');
+                  return;
+                }
                 const idx = parseInt(val, 10);
                 if (!Number.isFinite(idx) || !palettes[idx]) return;
+                setGlobalPaletteIndex?.(idx);
                 const pick = palettes[idx];
                 const src = Array.isArray(pick) ? pick : (pick?.colors || []);
                 const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
@@ -2562,8 +2594,6 @@ const GlobalControls = ({
 	            setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
 	            audioSpawnHysteresis={audioSpawnHysteresis}
 	            setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-	            audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-	            setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
 	            audioSpawnBand={audioSpawnBand}
 	            setAudioSpawnBand={setAudioSpawnBand}
             audioSpawnThreshold={audioSpawnThreshold}
@@ -2762,26 +2792,39 @@ const GlobalControls = ({
             </div>
           </div>
 
-          {/* Randomize Colors Per Layer */}
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <label
-                className="compact-label"
-                title="When checked, each layer gets a random number of colours. When unchecked, all layers use the same colour count."
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!randomizeColorsPerLayer}
-                  onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)}
-                />
-                <span>Randomise colours per layer</span>
-              </label>
-              {!randomizeColorsPerLayer && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
-                  <BufferedNumberInput
-                    value={uniformColorCount ?? 3}
+	          {/* Randomize Colors Per Layer */}
+	          <div className="compact-field">
+	            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+	              <label
+	                className="compact-label"
+	                title="When checked, each layer gets a random number of colours. When unchecked, all layers use the same colour count."
+	                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+	              >
+	                <input
+	                  type="checkbox"
+	                  checked={!!randomizeColorsPerLayer}
+	                  onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)}
+	                />
+	                <span>Randomise colours per layer</span>
+	              </label>
+                <label
+                  className="compact-label"
+                  title="When enabled, generated layers/keyframes pick colours only from the current Global palette selection."
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!audioSpawnUseGlobalPalette}
+                    disabled={!setAudioSpawnUseGlobalPalette}
+                    onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
+                  />
+                  <span>Use global palette for generation</span>
+                </label>
+	              {!randomizeColorsPerLayer && (
+	                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+	                  <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
+	                  <BufferedNumberInput
+	                    value={uniformColorCount ?? 3}
                     min={1}
                     max={32}
                     step={1}
@@ -3211,6 +3254,7 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prev.globalSeed, next.globalSeed)) return diff('globalSeed');
   if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return diff('globalSpeedMultiplier');
   if (prev.globalBlendMode !== next.globalBlendMode) return diff('globalBlendMode');
+  if (!Object.is(prev.globalPaletteIndex, next.globalPaletteIndex)) return diff('globalPaletteIndex');
   if (prev.midiInputId !== next.midiInputId) return diff('midiInputId');
   if (prev.audioSpawnEnabled !== next.audioSpawnEnabled) return diff('audioSpawnEnabled');
   if (prev.audioSpawnTriggerMode !== next.audioSpawnTriggerMode) return diff('audioSpawnTriggerMode');

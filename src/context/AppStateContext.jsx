@@ -117,6 +117,8 @@ export const AppStateProvider = ({ children }) => {
     // Global randomization toggles for palette and color count
     randomizePalette: true,
     randomizeNumColors: true,
+    // Global palette preset selection (used for generation constraints)
+    globalPaletteIndex: 'custom', // 'custom' | number
     // When false, all layers get the same number of colors (uniformColorCount)
     randomizeColorsPerLayer: true,
     uniformColorCount: 3,
@@ -522,6 +524,18 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
+  const setGlobalPaletteIndex = useCallback((value) => {
+    setAppState(prev => {
+      const raw = (typeof value === 'function') ? value(prev.globalPaletteIndex) : value;
+      if (raw === 'custom') return { ...prev, globalPaletteIndex: 'custom' };
+      const idx = Number(raw);
+      if (!Number.isFinite(idx)) return prev;
+      const next = Math.max(0, Math.min(10_000, Math.round(idx)));
+      return { ...prev, globalPaletteIndex: next };
+    });
+    markDirty();
+  }, [markDirty]);
+
   const setRandomizeColorsPerLayer = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizeColorsPerLayer: !!value }));
     markDirty();
@@ -873,6 +887,7 @@ export const AppStateProvider = ({ children }) => {
     setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
+    setGlobalPaletteIndex,
     randomizeColorsPerLayer: appState.randomizeColorsPerLayer,
     setRandomizeColorsPerLayer,
     uniformColorCount: appState.uniformColorCount,
@@ -958,6 +973,7 @@ export const AppStateProvider = ({ children }) => {
     setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
+    setGlobalPaletteIndex,
     setRandomizeColorsPerLayer,
     setUniformColorCount,
     setColorFadeWhileFrozen,

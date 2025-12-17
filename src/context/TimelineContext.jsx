@@ -1089,6 +1089,8 @@ export const TimelineProvider = ({ children }) => {
       variationWeights: options.variationWeights,
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
       isParamRandomizable: options.isParamRandomizable,
+      constrainColorsToPalette: options.constrainColorsToPalette,
+      paletteColors: options.paletteColors,
     });
     
     // Extract keyframe data
@@ -1106,6 +1108,8 @@ export const TimelineProvider = ({ children }) => {
         scale: layer.variationScale ?? 0,
       },
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+      constrainColorsToPalette: options.constrainColorsToPalette,
+      paletteColors: options.paletteColors,
     };
     
     // Add the keyframe
@@ -1183,6 +1187,8 @@ export const TimelineProvider = ({ children }) => {
         variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
         isParamRandomizable: options.isParamRandomizable,
+        constrainColorsToPalette: options.constrainColorsToPalette,
+        paletteColors: options.paletteColors,
       });
       
       // Extract keyframe data
@@ -1214,6 +1220,8 @@ export const TimelineProvider = ({ children }) => {
         baseTime: time,
         weights: variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position'],
+        constrainColorsToPalette: options.constrainColorsToPalette,
+        paletteColors: options.paletteColors,
       };
       
       // Store energy info if used
@@ -1303,6 +1311,8 @@ export const TimelineProvider = ({ children }) => {
       seed: newSeed,
       variationWeights: variationMeta.weights,
       affectCategories: variationMeta.affectCategories,
+      constrainColorsToPalette: variationMeta.constrainColorsToPalette,
+      paletteColors: variationMeta.paletteColors,
     });
     
     // Extract keyframe data
@@ -1447,6 +1457,8 @@ export const TimelineProvider = ({ children }) => {
         variationWeights,
         affectCategories,
         isParamRandomizable: options.isParamRandomizable,
+        constrainColorsToPalette: options.constrainColorsToPalette,
+        paletteColors: options.paletteColors,
       });
       
       const data = {
@@ -1496,6 +1508,8 @@ export const TimelineProvider = ({ children }) => {
         affectCategories,
         layerCount: baseLayers.length,
         isParamRandomizable: options.isParamRandomizable,
+        constrainColorsToPalette: options.constrainColorsToPalette,
+        paletteColors: options.paletteColors,
       },
     });
     
@@ -1529,6 +1543,8 @@ export const TimelineProvider = ({ children }) => {
         seed: layerSeed,
         variationWeights: variationMeta.weights,
         affectCategories: variationMeta.affectCategories,
+        constrainColorsToPalette: variationMeta.constrainColorsToPalette,
+        paletteColors: variationMeta.paletteColors,
       });
       
       const data = {
@@ -1650,6 +1666,8 @@ export const TimelineProvider = ({ children }) => {
           variationWeights: scaledWeights,
           affectCategories: ['shape', 'anim', 'color', 'position'],
           isParamRandomizable: options.isParamRandomizable,
+          constrainColorsToPalette: options.constrainColorsToPalette,
+          paletteColors: options.paletteColors,
         });
         
         const data = {
@@ -1698,6 +1716,8 @@ export const TimelineProvider = ({ children }) => {
           weights: scaledWeights,
           affectCategories: ['shape', 'anim', 'color', 'position'],
           layerCount: baseLayers.length,
+          constrainColorsToPalette: options.constrainColorsToPalette,
+          paletteColors: options.paletteColors,
         },
         energy: energyInfluence > 0 ? {
           value: energyMap.length > 0 ? getEnergyAtTime(energyMap, time) : 0.5,
@@ -1774,6 +1794,8 @@ export const TimelineProvider = ({ children }) => {
           variationWeights: scaledWeights,
           affectCategories: ['shape', 'anim', 'color', 'position'],
           isParamRandomizable: options.isParamRandomizable,
+          constrainColorsToPalette: options.constrainColorsToPalette,
+          paletteColors: options.paletteColors,
         });
         
         const data = {
@@ -1822,6 +1844,8 @@ export const TimelineProvider = ({ children }) => {
           weights: scaledWeights,
           affectCategories: ['shape', 'anim', 'color', 'position'],
           layerCount: baseLayers.length,
+          constrainColorsToPalette: options.constrainColorsToPalette,
+          paletteColors: options.paletteColors,
         },
       });
       

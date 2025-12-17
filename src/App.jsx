@@ -128,14 +128,16 @@ const MainApp = () => {
     isOverlayVisible, setIsOverlayVisible,
     isNodeEditMode, setIsNodeEditMode,
     classicMode, setClassicMode,
-    zIgnore, setZIgnore,
-    // Color randomization toggles
-    randomizePalette, setRandomizePalette,
-    randomizeNumColors, setRandomizeNumColors,
-    randomizeColorsPerLayer,
-    setRandomizeColorsPerLayer,
-    uniformColorCount,
-    setUniformColorCount,
+	    zIgnore, setZIgnore,
+	    // Color randomization toggles
+	    randomizePalette, setRandomizePalette,
+	    randomizeNumColors, setRandomizeNumColors,
+      globalPaletteIndex,
+      setGlobalPaletteIndex,
+	    randomizeColorsPerLayer,
+	    setRandomizeColorsPerLayer,
+	    uniformColorCount,
+	    setUniformColorCount,
     syncLayerColorsToFirst, setSyncLayerColorsToFirst,
     parameterTargetMode, setParameterTargetMode,
     // Global: fade while frozen
@@ -547,17 +549,12 @@ const MainApp = () => {
   // Memoized to provide a stable function identity to child components/hooks
   const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
-  const audioSpawnPaletteColors = useMemo(() => {
+  const generationPaletteColors = useMemo(() => {
     try {
       const snapshot = Array.isArray(layersRef?.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
       if (!snapshot.length) return [];
-      const colorsNow = snapshot.map(l => (Array.isArray(l?.colors) && l.colors[0]) ? String(l.colors[0]).toLowerCase() : '#000000');
-      const idx = (palettes || []).findIndex(p => {
-        const src = Array.isArray(p) ? p : (p?.colors || []);
-        const sampled = sampleColorsEven(src, Math.max(1, snapshot.length));
-        return sampled.length === colorsNow.length && sampled.every((c, i) => String(c || '').toLowerCase() === String(colorsNow[i] || ''));
-      });
-      if (idx >= 0 && (palettes || [])[idx]) {
+      const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
+      if (Number.isFinite(idx) && idx != null && (palettes || [])[idx]) {
         const pick = (palettes || [])[idx];
         const src = Array.isArray(pick) ? pick : (pick?.colors || []);
         return (Array.isArray(src) ? src : []).filter(c => typeof c === 'string' && c.length > 0);
@@ -578,7 +575,7 @@ const MainApp = () => {
     } catch {
       return [];
     }
-  }, [layers, layersRef, palettes, sampleColorsEven]);
+  }, [layers, layersRef, palettes, globalPaletteIndex]);
 
 	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
 	    enabled: !!audioSpawnEnabled && !timelineMode,
@@ -589,7 +586,7 @@ const MainApp = () => {
 	    selectedLayerIndex,
 	    energyInfluence,
 	    useGlobalPalette: !!audioSpawnUseGlobalPalette,
-	    paletteColors: audioSpawnPaletteColors,
+	    paletteColors: generationPaletteColors,
 	    triggerMode: audioSpawnTriggerMode,
 	    band: audioSpawnBand,
 	    threshold: audioSpawnThreshold,
@@ -1449,6 +1446,8 @@ const MainApp = () => {
       const time = timelineContext.generateGlobalVariationKeyframe?.(globalShapeTrack.id, layers, {
         variationWeights,
         isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
       });
       if (time != null) {
         console.log('Generated global variation keyframe at', time);
@@ -1488,6 +1487,8 @@ const MainApp = () => {
     const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, {
       variationWeights,
       isParamRandomizable,
+      constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+      paletteColors: generationPaletteColors,
     });
     if (keyframeId) {
       console.log('Generated variation keyframe:', keyframeId);
@@ -1616,6 +1617,8 @@ const MainApp = () => {
         energyInfluence: energyInfluenceValue,
         variationWeights,
         isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
       });
     } else {
       // Single-layer shape track
@@ -1627,6 +1630,8 @@ const MainApp = () => {
         energyInfluence: energyInfluenceValue,
         variationWeights,
         isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
       });
     }
 
@@ -1749,6 +1754,8 @@ const MainApp = () => {
           energyInfluence: energyInfluenceValue,
           variationWeights,
           isParamRandomizable,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: generationPaletteColors,
         }
       );
     } else {
@@ -1764,6 +1771,8 @@ const MainApp = () => {
           energyInfluence: energyInfluenceValue,
           variationWeights,
           isParamRandomizable,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: generationPaletteColors,
         }
       );
     }
@@ -2206,12 +2215,14 @@ const MainApp = () => {
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              getIsRnd={getIsRnd}
-              setIsRnd={setIsRnd}
-              palettes={palettes}
-              blendModes={blendModes}
-              globalBlendMode={globalBlendMode}
-              setGlobalBlendMode={setGlobalBlendMode}
+	              getIsRnd={getIsRnd}
+	              setIsRnd={setIsRnd}
+	              palettes={palettes}
+                globalPaletteIndex={globalPaletteIndex}
+                setGlobalPaletteIndex={setGlobalPaletteIndex}
+	              blendModes={blendModes}
+	              globalBlendMode={globalBlendMode}
+	              setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
               setParameterTargetMode={setParameterTargetMode}
 	              onQuickSave={handleQuickSave}
@@ -2391,12 +2402,14 @@ const MainApp = () => {
                 setGlobalSeed={setGlobalSeed}
                 globalSpeedMultiplier={globalSpeedMultiplier}
                 setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-                getIsRnd={getIsRnd}
-                setIsRnd={setIsRnd}
-                palettes={palettes}
-                blendModes={blendModes}
-                globalBlendMode={globalBlendMode}
-                setGlobalBlendMode={setGlobalBlendMode}
+	                getIsRnd={getIsRnd}
+	                setIsRnd={setIsRnd}
+	                palettes={palettes}
+                  globalPaletteIndex={globalPaletteIndex}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+	                blendModes={blendModes}
+	                globalBlendMode={globalBlendMode}
+	                setGlobalBlendMode={setGlobalBlendMode}
                 parameterTargetMode={parameterTargetMode}
                 setParameterTargetMode={setParameterTargetMode}
                 onQuickSave={handleQuickSave}
