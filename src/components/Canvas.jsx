@@ -51,38 +51,106 @@ const getArtboardMapping = (canvas) => {
 };
 
 // Resolve how a layer should map its normalized [0,1] coordinates onto the canvas space.
-// All layers use the artboard as their reference coordinate system to maintain
-// consistent relationships between shapes regardless of canvas aspect ratio.
-// This ensures that when switching between timeline view and fullscreen, layers
-// maintain their relative positions to each other.
+// - 'bounce' + 'drift' use the full canvas (so movement spans the entire viewport).
+// - Other styles use the centered-square artboard (so layouts remain consistent across aspect ratios).
 const getLayerCanvasMapping = (canvas, layer) => {
     if (!canvas) {
         return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
     }
+    const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
     const art = getArtboardMapping(canvas);
-    
-    // All layers now use the artboard coordinate system for consistent relationships.
-    // Position (0.5, 0.5) always maps to the center of the artboard (which is centered
-    // in the canvas). This ensures layers maintain their relative positions regardless
-    // of canvas aspect ratio changes (e.g., timeline view vs fullscreen).
-    //
-    // Note: Drift/bounce layers can still move beyond [0,1] bounds and will extend
-    // outside the artboard, but their reference frame is the same as other layers.
-    const spanX = art.size;
-    const spanY = art.size;
-    const offsetX = art.offsetX;
-    const offsetY = art.offsetY;
+
+    const movementStyle = layer?.movementStyle || 'bounce';
+    const usesFullCanvas = (movementStyle === 'drift' || movementStyle === 'bounce');
+
+    const spanX = usesFullCanvas ? w : art.size;
+    const spanY = usesFullCanvas ? h : art.size;
+    const offsetX = usesFullCanvas ? 0 : art.offsetX;
+    const offsetY = usesFullCanvas ? 0 : art.offsetY;
+    // Keep size tied to the smaller dimension even when position uses full canvas,
+    // so size sliders behave consistently across aspect ratios.
     const refSize = art.size;
-    
+
     return { spanX, spanY, offsetX, offsetY, refSize };
 };
 
 // Helper to convert position between coordinate systems when movementStyle changes
-// Note: Since all layers now use the artboard coordinate system, no conversion is needed.
-// This function is kept for backwards compatibility but simply returns the layer unchanged.
-const convertPositionBetweenCoordinateSystems = (layer, _canvas, _oldMovementStyle) => {
-    // All layers use the same artboard coordinate system now, so no conversion needed
-    return layer;
+const convertPositionBetweenCoordinateSystems = (layer, canvas, oldMovementStyle) => {
+    try {
+        if (!layer || !canvas) return layer;
+        const pos = layer.position || {};
+        const oldStyle = oldMovementStyle || 'bounce';
+        const newStyle = layer.movementStyle || 'bounce';
+
+        const oldUsesFullCanvas = (oldStyle === 'drift' || oldStyle === 'bounce');
+        const newUsesFullCanvas = (newStyle === 'drift' || newStyle === 'bounce');
+        if (oldUsesFullCanvas === newUsesFullCanvas) return layer;
+
+        const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
+        const art = getArtboardMapping(canvas);
+
+        const oldSpanX = oldUsesFullCanvas ? w : art.size;
+        const oldSpanY = oldUsesFullCanvas ? h : art.size;
+        const oldOffsetX = oldUsesFullCanvas ? 0 : art.offsetX;
+        const oldOffsetY = oldUsesFullCanvas ? 0 : art.offsetY;
+
+        const newSpanX = newUsesFullCanvas ? w : art.size;
+        const newSpanY = newUsesFullCanvas ? h : art.size;
+        const newOffsetX = newUsesFullCanvas ? 0 : art.offsetX;
+        const newOffsetY = newUsesFullCanvas ? 0 : art.offsetY;
+
+        const x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0.5;
+        const y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0.5;
+        const px = oldOffsetX + x * oldSpanX;
+        const py = oldOffsetY + y * oldSpanY;
+
+        let nx = newSpanX > 0 ? (px - newOffsetX) / newSpanX : 0.5;
+        let ny = newSpanY > 0 ? (py - newOffsetY) / newSpanY : 0.5;
+
+        if (newStyle === 'drift') {
+            nx = ((nx % 1) + 1) % 1;
+            ny = ((ny % 1) + 1) % 1;
+        } else {
+            nx = Math.max(0, Math.min(1, nx));
+            ny = Math.max(0, Math.min(1, ny));
+        }
+
+        const xo = Number(layer.xOffset) || 0;
+        const yo = Number(layer.yOffset) || 0;
+        const pxo = xo * oldSpanX;
+        const pyo = yo * oldSpanY;
+        const nxo = newSpanX > 0 ? (pxo / newSpanX) : xo;
+        const nyo = newSpanY > 0 ? (pyo / newSpanY) : yo;
+
+        const next = {
+            ...layer,
+            position: { ...pos, x: nx, y: ny },
+            xOffset: nxo,
+            yOffset: nyo,
+        };
+
+        if (Number.isFinite(Number(layer?.orbitCenterX)) || Number.isFinite(Number(layer?.orbitCenterY))) {
+            const ocx = Number.isFinite(Number(layer?.orbitCenterX)) ? Number(layer.orbitCenterX) : 0.5;
+            const ocy = Number.isFinite(Number(layer?.orbitCenterY)) ? Number(layer.orbitCenterY) : 0.5;
+            const opx = oldOffsetX + ocx * oldSpanX;
+            const opy = oldOffsetY + ocy * oldSpanY;
+            let nocx = newSpanX > 0 ? (opx - newOffsetX) / newSpanX : ocx;
+            let nocy = newSpanY > 0 ? (opy - newOffsetY) / newSpanY : ocy;
+            if (newStyle === 'drift') {
+                nocx = ((nocx % 1) + 1) % 1;
+                nocy = ((nocy % 1) + 1) % 1;
+            } else {
+                nocx = Math.max(0, Math.min(1, nocx));
+                nocy = Math.max(0, Math.min(1, nocy));
+            }
+            next.orbitCenterX = nocx;
+            next.orbitCenterY = nocy;
+        }
+
+        return next;
+    } catch {
+        return layer;
+    }
 };
 
 const getLayerGeometry = (layer, canvas) => {
@@ -541,12 +609,12 @@ const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCent
     const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     if (!(canvasWidth > 0) || !(canvasHeight > 0)) return ZERO_WRAP_OFFSET;
 
-    // Wrap in the same coordinate system used by rendering: the centered-square artboard.
+    // Wrap in the same coordinate system used for rendering this layer.
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const artLeft = ax;
-    const artRight = ax + spanX;
-    const artTop = ay;
-    const artBottom = ay + spanY;
+    const left = ax;
+    const right = ax + spanX;
+    const top = ay;
+    const bottom = ay + spanY;
 
     const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: basePoints });
     const negX = extentInfo.extentsX?.neg ?? extentInfo.rx;
@@ -556,12 +624,11 @@ const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCent
 
     const offsetsX = [0];
     const offsetsY = [0];
-    // Determine which neighbor offsets are needed based on artboard bounds (not the full canvas).
-    // Use artboard spans for the wrap translation, to match drawLayerWithWrap().
-    if ((baseCenterX - negX) < artLeft) offsetsX.push(spanX);
-    if ((baseCenterX + posX) > artRight) offsetsX.push(-spanX);
-    if ((baseCenterY - negY) < artTop) offsetsY.push(spanY);
-    if ((baseCenterY + posY) > artBottom) offsetsY.push(-spanY);
+    // Determine which neighbor offsets are needed based on canvas bounds.
+    if ((baseCenterX - negX) < left) offsetsX.push(spanX);
+    if ((baseCenterX + posX) > right) offsetsX.push(-spanX);
+    if ((baseCenterY - negY) < top) offsetsY.push(spanY);
+    if ((baseCenterY + posY) > bottom) offsetsY.push(-spanY);
 
     const combos = [];
     offsetsY.forEach(oy => {
@@ -745,20 +812,19 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
     const negY = extentInfo.extentsY?.neg ?? ry;
 
     // Determine which neighbor offsets are needed
-    // Use artboard boundaries (ax, ax+spanX) for wrap detection since positions are in artboard coords
-    // The wrap offset should be spanX/spanY (artboard size) not w/h (canvas size)
+    // Wrap within the same coordinate mapping used for this layer (ax..ax+spanX etc).
     const offsetsX = [0];
     const offsetsY = [0];
-    const artLeft = ax;
-    const artRight = ax + spanX;
-    const artTop = ay;
-    const artBottom = ay + spanY;
-    
-    // Check if shape extends beyond artboard boundaries and needs wrapping
-    if (cx - negX < artLeft) offsetsX.push(spanX);      // needs +spanX copy (wrap from left to right)
-    if (cx + posX > artRight) offsetsX.push(-spanX);    // needs -spanX copy (wrap from right to left)
-    if (cy - negY < artTop) offsetsY.push(spanY);       // needs +spanY copy (wrap from top to bottom)
-    if (cy + posY > artBottom) offsetsY.push(-spanY);   // needs -spanY copy (wrap from bottom to top)
+    const left = ax;
+    const right = ax + spanX;
+    const top = ay;
+    const bottom = ay + spanY;
+
+    // Check if shape extends beyond canvas boundaries and needs wrapping
+    if (cx - negX < left) offsetsX.push(spanX);      // needs +spanX copy (wrap from left to right)
+    if (cx + posX > right) offsetsX.push(-spanX);    // needs -spanX copy (wrap from right to left)
+    if (cy - negY < top) offsetsY.push(spanY);       // needs +spanY copy (wrap from top to bottom)
+    if (cy + posY > bottom) offsetsY.push(-spanY);   // needs -spanY copy (wrap from bottom to top)
 
     if (typeof window !== 'undefined' && window.__artapp_debug_wrap) {
         const copies = offsetsX.length * offsetsY.length;
@@ -780,7 +846,7 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
                     y,
                     center: { cx, cy },
                     extents: { posX, negX, posY, negY },
-                    artboard: { left: artLeft, right: artRight, top: artTop, bottom: artBottom, spanX, spanY },
+                    bounds: { left, right, top, bottom, spanX, spanY, w, h },
                 });
             }
         }
@@ -1922,8 +1988,10 @@ const Canvas = forwardRef(({
                 const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
-                const baseCenterX = ax + (Number(sel?.position?.x) ?? 0.5) * spanX + offsetXPx;
-                const baseCenterY = ay + (Number(sel?.position?.y) ?? 0.5) * spanY + offsetYPx;
+                const posX = Number(sel?.position?.x);
+                const posY = Number(sel?.position?.y);
+                const baseCenterX = ax + (Number.isFinite(posX) ? posX : 0.5) * spanX + offsetXPx;
+                const baseCenterY = ay + (Number.isFinite(posY) ? posY : 0.5) * spanY + offsetYPx;
                 const wrapOffset = resolveDriftWrapOffset(sel, canvas, renderedPointsRef.current.get(clampedIndex), baseCenterX, baseCenterY);
                 const ox = ax + ocx * spanX + offsetXPx + wrapOffset.ox;
                 const oy = ay + ocy * spanY + offsetYPx + wrapOffset.oy;
