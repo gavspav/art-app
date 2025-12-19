@@ -119,6 +119,8 @@ export const AppStateProvider = ({ children }) => {
     randomizeNumColors: true,
     // Global palette preset selection (used for generation constraints)
     globalPaletteIndex: 'custom', // 'custom' | number
+    // Optional custom palette selection by id
+    globalPaletteRef: null, // string | null
     // When false, all layers get the same number of colors (uniformColorCount)
     randomizeColorsPerLayer: true,
     uniformColorCount: 3,
@@ -527,12 +529,21 @@ export const AppStateProvider = ({ children }) => {
   const setGlobalPaletteIndex = useCallback((value) => {
     setAppState(prev => {
       const raw = (typeof value === 'function') ? value(prev.globalPaletteIndex) : value;
-      if (raw === 'custom') return { ...prev, globalPaletteIndex: 'custom' };
+      if (raw === 'custom') return { ...prev, globalPaletteIndex: 'custom', globalPaletteRef: null };
       const idx = Number(raw);
       if (!Number.isFinite(idx)) return prev;
       const next = Math.max(0, Math.min(10_000, Math.round(idx)));
-      return { ...prev, globalPaletteIndex: next };
+      return { ...prev, globalPaletteIndex: next, globalPaletteRef: null };
     });
+    markDirty();
+  }, [markDirty]);
+
+  const setGlobalPaletteRef = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      globalPaletteRef: (typeof value === 'string' && value.trim().length > 0) ? value.trim() : null,
+      globalPaletteIndex: 'custom',
+    }));
     markDirty();
   }, [markDirty]);
 
@@ -695,9 +706,18 @@ export const AppStateProvider = ({ children }) => {
         return layerOut;
       };
       runWithoutDirty(() => {
+        const rawGlobalPaletteIndex = newState.globalPaletteIndex;
+        const normalizedPaletteIndex = (rawGlobalPaletteIndex === 'custom')
+          ? 'custom'
+          : (Number.isFinite(Number(rawGlobalPaletteIndex)) ? Math.max(0, Math.round(Number(rawGlobalPaletteIndex))) : 'custom');
+        const normalizedPaletteRef = (typeof newState.globalPaletteRef === 'string' && newState.globalPaletteRef.trim().length > 0)
+          ? newState.globalPaletteRef.trim()
+          : null;
         setAppState(prevState => ({
           ...prevState,
           ...newState,
+          globalPaletteIndex: normalizedPaletteIndex,
+          globalPaletteRef: normalizedPaletteRef,
           syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
             ? newState.syncLayerColorsToFirst
             : !!prevState.syncLayerColorsToFirst,
@@ -824,6 +844,8 @@ export const AppStateProvider = ({ children }) => {
       zIgnore: true,
       randomizePalette: true,
       randomizeNumColors: true,
+      globalPaletteIndex: 'custom',
+      globalPaletteRef: null,
       parameterTargetMode: DEFAULTS.parameterTargetMode || 'individual',
       colorFadeWhileFrozen: true,
       showLayerOutlines: false,
@@ -888,6 +910,7 @@ export const AppStateProvider = ({ children }) => {
     setRandomizePalette,
     setRandomizeNumColors,
     setGlobalPaletteIndex,
+    setGlobalPaletteRef,
     randomizeColorsPerLayer: appState.randomizeColorsPerLayer,
     setRandomizeColorsPerLayer,
     uniformColorCount: appState.uniformColorCount,

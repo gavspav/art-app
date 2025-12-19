@@ -27,6 +27,7 @@ import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { createCustomPaletteEntry, loadCustomPalettes, mergeCustomPalettes, saveCustomPalettes } from './utils/customPalettes.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 
 import Canvas from './components/Canvas';
@@ -130,11 +131,13 @@ const MainApp = () => {
     classicMode, setClassicMode,
 	    zIgnore, setZIgnore,
 	    // Color randomization toggles
-	    randomizePalette, setRandomizePalette,
-	    randomizeNumColors, setRandomizeNumColors,
+      randomizePalette, setRandomizePalette,
+      randomizeNumColors, setRandomizeNumColors,
       globalPaletteIndex,
       setGlobalPaletteIndex,
-	    randomizeColorsPerLayer,
+      globalPaletteRef,
+      setGlobalPaletteRef,
+      randomizeColorsPerLayer,
 	    setRandomizeColorsPerLayer,
 	    uniformColorCount,
 	    setUniformColorCount,
@@ -549,10 +552,42 @@ const MainApp = () => {
   // Memoized to provide a stable function identity to child components/hooks
   const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
 
+  const [customPalettes, setCustomPalettes] = useState(() => loadCustomPalettes());
+  useEffect(() => {
+    saveCustomPalettes(customPalettes);
+  }, [customPalettes]);
+
+  const addCustomPalette = useCallback(({ name, colors }) => {
+    const entry = createCustomPaletteEntry({ name, colors });
+    if (!entry) return null;
+    setCustomPalettes(prev => [...prev, entry]);
+    return entry;
+  }, []);
+
+  const mergeCustomPaletteList = useCallback((incoming) => {
+    if (!incoming) return;
+    setCustomPalettes(prev => mergeCustomPalettes(prev, incoming));
+  }, []);
+
+  const palettesWithCustom = useMemo(() => {
+    const builtinList = Array.isArray(palettes) ? palettes : [];
+    const builtins = builtinList.map((p, idx) => ({ ...p, __source: 'builtin', __index: idx }));
+    const customs = (Array.isArray(customPalettes) ? customPalettes : []).map(p => ({ ...p, __source: 'custom' }));
+    return [...builtins, ...customs];
+  }, [customPalettes]);
+
   const generationPaletteColors = useMemo(() => {
     try {
       const snapshot = Array.isArray(layersRef?.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
       if (!snapshot.length) return [];
+
+      if (typeof globalPaletteRef === 'string') {
+        const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
+        if (pick && Array.isArray(pick.colors) && pick.colors.length) {
+          return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
+        }
+      }
+
       const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
       if (Number.isFinite(idx) && idx != null && (palettes || [])[idx]) {
         const pick = (palettes || [])[idx];
@@ -575,7 +610,8 @@ const MainApp = () => {
     } catch {
       return [];
     }
-  }, [layers, layersRef, palettes, globalPaletteIndex]);
+  }, [layers, layersRef, palettes, globalPaletteIndex, globalPaletteRef, customPalettes]);
+
 
 	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
 	    enabled: !!audioSpawnEnabled && !timelineMode,
@@ -874,6 +910,7 @@ const MainApp = () => {
     const payload = {
       parameters: parametersRef.current,
       appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
+      customPalettes: Array.isArray(customPalettes) ? customPalettes : [],
       midiMappings: midiMappingsRef.current || {},
       audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
       bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
@@ -883,7 +920,7 @@ const MainApp = () => {
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, customPalettes]);
 
   const handleRamPresetSave = useCallback(() => {
     if (typeof setQuickPresetSnapshot !== 'function') return;
@@ -1002,13 +1039,13 @@ const MainApp = () => {
   const buildVariedLayerFrom = useCallback(
     (prev, nameIndex, baseVar, options = {}) => buildVariedLayerFromUtil(prev, nameIndex, baseVar, {
       DEFAULT_LAYER,
-      palettes,
+      palettes: palettesWithCustom,
       isParamRandomizable,
       randomizeColorsPerLayer,
       uniformColorCount,
       ...options,
     }),
-    [DEFAULT_LAYER, palettes, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
+    [DEFAULT_LAYER, palettesWithCustom, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
   );
 
   const handleImportFile = useCallback(async (e) => {
@@ -1017,6 +1054,9 @@ const MainApp = () => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      if (data?.customPalettes) {
+        mergeCustomPaletteList(data.customPalettes);
+      }
       // Apply MIDI mappings immediately if present
       try {
         if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
@@ -1101,7 +1141,7 @@ const MainApp = () => {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, mergeCustomPaletteList]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
@@ -1305,7 +1345,7 @@ const MainApp = () => {
   } = useRandomization({
     parameters,
     DEFAULT_LAYER,
-    palettes,
+    palettes: palettesWithCustom,
     blendModes,
     layers,
     selectedLayerIndex,
@@ -1368,7 +1408,7 @@ const MainApp = () => {
     // NOTE: This path intentionally uses true entropy for quick exploration
     // Deterministic flows are handled inside useRandomization via seeded RNG
     const srcPalette = randomizePalette
-      ? pickPaletteColors(palettes, Math.random, baseColors)
+      ? pickPaletteColors(palettesWithCustom, Math.random, baseColors)
       : baseColors;
     const cMin = Math.max(1, Math.floor(colorCountMin));
     const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
@@ -1385,7 +1425,7 @@ const MainApp = () => {
       if (same) {
         if ((baseColors?.length || 0) <= 1) {
           // Single colour: pick a different colour from a palette
-          const pool = pickPaletteColors(palettes, Math.random, baseColors.length ? baseColors : ['#ffffff']);
+          const pool = pickPaletteColors(palettesWithCustom, Math.random, baseColors.length ? baseColors : ['#ffffff']);
           if (pool.length) {
             // Try to pick a colour that's different
             let pick = pool[Math.floor(Math.random() * pool.length)];
@@ -1882,6 +1922,7 @@ const MainApp = () => {
     registerAudioHandler,
     layers,
     modulationStore,
+    palettes,
     parameterTargetMode,
   });
 
@@ -1914,6 +1955,7 @@ const MainApp = () => {
     registerBPMHandler,
     layers,
     modulationStore,
+    palettes,
     parameterTargetMode,
   });
 
@@ -2229,9 +2271,14 @@ const MainApp = () => {
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
 	              getIsRnd={getIsRnd}
 	              setIsRnd={setIsRnd}
-	              palettes={palettes}
-                globalPaletteIndex={globalPaletteIndex}
-                setGlobalPaletteIndex={setGlobalPaletteIndex}
+	                palettes={palettesWithCustom}
+                  automationPalettes={palettes}
+                  globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={addCustomPalette}
 	              blendModes={blendModes}
 	              globalBlendMode={globalBlendMode}
 	              setGlobalBlendMode={setGlobalBlendMode}
@@ -2416,8 +2463,13 @@ const MainApp = () => {
                 setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
 	                getIsRnd={getIsRnd}
 	                setIsRnd={setIsRnd}
-	                palettes={palettes}
+	                palettes={palettesWithCustom}
+                  automationPalettes={palettes}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={addCustomPalette}
                   globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
                   setGlobalPaletteIndex={setGlobalPaletteIndex}
 	                blendModes={blendModes}
 	                globalBlendMode={globalBlendMode}

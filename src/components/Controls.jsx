@@ -5,7 +5,6 @@ import { getOperationalMaxHint } from '../utils/parameterOperationalHints.js';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
-import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
 import { useAudioReactive } from '../context/AudioContext.jsx';
 import { useBPM } from '../context/BPMContext.jsx';
@@ -1248,6 +1247,9 @@ const Controls = forwardRef(({
   onImportSVG,
   onMoveLayerUp,
   onMoveLayerDown,
+  palettes = [],
+  automationPalettes = [],
+  onSaveCustomPalette,
 }, ref) => {
   const { parameters } = useParameters();
 
@@ -1494,11 +1496,64 @@ const Controls = forwardRef(({
     return out;
   };
 
-  // Return index of palette whose sampled colors match the given array
-  const matchPaletteIndex = (colors = []) => palettes.findIndex(p => {
-    const sampled = sampleColors(p.colors, colors.length);
-    return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
-  });
+  const paletteOptions = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const builtins = [];
+    const customs = [];
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        customs.push({
+          value: `custom:${p.id}`,
+          label: p?.name || 'Custom Palette',
+        });
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        builtins.push({
+          value: `builtin:${builtinIndex}`,
+          label: p?.name || `Palette ${builtinIndex + 1}`,
+        });
+      }
+    });
+    return { builtins, customs };
+  }, [palettes]);
+
+  const paletteValueMap = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const map = new Map();
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        map.set(`custom:${p.id}`, colors);
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        map.set(`builtin:${builtinIndex}`, colors);
+      }
+    });
+    return map;
+  }, [palettes]);
+
+  const matchPaletteValue = (colors = []) => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    for (let idx = 0; idx < list.length; idx += 1) {
+      const p = list[idx];
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const src = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(src) || !src.length) continue;
+      const sampled = sampleColors(src, colors.length);
+      const matches = sampled.length === colors.length
+        && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
+      if (!matches) continue;
+      if (source === 'custom' && p?.id) return `custom:${p.id}`;
+      const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+      return `builtin:${builtinIndex}`;
+    }
+    return 'custom';
+  };
 
   // (Removed old duplicate color handlers; consolidated below)
 
@@ -1808,28 +1863,52 @@ const Controls = forwardRef(({
           key={`palette-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
           value={(() => {
             const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-            const idx = matchPaletteIndex(colors);
-            return idx === -1 ? 'custom' : String(idx);
+            return matchPaletteValue(colors);
           })()}
           onChange={(e) => {
             const val = e.target.value;
-            if (val !== 'custom') {
-              const idx = parseInt(val, 10);
-              if (palettes[idx]) {
-                const count = Number.isFinite(currentLayer?.numColors)
-                  ? currentLayer.numColors
-                  : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
-                const nextColors = sampleColors(palettes[idx].colors, count);
-                applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
-              }
-            }
+            if (val === 'custom') return;
+            const src = paletteValueMap.get(val);
+            if (!Array.isArray(src) || src.length === 0) return;
+            const count = Number.isFinite(currentLayer?.numColors)
+              ? currentLayer.numColors
+              : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || src.length);
+            const nextColors = sampleColors(src, count);
+            applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
           }}
         >
           <option value="custom">Custom</option>
-          {palettes.map((p, idx) => (
-            <option key={idx} value={idx}>{p.name}</option>
-          ))}
+          {paletteOptions.builtins.length > 0 && (
+            <optgroup label="Built-in">
+              {paletteOptions.builtins.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </optgroup>
+          )}
+          {paletteOptions.customs.length > 0 && (
+            <optgroup label="Custom">
+              {paletteOptions.customs.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
+        <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            onClick={() => {
+              const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+              const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
+              if (!safe.length || typeof onSaveCustomPalette !== 'function') return;
+              const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
+              if (!name) return;
+              onSaveCustomPalette({ name, colors: safe });
+            }}
+          >
+            Save as custom
+          </button>
+        </div>
 
         {/* Colours header with settings and random icons */}
         <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
@@ -2044,7 +2123,7 @@ const Controls = forwardRef(({
     const layerKey = (currentLayer?.name || 'Layer').toString();
     const paramId = `layer:${layerKey}:paletteIndex`;
     const unregister = registerParamHandler(paramId, ({ value01 }) => {
-      const list = palettes || [];
+      const list = automationPalettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
       const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
       const palette = list[idx];
@@ -2056,7 +2135,7 @@ const Controls = forwardRef(({
       applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
     });
     return unregister;
-  }, [applyTargetedUpdate, currentLayer, registerParamHandler]);
+  }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {

@@ -1,6 +1,4 @@
 import { useEffect } from 'react';
-import { palettes } from '../constants/palettes';
-
 // Sample colors from a palette (same logic as Controls.jsx)
 const sampleColors = (src, count) => {
   if (!Array.isArray(src) || src.length === 0) return ['#000000'];
@@ -28,6 +26,7 @@ export function useBPMLayerHandlers({
   registerBPMHandler,
   layers,
   modulationStore,
+  palettes = [],
   parameterTargetMode = 'individual',
 }) {
   // Build a signature of layer IDs and names so we only re-register when structure changes
@@ -139,5 +138,5 @@ export function useBPMLayerHandlers({
     return () => {
       unsubs.forEach(u => { if (typeof u === 'function') u(); });
     };
-  }, [registerBPMHandler, modulationStore, layerSignature, parameterTargetMode]);
+  }, [registerBPMHandler, modulationStore, layerSignature, parameterTargetMode, palettes]);
 }

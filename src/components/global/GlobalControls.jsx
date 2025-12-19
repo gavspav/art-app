@@ -1112,7 +1112,11 @@ const GlobalControls = ({
   // Palettes/Blend
   palettes,
   globalPaletteIndex = 'custom',
+  globalPaletteRef = null,
   setGlobalPaletteIndex = null,
+  setGlobalPaletteRef = null,
+  customPalettes = [],
+  onSaveCustomPalette,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -1427,33 +1431,100 @@ const GlobalControls = ({
     };
   }, []);
 
+  const paletteOptions = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const builtins = [];
+    const customs = [];
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        customs.push({
+          value: `custom:${p.id}`,
+          label: p?.name || 'Custom Palette',
+        });
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        builtins.push({
+          value: `builtin:${builtinIndex}`,
+          label: p?.name || `Palette ${builtinIndex + 1}`,
+        });
+      }
+    });
+    return { builtins, customs };
+  }, [palettes]);
+
+  const paletteValueMap = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const map = new Map();
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        map.set(`custom:${p.id}`, colors);
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        map.set(`builtin:${builtinIndex}`, colors);
+      }
+    });
+    return map;
+  }, [palettes]);
+
+  const hasCustomPaletteRef = useMemo(() => (
+    typeof globalPaletteRef === 'string'
+      && (Array.isArray(customPalettes) ? customPalettes : []).some(p => p?.id === globalPaletteRef)
+  ), [globalPaletteRef, customPalettes]);
+
   const paletteValue = useMemo(() => {
     try {
       const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
-      const idx = palettes.findIndex(p => {
+      const list = Array.isArray(palettes) ? palettes : [];
+      for (let idx = 0; idx < list.length; idx += 1) {
+        const p = list[idx];
+        const source = p?.__source === 'custom' ? 'custom' : 'builtin';
         const src = Array.isArray(p) ? p : (p?.colors || []);
         const sampled = sampleColorsEven(src, Math.max(1, layers.length));
-        return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
-      });
-      return idx === -1 ? 'custom' : String(idx);
+        const matches = sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
+        if (!matches) continue;
+        if (source === 'custom' && p?.id) return `custom:${p.id}`;
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        return `builtin:${builtinIndex}`;
+      }
+      return 'custom';
     } catch {
       return 'custom';
     }
   }, [palettes, layers, sampleColorsEven]);
 
   // Back-compat: older scenes inferred the "selected palette" by matching current layer colors.
-  // If the user hasn't explicitly chosen a palette yet (globalPaletteIndex==='custom'),
-  // initialize it from the inferred paletteValue so generation constraints behave as expected.
+  // If the user hasn't explicitly chosen a palette yet, initialize it from the inferred paletteValue.
   useEffect(() => {
+    if (globalPaletteRef && hasCustomPaletteRef) return;
     if (globalPaletteIndex !== 'custom') return;
     if (paletteValue === 'custom') return;
-    const idx = parseInt(paletteValue, 10);
-    if (!Number.isFinite(idx)) return;
-    setGlobalPaletteIndex?.(idx);
-  }, [globalPaletteIndex, paletteValue, setGlobalPaletteIndex]);
+    if (paletteValue.startsWith('custom:')) {
+      const id = paletteValue.slice('custom:'.length);
+      if (id) setGlobalPaletteRef?.(id);
+      return;
+    }
+    if (paletteValue.startsWith('builtin:')) {
+      const idx = parseInt(paletteValue.slice('builtin:'.length), 10);
+      if (!Number.isFinite(idx)) return;
+      setGlobalPaletteIndex?.(idx);
+    }
+  }, [globalPaletteIndex, globalPaletteRef, hasCustomPaletteRef, paletteValue, setGlobalPaletteIndex, setGlobalPaletteRef]);
 
   const generationPaletteColors = useMemo(() => {
     try {
+      if (typeof globalPaletteRef === 'string') {
+        const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
+        if (pick && Array.isArray(pick.colors) && pick.colors.length) {
+          return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
+        }
+      }
+
       const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
       if (Number.isFinite(idx) && idx != null && palettes?.[idx]) {
         const pick = palettes[idx];
@@ -1476,7 +1547,17 @@ const GlobalControls = ({
     } catch {
       return [];
     }
-  }, [globalPaletteIndex, palettes, layers]);
+  }, [globalPaletteIndex, globalPaletteRef, customPalettes, palettes, layers]);
+
+  const paletteColorsForVariation = useMemo(() => {
+    if (!audioSpawnUseGlobalPalette) return generationPaletteColors;
+    if (Array.isArray(generationPaletteColors) && generationPaletteColors.length > 0) {
+      return generationPaletteColors;
+    }
+    const inferred = paletteValueMap.get(paletteValue);
+    return Array.isArray(inferred) ? inferred : [];
+  }, [audioSpawnUseGlobalPalette, generationPaletteColors, paletteValueMap, paletteValue]);
+
 
   const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
 
@@ -1534,6 +1615,13 @@ const GlobalControls = ({
   const [layersMin, setLayersMin] = useState(1);
   const [layersMax, setLayersMax] = useState(1000);
   const [layersStep, setLayersStep] = useState(1);
+  const [layerCountDraft, setLayerCountDraft] = useState(() => layers.length);
+  const layerCountDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (layerCountDraggingRef.current) return;
+    setLayerCountDraft(layers.length);
+  }, [layers.length]);
 
   // Helper to set layer count uniformly from slider or number box
   const setLayerCount = (targetRaw) => {
@@ -1559,7 +1647,7 @@ const GlobalControls = ({
           const layer = buildVariedLayerFrom(prevLayerRef, nameIndex, baseVar, {
             randomSeed,
             constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-            paletteColors: generationPaletteColors,
+            paletteColors: paletteColorsForVariation,
           });
           additions.push(layer);
           prevLayerRef = layer;
@@ -1580,6 +1668,11 @@ const GlobalControls = ({
       return next;
     });
   };
+
+  const commitLayerCountDraft = useCallback((nextValue) => {
+    setLayerCount(nextValue);
+    setLayerCountDraft(nextValue);
+  }, [setLayerCount]);
 
   // Independent ranges for each Variation slider
   const [variationPositionMin, setVariationPositionMin] = useState(0);
@@ -1641,7 +1734,7 @@ const GlobalControls = ({
           affectCategories,
           preserveSeeds: true,
           constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-          paletteColors: generationPaletteColors,
+          paletteColors: paletteColorsForVariation,
         }) || original;
         const merged = {
           ...original,
@@ -2496,27 +2589,71 @@ const GlobalControls = ({
             </div>
             <select
               className="compact-select"
-              value={String(globalPaletteIndex ?? paletteValue)}
+              value={(() => {
+                if (hasCustomPaletteRef) {
+                  return `custom:${globalPaletteRef}`;
+                }
+                if (globalPaletteIndex !== 'custom') {
+                  return `builtin:${globalPaletteIndex}`;
+                }
+                return paletteValue;
+              })()}
               onChange={(e) => {
                 const val = e.target.value;
                 if (val === 'custom') {
                   setGlobalPaletteIndex?.('custom');
+                  setGlobalPaletteRef?.(null);
                   return;
                 }
-                const idx = parseInt(val, 10);
-                if (!Number.isFinite(idx) || !palettes[idx]) return;
-                setGlobalPaletteIndex?.(idx);
-                const pick = palettes[idx];
-                const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+                if (val.startsWith('custom:')) {
+                  const id = val.slice('custom:'.length);
+                  if (!id) return;
+                  setGlobalPaletteRef?.(id);
+                } else if (val.startsWith('builtin:')) {
+                  const idx = parseInt(val.slice('builtin:'.length), 10);
+                  if (!Number.isFinite(idx) || !palettes[idx]) return;
+                  setGlobalPaletteRef?.(null);
+                  setGlobalPaletteIndex?.(idx);
+                }
+                const src = paletteValueMap.get(val) || [];
                 const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
                 assignOneColorPerLayer(nextColors);
               }}
             >
               <option value="custom">Custom</option>
-              {palettes.map((p, i) => (
-                <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
-              ))}
+              {paletteOptions.builtins.length > 0 && (
+                <optgroup label="Built-in">
+                  {paletteOptions.builtins.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </optgroup>
+              )}
+              {paletteOptions.customs.length > 0 && (
+                <optgroup label="Custom">
+                  {paletteOptions.customs.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={() => {
+                  if (typeof onSaveCustomPalette !== 'function') return;
+                  const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : [];
+                  const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
+                  if (!safe.length) return;
+                  const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
+                  if (!name) return;
+                  const created = onSaveCustomPalette({ name, colors: safe });
+                  if (created?.id) setGlobalPaletteRef?.(created.id);
+                }}
+              >
+                Save as custom
+              </button>
+            </div>
             {showPaletteSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -2703,15 +2840,26 @@ const GlobalControls = ({
                 min={layersMin}
                 max={layersMax}
                 step={layersStep}
-                value={layers.length}
-                onChange={(e) => setLayerCount(e.target.value)}
+                value={layerCountDraft}
+                onChange={(e) => {
+                  setLayerCountDraft(Number(e.target.value));
+                }}
+                onPointerDown={() => { layerCountDraggingRef.current = true; }}
+                onPointerUp={() => {
+                  layerCountDraggingRef.current = false;
+                  commitLayerCountDraft(layerCountDraft);
+                }}
+                onPointerCancel={() => {
+                  layerCountDraggingRef.current = false;
+                  commitLayerCountDraft(layerCountDraft);
+                }}
               />
               <BufferedNumberInput
-                value={layers.length}
+                value={layerCountDraft}
                 min={layersMin}
                 max={layersMax}
                 step={layersStep}
-                onCommit={setLayerCount}
+                onCommit={commitLayerCountDraft}
                 className="compact-number"
                 style={{ width: '5.5rem', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
                 inputMode="numeric"

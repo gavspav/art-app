@@ -329,7 +329,12 @@ const BottomPanel = ({
   setIsRnd,
   palettes,
   globalPaletteIndex,
+  globalPaletteRef,
   setGlobalPaletteIndex,
+  setGlobalPaletteRef,
+  customPalettes,
+  onSaveCustomPalette,
+  automationPalettes,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -514,10 +519,15 @@ const BottomPanel = ({
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [dockV, panelState, resetHideTimer]);
 
-  // Handle panel interactions
-  const handlePanelInteraction = () => {
+  // Handle panel interactions (throttled to avoid excessive work while scrolling)
+  const lastPanelInteractionRef = useRef(0);
+  const handlePanelInteraction = useCallback(() => {
+    if (panelState !== 'expanded') return;
+    const now = Date.now();
+    if (now - lastPanelInteractionRef.current < 200) return;
+    lastPanelInteractionRef.current = now;
     resetHideTimer();
-  };
+  }, [panelState, resetHideTimer]);
 
   const toggleLock = useCallback(() => {
     setIsLocked(prev => {
@@ -795,7 +805,11 @@ const BottomPanel = ({
               setIsRnd={setIsRnd}
 		              palettes={palettes}
                   globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
                   setGlobalPaletteIndex={setGlobalPaletteIndex}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={onSaveCustomPalette}
 		              blendModes={blendModes}
 		              globalBlendMode={globalBlendMode}
 		              setGlobalBlendMode={setGlobalBlendMode}
@@ -900,6 +914,9 @@ const BottomPanel = ({
               editTarget={editTarget}
               setEditTarget={setEditTarget}
               getActiveTargetLayerIds={getActiveTargetLayerIds}
+              palettes={palettes}
+              automationPalettes={automationPalettes}
+              onSaveCustomPalette={onSaveCustomPalette}
             />
           </div>
         );
