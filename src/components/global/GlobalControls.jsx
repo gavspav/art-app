@@ -1498,6 +1498,16 @@ const GlobalControls = ({
     }
   }, [palettes, layers, sampleColorsEven]);
 
+  const selectedPaletteValue = useMemo(() => {
+    if (hasCustomPaletteRef) {
+      return `custom:${globalPaletteRef}`;
+    }
+    if (globalPaletteIndex !== 'custom') {
+      return `builtin:${globalPaletteIndex}`;
+    }
+    return paletteValue;
+  }, [globalPaletteIndex, globalPaletteRef, hasCustomPaletteRef, paletteValue]);
+
   // Back-compat: older scenes inferred the "selected palette" by matching current layer colors.
   // If the user hasn't explicitly chosen a palette yet, initialize it from the inferred paletteValue.
   useEffect(() => {
@@ -1518,7 +1528,7 @@ const GlobalControls = ({
 
   const generationPaletteColors = useMemo(() => {
     try {
-      if (typeof globalPaletteRef === 'string') {
+      if (globalPaletteIndex === 'custom' && typeof globalPaletteRef === 'string') {
         const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
         if (pick && Array.isArray(pick.colors) && pick.colors.length) {
           return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
@@ -1551,12 +1561,38 @@ const GlobalControls = ({
 
   const paletteColorsForVariation = useMemo(() => {
     if (!audioSpawnUseGlobalPalette) return generationPaletteColors;
+    const direct = paletteValueMap.get(selectedPaletteValue);
+    if (Array.isArray(direct) && direct.length > 0) return direct;
     if (Array.isArray(generationPaletteColors) && generationPaletteColors.length > 0) {
       return generationPaletteColors;
     }
     const inferred = paletteValueMap.get(paletteValue);
     return Array.isArray(inferred) ? inferred : [];
-  }, [audioSpawnUseGlobalPalette, generationPaletteColors, paletteValueMap, paletteValue]);
+  }, [audioSpawnUseGlobalPalette, generationPaletteColors, paletteValueMap, paletteValue, selectedPaletteValue]);
+
+  useEffect(() => {
+    if (!audioSpawnUseGlobalPalette) return;
+    if (Array.isArray(paletteColorsForVariation) && paletteColorsForVariation.length > 0) return;
+    try {
+      console.warn('[Palette Variation] Empty palette pool', {
+        selectedPaletteValue,
+        globalPaletteIndex,
+        globalPaletteRef,
+        paletteValue,
+        generationPaletteColorsCount: Array.isArray(generationPaletteColors) ? generationPaletteColors.length : 0,
+        paletteMapHasSelected: paletteValueMap.has(selectedPaletteValue),
+      });
+    } catch { /* noop */ }
+  }, [
+    audioSpawnUseGlobalPalette,
+    paletteColorsForVariation,
+    selectedPaletteValue,
+    globalPaletteIndex,
+    globalPaletteRef,
+    paletteValue,
+    generationPaletteColors,
+    paletteValueMap,
+  ]);
 
 
   const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
@@ -1872,7 +1908,18 @@ const GlobalControls = ({
 
       return rebuilt;
     });
-  }, [applyVariationInstantly, buildVariedLayerFrom, DEFAULT_LAYER.variationAnim, DEFAULT_LAYER.variationColor, DEFAULT_LAYER.variationPosition, DEFAULT_LAYER.variationShape, DEFAULT_LAYER.variationScale, setLayers]);
+  }, [
+    applyVariationInstantly,
+    buildVariedLayerFrom,
+    DEFAULT_LAYER.variationAnim,
+    DEFAULT_LAYER.variationColor,
+    DEFAULT_LAYER.variationPosition,
+    DEFAULT_LAYER.variationShape,
+    DEFAULT_LAYER.variationScale,
+    audioSpawnUseGlobalPalette,
+    paletteColorsForVariation,
+    setLayers,
+  ]);
 
   // Presets: helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
@@ -2589,15 +2636,7 @@ const GlobalControls = ({
             </div>
             <select
               className="compact-select"
-              value={(() => {
-                if (hasCustomPaletteRef) {
-                  return `custom:${globalPaletteRef}`;
-                }
-                if (globalPaletteIndex !== 'custom') {
-                  return `builtin:${globalPaletteIndex}`;
-                }
-                return paletteValue;
-              })()}
+              value={selectedPaletteValue}
               onChange={(e) => {
                 const val = e.target.value;
                 if (val === 'custom') {

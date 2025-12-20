@@ -581,7 +581,7 @@ const MainApp = () => {
       const snapshot = Array.isArray(layersRef?.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
       if (!snapshot.length) return [];
 
-      if (typeof globalPaletteRef === 'string') {
+      if (globalPaletteIndex === 'custom' && typeof globalPaletteRef === 'string') {
         const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
         if (pick && Array.isArray(pick.colors) && pick.colors.length) {
           return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
