@@ -6,6 +6,16 @@ import TimelineTrackRow from './TimelineTrackRow.jsx';
 import TimelineTransport from './TimelineTransport.jsx';
 import { computeInitialNodes } from '../../utils/nodeUtils.js';
 
+const cloneForKeyframe = (value) => {
+  if (value == null) return value;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch { /* noop */ }
+  }
+  return JSON.parse(JSON.stringify(value));
+};
+
 /**
  * TimelinePanel - Main timeline UI component
  * 
@@ -192,7 +202,7 @@ const TimelinePanel = ({
         rotation: editedLayer.rotation ?? 0,
       },
       animation: null,
-      colors: Array.isArray(editedLayer.colors) ? JSON.parse(JSON.stringify(editedLayer.colors)) : ['#0000FF'],
+      colors: Array.isArray(editedLayer.colors) ? cloneForKeyframe(editedLayer.colors) : ['#0000FF'],
     };
 
     // Find any keyframe at this time (apply to all matching tracks).
@@ -210,8 +220,8 @@ const TimelinePanel = ({
       const snap = latestNodeEditCommitRef.current;
       if (!snap) return;
 
-      const nodesSnap = snap.nodes ? JSON.parse(JSON.stringify(snap.nodes)) : null;
-      const subpathsSnap = snap.subpaths ? JSON.parse(JSON.stringify(snap.subpaths)) : null;
+      const nodesSnap = snap.nodes ? cloneForKeyframe(snap.nodes) : null;
+      const subpathsSnap = snap.subpaths ? cloneForKeyframe(snap.subpaths) : null;
       const hash = `${nodesSnap ? JSON.stringify(nodesSnap) : ''}|${subpathsSnap ? JSON.stringify(subpathsSnap) : ''}`;
 
       if (Array.isArray(snap.commits) && snap.commits.length > 0) {
@@ -255,8 +265,8 @@ const TimelinePanel = ({
     const snap = latestNodeEditCommitRef.current;
     if (!snap) return;
     const TIME_EPSILON = 0.01;
-    const nodesSnap = snap.nodes ? JSON.parse(JSON.stringify(snap.nodes)) : null;
-    const subpathsSnap = snap.subpaths ? JSON.parse(JSON.stringify(snap.subpaths)) : null;
+    const nodesSnap = snap.nodes ? cloneForKeyframe(snap.nodes) : null;
+    const subpathsSnap = snap.subpaths ? cloneForKeyframe(snap.subpaths) : null;
     if (!nodesSnap && !subpathsSnap) return;
 
     // Only update existing keyframes, don't create new ones on exit
@@ -565,8 +575,8 @@ const TimelinePanel = ({
       nodes = computeInitialNodes(layer.numSides ?? 6);
     }
 
-    const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
-    const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
+    const clonedNodes = nodes ? cloneForKeyframe(nodes) : null;
+    const clonedSubpaths = subpaths ? cloneForKeyframe(subpaths) : null;
 
     // Build extras object based on enabled categories
     const extras = {};
@@ -609,7 +619,7 @@ const TimelinePanel = ({
     // Always capture colors so keyframes can later tween correctly when the track's
     // "Color" category is enabled (the toggle controls playback, not what is stored).
     extras.colors = Array.isArray(layer.colors)
-      ? JSON.parse(JSON.stringify(layer.colors))
+      ? cloneForKeyframe(layer.colors)
       : ['#0000FF'];
 
     const time = (Number.isFinite(timeSecondsOverride) ? timeSecondsOverride : positionSeconds);

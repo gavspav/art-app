@@ -128,30 +128,50 @@ export function useTimelineModulation({
    * Parse a targetId into its components
    * Format: 'layer:<layerIdOrName>:<paramId>' or 'global:<paramId>'
    */
+  const invalidTargetIdsRef = useRef(new Set());
+  const warnInvalidTargetId = useCallback((targetId, reason) => {
+    if (invalidTargetIdsRef.current.has(targetId)) return;
+    invalidTargetIdsRef.current.add(targetId);
+    console.warn(`[useTimelineModulation] Invalid targetId "${targetId}" (${reason}).`);
+  }, []);
+
   const parseTargetId = useCallback((targetId) => {
     if (!targetId || typeof targetId !== 'string') return null;
 
     const parts = targetId.split(':');
-    if (parts.length < 2) return null;
+    if (parts.length < 2) {
+      warnInvalidTargetId(targetId, 'expected at least 2 parts');
+      return null;
+    }
 
     const type = parts[0];
 
     if (type === 'global') {
-      return { type: 'global', paramId: parts[1] };
+      const paramId = parts[1];
+      if (!paramId) {
+        warnInvalidTargetId(targetId, 'missing global paramId');
+        return null;
+      }
+      return { type: 'global', paramId };
     }
 
     if (type === 'layer' && parts.length >= 3) {
       const layerIdOrName = parts[1];
       const paramId = parts.slice(2).join(':'); // In case param has colons
 
+      if (!layerIdOrName || !paramId) {
+        warnInvalidTargetId(targetId, 'missing layer target or paramId');
+        return null;
+      }
       // Resolve layer name to id
       const layerId = layerNameToIdRef.current[layerIdOrName] || layerIdOrName;
 
       return { type: 'layer', layerId, paramId };
     }
 
+    warnInvalidTargetId(targetId, 'unknown targetId type');
     return null;
-  }, []);
+  }, [warnInvalidTargetId]);
 
   // In the "two-mode" model, timeline mode is authoritative and BPM/Audio are disabled.
   // Avoid destructive clearing of user mappings.

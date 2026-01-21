@@ -660,6 +660,7 @@ export const useAnimation = (
                     // 1. Geometry Blending
                     if (!shouldBlockGeometry) {
                         const tShape = getT('variationShape');
+                        let geometryApplied = false;
 
                         // Try subpaths
                         if (shapeUpdate.subpaths && shapeUpdate.base.subpaths && lerpSubpaths) {
@@ -667,6 +668,7 @@ export const useAnimation = (
                             if (blended) {
                                 updatedLayer.subpaths = blended;
                                 updatedLayer.nodes = undefined;
+                                geometryApplied = true;
                             }
                         }
                         // Try nodes
@@ -675,11 +677,23 @@ export const useAnimation = (
                             if (blended) {
                                 updatedLayer.nodes = blended;
                                 updatedLayer.subpaths = undefined;
+                                geometryApplied = true;
                             }
                         }
 
                         // Fallback if blending failed but update exists
-                        if (!updatedLayer.nodes && !updatedLayer.subpaths) {
+                        if (!geometryApplied) {
+                            if (shapeUpdate.base?.subpaths) {
+                                updatedLayer.subpaths = shapeUpdate.base.subpaths;
+                                updatedLayer.nodes = undefined;
+                                geometryApplied = true;
+                            } else if (shapeUpdate.base?.nodes) {
+                                updatedLayer.nodes = shapeUpdate.base.nodes;
+                                updatedLayer.subpaths = undefined;
+                                geometryApplied = true;
+                            }
+                        }
+                        if (!geometryApplied) {
                             if (shapeUpdate.subpaths) {
                                 updatedLayer.subpaths = shapeUpdate.subpaths;
                                 updatedLayer.nodes = undefined;

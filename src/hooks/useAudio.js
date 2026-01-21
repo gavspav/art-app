@@ -18,6 +18,15 @@ const DB_NAME = 'artapp-audio';
 const DB_STORE = 'audioFile';
 const DB_VERSION = 1;
 
+const isQuotaExceededError = (err) => {
+  if (!err) return false;
+  const name = err.name || '';
+  const message = err.message || '';
+  return name === 'QuotaExceededError'
+    || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || message.toLowerCase().includes('quota');
+};
+
 const openDB = () => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -44,10 +53,14 @@ const saveFileToIDB = async (file, wasPlaying = false, playbackPosition = 0) => 
       tx.onerror = () => reject(tx.error);
     });
     db.close();
-    return true;
+    return { ok: true };
   } catch (err) {
+    if (isQuotaExceededError(err)) {
+      console.warn('[useAudio] Storage quota exceeded while saving file to IndexedDB.');
+      return { ok: false, reason: 'quota' };
+    }
     console.warn('[useAudio] Failed to save file to IndexedDB:', err);
-    return false;
+    return { ok: false, reason: 'error' };
   }
 };
 
@@ -459,8 +472,15 @@ export const useAudio = ({
 
       // Persist file to IndexedDB for restoration
       if (persist) {
-        saveFileToIDB(file);
-        setHasStoredFile(true);
+        const saveResult = await saveFileToIDB(file);
+        if (saveResult.ok) {
+          setHasStoredFile(true);
+        } else {
+          setHasStoredFile(false);
+          if (saveResult.reason === 'quota') {
+            setError('Storage quota exceeded. Audio file will not persist after reload.');
+          }
+        }
       }
 
       // Start update loop

@@ -1978,6 +1978,13 @@ const MainApp = () => {
     }
   }, [parameterTargetMode, layers, selectedLayerIndex, modulationStore]);
 
+  // Remove orphaned modulations when layers are deleted or replaced
+  useEffect(() => {
+    if (!modulationStore?.pruneLayerMods) return;
+    const ids = Array.isArray(layers) ? layers.map(layer => layer?.id).filter(Boolean) : [];
+    modulationStore.pruneLayerMods(ids);
+  }, [layers, modulationStore]);
+
   // randomizeScene provided by hook
 
   useEffect(() => {

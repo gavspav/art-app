@@ -1396,7 +1396,9 @@ const Canvas = forwardRef(({
                 canvas.style.height = `${displayHeight}px`;
             }
 
-            canvas.dataset.pixelRatio = String(dpr);
+            if (canvas.dataset.pixelRatio !== String(dpr)) {
+                canvas.dataset.pixelRatio = String(dpr);
+            }
             setCanvasSize(prev => {
                 if (prev.width === displayWidth && prev.height === displayHeight && prev.pixelRatio === dpr) {
                     return prev;

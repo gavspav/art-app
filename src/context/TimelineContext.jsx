@@ -279,6 +279,7 @@ export const TimelineProvider = ({ children }) => {
   const animationFrameRef = useRef(null);
   const positionRef = useRef(positionSeconds);
   const sessionRef = useRef(session);
+  const isPlayingRef = useRef(isPlaying);
 
   // Audio playback refs
   const audioContextRef = useRef(null);
@@ -298,6 +299,7 @@ export const TimelineProvider = ({ children }) => {
   // Keep refs in sync
   useEffect(() => { positionRef.current = positionSeconds; }, [positionSeconds]);
   useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   // Persist session
   useEffect(() => {
@@ -413,6 +415,7 @@ export const TimelineProvider = ({ children }) => {
 
   const pause = useCallback(() => {
     setIsPlaying(false);
+    isPlayingRef.current = false;
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -492,6 +495,7 @@ export const TimelineProvider = ({ children }) => {
         if (newPosition >= lengthSeconds) {
           newPosition = lengthSeconds;
           setIsPlaying(false);
+          isPlayingRef.current = false;
           stopAudioPlayback();
         }
       }
@@ -518,7 +522,7 @@ export const TimelineProvider = ({ children }) => {
         playStartPositionRef.current = newPosition;
       }
 
-      if (isPlaying && newPosition < lengthSeconds) {
+      if (isPlayingRef.current && newPosition < lengthSeconds) {
         animationFrameRef.current = requestAnimationFrame(tick);
       }
     };

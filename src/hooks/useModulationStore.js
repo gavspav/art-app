@@ -127,6 +127,29 @@ export function useModulationStore() {
   }, []);
 
   /**
+   * Remove modulations for layers that no longer exist (all sources)
+   */
+  const pruneLayerMods = useCallback((keepLayerIds) => {
+    const keepSet = new Set(keepLayerIds);
+    keepSet.add('__global__');
+
+    const pruneSource = (ref, activeRef) => {
+      Object.keys(ref.current).forEach(layerId => {
+        if (!keepSet.has(layerId)) {
+          Object.keys(ref.current[layerId] || {}).forEach(paramId => {
+            activeRef.current.delete(`${layerId}:${paramId}`);
+          });
+          delete ref.current[layerId];
+        }
+      });
+    };
+
+    pruneSource(timelineModsRef, activeTimelineParamsRef);
+    pruneSource(bpmModsRef, activeBpmParamsRef);
+    pruneSource(audioModsRef, activeAudioParamsRef);
+  }, []);
+
+  /**
    * Get all modulations for a layer (merged from all sources)
    * Precedence: timeline > bpm > audio
    */
@@ -214,6 +237,7 @@ export function useModulationStore() {
     clearMod,
     clearAllMods,
     clearModsExcept,
+    pruneLayerMods,
     getLayerMods,
     getAllMods,
     isParamModulated,
@@ -223,7 +247,7 @@ export function useModulationStore() {
     bpmModsRef,
     audioModsRef,
     timelineModsRef,
-  }), [setMod, clearMod, clearAllMods, clearModsExcept, getLayerMods, getAllMods, isParamModulated, isParamModulatedByTimeline, applyModsToLayer]);
+  }), [setMod, clearMod, clearAllMods, clearModsExcept, pruneLayerMods, getLayerMods, getAllMods, isParamModulated, isParamModulatedByTimeline, applyModsToLayer]);
 }
 
 // Helper to convert hex color to RGB components
