@@ -153,18 +153,18 @@ export function detectTransientsFromPcm(
 export function sensitivityToThreshold(sensitivity) {
   // Clamp to 0-100
   const s = Math.max(0, Math.min(100, sensitivity));
-  
+
   // Map sensitivity to thresholdFactor: 
   // sensitivity 0 -> thresholdFactor 10 (very few transients)
   // sensitivity 50 -> thresholdFactor 1.5 (moderate)
   // sensitivity 100 -> thresholdFactor 1.01 (many transients)
   const thresholdFactor = 10 - (s / 100) * 8.99;
-  
+
   // Map sensitivity to minStrength:
   // sensitivity 0 -> minStrength 0.1 (ignore quiet transients)
   // sensitivity 100 -> minStrength 0.0001 (detect quiet transients)
   const minStrength = 0.1 * Math.pow(0.001, s / 100);
-  
+
   return { thresholdFactor, minStrength };
 }
 
@@ -257,13 +257,13 @@ export function buildEnergyMap(
  */
 export function getEnergyAtTime(energyMap, time) {
   if (!energyMap || energyMap.length === 0) return 0.5; // Default to mid-energy
-  
+
   // Handle edge cases
   if (time <= energyMap[0].time) return energyMap[0].normalized;
   if (time >= energyMap[energyMap.length - 1].time) {
     return energyMap[energyMap.length - 1].normalized;
   }
-  
+
   // Binary search for the right interval
   let lo = 0;
   let hi = energyMap.length - 1;
@@ -275,7 +275,7 @@ export function getEnergyAtTime(energyMap, time) {
       hi = mid;
     }
   }
-  
+
   // Linear interpolation
   const p1 = energyMap[lo];
   const p2 = energyMap[hi];
@@ -295,22 +295,24 @@ export function getEnergyAtTime(energyMap, time) {
  */
 export function scaleWeightsByEnergy(weights, energy, influence = 0.5) {
   if (!weights || influence <= 0) return weights;
-  
-  // Clamp values
+
+  // Clamp energy to 0-1, but allow influence up to 2 for more dramatic effects
   const e = Math.max(0, Math.min(1, energy));
-  const inf = Math.max(0, Math.min(1, influence));
-  
+  const inf = Math.max(0, Math.min(2, influence)); // Support 0-2 range from UI slider
+
   // Calculate multiplier:
   // At influence=0: multiplier is always 1 (no effect)
   // At influence=1: multiplier ranges from 0.05 (low energy) to 2.0 (high energy)
+  // At influence=2: multiplier ranges from ~0 (low energy) to 4.0 (high energy) - extreme!
   // The curve is: base + energy * range, where base and range depend on influence
-  const minMult = 0.05; // Minimum multiplier at low energy, high influence
-  const maxMult = 2.0;  // Maximum multiplier at high energy, high influence
-  
+  const minMult = 0.05; // Minimum multiplier at low energy, influence=1
+  const maxMult = 2.0;  // Maximum multiplier at high energy, influence=1
+
   // Lerp between "no effect" (multiplier=1) and "full effect" (energy-based)
+  // Then scale by influence (values > 1 amplify the effect further)
   const fullEffectMult = minMult + e * (maxMult - minMult);
   const multiplier = 1 + (fullEffectMult - 1) * inf;
-  
+
   return {
     shape: (weights.shape ?? 0) * multiplier,
     anim: (weights.anim ?? 0) * multiplier,

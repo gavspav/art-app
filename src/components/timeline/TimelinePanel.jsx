@@ -114,7 +114,7 @@ const TimelinePanel = ({
   const latestNodeEditCommitRef = useRef(null);
   const lastCommittedNodeHashByKeyRef = useRef(new Map());
   const lastNodeEditStateRef = useRef(false);
-  
+
   useEffect(() => {
     if (!isNodeEditMode) return;
     if (!nodeEditContext) return;
@@ -124,7 +124,7 @@ const TimelinePanel = ({
 
     const layerName = nodeEditContext.layerName || null;
     const layerId = nodeEditContext.layerId || null;
-    
+
     // Find layer index to get animated layer data
     const layerIndex = layers.findIndex(l => (layerId && l?.id === layerId) || (layerName && l?.name === layerName));
     const editedLayer = layerIndex >= 0 ? layers[layerIndex] : null;
@@ -146,19 +146,19 @@ const TimelinePanel = ({
 
     const TIME_EPSILON = 0.01;
     const snappedTime = Math.round((Number(positionSeconds) || 0) / TIME_EPSILON) * TIME_EPSILON;
-    
+
     // During node edit mode, React state has the authoritative node geometry (Canvas updates it directly)
     // Animated layers may be stale, so prefer React state first
     let nodes = null;
     let subpaths = null;
-    
+
     // First try React state layer (has current node edits during node edit mode)
     if (Array.isArray(editedLayer.subpaths) && editedLayer.subpaths.length > 0) {
       subpaths = editedLayer.subpaths;
     } else if (Array.isArray(editedLayer.nodes) && editedLayer.nodes.length >= 3) {
       nodes = editedLayer.nodes;
     }
-    
+
     // Fall back to animated layer if React state doesn't have geometry
     if (!nodes && !subpaths && animatedLayer) {
       if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
@@ -167,12 +167,12 @@ const TimelinePanel = ({
         nodes = animatedLayer.nodes;
       }
     }
-    
+
     // If still no geometry, compute from numSides
     if (!nodes && !subpaths && editedLayer.layerType === 'shape') {
       nodes = computeInitialNodes(editedLayer.numSides ?? 6);
     }
-    
+
     if (!nodes && !subpaths) return;
 
     const extras = {
@@ -271,18 +271,18 @@ const TimelinePanel = ({
 
   // Calculate pixels per second based on container width and zoom
   const [containerWidth, setContainerWidth] = useState(800);
-  
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    
+
     const updateWidth = () => {
       const rect = container.getBoundingClientRect();
       if (rect.width > 0) {
         setContainerWidth(rect.width);
       }
     };
-    
+
     updateWidth();
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(container);
@@ -303,21 +303,21 @@ const TimelinePanel = ({
   // Auto-scroll to keep playhead visible during playback
   useEffect(() => {
     if (!isPlaying || !getPositionSeconds) return;
-    
+
     let rafId;
-    
+
     const autoScroll = () => {
       const pos = getPositionSeconds();
       const pps = pixelsPerSecondRef.current;
       const xAbsolute = pos * pps;
-      
+
       // Auto-scroll to keep playhead visible during playback
       const container = tracksContainerRef.current;
       if (container) {
         const currentScroll = container.scrollLeft;
         const viewWidth = container.clientWidth - 200; // Subtract track labels width
         const playheadScreenX = xAbsolute - currentScroll;
-        
+
         // Scroll when playhead reaches right 20% of view
         const scrollThreshold = viewWidth * 0.8;
         if (playheadScreenX > scrollThreshold) {
@@ -330,10 +330,10 @@ const TimelinePanel = ({
           container.scrollLeft = Math.max(0, xAbsolute - viewWidth * 0.1);
         }
       }
-      
+
       rafId = requestAnimationFrame(autoScroll);
     };
-    
+
     rafId = requestAnimationFrame(autoScroll);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
@@ -343,11 +343,11 @@ const TimelinePanel = ({
   // Scroll to show playhead when position changes significantly (e.g., stop/rewind)
   useEffect(() => {
     if (isPlaying) return; // Don't interfere with playback auto-scroll
-    
+
     const xAbsolute = positionSeconds * pixelsPerSecond;
     const xScreen = xAbsolute - (scrollLeft || 0);
     const viewWidth = containerWidth - 200;
-    
+
     // If playhead is off-screen, scroll to show it
     if (xScreen < 0 || xScreen > viewWidth) {
       // Center the playhead in view, or scroll to 0 if at start
@@ -373,7 +373,7 @@ const TimelinePanel = ({
       setScrollLeft(e.target.scrollLeft);
     }
   }, [setScrollLeft]);
-  
+
   // Keep scroll position in sync with persisted setting (e.g., after reload)
   useEffect(() => {
     const scroller = tracksContainerRef.current;
@@ -477,13 +477,13 @@ const TimelinePanel = ({
   // Use animatedLayersRef to get current rendered geometry (procedural shapes have null nodes in React state)
   const handleCaptureGlobalShapeKeyframe = useCallback((trackId) => {
     if (!captureGlobalShapeKeyframe) return;
-    
+
     // Prefer animated layers (has rendered geometry) over React state layers
     const animatedLayers = animatedLayersRef?.current;
-    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
-      ? animatedLayers 
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
+      ? animatedLayers
       : layers;
-    
+
     if (!sourceLayers?.length) return;
     captureGlobalShapeKeyframe(trackId, sourceLayers);
   }, [captureGlobalShapeKeyframe, layers, animatedLayersRef]);
@@ -492,13 +492,13 @@ const TimelinePanel = ({
   // Use animatedLayersRef to get current rendered geometry for procedural shapes
   const handleGenerateGlobalVariationKeyframe = useCallback((trackId) => {
     if (!generateGlobalVariationKeyframe) return;
-    
+
     // Prefer animated layers (has rendered geometry) over React state layers
     const animatedLayers = animatedLayersRef?.current;
-    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
-      ? animatedLayers 
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
+      ? animatedLayers
       : layers;
-    
+
     if (!sourceLayers?.length) return;
     generateGlobalVariationKeyframe(trackId, sourceLayers);
   }, [generateGlobalVariationKeyframe, layers, animatedLayersRef]);
@@ -507,13 +507,13 @@ const TimelinePanel = ({
   // Use animatedLayersRef to get current rendered geometry for procedural shapes
   const handleRerollGlobalShapeKeyframe = useCallback((trackId, keyframeId) => {
     if (!rerollGlobalShapeKeyframe) return;
-    
+
     // Prefer animated layers (has rendered geometry) over React state layers
     const animatedLayers = animatedLayersRef?.current;
-    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0) 
-      ? animatedLayers 
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
+      ? animatedLayers
       : layers;
-    
+
     if (!sourceLayers?.length) return;
     rerollGlobalShapeKeyframe(trackId, keyframeId, sourceLayers);
   }, [rerollGlobalShapeKeyframe, layers, animatedLayersRef]);
@@ -521,7 +521,7 @@ const TimelinePanel = ({
   // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName, timeSecondsOverride = null) => {
     if (!addShapeKeyframe || !layerIdOrName) return;
-    
+
     // Find the layer to capture its current state
     // TimelineTrackRow now passes the layer NAME (e.g., 'Layer 2') for stable targeting,
     // so resolve by id OR name.
@@ -531,26 +531,26 @@ const TimelinePanel = ({
       console.warn('[Timeline] Cannot capture shape: layer not found', layerIdOrName);
       return;
     }
-    
+
     // Get the animated layer which has the current node-edited geometry
     const animatedLayers = animatedLayersRef?.current;
     const animatedLayer = Array.isArray(animatedLayers) && layerIndex >= 0 ? animatedLayers[layerIndex] : null;
-    
+
     // Find the track to check which categories are enabled
     const track = tracks?.find(t => t.id === trackId);
     const categories = track?.categories || { shape: true, animation: false, color: false };
-    
+
     // Capture shape data - prefer React state (has current node edits during node edit mode)
     let nodes = null;
     let subpaths = null;
-    
+
     // First try React state layer (has current node edits during node edit mode)
     if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
       subpaths = layer.subpaths;
     } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
       nodes = layer.nodes;
     }
-    
+
     // Fall back to animated layer if React state doesn't have geometry
     if (!nodes && !subpaths && animatedLayer) {
       if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
@@ -559,18 +559,18 @@ const TimelinePanel = ({
         nodes = animatedLayer.nodes;
       }
     }
-    
+
     // If still no geometry, compute from numSides
     if (!nodes && !subpaths && layer.layerType === 'shape') {
       nodes = computeInitialNodes(layer.numSides ?? 6);
     }
-    
+
     const clonedNodes = nodes ? JSON.parse(JSON.stringify(nodes)) : null;
     const clonedSubpaths = subpaths ? JSON.parse(JSON.stringify(subpaths)) : null;
-    
+
     // Build extras object based on enabled categories
     const extras = {};
-    
+
     // Always capture position (for shape interpolation between screen positions)
     // Position includes x, y offsets and scale from layer.position
     extras.position = {
@@ -580,7 +580,7 @@ const TimelinePanel = ({
       xOffset: layer.xOffset ?? 0,
       yOffset: layer.yOffset ?? 0,
     };
-    
+
     // Always capture shape tab properties for tweening
     // These are the Layer Shape Tab controls: Sides, Curviness, Size, Size X, Size Y, Rotate
     extras.shapeParams = {
@@ -591,7 +591,7 @@ const TimelinePanel = ({
       radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
       rotation: layer.rotation ?? 0,
     };
-    
+
     // Capture animation parameters if enabled
     if (categories.animation) {
       extras.animation = {
@@ -605,13 +605,13 @@ const TimelinePanel = ({
         radiusFactor: layer.radiusFactor ?? 0.125,
       };
     }
-    
+
     // Always capture colors so keyframes can later tween correctly when the track's
     // "Color" category is enabled (the toggle controls playback, not what is stored).
     extras.colors = Array.isArray(layer.colors)
       ? JSON.parse(JSON.stringify(layer.colors))
       : ['#0000FF'];
-    
+
     const time = (Number.isFinite(timeSecondsOverride) ? timeSecondsOverride : positionSeconds);
     addShapeKeyframe(trackId, time, clonedNodes, clonedSubpaths, '', extras);
   }, [addShapeKeyframe, animatedLayersRef, layers, tracks, positionSeconds]);
@@ -619,22 +619,22 @@ const TimelinePanel = ({
   // Handle rerolling a variation keyframe
   const handleRerollVariation = useCallback((trackId, keyframeId) => {
     if (!timeline?.rerollVariationKeyframe) return;
-    
+
     // Find the track and keyframe
     const track = tracks?.find(t => t.id === trackId);
     if (!track || track.type !== 'shape') return;
-    
+
     // Get the layer for this track
     const targetId = track.targetId || '';
     const parts = targetId.split(':');
     const layerName = parts.length >= 2 ? parts[1] : null;
     const layer = layers.find(l => l?.name === layerName || l?.id === layerName);
-    
+
     if (!layer) {
       console.warn('[Timeline] Cannot reroll: layer not found for track', trackId);
       return;
     }
-    
+
     const success = timeline.rerollVariationKeyframe(trackId, keyframeId, layer);
     if (success) {
       console.log('Rerolled variation keyframe:', keyframeId);
@@ -742,22 +742,22 @@ const TimelinePanel = ({
   // Handle audio file load
   const handleLoadAudio = useCallback(async (file) => {
     if (!file) return;
-    
+
     try {
       const arrayBuffer = await file.arrayBuffer();
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      
+
       // Compute peaks for waveform display
       const channelData = audioBuffer.getChannelData(0);
       const sampleRate = audioBuffer.sampleRate;
       const duration = audioBuffer.duration;
-      
+
       // Downsample to ~2000 peaks
       const peakCount = Math.min(2000, Math.floor(duration * 10));
       const samplesPerPeak = Math.floor(channelData.length / peakCount);
       const peaks = [];
-      
+
       for (let i = 0; i < peakCount; i++) {
         const start = i * samplesPerPeak;
         const end = Math.min(start + samplesPerPeak, channelData.length);
@@ -768,7 +768,7 @@ const TimelinePanel = ({
         }
         peaks.push(max);
       }
-      
+
       setAudio({
         src: URL.createObjectURL(file),
         durationSeconds: duration,
@@ -778,12 +778,12 @@ const TimelinePanel = ({
         fileName: file.name,
         fileType: file.type,
       });
-      
+
       // Optionally adjust timeline length to match audio
       if (setLengthSeconds && duration > lengthSeconds) {
         setLengthSeconds(duration);
       }
-      
+
       audioContext.close();
     } catch (error) {
       console.error('Failed to load audio file:', error);
@@ -889,41 +889,48 @@ const TimelinePanel = ({
                     ⚡
                   </button>
                 </div>
+                {/* Transient sensitivity slider - only when transients enabled */}
                 {transientSettings?.enabled && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Sens:</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={transientSettings?.sensitivity ?? 50}
-                        onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
-                        style={{ flex: 1, height: 12, cursor: 'pointer' }}
-                        title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
-                      />
-                      <span style={{ color: '#ff9800', minWidth: 20, textAlign: 'right' }}>
-                        {transients?.length || 0}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Energy:</span>
-	                      <input
-	                        type="range"
-	                        min="0"
-	                        max="2"
-	                        step="0.01"
-	                        value={Number.isFinite(energyInfluence) ? energyInfluence : 0.5}
-	                        disabled={!energyMap?.length || !enableEnergyScaling}
-	                        onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
-	                        style={{ flex: 1, height: 12, cursor: (!energyMap?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
-	                        title={`Energy influence: ${(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}`}
-	                      />
-                      <span style={{ color: 'rgba(255,255,255,0.5)', minWidth: 20, textAlign: 'right' }}>
-                        {(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}
-                      </span>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>Sens:</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={transientSettings?.sensitivity ?? 50}
+                      onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
+                      style={{ flex: 1, height: 12, cursor: 'pointer' }}
+                      title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
+                    />
+                    <span style={{ color: '#ff9800', minWidth: 20, textAlign: 'right' }}>
+                      {transients?.length || 0}
+                    </span>
+                  </div>
+                )}
+                {/* Energy influence slider - visible when transients OR energy scaling enabled */}
+                {(transientSettings?.enabled || enableEnergyScaling) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.6rem' }}>
+                    <span
+                      style={{ color: enableEnergyScaling ? '#4fc3f7' : 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}
+                      title="Energy Influence: Controls how much audio energy affects keyframe variation. Low energy = subtle variation, high energy = dramatic variation."
+                    >
+                      Energy:
+                    </span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="2"
+                      step="0.01"
+                      value={Number.isFinite(energyInfluence) ? energyInfluence : 0.5}
+                      disabled={!energyMap?.length || !enableEnergyScaling}
+                      onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
+                      style={{ flex: 1, height: 12, cursor: (!energyMap?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
+                      title={`Energy influence: ${(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}\n\nThis scales keyframe variation by audio energy:\n• 0 = Energy has no effect\n• 0.5 = Moderate effect (default)\n• 1.0 = Strong effect (0.05x at quiet, 2x at loud)\n• 2.0 = Extreme effect (nearly 0x at quiet, 4x at loud)`}
+                    />
+                    <span style={{ color: enableEnergyScaling ? '#4fc3f7' : 'rgba(255,255,255,0.5)', minWidth: 24, textAlign: 'right' }}>
+                      {(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1068,9 +1075,12 @@ const TimelinePanel = ({
                     />
                     <span>Breathing</span>
                   </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="Scale variation by audio energy (requires audio energy map)">
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    title="Energy Scaling: When enabled, generated keyframes (Shift+R, Shift+F) will have their variation scaled by audio energy.\n\n• Quiet moments → subtle variation\n• Loud moments → dramatic variation\n\nAdjust the Energy slider to control the effect strength."
+                  >
                     <label
-                      style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: energyMap?.length ? 'pointer' : 'not-allowed', color: 'rgba(255, 255, 255, 0.7)' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: energyMap?.length ? 'pointer' : 'not-allowed', color: energyMap?.length && enableEnergyScaling ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)' }}
                     >
                       <input
                         type="checkbox"
@@ -1210,7 +1220,7 @@ const TimelinePanel = ({
                 onSeek={seekTo}
               />
             ))}
-            
+
             {/* Add track button - header column sticky like other track rows */}
             <div
               style={{
