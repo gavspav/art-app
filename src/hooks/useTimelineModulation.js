@@ -73,7 +73,7 @@ export function useTimelineModulation({
 }) {
   const timeline = useTimeline();
   const { isNodeEditMode, nodeEditContext, timelineMode } = useAppState() || {};
-  
+
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
   // Initialize layersRef with current layers value (not empty)
@@ -84,7 +84,7 @@ export function useTimelineModulation({
   const getPresetSlotRef = useRef(getPresetSlot);
   const morphRouteRef = useRef(Array.isArray(morphRoute) ? [...morphRoute] : []);
   const morphNodesRef = useRef(false);
-  
+
   // Keep refs in sync - update synchronously to avoid stale data in RAF loops
   modulationStoreRef.current = modulationStore;
   layersRef.current = Array.isArray(layers) ? layers : [];
@@ -98,7 +98,7 @@ export function useTimelineModulation({
   // Layer pool for timeline layersCount modulation - preserves layer IDs when shrinking/growing
   // This prevents tracks from losing their targets when layer count changes during playback
   const layerPoolRef = useRef([]);
-  
+
   // Track the max layer count seen during this timeline session to know when to use pool
   const maxLayerCountRef = useRef(0);
   useEffect(() => {
@@ -130,26 +130,26 @@ export function useTimelineModulation({
    */
   const parseTargetId = useCallback((targetId) => {
     if (!targetId || typeof targetId !== 'string') return null;
-    
+
     const parts = targetId.split(':');
     if (parts.length < 2) return null;
-    
+
     const type = parts[0];
-    
+
     if (type === 'global') {
       return { type: 'global', paramId: parts[1] };
     }
-    
+
     if (type === 'layer' && parts.length >= 3) {
       const layerIdOrName = parts[1];
       const paramId = parts.slice(2).join(':'); // In case param has colons
-      
+
       // Resolve layer name to id
       const layerId = layerNameToIdRef.current[layerIdOrName] || layerIdOrName;
-      
+
       return { type: 'layer', layerId, paramId };
     }
-    
+
     return null;
   }, []);
 
@@ -178,25 +178,25 @@ export function useTimelineModulation({
       }
       return;
     }
-    
+
     const { isPlaying, positionSeconds, tracks } = timeline;
     const store = modulationStoreRef.current;
-    
+
     if (!store || !Array.isArray(tracks)) return;
-    
+
     // Clear all timeline modulations first when not playing
     // During playback, RAF loop manages layer params for smoother updates
     if (!isPlaying) {
       store.clearAllMods('timeline');
     }
-    
+
     // Evaluate each enabled track
     // Collect shape track results to apply after numeric tracks
     const shapeUpdates = []; // { layerId, nodes, subpaths, position, animation, colors }
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
-      
+
       // Handle global shape tracks (affects ALL layers at once)
       // During playback, the RAF loop handles this for smooth 60fps updates
       // When paused (scrubbing), we add to shapeUpdates for the scrubbing preview below
@@ -208,7 +208,7 @@ export function useTimelineModulation({
             globalResult.layers.forEach((interpolatedData, index) => {
               const layer = layers[index];
               if (!layer || !interpolatedData) return;
-              
+
               const updateData = {
                 layerId: layer.id,
                 layerName: layer.name,
@@ -218,16 +218,17 @@ export function useTimelineModulation({
                 shapeParams: interpolatedData.shapeParams,
                 animation: interpolatedData.animation,
                 colors: interpolatedData.colors,
+                base: interpolatedData.base, // Pass base for runtime blending
                 isGlobalShapeTrack: true,
               };
-              
+
               shapeUpdates.push(updateData);
             });
           }
         }
         continue;
       }
-      
+
       // Handle shape tracks separately (now includes position, animation, colors)
       if (track.type === 'shape') {
         const shapeResult = evaluateShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
@@ -246,12 +247,13 @@ export function useTimelineModulation({
               shapeParams: shapeResult.shapeParams, // Extended: Layer Shape Tab params (Sides, Curviness, Size, etc.)
               animation: shapeResult.animation,     // Extended: interpolated animation params
               colors: shapeResult.colors,           // Extended: interpolated colors
+              base: shapeResult.base,               // Pass base for runtime blending
             });
           }
         }
         continue;
       }
-      
+
       // Handle color tracks separately
       if (track.type === 'color') {
         const colorResult = evaluateColorTrackAtTime(track, positionSeconds);
@@ -266,15 +268,15 @@ export function useTimelineModulation({
         }
         continue;
       }
-      
+
       // Evaluate numeric track at current position
       const value = evaluateTrackAtTime(track, positionSeconds);
       if (value === null) continue;
-      
+
       // Parse target and apply
       const parsed = parseTargetId(track.targetId);
       if (!parsed) continue;
-      
+
       if (parsed.type === 'layer') {
         // Apply to modulation store for layer parameter
         // During playback, RAF loop handles this for smoother updates
@@ -344,11 +346,11 @@ export function useTimelineModulation({
               // Check if we already have the target count to avoid infinite loops
               const currentCount = layersRef.current?.length || 0;
               if (currentCount === target) break;
-              
+
               setLayers(prev => {
                 if (!Array.isArray(prev)) return prev;
                 if (prev.length === target) return prev;
-                
+
                 if (prev.length > target) {
                   // Shrinking: move removed layers to pool (preserves their IDs for later)
                   const removed = prev.slice(target);
@@ -361,20 +363,20 @@ export function useTimelineModulation({
                   });
                   return prev.slice(0, target);
                 }
-                
+
                 // Growing: try to restore from pool first (preserves IDs)
                 const next = [...prev];
                 const pool = layerPoolRef.current;
-                
+
                 while (next.length < target) {
                   const layerIndex = next.length;
-                  
+
                   // Try to find a pooled layer that was previously at this index or has matching name
-                  const pooledIndex = pool.findIndex(p => 
-                    p.name === `Layer ${layerIndex + 1}` || 
+                  const pooledIndex = pool.findIndex(p =>
+                    p.name === `Layer ${layerIndex + 1}` ||
                     pool.indexOf(p) === 0 // fallback: use first available
                   );
-                  
+
                   if (pooledIndex >= 0) {
                     // Restore from pool - preserves the original ID!
                     const restored = pool.splice(pooledIndex, 1)[0];
@@ -595,7 +597,7 @@ export function useTimelineModulation({
               // Check if the value has actually changed to avoid infinite loops
               const currentValue = layersRef.current?.[0]?.[prop];
               if (currentValue !== undefined && Math.abs(currentValue - value) < 0.001) break;
-              
+
               const categoryMap = {
                 variationPosition: ['position'],
                 variationShape: ['shape'],
@@ -604,20 +606,20 @@ export function useTimelineModulation({
                 variationScale: ['scale'],
               };
               const affectCategories = categoryMap[prop] || null;
-              
+
               setLayers(prev => {
                 if (!Array.isArray(prev) || prev.length <= 1) return prev;
-                
+
                 // Check again inside setLayers to be safe
                 const currentVal = prev[0]?.[prop];
                 if (currentVal !== undefined && Math.abs(currentVal - value) < 0.001) return prev;
-                
+
                 // Update the variation value on all layers
                 const updated = prev.map(layer => ({
                   ...layer,
                   [prop]: value,
                 }));
-                
+
                 const firstLayer = updated[0];
                 const baseVar = {
                   shape: Number(firstLayer?.variationShape ?? DEFAULT_LAYER.variationShape),
@@ -626,25 +628,25 @@ export function useTimelineModulation({
                   position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
                   scale: Number(firstLayer?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0),
                 };
-                
+
                 // Rebuild layers with new variation
                 const rebuilt = [firstLayer];
                 let prevLayer = firstLayer;
-                
+
                 for (let i = 1; i < updated.length; i++) {
                   const original = updated[i];
                   const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
                     affectCategories,
                     preserveSeeds: true,
                   }) || original;
-                  
+
                   const merged = {
                     ...original,
                     ...varied,
                     id: original.id ?? varied.id,
                     name: original.name || varied.name,
                   };
-                  
+
                   // Preserve fields not in the affected category
                   const categorySet = affectCategories ? new Set(affectCategories) : null;
                   if (categorySet) {
@@ -656,11 +658,11 @@ export function useTimelineModulation({
                       merged.position = { ...original.position };
                     }
                   }
-                  
+
                   rebuilt.push(merged);
                   prevLayer = merged;
                 }
-                
+
                 return rebuilt;
               });
             }
@@ -686,7 +688,7 @@ export function useTimelineModulation({
         }
         // Also find and store by the layer's actual name property
         if (Array.isArray(layers)) {
-          const matchingLayer = layers.find(l => 
+          const matchingLayer = layers.find(l =>
             l?.id === update.layerId || l?.name === update.layerName
           );
           if (matchingLayer?.name && matchingLayer.name !== update.layerId && matchingLayer.name !== update.layerName) {
@@ -695,18 +697,18 @@ export function useTimelineModulation({
         }
       }
       shapeTrackUpdatesRef.current = updateMap;
-      
+
       // When paused, apply shape updates directly to layers (scrubbing preview)
       // During playback, the animation loop handles this
       if (!isPlaying && typeof setLayers === 'function') {
         setLayers(prev => {
           if (!Array.isArray(prev)) return prev;
-          
+
           let changed = false;
           const updated = prev.map(layer => {
             const shapeUpdate = updateMap.get(layer?.name) || updateMap.get(layer?.id);
             if (!shapeUpdate) return layer;
-            
+
             changed = true;
             const updatedLayer = { ...layer };
 
@@ -723,11 +725,11 @@ export function useTimelineModulation({
             const TIME_EPSILON = 0.05; // 50ms tolerance
             const positionChanged = nodeEditContext?.timelinePosition != null &&
               Math.abs(positionSeconds - nodeEditContext.timelinePosition) > TIME_EPSILON;
-            
+
             // Block geometry updates only for the edited layer when position hasn't changed
             // If user scrubs timeline, we apply the new geometry (timeline is authoritative)
             const shouldBlockGeometry = nodeEditActive && isEditedLayer && !positionChanged;
-            
+
             if (!shouldBlockGeometry) {
               if (shapeUpdate.subpaths) {
                 updatedLayer.subpaths = shapeUpdate.subpaths;
@@ -737,7 +739,7 @@ export function useTimelineModulation({
                 updatedLayer.subpaths = undefined;
               }
             }
-            
+
             // Apply position
             if (shapeUpdate.position) {
               updatedLayer.position = {
@@ -753,7 +755,7 @@ export function useTimelineModulation({
                 updatedLayer.yOffset = shapeUpdate.position.yOffset;
               }
             }
-            
+
             // Apply shape params (Layer Shape Tab)
             if (shapeUpdate.shapeParams) {
               const sp = shapeUpdate.shapeParams;
@@ -764,7 +766,7 @@ export function useTimelineModulation({
               if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
               if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
             }
-            
+
             // Apply animation params
             if (shapeUpdate.animation) {
               const anim = shapeUpdate.animation;
@@ -775,16 +777,16 @@ export function useTimelineModulation({
               if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
               if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
             }
-            
+
             // Apply colors
             if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
               updatedLayer.colors = shapeUpdate.colors;
               updatedLayer.numColors = shapeUpdate.colors.length;
             }
-            
+
             return updatedLayer;
           });
-          
+
           if (changed) return updated;
           return prev;
         });
@@ -811,26 +813,26 @@ export function useTimelineModulation({
   useEffect(() => {
     if (!timeline?.isPlaying || !timeline?.visible) return;
     if (!timelineMode) return;
-    
+
     const getPos = getPositionSecondsRef.current;
     if (!getPos) return;
-    
+
     let rafId;
     const updateModulations = () => {
       const pos = getPos();
       const store = modulationStoreRef.current;
       const tracks = timeline?.tracks;
-      
+
       if (store && Array.isArray(tracks)) {
         // Clear and re-apply timeline modulations
         store.clearAllMods('timeline');
-        
+
         // Collect shape track updates
         const shapeUpdates = new Map();
-        
+
         for (const track of tracks) {
           if (!track.enabled || !track.targetId) continue;
-          
+
           // Handle global shape tracks - affects ALL layers at once
           if (track.type === 'globalShape') {
             const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
@@ -841,7 +843,7 @@ export function useTimelineModulation({
                 globalResult.layers.forEach((interpolatedData, index) => {
                   const layer = currentLayers[index];
                   if (!layer || !interpolatedData) return;
-                  
+
                   const updateData = {
                     layerId: layer.id,
                     nodes: interpolatedData.nodes,
@@ -852,7 +854,7 @@ export function useTimelineModulation({
                     colors: interpolatedData.colors,
                     isGlobalShapeTrack: true, // Flag to identify source
                   };
-                  
+
                   // Store by layer id and name
                   if (layer.id) shapeUpdates.set(layer.id, updateData);
                   if (layer.name) shapeUpdates.set(layer.name, updateData);
@@ -861,7 +863,7 @@ export function useTimelineModulation({
             }
             continue;
           }
-          
+
           // Handle shape tracks - evaluate and store in ref for animation loop
           if (track.type === 'shape') {
             const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
@@ -879,19 +881,19 @@ export function useTimelineModulation({
                 };
                 // Store by resolved ID (UUID)
                 shapeUpdates.set(parsed.layerId, updateData);
-                
+
                 // Also store by original layer name from targetId
                 const parts = track.targetId.split(':');
                 const originalName = parts.length >= 2 ? parts[1] : null;
                 if (originalName && originalName !== parsed.layerId) {
                   shapeUpdates.set(originalName, updateData);
                 }
-                
+
                 // Also find and store by the layer's actual name property
                 // This handles cases where layer.name differs from targetId name
                 const currentLayers = layersRef.current;
                 if (Array.isArray(currentLayers)) {
-                  const matchingLayer = currentLayers.find(l => 
+                  const matchingLayer = currentLayers.find(l =>
                     l?.id === parsed.layerId || l?.name === originalName
                   );
                   if (matchingLayer?.name && matchingLayer.name !== parsed.layerId && matchingLayer.name !== originalName) {
@@ -902,7 +904,7 @@ export function useTimelineModulation({
             }
             continue;
           }
-          
+
           // Handle color tracks
           if (track.type === 'color') {
             const colorResult = evaluateColorTrackAtTime(track, pos);
@@ -916,28 +918,28 @@ export function useTimelineModulation({
             }
             continue;
           }
-          
+
           const value = evaluateTrackAtTime(track, pos);
           if (value === null) continue;
-          
+
           const parsed = parseTargetId(track.targetId);
           if (!parsed) continue;
-          
+
           if (parsed.type === 'layer') {
             store.setMod('timeline', parsed.layerId, parsed.paramId, value);
           }
           // Global params are handled by the main effect since they need setters
         }
-        
+
         // Update shape track ref (consumed by animation loop)
         if (shapeTrackUpdatesRef) {
           shapeTrackUpdatesRef.current = shapeUpdates;
         }
       }
-      
+
       rafId = requestAnimationFrame(updateModulations);
     };
-    
+
     rafId = requestAnimationFrame(updateModulations);
     return () => {
       if (rafId) cancelAnimationFrame(rafId);

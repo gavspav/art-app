@@ -22,7 +22,7 @@ export const CURVE_TYPES = {
  * Returns y value for a given t parameter (0-1)
  */
 const evaluateCubicBezier = (t, cp1x, cp1y, cp2x, cp2y) => {
-  const y = 3 * (1-t) * (1-t) * t * cp1y + 3 * (1-t) * t * t * cp2y + t * t * t;
+  const y = 3 * (1 - t) * (1 - t) * t * cp1y + 3 * (1 - t) * t * t * cp2y + t * t * t;
   return y;
 };
 
@@ -32,8 +32,8 @@ const evaluateCubicBezier = (t, cp1x, cp1y, cp2x, cp2y) => {
 const findTForX = (targetX, cp1x, cp2x, iterations = 8) => {
   let t = targetX; // Initial guess
   for (let i = 0; i < iterations; i++) {
-    const x = 3 * (1-t) * (1-t) * t * cp1x + 3 * (1-t) * t * t * cp2x + t * t * t;
-    const dx = 3 * (1-t) * (1-t) * cp1x + 6 * (1-t) * t * (cp2x - cp1x) + 3 * t * t * (1 - cp2x);
+    const x = 3 * (1 - t) * (1 - t) * t * cp1x + 3 * (1 - t) * t * t * cp2x + t * t * t;
+    const dx = 3 * (1 - t) * (1 - t) * cp1x + 6 * (1 - t) * t * (cp2x - cp1x) + 3 * t * t * (1 - cp2x);
     if (Math.abs(dx) < 1e-6) break;
     t = t - (x - targetX) / dx;
     t = Math.max(0, Math.min(1, t));
@@ -57,7 +57,7 @@ const cubicBezierY = (x, cp1x, cp1y, cp2x, cp2y) => {
  */
 export const getBezierControlPoints = (curveType, tension = 0.5) => {
   const cpOffset = 0.1 + tension * 0.8; // 0.1 to 0.9
-  
+
   switch (curveType) {
     case 'easeIn':
       return { cp1x: cpOffset, cp1y: 0, cp2x: 1, cp2y: 1 };
@@ -117,17 +117,17 @@ export const interpolateValue = (t, startValue, endValue, curveType = 'linear', 
  */
 export const evaluateEnvelope = (envelope, x) => {
   if (!envelope?.nodes || envelope.nodes.length === 0) return x;
-  
+
   const nodes = envelope.nodes;
   if (nodes.length === 1) return nodes[0].y;
-  
+
   // Clamp x to 0-1
   x = Math.max(0, Math.min(1, x));
-  
+
   // Find the two nodes to interpolate between
   let left = nodes[0];
   let right = nodes[nodes.length - 1];
-  
+
   for (let i = 0; i < nodes.length - 1; i++) {
     if (x >= nodes[i].x && x <= nodes[i + 1].x) {
       left = nodes[i];
@@ -135,18 +135,18 @@ export const evaluateEnvelope = (envelope, x) => {
       break;
     }
   }
-  
+
   // Handle edge cases
   if (x <= left.x) return left.y;
   if (x >= right.x) return right.y;
-  
+
   // Get curve type and tension for this segment (stored on left node)
   const curveType = left.curve || 'linear';
   const tension = left.tension !== undefined ? left.tension : 0.5;
-  
+
   // Calculate normalized position within segment (0-1)
   const t = (x - left.x) / (right.x - left.x);
-  
+
   // Apply easing function with tension and interpolate
   return interpolateValue(t, left.y, right.y, curveType, tension);
 };
@@ -159,32 +159,32 @@ export const evaluateEnvelope = (envelope, x) => {
  */
 export const evaluateTrackAtTime = (track, timeSeconds) => {
   if (!track?.keyframes || track.keyframes.length === 0) return null;
-  
+
   const keyframes = track.keyframes;
-  
+
   // Single keyframe: return its value
   if (keyframes.length === 1) {
     const value01 = keyframes[0].value01;
     const { outputMin = 0, outputMax = 1 } = track.range || {};
     return outputMin + value01 * (outputMax - outputMin);
   }
-  
+
   // Find surrounding keyframes
   let left = keyframes[0];
   let right = keyframes[keyframes.length - 1];
-  
+
   // Before first keyframe
   if (timeSeconds <= left.timeSeconds) {
     const { outputMin = 0, outputMax = 1 } = track.range || {};
     return outputMin + left.value01 * (outputMax - outputMin);
   }
-  
+
   // After last keyframe
   if (timeSeconds >= right.timeSeconds) {
     const { outputMin = 0, outputMax = 1 } = track.range || {};
     return outputMin + right.value01 * (outputMax - outputMin);
   }
-  
+
   // Find the segment containing timeSeconds
   for (let i = 0; i < keyframes.length - 1; i++) {
     if (timeSeconds >= keyframes[i].timeSeconds && timeSeconds <= keyframes[i + 1].timeSeconds) {
@@ -193,18 +193,18 @@ export const evaluateTrackAtTime = (track, timeSeconds) => {
       break;
     }
   }
-  
+
   // Calculate normalized position within segment (0-1)
   const segmentDuration = right.timeSeconds - left.timeSeconds;
   const t = segmentDuration > 0 ? (timeSeconds - left.timeSeconds) / segmentDuration : 0;
-  
+
   // Get curve type and tension from left keyframe
   const curveType = left.curve || 'linear';
   const tension = left.tension !== undefined ? left.tension : 0.5;
-  
+
   // Interpolate value01
   const value01 = interpolateValue(t, left.value01, right.value01, curveType, tension);
-  
+
   // Map to output range
   const { outputMin = 0, outputMax = 1 } = track.range || {};
   return outputMin + value01 * (outputMax - outputMin);
@@ -229,11 +229,11 @@ const normalizeColorArrays = (colorsA, colorsB) => {
 
   const maxLen = Math.max(colorsA.length, colorsB.length);
   if (maxLen === 0) return { a: [], b: [] };
-  
+
   const expandArray = (arr, targetLen) => {
     if (arr.length === 0) return Array(targetLen).fill('#000000');
     if (arr.length >= targetLen) return arr.slice(0, targetLen);
-    
+
     // Duplicate colors to reach target length
     const result = [];
     for (let i = 0; i < targetLen; i++) {
@@ -241,7 +241,7 @@ const normalizeColorArrays = (colorsA, colorsB) => {
     }
     return result;
   };
-  
+
   return {
     a: expandArray(colorsA, maxLen),
     b: expandArray(colorsB, maxLen),
@@ -254,7 +254,7 @@ const normalizeColorArrays = (colorsA, colorsB) => {
 const lerpColorArrays = (colorsA, colorsB, t) => {
   const { a, b } = normalizeColorArrays(colorsA, colorsB);
   if (a.length === 0) return b.length > 0 ? b : [];
-  
+
   return a.map((colorA, i) => {
     const colorB = b[i] || colorA;
     return lerpColor(colorA, colorB, t);
@@ -278,19 +278,19 @@ const lerp = (a, b, t) => a + (b - a) * t;
  */
 export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubpaths) => {
   if (!track || track.type !== 'shape') return null;
-  
+
   const keyframes = track.keyframes || [];
   if (keyframes.length === 0) return null;
-  
+
   // Get category toggles (default: shape + color)
   // Color is always enabled by default (even for older tracks that may have stored color:false).
   const categories = { ...(track.categories || { shape: true, animation: false, color: true }), color: true };
-  
+
   // Sort by time (should already be sorted, but ensure)
   const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
-  
+
   const isEnabled = (kf) => kf && kf.enabled !== false;
-  
+
   // Helper to build result from a single keyframe
   const buildSingleResult = (kf) => {
     if (!isEnabled(kf)) return null;
@@ -298,44 +298,44 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       nodes: categories.shape ? kf.nodes : null,
       subpaths: categories.shape ? kf.subpaths : null,
     };
-    
+
     // Always include position for shape interpolation
     if (kf.position) {
       result.position = { ...kf.position };
     }
-    
+
     // Always include shape params (Layer Shape Tab: Sides, Curviness, Size, etc.)
     if (kf.shapeParams) {
       result.shapeParams = { ...kf.shapeParams };
     }
-    
+
     if (categories.animation && kf.animation) {
       result.animation = { ...kf.animation };
     }
-    
+
     if (categories.color && Array.isArray(kf.colors)) {
       result.colors = [...kf.colors];
     }
-    
+
     return result;
   };
-  
+
   // Before first keyframe: use first keyframe's data if enabled
   if (timeSeconds <= sorted[0].timeSeconds) {
     return buildSingleResult(sorted[0]);
   }
-  
+
   // After last keyframe: use last keyframe's data if enabled
   if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
     return buildSingleResult(sorted[sorted.length - 1]);
   }
-  
+
   // Find bracketing keyframes
   let leftIndex = 0;
   let rightIndex = sorted.length - 1;
   let left = sorted[leftIndex];
   let right = sorted[rightIndex];
-  
+
   for (let i = 0; i < sorted.length - 1; i++) {
     if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
       leftIndex = i;
@@ -345,21 +345,21 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       break;
     }
   }
-  
+
   // Same keyframe or very close
   if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
     return buildSingleResult(left);
   }
-  
+
   // Calculate local t (0-1) between the two keyframes
   const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
   const clampedT = Math.max(0, Math.min(1, localT));
-  
+
   // If the leading keyframe for this segment is disabled, treat the shape track as off
   if (!isEnabled(left)) {
     return null;
   }
-  
+
   // Build interpolated result
   const result = {
     nodes: null,
@@ -371,7 +371,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   const curveType = left.curve || 'linear';
   const tension = left.tension !== undefined ? left.tension : 0.5;
   const easedT = interpolateValue(clampedT, 0, 1, curveType, tension);
-  
+
   // Interpolate shape (nodes/subpaths) if enabled
   if (categories.shape) {
     // Try to interpolate subpaths first
@@ -381,7 +381,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
         result.subpaths = interpolated;
       }
     }
-    
+
     // Try to interpolate nodes if subpaths didn't work
     if (!result.subpaths && left.nodes && right.nodes && lerpNodes) {
       const interpolated = lerpNodes(left.nodes, right.nodes, clampedT);
@@ -389,19 +389,19 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
         result.nodes = interpolated;
       }
     }
-    
+
     // Topology mismatch: hold previous keyframe's shape
     if (!result.nodes && !result.subpaths) {
       result.nodes = left.nodes;
       result.subpaths = left.subpaths;
     }
   }
-  
+
   // Always interpolate position (for shape screen position)
   if (left.position || right.position) {
     const posA = left.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
     const posB = right.position || posA;
-    
+
     result.position = {
       x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
       y: lerp(posA.y ?? 0.5, posB.y ?? 0.5, easedT),
@@ -410,12 +410,12 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, easedT),
     };
   }
-  
+
   // Always interpolate shape params (Layer Shape Tab: Sides, Curviness, Size, Size X, Size Y, Rotate)
   if (left.shapeParams || right.shapeParams) {
     const spA = left.shapeParams || {};
     const spB = right.shapeParams || spA;
-    
+
     result.shapeParams = {
       // numSides: interpolate but round to integer for rendering
       numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, easedT)),
@@ -426,12 +426,12 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
     };
   }
-  
+
   // Interpolate animation parameters if enabled
   if (categories.animation && (left.animation || right.animation)) {
     const animA = left.animation || {};
     const animB = right.animation || animA;
-    
+
     result.animation = {
       // movementStyle: use left's style (discrete, no interpolation)
       movementStyle: animA.movementStyle ?? animB.movementStyle ?? 'bounce',
@@ -444,7 +444,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       radiusFactor: lerp(animA.radiusFactor ?? 0.125, animB.radiusFactor ?? 0.125, easedT),
     };
   }
-  
+
   // Interpolate colors if enabled
   if (categories.color) {
     const hasColors = (kf) => Array.isArray(kf?.colors) && kf.colors.length > 0;
@@ -483,7 +483,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.colors = [...rightColorKf.colors];
     }
   }
-  
+
   return result;
 };
 
@@ -520,27 +520,27 @@ function lerpColor(color1, color2, t) {
  */
 export const evaluateColorTrackAtTime = (track, timeSeconds) => {
   if (!track || track.type !== 'color') return null;
-  
+
   const keyframes = track.keyframes || [];
   if (keyframes.length === 0) return null;
-  
+
   // Sort by time
   const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
-  
+
   // Before first keyframe: use first keyframe's color
   if (timeSeconds <= sorted[0].timeSeconds) {
     return sorted[0].color || '#ffffff';
   }
-  
+
   // After last keyframe: use last keyframe's color
   if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
     return sorted[sorted.length - 1].color || '#ffffff';
   }
-  
+
   // Find bracketing keyframes
   let left = sorted[0];
   let right = sorted[sorted.length - 1];
-  
+
   for (let i = 0; i < sorted.length - 1; i++) {
     if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
       left = sorted[i];
@@ -548,16 +548,16 @@ export const evaluateColorTrackAtTime = (track, timeSeconds) => {
       break;
     }
   }
-  
+
   // Same keyframe or very close
   if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
     return left.color || '#ffffff';
   }
-  
+
   // Calculate local t (0-1) between the two keyframes
   const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
   const clampedT = Math.max(0, Math.min(1, localT));
-  
+
   // Interpolate colors
   return lerpColor(left.color || '#ffffff', right.color || '#ffffff', clampedT);
 };
@@ -568,7 +568,7 @@ export const evaluateColorTrackAtTime = (track, timeSeconds) => {
 export const findSegmentAtX = (nodes, x) => {
   if (!nodes || nodes.length < 2) return -1;
   x = Math.max(0, Math.min(1, x));
-  
+
   for (let i = 0; i < nodes.length - 1; i++) {
     if (x >= nodes[i].x && x <= nodes[i + 1].x) {
       return i;
@@ -599,27 +599,27 @@ export const DEFAULT_ENVELOPE = {
  */
 export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubpaths) => {
   if (!track || track.type !== 'globalShape') return null;
-  
+
   const keyframes = track.keyframes || [];
   if (keyframes.length === 0) return null;
-  
+
   // Get category toggles (default: shape + color)
   // Color is always enabled by default.
   const categories = { ...(track.categories || { shape: true, animation: false, color: true }), color: true };
-  
+
   // Sort by time; ignore malformed keyframes (e.g. numeric keyframes accidentally added to a globalShape track)
   const sorted = [...keyframes]
     .filter(kf => kf && Array.isArray(kf.layers))
     .sort((a, b) => a.timeSeconds - b.timeSeconds);
   if (sorted.length === 0) return null;
-  
+
   const isEnabled = (kf) => kf && kf.enabled !== false;
-  
+
   // Helper to build result from a single keyframe
   const buildSingleResult = (kf) => {
     if (!isEnabled(kf)) return null;
     if (!Array.isArray(kf.layers)) return null;
-    
+
     return {
       layers: kf.layers.map(layerData => ({
         nodes: categories.shape ? layerData.nodes : null,
@@ -631,21 +631,21 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       })),
     };
   };
-  
+
   // Before first keyframe
   if (timeSeconds <= sorted[0].timeSeconds) {
     return buildSingleResult(sorted[0]);
   }
-  
+
   // After last keyframe
   if (timeSeconds >= sorted[sorted.length - 1].timeSeconds) {
     return buildSingleResult(sorted[sorted.length - 1]);
   }
-  
+
   // Find bracketing keyframes
   let left = sorted[0];
   let right = sorted[sorted.length - 1];
-  
+
   for (let i = 0; i < sorted.length - 1; i++) {
     if (timeSeconds >= sorted[i].timeSeconds && timeSeconds <= sorted[i + 1].timeSeconds) {
       left = sorted[i];
@@ -653,35 +653,35 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       break;
     }
   }
-  
+
   // Same keyframe or very close
   if (left === right || Math.abs(right.timeSeconds - left.timeSeconds) < 0.001) {
     return buildSingleResult(left);
   }
-  
+
   // If leading keyframe is disabled, return null
   if (!isEnabled(left)) return null;
-  
+
   // Calculate local t (0-1)
   const localT = (timeSeconds - left.timeSeconds) / (right.timeSeconds - left.timeSeconds);
   const clampedT = Math.max(0, Math.min(1, localT));
-  
+
   // Apply easing from left keyframe
   const curveType = left.curve || 'linear';
   const tension = left.tension !== undefined ? left.tension : 0.5;
   const easedT = interpolateValue(clampedT, 0, 1, curveType, tension);
-  
+
   // Interpolate each layer
   const leftLayers = left.layers || [];
   const rightLayers = right.layers || [];
   const maxLayers = Math.max(leftLayers.length, rightLayers.length);
-  
+
   const interpolatedLayers = [];
-  
+
   for (let i = 0; i < maxLayers; i++) {
     const layerA = leftLayers[i] || {};
     const layerB = rightLayers[i] || layerA;
-    
+
     const result = {
       nodes: null,
       subpaths: null,
@@ -690,31 +690,31 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       animation: null,
       colors: null,
     };
-    
+
     // Interpolate shape (nodes/subpaths) if enabled
     if (categories.shape) {
       if (layerA.subpaths && layerB.subpaths && lerpSubpaths) {
         const interpolated = lerpSubpaths(layerA.subpaths, layerB.subpaths, clampedT);
         if (interpolated) result.subpaths = interpolated;
       }
-      
+
       if (!result.subpaths && layerA.nodes && layerB.nodes && lerpNodes) {
         const interpolated = lerpNodes(layerA.nodes, layerB.nodes, clampedT);
         if (interpolated) result.nodes = interpolated;
       }
-      
+
       // Topology mismatch: hold previous
       if (!result.nodes && !result.subpaths) {
         result.nodes = layerA.nodes;
         result.subpaths = layerA.subpaths;
       }
     }
-    
+
     // Interpolate position
     if (layerA.position || layerB.position) {
       const posA = layerA.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
       const posB = layerB.position || posA;
-      
+
       result.position = {
         x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
         y: lerp(posA.y ?? 0.5, posB.y ?? 0.5, easedT),
@@ -723,12 +723,12 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
         yOffset: lerp(posA.yOffset ?? 0, posB.yOffset ?? 0, easedT),
       };
     }
-    
+
     // Interpolate shape params
     if (layerA.shapeParams || layerB.shapeParams) {
       const spA = layerA.shapeParams || {};
       const spB = layerB.shapeParams || spA;
-      
+
       result.shapeParams = {
         numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, easedT)),
         curviness: lerp(spA.curviness ?? 1.0, spB.curviness ?? 1.0, easedT),
@@ -738,12 +738,12 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
         rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
       };
     }
-    
+
     // Interpolate animation if enabled
     if (categories.animation && (layerA.animation || layerB.animation)) {
       const animA = layerA.animation || {};
       const animB = layerB.animation || animA;
-      
+
       result.animation = {
         movementStyle: animA.movementStyle ?? animB.movementStyle ?? 'bounce',
         movementSpeed: lerp(animA.movementSpeed ?? 1, animB.movementSpeed ?? 1, easedT),
@@ -753,15 +753,97 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
         scaleMax: lerp(animA.scaleMax ?? 1.5, animB.scaleMax ?? 1.5, easedT),
       };
     }
-    
+
     // Interpolate colors if enabled
     if (categories.color && (layerA.colors || layerB.colors)) {
       result.colors = lerpColorArrays(layerA.colors, layerB.colors, easedT);
     }
-    
+
+    // Interpolate base properties if present (for runtime variation scaling)
+    if (layerA.base || layerB.base) {
+      const baseA = layerA.base || layerA; // Fallback to main if base missing? No, fallback to empty/undefined to avoid double-processing
+      const baseB = layerB.base || layerB;
+
+      const baseResult = {
+        nodes: null,
+        subpaths: null,
+        position: null,
+        shapeParams: null,
+        animation: null,
+        colors: null,
+      };
+
+      // Interpolate base shape
+      if (categories.shape) {
+        if (baseA.subpaths && baseB.subpaths && lerpSubpaths) {
+          const interpolated = lerpSubpaths(baseA.subpaths, baseB.subpaths, clampedT);
+          if (interpolated) baseResult.subpaths = interpolated;
+        }
+        if (!baseResult.subpaths && baseA.nodes && baseB.nodes && lerpNodes) {
+          const interpolated = lerpNodes(baseA.nodes, baseB.nodes, clampedT);
+          if (interpolated) baseResult.nodes = interpolated;
+        }
+        if (!baseResult.nodes && !baseResult.subpaths) {
+          baseResult.nodes = baseA.nodes;
+          baseResult.subpaths = baseA.subpaths;
+        }
+      }
+
+      // Interpolate base position
+      if (baseA.position || baseB.position) {
+        const pA = baseA.position || { x: 0.5, y: 0.5, scale: 1 };
+        const pB = baseB.position || pA;
+        baseResult.position = {
+          x: lerp(pA.x ?? 0.5, pB.x ?? 0.5, easedT),
+          y: lerp(pA.y ?? 0.5, pB.y ?? 0.5, easedT),
+          scale: lerp(pA.scale ?? 1, pB.scale ?? 1, easedT),
+          xOffset: lerp(pA.xOffset ?? 0, pB.xOffset ?? 0, easedT),
+          yOffset: lerp(pA.yOffset ?? 0, pB.yOffset ?? 0, easedT),
+        };
+      }
+
+      // Interpolate base shape params
+      if (baseA.shapeParams || baseB.shapeParams) {
+        const sA = baseA.shapeParams || {};
+        const sB = baseB.shapeParams || sA;
+        baseResult.shapeParams = {
+          numSides: Math.round(lerp(sA.numSides ?? 6, sB.numSides ?? 6, easedT)),
+          curviness: lerp(sA.curviness ?? 1.0, sB.curviness ?? 1.0, easedT),
+          radiusFactor: lerp(sA.radiusFactor ?? 0.125, sB.radiusFactor ?? 0.125, easedT),
+          radiusFactorX: lerp(sA.radiusFactorX ?? sA.radiusFactor ?? 0.125, sB.radiusFactorX ?? sB.radiusFactor ?? 0.125, easedT),
+          radiusFactorY: lerp(sA.radiusFactorY ?? sA.radiusFactor ?? 0.125, sB.radiusFactorY ?? sB.radiusFactor ?? 0.125, easedT),
+          rotation: lerp(sA.rotation ?? 0, sB.rotation ?? 0, easedT),
+        };
+      }
+
+      // Interpolate base animation
+      if (categories.animation && (baseA.animation || baseB.animation)) {
+        const aA = baseA.animation || {};
+        const aB = baseB.animation || aA;
+        baseResult.animation = {
+          movementStyle: aA.movementStyle ?? aB.movementStyle ?? 'bounce',
+          movementSpeed: lerp(aA.movementSpeed ?? 1, aB.movementSpeed ?? 1, easedT),
+          movementAngle: lerp(aA.movementAngle ?? 45, aB.movementAngle ?? 45, easedT),
+          scaleSpeed: lerp(aA.scaleSpeed ?? 0.05, aB.scaleSpeed ?? 0.05, easedT),
+          scaleMin: lerp(aA.scaleMin ?? 0, aB.scaleMin ?? 0, easedT),
+          scaleMax: lerp(aA.scaleMax ?? 1.5, aB.scaleMax ?? 1.5, easedT),
+        };
+      }
+
+      // Interpolate base colors
+      if (categories.color && (baseA.colors || baseB.colors)) {
+        // Fix: Check property existence before access to avoid errors
+        const cA = baseA.colors || [];
+        const cB = baseB.colors || [];
+        baseResult.colors = lerpColorArrays(cA, cB, easedT);
+      }
+
+      result.base = baseResult;
+    }
+
     interpolatedLayers.push(result);
   }
-  
+
   return { layers: interpolatedLayers };
 };
 

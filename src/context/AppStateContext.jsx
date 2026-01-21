@@ -49,16 +49,16 @@ export const AppStateProvider = ({ children }) => {
     const list = Array.isArray(layers) ? layers : [];
     const seen = new Set();
     let hasChanges = false;
-    
+
     // Pass 1: Check for duplicates or missing IDs
     const result = list.map((layer) => {
       const out = ensureLayerId(layer);
-      
+
       // Check if ensureLayerId created a new object (meaning ID was missing)
       if (out !== layer) {
         hasChanges = true;
       }
-      
+
       if (seen.has(out.id)) {
         // Duplicate detected
         hasChanges = true;
@@ -67,7 +67,7 @@ export const AppStateProvider = ({ children }) => {
         seen.add(newId);
         return { ...out, id: newId };
       }
-      
+
       seen.add(out.id);
       return out;
     });
@@ -201,7 +201,7 @@ export const AppStateProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return () => {};
+    if (typeof window === 'undefined') return () => { };
 
     const handlePointer = () => { noteUserInteraction(); };
     const handlePointerMove = () => { noteUserInteraction(); };
@@ -458,14 +458,14 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => {
       const nextLayersRaw = typeof value === 'function' ? value(prev.layers) : value;
       const nextLayers = assignIds(nextLayersRaw);
-      
+
       // Optimization: If assignIds returns the exact same array reference,
       // and we are not forcing an update via some other means,
       // return the previous state object to completely skip the React update.
       if (nextLayers === prev.layers) {
         return prev;
       }
-      
+
       return { ...prev, layers: nextLayers };
     });
     markDirty();
@@ -617,12 +617,12 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
   const setMorphLoopMode = useCallback((value) => {
-    const allowed = ['loop','pingpong'];
+    const allowed = ['loop', 'pingpong'];
     setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
     markDirty();
   }, [markDirty]);
   const setMorphMode = useCallback((value) => {
-    const allowed = ['tween','fade'];
+    const allowed = ['tween', 'fade'];
     setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
     markDirty();
   }, [markDirty]);
@@ -661,7 +661,7 @@ export const AppStateProvider = ({ children }) => {
         position.x = Math.max(-0.2, Math.min(1.2, position.x));
         position.y = Math.max(-0.2, Math.min(1.2, position.y));
         position.scale = Math.max(0.05, Math.min(5, position.scale));
-        const movementStyle = ['bounce','drift','still','orbit','spin'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
+        const movementStyle = ['bounce', 'drift', 'still', 'orbit', 'spin'].includes(base.movementStyle) ? base.movementStyle : DEFAULT_LAYER.movementStyle;
         const movementSpeed = Number.isFinite(base.movementSpeed) ? Math.max(0, Math.min(5, base.movementSpeed)) : DEFAULT_LAYER.movementSpeed;
         const movementAngle = Number.isFinite(base.movementAngle) ? ((Math.round(base.movementAngle) % 360) + 360) % 360 : DEFAULT_LAYER.movementAngle;
         const scaleSpeed = Number.isFinite(base.scaleSpeed) ? Math.max(0, Math.min(0.2, base.scaleSpeed)) : DEFAULT_LAYER.scaleSpeed;
@@ -757,7 +757,7 @@ export const AppStateProvider = ({ children }) => {
 
   // Groups CRUD
   const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
-    const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random()*1e4)}`;
+    const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;
     setAppState(prev => ({ ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }] }));
     markDirty();
     return id;

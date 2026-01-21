@@ -1,25 +1,25 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
-import { 
-  computeEnergyFlux, 
-  detectTransientsFromFlux, 
+import {
+  computeEnergyFlux,
+  detectTransientsFromFlux,
   sensitivityToThreshold,
   buildEnergyMap,
   getEnergyAtTime,
   scaleWeightsByEnergy,
 } from '../utils/audioTransients.js';
-import { 
-  generateVariedLayer, 
-  extractKeyframeData, 
-  generateEvenlySpacedTimes, 
-  generateRandomTimes, 
+import {
+  generateVariedLayer,
+  extractKeyframeData,
+  generateEvenlySpacedTimes,
+  generateRandomTimes,
   selectTopTransientTimes,
   generateRerollSeed,
 } from '../utils/variationKeyframe.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
-import { 
-  applyNodeModulation, 
-  applyNodeModulationToSubpaths, 
+import {
+  applyNodeModulation,
+  applyNodeModulationToSubpaths,
   generateKeyframePhase,
   DEFAULT_NODE_MOD_CONFIG,
 } from '../utils/nodeModulation.js';
@@ -155,7 +155,7 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
   const isShape = type === 'shape' || (targetId && targetId.endsWith(':shape') && !targetId.startsWith('global:globalShape'));
   const isGlobalShape = type === 'globalShape' || targetId === 'global:globalShape';
   const isColor = type === 'color';
-  
+
   if (isGlobalShape) {
     return {
       id: generateId(),
@@ -174,7 +174,7 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
       },
     };
   }
-  
+
   return {
     id: generateId(),
     name,
@@ -279,17 +279,17 @@ export const TimelineProvider = ({ children }) => {
   const animationFrameRef = useRef(null);
   const positionRef = useRef(positionSeconds);
   const sessionRef = useRef(session);
-  
+
   // Audio playback refs
   const audioContextRef = useRef(null);
   const audioSourceRef = useRef(null);
   const audioStartTimeRef = useRef(0);
   const audioStartPositionRef = useRef(0);
-  
+
   // Audio capture for recording
   const audioDestinationRef = useRef(null); // MediaStreamDestination for recording
   const audioGainRef = useRef(null); // Gain node to route audio to both destination and capture
-  
+
   // Timing refs for RAF loop (used by seekTo and tick)
   const playStartTimeRef = useRef(0); // performance.now() when playback started
   const playStartPositionRef = useRef(0); // timeline position when playback started
@@ -333,17 +333,17 @@ export const TimelineProvider = ({ children }) => {
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
       }
-      
+
       // Stop any existing playback
       if (audioSourceRef.current) {
         try { audioSourceRef.current.stop(); } catch { /* noop */ }
         audioSourceRef.current = null;
       }
-      
+
       const ctx = audioContextRef.current;
       const source = ctx.createBufferSource();
       source.buffer = audio.buffer;
-      
+
       // Create gain node and media stream destination if not already created
       // This allows us to capture audio for recording while still playing to speakers
       if (!audioGainRef.current) {
@@ -354,18 +354,18 @@ export const TimelineProvider = ({ children }) => {
         audioDestinationRef.current = ctx.createMediaStreamDestination();
         audioGainRef.current.connect(audioDestinationRef.current);
       }
-      
+
       // Connect source through gain node (which routes to both speakers and capture)
       source.connect(audioGainRef.current);
-      
+
       // Calculate audio offset: timeline position + audio offset within the audio file
       // audioOffset allows the audio to be shifted relative to the timeline
       const audioOffset = audio.offsetSeconds || 0;
       const audioPosition = startPosition + audioOffset;
-      
+
       // Clamp to valid range within the audio buffer
       const clampedOffset = Math.max(0, Math.min(audioPosition, audio.durationSeconds));
-      
+
       // Only start if we're within the audio duration
       if (clampedOffset < audio.durationSeconds) {
         source.start(0, clampedOffset);
@@ -406,7 +406,7 @@ export const TimelineProvider = ({ children }) => {
     if (isPlaying) return;
     lastUpdateTimeRef.current = performance.now();
     setIsPlaying(true);
-    
+
     // Start audio playback
     startAudioPlayback(positionRef.current);
   }, [isPlaying, startAudioPlayback]);
@@ -437,7 +437,7 @@ export const TimelineProvider = ({ children }) => {
     const clamped = Math.max(0, Math.min(sessionRef.current.lengthSeconds, seconds));
     positionRef.current = clamped;
     setPositionSeconds(clamped);
-    
+
     // If playing, restart audio from new position and reset timing refs
     if (isPlaying) {
       stopAudioPlayback();
@@ -501,14 +501,14 @@ export const TimelineProvider = ({ children }) => {
 
       // Always update the ref (for smooth playhead via getPositionSeconds)
       positionRef.current = newPosition;
-      
+
       // Only sync to React state periodically to prevent update depth errors
       frameCountRef.current += 1;
       if (frameCountRef.current >= SYNC_EVERY_N_FRAMES) {
         frameCountRef.current = 0;
         setPositionSeconds(newPosition);
       }
-      
+
       // Restart audio from loop start when looping occurs
       if (didLoop) {
         stopAudioPlayback();
@@ -517,7 +517,7 @@ export const TimelineProvider = ({ children }) => {
         playStartTimeRef.current = performance.now();
         playStartPositionRef.current = newPosition;
       }
-      
+
       if (isPlaying && newPosition < lengthSeconds) {
         animationFrameRef.current = requestAnimationFrame(tick);
       }
@@ -601,7 +601,7 @@ export const TimelineProvider = ({ children }) => {
       ...prev,
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId) return track;
-        
+
         const newKeyframe = createKeyframe(timeSeconds, value01, curve, tension);
         const keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         return { ...track, keyframes };
@@ -627,16 +627,16 @@ export const TimelineProvider = ({ children }) => {
       ...prev,
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId) return track;
-        
+
         let keyframes = track.keyframes.map(kf =>
           kf.id === keyframeId ? { ...kf, ...updates } : kf
         );
-        
+
         // Re-sort if time changed
         if (updates.timeSeconds !== undefined) {
           keyframes = keyframes.sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
-        
+
         return { ...track, keyframes };
       }),
     }));
@@ -647,11 +647,11 @@ export const TimelineProvider = ({ children }) => {
       ...prev,
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId) return track;
-        
+
         // Don't allow removing if only 2 keyframes left (for numeric tracks)
         // Shape and globalShape tracks can have any number of keyframes (including 0)
         if (track.type !== 'shape' && track.type !== 'globalShape' && track.keyframes.length <= 2) return track;
-        
+
         return {
           ...track,
           keyframes: track.keyframes.filter(kf => kf.id !== keyframeId),
@@ -677,27 +677,27 @@ export const TimelineProvider = ({ children }) => {
       tracks: prev.tracks.map(track => {
         const isShapeTrack = track.type === 'shape' || track.targetId?.endsWith(':shape');
         if (track.id !== trackId || !isShapeTrack) return track;
-        
+
         // Check if a keyframe already exists at this time
         const existingIndex = track.keyframes.findIndex(
           kf => Math.abs(kf.timeSeconds - timeSeconds) < TIME_EPSILON
         );
-        
+
         let keyframes;
         if (existingIndex >= 0) {
           // Update existing keyframe - merge all data
           keyframes = track.keyframes.map((kf, i) =>
             i === existingIndex
               ? {
-                  ...kf,
-                  nodes: nodes || null,
-                  subpaths: subpaths || null,
-                  label,
-                  position: ('position' in extras) ? (extras.position || null) : (kf.position || null),
-                  shapeParams: ('shapeParams' in extras) ? (extras.shapeParams || null) : (kf.shapeParams || null),
-                  animation: ('animation' in extras) ? (extras.animation || null) : (kf.animation || null),
-                  colors: ('colors' in extras) ? (Array.isArray(extras.colors) ? extras.colors : null) : (kf.colors || null),
-                }
+                ...kf,
+                nodes: nodes || null,
+                subpaths: subpaths || null,
+                label,
+                position: ('position' in extras) ? (extras.position || null) : (kf.position || null),
+                shapeParams: ('shapeParams' in extras) ? (extras.shapeParams || null) : (kf.shapeParams || null),
+                animation: ('animation' in extras) ? (extras.animation || null) : (kf.animation || null),
+                colors: ('colors' in extras) ? (Array.isArray(extras.colors) ? extras.colors : null) : (kf.colors || null),
+              }
               : kf
           );
         } else {
@@ -705,7 +705,7 @@ export const TimelineProvider = ({ children }) => {
           const newKeyframe = createShapeKeyframe(timeSeconds, nodes, subpaths, label, extras);
           keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
-        
+
         return { ...track, type: 'shape', keyframes };
       }),
     }));
@@ -726,24 +726,24 @@ export const TimelineProvider = ({ children }) => {
       ...prev,
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId || track.type !== 'globalShape') return track;
-        
+
         const existingIndex = track.keyframes.findIndex(
           kf => Math.abs(kf.timeSeconds - timeSeconds) < TIME_EPSILON
         );
-        
+
         let keyframes;
         if (existingIndex >= 0) {
           // Update existing keyframe
           keyframes = track.keyframes.map((kf, i) =>
             i === existingIndex
               ? {
-                  ...kf,
-                  layers: layers || [],
-                  label,
-                  curve: extras.curve || kf.curve || 'linear',
-                  tension: extras.tension !== undefined ? extras.tension : kf.tension,
-                  variation: extras.variation || kf.variation || null,
-                }
+                ...kf,
+                layers: layers || [],
+                label,
+                curve: extras.curve || kf.curve || 'linear',
+                tension: extras.tension !== undefined ? extras.tension : kf.tension,
+                variation: extras.variation || kf.variation || null,
+              }
               : kf
           );
         } else {
@@ -751,7 +751,7 @@ export const TimelineProvider = ({ children }) => {
           const newKeyframe = createGlobalShapeKeyframe(timeSeconds, layers, label, extras);
           keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
-        
+
         return { ...track, keyframes };
       }),
     }));
@@ -767,10 +767,10 @@ export const TimelineProvider = ({ children }) => {
   const copyKeyframe = useCallback((trackId, keyframeId) => {
     const track = session.tracks.find(t => t.id === trackId);
     if (!track) return;
-    
+
     const keyframe = track.keyframes.find(kf => kf.id === keyframeId);
     if (!keyframe) return;
-    
+
     // Store a deep copy of the keyframe along with track type info
     setKeyframeClipboard({
       keyframe: JSON.parse(JSON.stringify(keyframe)),
@@ -905,7 +905,7 @@ export const TimelineProvider = ({ children }) => {
           audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
         }
         const ctx = audioContextRef.current;
-        
+
         // Create gain node and media stream destination for recording capture
         if (!audioGainRef.current) {
           audioGainRef.current = ctx.createGain();
@@ -919,12 +919,12 @@ export const TimelineProvider = ({ children }) => {
         console.warn('Failed to initialize audio context for recording:', error);
       }
     }
-    
+
     setSession(prev => ({
       ...prev,
       audio: audioData,
       // Optionally adjust timeline length to match audio
-      lengthSeconds: audioData?.durationSeconds 
+      lengthSeconds: audioData?.durationSeconds
         ? Math.max(prev.lengthSeconds, audioData.durationSeconds)
         : prev.lengthSeconds,
     }));
@@ -960,7 +960,7 @@ export const TimelineProvider = ({ children }) => {
       if (!audioFluxRef.current) {
         const { flux, hopSize, frameSize } = computeEnergyFlux(mono, sampleRate);
         audioFluxRef.current = { flux, hopSize, frameSize, sampleRate };
-        
+
         // Also compute energy map (only once per audio file)
         const energy = buildEnergyMap(mono, sampleRate, {
           windowSizeSec: 0.25,
@@ -997,7 +997,7 @@ export const TimelineProvider = ({ children }) => {
   const setTransientSensitivity = useCallback((sensitivity) => {
     const newSensitivity = Math.max(0, Math.min(100, sensitivity));
     setTransientSettings(prev => ({ ...prev, sensitivity: newSensitivity }));
-    
+
     // Recompute transients with new sensitivity if we have audio
     if (session.audio?.buffer) {
       computeTransients(session.audio.buffer, newSensitivity);
@@ -1073,16 +1073,16 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateVariationKeyframe = useCallback((trackId, layer, options = {}) => {
     if (!trackId || !layer) return null;
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'shape') return null;
-    
+
     const time = positionRef.current;
     const seed = options.seed ?? Date.now();
-    
+
     // Get track categories for what to include in keyframe
     const categories = track.categories || { shape: true, animation: false, color: false };
-    
+
     // Generate varied layer
     const variedLayer = generateVariedLayer(layer, {
       seed,
@@ -1092,10 +1092,10 @@ export const TimelineProvider = ({ children }) => {
       constrainColorsToPalette: options.constrainColorsToPalette,
       paletteColors: options.paletteColors,
     });
-    
+
     // Extract keyframe data
     const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
-    
+
     // Add variation metadata for reroll support
     extras.variation = {
       baseSeed: seed,
@@ -1111,7 +1111,7 @@ export const TimelineProvider = ({ children }) => {
       constrainColorsToPalette: options.constrainColorsToPalette,
       paletteColors: options.paletteColors,
     };
-    
+
     // Add the keyframe
     const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
     return keyframeId;
@@ -1128,25 +1128,25 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateVariationKeyframesAtTimes = useCallback((trackId, baseLayer, times, options = {}) => {
     if (!trackId || !baseLayer || !Array.isArray(times) || times.length === 0) return [];
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'shape') return [];
-    
+
     const categories = track.categories || { shape: true, animation: false, color: false };
     const keyframeIds = [];
-    
+
     // Node modulation config (merge with defaults)
-    const nodeMod = options.nodeMod?.enabled 
+    const nodeMod = options.nodeMod?.enabled
       ? { ...DEFAULT_NODE_MOD_CONFIG, ...options.nodeMod }
       : null;
-    
+
     // Energy influence (0 = no effect, 1 = max effect)
     const energyInfluence = options.energyInfluence ?? 0;
-    
+
     for (let i = 0; i < times.length; i++) {
       const time = times[i];
       const seed = (options.baseSeed ?? Date.now()) + i * 16807;
-      
+
       // If evaluateAtTime is true, evaluate the track at this time to get interpolated base
       let layerToVary = baseLayer;
       if (options.evaluateAtTime) {
@@ -1164,7 +1164,7 @@ export const TimelineProvider = ({ children }) => {
           };
         }
       }
-      
+
       // Get base variation weights
       let variationWeights = options.variationWeights || {
         shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
@@ -1173,14 +1173,14 @@ export const TimelineProvider = ({ children }) => {
         position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
         scale: baseLayer.variationScale ?? 0,
       };
-      
+
       // Apply energy-based scaling if energy map exists and influence > 0
       let energyAtTime = 0.5; // Default mid-energy
       if (energyInfluence > 0 && energyMap.length > 0) {
         energyAtTime = getEnergyAtTime(energyMap, time);
         variationWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
       }
-      
+
       // Generate varied layer
       const variedLayer = generateVariedLayer(layerToVary, {
         seed,
@@ -1190,10 +1190,10 @@ export const TimelineProvider = ({ children }) => {
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       });
-      
+
       // Extract keyframe data
       let { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
-      
+
       // Apply node modulation if enabled
       if (nodeMod) {
         const phase = generateKeyframePhase(i, times.length, nodeMod.cycles || 1);
@@ -1202,18 +1202,18 @@ export const TimelineProvider = ({ children }) => {
           phase,
           seed: seed, // Use keyframe seed for stable per-node phases
         };
-        
+
         if (nodes && nodes.length > 0) {
           nodes = applyNodeModulation(nodes, modConfig);
         }
         if (subpaths && subpaths.length > 0) {
           subpaths = applyNodeModulationToSubpaths(subpaths, modConfig);
         }
-        
+
         // Store nodeMod config in extras for reference/reroll
         extras.nodeMod = { ...nodeMod, appliedPhase: phase };
       }
-      
+
       // Add variation metadata
       extras.variation = {
         baseSeed: seed,
@@ -1223,7 +1223,7 @@ export const TimelineProvider = ({ children }) => {
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       };
-      
+
       // Store energy info if used
       if (energyInfluence > 0) {
         extras.energy = {
@@ -1231,12 +1231,12 @@ export const TimelineProvider = ({ children }) => {
           influence: energyInfluence,
         };
       }
-      
+
       // Add the keyframe (need to temporarily seek to this time)
       const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
       if (keyframeId) keyframeIds.push(keyframeId);
     }
-    
+
     return keyframeIds;
   }, [session.tracks, addShapeKeyframe, energyMap]);
 
@@ -1271,14 +1271,14 @@ export const TimelineProvider = ({ children }) => {
   const generateRandomKeyframes = useCallback((trackId, baseLayer, count, options = {}) => {
     const startTime = options.startTime ?? 0;
     const endTime = options.endTime ?? session.lengthSeconds;
-    
+
     let times;
     if (options.useTransients && transients.length > 0) {
       times = selectTopTransientTimes(transients, count, startTime, endTime);
     } else {
       times = generateRandomTimes(startTime, endTime, count, Date.now());
     }
-    
+
     return generateVariationKeyframesAtTimes(trackId, baseLayer, times, {
       ...options,
       evaluateAtTime: false, // Use base layer for all
@@ -1296,16 +1296,16 @@ export const TimelineProvider = ({ children }) => {
   const rerollVariationKeyframe = useCallback((trackId, keyframeId, baseLayer) => {
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'shape') return false;
-    
+
     const keyframe = track.keyframes?.find(kf => kf.id === keyframeId);
     if (!keyframe) return false;
-    
+
     const variationMeta = keyframe.variation;
     if (!variationMeta) return false;
-    
+
     const categories = track.categories || { shape: true, animation: false, color: false };
     const newSeed = generateRerollSeed(variationMeta.baseSeed);
-    
+
     // Generate new varied layer
     const variedLayer = generateVariedLayer(baseLayer, {
       seed: newSeed,
@@ -1314,24 +1314,24 @@ export const TimelineProvider = ({ children }) => {
       constrainColorsToPalette: variationMeta.constrainColorsToPalette,
       paletteColors: variationMeta.paletteColors,
     });
-    
+
     // Extract keyframe data
     const { nodes, subpaths, extras } = extractKeyframeData(variedLayer, categories);
-    
+
     // Update variation metadata
     extras.variation = {
       ...variationMeta,
       baseSeed: newSeed,
       rerollCount: (variationMeta.rerollCount || 0) + 1,
     };
-    
+
     // Update the keyframe
     updateKeyframe(trackId, keyframeId, {
       nodes,
       subpaths,
       ...extras,
     });
-    
+
     return true;
   }, [session.tracks, updateKeyframe]);
 
@@ -1345,13 +1345,13 @@ export const TimelineProvider = ({ children }) => {
    */
   const captureGlobalShapeKeyframe = useCallback((trackId, layers, options = {}) => {
     if (!trackId || !Array.isArray(layers) || layers.length === 0) return null;
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return null;
-    
+
     const time = Number.isFinite(options.timeSecondsOverride) ? options.timeSecondsOverride : positionRef.current;
     const categories = track.categories || { shape: true, animation: false, color: false };
-    
+
     // Check for layer count consistency with existing keyframes
     const existingKeyframes = track.keyframes || [];
     if (existingKeyframes.length > 0) {
@@ -1360,7 +1360,7 @@ export const TimelineProvider = ({ children }) => {
         console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${layers.length}. Interpolation may not work correctly.`);
       }
     }
-    
+
     // Extract data from each layer
     const layersData = layers.map(layer => {
       const data = {
@@ -1382,7 +1382,7 @@ export const TimelineProvider = ({ children }) => {
           rotation: layer.rotation ?? 0,
         },
       };
-      
+
       if (categories.animation) {
         data.animation = {
           movementStyle: layer.movementStyle ?? 'bounce',
@@ -1393,19 +1393,19 @@ export const TimelineProvider = ({ children }) => {
           scaleMax: layer.scaleMax ?? 1.5,
         };
       }
-      
+
       // Always store colors so keyframes can later tween correctly when the track's
       // "Color" category is enabled (the toggle controls playback, not what is stored).
       data.colors = Array.isArray(layer.colors) ? [...layer.colors] : ['#0000FF'];
-      
+
       return data;
     });
-    
+
     addGlobalShapeKeyframe(trackId, time, layersData, options.label || '', {
       curve: options.curve || 'linear',
       tension: options.tension ?? 0.5,
     });
-    
+
     return time;
   }, [session.tracks, addGlobalShapeKeyframe]);
 
@@ -1418,13 +1418,13 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateGlobalVariationKeyframe = useCallback((trackId, baseLayers, options = {}) => {
     if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0) return null;
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return null;
-    
+
     const time = positionRef.current;
     const categories = track.categories || { shape: true, animation: false, color: false };
-    
+
     // Check for layer count consistency with existing keyframes
     const existingKeyframes = track.keyframes || [];
     if (existingKeyframes.length > 0) {
@@ -1434,7 +1434,7 @@ export const TimelineProvider = ({ children }) => {
       }
     }
     const baseSeed = options.seed ?? Date.now();
-    
+
     // Get variation weights from first layer or options
     const firstLayer = baseLayers[0];
     const variationWeights = options.variationWeights || {
@@ -1444,14 +1444,14 @@ export const TimelineProvider = ({ children }) => {
       position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
       scale: firstLayer.variationScale ?? 0,
     };
-    
+
     const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position'];
-    
+
     // Generate varied version of each layer
     const layersData = baseLayers.map((layer, index) => {
       // Use different seed for each layer to get unique variations
       const layerSeed = baseSeed + index * 16807;
-      
+
       const variedLayer = generateVariedLayer(layer, {
         seed: layerSeed,
         variationWeights,
@@ -1460,7 +1460,7 @@ export const TimelineProvider = ({ children }) => {
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       });
-      
+
       const data = {
         nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
         subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
@@ -1480,7 +1480,7 @@ export const TimelineProvider = ({ children }) => {
           rotation: variedLayer.rotation ?? 0,
         },
       };
-      
+
       if (categories.animation) {
         data.animation = {
           movementStyle: variedLayer.movementStyle ?? 'bounce',
@@ -1491,12 +1491,12 @@ export const TimelineProvider = ({ children }) => {
           scaleMax: variedLayer.scaleMax ?? 1.5,
         };
       }
-      
+
       data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-      
+
       return data;
     });
-    
+
     // Add keyframe with variation metadata for reroll support
     addGlobalShapeKeyframe(trackId, time, layersData, '', {
       curve: options.curve || 'linear',
@@ -1512,7 +1512,7 @@ export const TimelineProvider = ({ children }) => {
         paletteColors: options.paletteColors,
       },
     });
-    
+
     return time;
   }, [session.tracks, addGlobalShapeKeyframe]);
 
@@ -1525,20 +1525,20 @@ export const TimelineProvider = ({ children }) => {
   const rerollGlobalShapeKeyframe = useCallback((trackId, keyframeId, baseLayers) => {
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return false;
-    
+
     const keyframe = track.keyframes?.find(kf => kf.id === keyframeId);
     if (!keyframe) return false;
-    
+
     const variationMeta = keyframe.variation;
     if (!variationMeta) return false;
-    
+
     const categories = track.categories || { shape: true, animation: false, color: false };
     const newSeed = generateRerollSeed(variationMeta.baseSeed);
-    
+
     // Generate new varied layers
     const layersData = baseLayers.map((layer, index) => {
       const layerSeed = newSeed + index * 16807;
-      
+
       const variedLayer = generateVariedLayer(layer, {
         seed: layerSeed,
         variationWeights: variationMeta.weights,
@@ -1546,7 +1546,7 @@ export const TimelineProvider = ({ children }) => {
         constrainColorsToPalette: variationMeta.constrainColorsToPalette,
         paletteColors: variationMeta.paletteColors,
       });
-      
+
       const data = {
         nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
         subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
@@ -1566,7 +1566,7 @@ export const TimelineProvider = ({ children }) => {
           rotation: variedLayer.rotation ?? 0,
         },
       };
-      
+
       if (categories.animation) {
         data.animation = {
           movementStyle: variedLayer.movementStyle ?? 'bounce',
@@ -1577,12 +1577,12 @@ export const TimelineProvider = ({ children }) => {
           scaleMax: variedLayer.scaleMax ?? 1.5,
         };
       }
-      
+
       data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-      
+
       return data;
     });
-    
+
     // Update the keyframe
     updateKeyframe(trackId, keyframeId, {
       layers: layersData,
@@ -1592,7 +1592,7 @@ export const TimelineProvider = ({ children }) => {
         rerollCount: (variationMeta.rerollCount || 0) + 1,
       },
     });
-    
+
     return true;
   }, [session.tracks, updateKeyframe]);
 
@@ -1606,10 +1606,10 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateGlobalRandomKeyframes = useCallback((trackId, baseLayers, count, options = {}) => {
     if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0 || count < 1) return [];
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return [];
-    
+
     // Check for layer count consistency with existing keyframes
     const existingKeyframes = track.keyframes || [];
     if (existingKeyframes.length > 0) {
@@ -1618,11 +1618,11 @@ export const TimelineProvider = ({ children }) => {
         console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
       }
     }
-    
+
     const startTime = options.startTime ?? 0;
     const endTime = options.endTime ?? session.lengthSeconds;
     const categories = track.categories || { shape: true, animation: false, color: false };
-    
+
     // Get times (transient or random)
     let times;
     if (options.useTransients && transients.length > 0) {
@@ -1630,9 +1630,9 @@ export const TimelineProvider = ({ children }) => {
     } else {
       times = generateRandomTimes(startTime, endTime, count, Date.now());
     }
-    
+
     if (times.length === 0) return [];
-    
+
     // Get variation weights from first layer or options
     const firstLayer = baseLayers[0];
     const variationWeights = options.variationWeights || {
@@ -1642,25 +1642,34 @@ export const TimelineProvider = ({ children }) => {
       position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
       scale: firstLayer.variationScale ?? 0,
     };
-    
+
     const energyInfluence = options.energyInfluence ?? 0;
     const keyframeIds = [];
-    
+
     for (let i = 0; i < times.length; i++) {
       const time = times[i];
       const baseSeed = Date.now() + i * 16807;
-      
-      // Apply energy-based scaling if energy map exists and influence > 0
-      let scaledWeights = { ...variationWeights };
+
+      // For runtime scaling, we want to bake the "Max Potential Variation" (Energy * 1.0)
+      // and let the sliders at playback time determine the 0-1 amount.
+      const normalizedWeights = {
+        shape: variationWeights.shape > 0 ? 1.0 : 0,
+        anim: variationWeights.anim > 0 ? 1.0 : 0,
+        color: variationWeights.color > 0 ? 1.0 : 0,
+        position: variationWeights.position > 0 ? 1.0 : 0,
+        scale: variationWeights.scale > 0 ? 1.0 : 0,
+      };
+
+      let scaledWeights = { ...normalizedWeights };
       if (energyInfluence > 0 && energyMap.length > 0) {
         const energyAtTime = getEnergyAtTime(energyMap, time);
-        scaledWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
+        scaledWeights = scaleWeightsByEnergy(normalizedWeights, energyAtTime, energyInfluence);
       }
-      
+
       // Generate varied version of each layer
       const layersData = baseLayers.map((layer, layerIndex) => {
         const layerSeed = baseSeed + layerIndex * 16807;
-        
+
         const variedLayer = generateVariedLayer(layer, {
           seed: layerSeed,
           variationWeights: scaledWeights,
@@ -1669,43 +1678,47 @@ export const TimelineProvider = ({ children }) => {
           constrainColorsToPalette: options.constrainColorsToPalette,
           paletteColors: options.paletteColors,
         });
-        
-        const data = {
-          nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
-          subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+
+        // Helper to extract layer data
+        const extractData = (l) => ({
+          nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
+          subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
           position: {
-            x: variedLayer.position?.x ?? 0.5,
-            y: variedLayer.position?.y ?? 0.5,
-            scale: variedLayer.position?.scale ?? 1,
-            xOffset: variedLayer.xOffset ?? 0,
-            yOffset: variedLayer.yOffset ?? 0,
+            x: l.position?.x ?? 0.5,
+            y: l.position?.y ?? 0.5,
+            scale: l.position?.scale ?? 1,
+            xOffset: l.xOffset ?? 0,
+            yOffset: l.yOffset ?? 0,
           },
           shapeParams: {
-            numSides: variedLayer.numSides ?? 6,
-            curviness: variedLayer.curviness ?? 1.0,
-            radiusFactor: variedLayer.radiusFactor ?? 0.125,
-            radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
-            radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
-            rotation: variedLayer.rotation ?? 0,
+            numSides: l.numSides ?? 6,
+            curviness: l.curviness ?? 1.0,
+            radiusFactor: l.radiusFactor ?? 0.125,
+            radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
+            radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
+            rotation: l.rotation ?? 0,
           },
+          animation: categories.animation ? {
+            movementStyle: l.movementStyle ?? 'bounce',
+            movementSpeed: l.movementSpeed ?? 1,
+            movementAngle: l.movementAngle ?? 45,
+            scaleSpeed: l.scaleSpeed ?? 0.05,
+            scaleMin: l.scaleMin ?? 0,
+            scaleMax: l.scaleMax ?? 1.5,
+          } : null,
+          colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
+        });
+
+        // Store both Varied data (as main) and Base data (for runtime lerp)
+        const variedData = extractData(variedLayer);
+        const baseData = extractData(layer);
+
+        return {
+          ...variedData,
+          base: baseData, // Store unvaried base state
         };
-        
-        if (categories.animation) {
-          data.animation = {
-            movementStyle: variedLayer.movementStyle ?? 'bounce',
-            movementSpeed: variedLayer.movementSpeed ?? 1,
-            movementAngle: variedLayer.movementAngle ?? 45,
-            scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
-            scaleMin: variedLayer.scaleMin ?? 0,
-            scaleMax: variedLayer.scaleMax ?? 1.5,
-          };
-        }
-        
-        data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-        
-        return data;
       });
-      
+
       // Add keyframe with variation metadata
       addGlobalShapeKeyframe(trackId, time, layersData, '', {
         curve: 'linear',
@@ -1724,10 +1737,10 @@ export const TimelineProvider = ({ children }) => {
           influence: energyInfluence,
         } : undefined,
       });
-      
+
       keyframeIds.push(`global-kf-${time}`);
     }
-    
+
     return keyframeIds;
   }, [session.tracks, session.lengthSeconds, transients, energyMap, addGlobalShapeKeyframe]);
 
@@ -1742,10 +1755,10 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateGlobalKeyframesBetween = useCallback((trackId, baseLayers, startTime, endTime, count, options = {}) => {
     if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0 || count < 1) return [];
-    
+
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return [];
-    
+
     // Check for layer count consistency with existing keyframes
     const existingKeyframes = track.keyframes || [];
     if (existingKeyframes.length > 0) {
@@ -1754,13 +1767,13 @@ export const TimelineProvider = ({ children }) => {
         console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
       }
     }
-    
+
     // Generate evenly spaced times
     const times = generateEvenlySpacedTimes(startTime, endTime, count);
     if (times.length === 0) return [];
-    
+
     const categories = track.categories || { shape: true, animation: false, color: false };
-    
+
     // Get variation weights from first layer or options
     const firstLayer = baseLayers[0];
     const variationWeights = options.variationWeights || {
@@ -1770,25 +1783,25 @@ export const TimelineProvider = ({ children }) => {
       position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
       scale: firstLayer.variationScale ?? 0,
     };
-    
+
     const energyInfluence = options.energyInfluence ?? 0;
     const keyframeIds = [];
-    
+
     for (let i = 0; i < times.length; i++) {
       const time = times[i];
       const baseSeed = Date.now() + i * 16807;
-      
+
       // Apply energy-based scaling if energy map exists and influence > 0
       let scaledWeights = { ...variationWeights };
       if (energyInfluence > 0 && energyMap.length > 0) {
         const energyAtTime = getEnergyAtTime(energyMap, time);
         scaledWeights = scaleWeightsByEnergy(variationWeights, energyAtTime, energyInfluence);
       }
-      
+
       // Generate varied version of each layer
       const layersData = baseLayers.map((layer, layerIndex) => {
         const layerSeed = baseSeed + layerIndex * 16807;
-        
+
         const variedLayer = generateVariedLayer(layer, {
           seed: layerSeed,
           variationWeights: scaledWeights,
@@ -1797,7 +1810,7 @@ export const TimelineProvider = ({ children }) => {
           constrainColorsToPalette: options.constrainColorsToPalette,
           paletteColors: options.paletteColors,
         });
-        
+
         const data = {
           nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
           subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
@@ -1817,7 +1830,7 @@ export const TimelineProvider = ({ children }) => {
             rotation: variedLayer.rotation ?? 0,
           },
         };
-        
+
         if (categories.animation) {
           data.animation = {
             movementStyle: variedLayer.movementStyle ?? 'bounce',
@@ -1828,12 +1841,12 @@ export const TimelineProvider = ({ children }) => {
             scaleMax: variedLayer.scaleMax ?? 1.5,
           };
         }
-        
+
         data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-        
+
         return data;
       });
-      
+
       // Add keyframe with variation metadata
       addGlobalShapeKeyframe(trackId, time, layersData, '', {
         curve: 'linear',
@@ -1848,10 +1861,10 @@ export const TimelineProvider = ({ children }) => {
           paletteColors: options.paletteColors,
         },
       });
-      
+
       keyframeIds.push(`global-kf-${time}`);
     }
-    
+
     return keyframeIds;
   }, [session.tracks, energyMap, addGlobalShapeKeyframe]);
 
@@ -1892,7 +1905,7 @@ export const TimelineProvider = ({ children }) => {
 
   const applyTimelineSnapshot = useCallback((snapshot) => {
     if (!snapshot || typeof snapshot !== 'object') return;
-    
+
     if (snapshot.session) {
       setSession(prev => ({
         ...createDefaultSession(),
@@ -1906,7 +1919,7 @@ export const TimelineProvider = ({ children }) => {
         } : null, // Audio buffer must be re-loaded
       }));
     }
-    
+
     if (snapshot.settings) {
       setSettings(prev => ({
         ...prev,
@@ -1980,7 +1993,7 @@ export const TimelineProvider = ({ children }) => {
     // Audio
     setAudio,
     clearAudio,
-    
+
     // Audio stream for recording (returns MediaStream or null)
     getAudioStream: () => audioDestinationRef.current?.stream || null,
 
@@ -1989,7 +2002,7 @@ export const TimelineProvider = ({ children }) => {
     transientSettings,
     setTransientSensitivity,
     setTransientsEnabled,
-    
+
     // Energy map for variation scaling
     energyMap,
 
@@ -2025,7 +2038,7 @@ export const TimelineProvider = ({ children }) => {
     getTimelineSnapshot,
     applyTimelineSnapshot,
     clearTimeline,
-    
+
     // Helpers
     TRACK_COLORS,
     createKeyframe,

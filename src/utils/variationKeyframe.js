@@ -137,7 +137,7 @@ export function extractKeyframeData(layer, categories = { shape: true, animation
 export function generateEvenlySpacedTimes(startTime, endTime, count) {
   if (count <= 0) return [];
   if (startTime >= endTime) return [];
-  
+
   const times = [];
   for (let i = 0; i < count; i++) {
     // Place keyframes evenly between start and end (not at start/end)
@@ -159,21 +159,21 @@ export function generateEvenlySpacedTimes(startTime, endTime, count) {
 export function generateRandomTimes(startTime, endTime, count, seed = Date.now()) {
   if (count <= 0) return [];
   if (startTime >= endTime) return [];
-  
+
   // Simple seeded random
   let s = seed;
   const random = () => {
     s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
   };
-  
+
   const times = [];
   const duration = endTime - startTime;
-  
+
   for (let i = 0; i < count; i++) {
     times.push(startTime + random() * duration);
   }
-  
+
   return times.sort((a, b) => a - b);
 }
 
@@ -190,14 +190,14 @@ export function selectTopTransientTimes(transients, count, startTime = 0, endTim
   if (!Array.isArray(transients) || transients.length === 0 || count <= 0) {
     return [];
   }
-  
+
   // Filter to time range
   const filtered = transients.filter(t => t.time >= startTime && t.time <= endTime);
-  
+
   // Sort by strength (descending) and take top N
   const sorted = [...filtered].sort((a, b) => b.strength - a.strength);
   const topN = sorted.slice(0, count);
-  
+
   // Return times sorted chronologically
   return topN.map(t => t.time).sort((a, b) => a - b);
 }

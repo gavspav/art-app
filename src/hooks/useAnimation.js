@@ -7,7 +7,7 @@ import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 // Pure function to calculate new movement angle after boundary collision
 const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
     let newAngle = currentAngle;
-    
+
     if (hitVertical) {
         // Reflect across vertical axis (left/right boundaries)
         newAngle = 180 - currentAngle;
@@ -16,28 +16,28 @@ const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
         // Reflect across horizontal axis (top/bottom boundaries)
         newAngle = 360 - currentAngle;
     }
-    
+
     // Normalize angle to 0-360 range
     while (newAngle < 0) newAngle += 360;
     while (newAngle >= 360) newAngle -= 360;
-    
+
     return newAngle;
 };
 
 // Pure function to update layer animation state
 const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => {
-    const { 
-        movementStyle = 'bounce', 
-        movementSpeed = 0, 
+    const {
+        movementStyle = 'bounce',
+        movementSpeed = 0,
         movementAngle = 0,
         scaleSpeed = 0,
         scaleMin = 0.5,
         scaleMax = 1.5
     } = layer;
 
-    const { 
-        x, y, 
-        scale, scaleDirection 
+    const {
+        x, y,
+        scale, scaleDirection
     } = layer.position;
 
     // 1. Calculate velocity
@@ -144,34 +144,34 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
 const applyBPMModulations = (layer, bpmContext) => {
     const { mappings, getClockState, isPlaying } = bpmContext;
     if (!mappings || !getClockState || !isPlaying) return layer;
-    
+
     // Get current clock state from ref (doesn't trigger re-renders)
     const clockState = getClockState();
     const { currentBeat, beatPhase } = clockState;
-    
+
     const layerKey = layer.name || 'Layer';
-    
+
     // Quick check: are there any mappings for this layer?
     const prefix = `layer:${layerKey}:`;
     const enabledMappings = Object.keys(mappings).filter(k => k.startsWith(prefix) && mappings[k]?.enabled);
     if (enabledMappings.length === 0) return layer;
-    
+
     // Debug: log when we have enabled mappings (uncomment to debug)
     // console.log('[BPM] Applying modulations for', layerKey, 'mappings:', enabledMappings);
-    
+
     let modifiedLayer = { ...layer };
-    
+
     // Helper to calculate BPM value for a parameter
     const getBPMValue = (paramId) => {
         const fullKey = `layer:${layerKey}:${paramId}`;
         const mapping = mappings[fullKey];
         if (!mapping || !mapping.enabled) return null;
-        
+
         const { speed, loopMode, range } = mapping;
         const cycleBeats = speed;
         const totalBeats = currentBeat + beatPhase;
         const cyclePhase = (totalBeats % cycleBeats) / cycleBeats;
-        
+
         // Apply loop mode (forward, reverse, pingpong, oneshot)
         let normalizedPhase = cyclePhase;
         if (loopMode === 'reverse') {
@@ -181,10 +181,10 @@ const applyBPMModulations = (layer, bpmContext) => {
         } else if (loopMode === 'oneshot') {
             normalizedPhase = Math.min(1, cyclePhase);
         }
-        
+
         return range.outputMin + normalizedPhase * (range.outputMax - range.outputMin);
     };
-    
+
     // Apply to scale
     const scaleValue = getBPMValue('scale');
     if (scaleValue !== null && modifiedLayer.position) {
@@ -193,7 +193,7 @@ const applyBPMModulations = (layer, bpmContext) => {
             position: { ...modifiedLayer.position, scale: scaleValue }
         };
     }
-    
+
     // Apply to other numeric parameters
     const params = ['numSides', 'radiusFactor', 'radiusX', 'radiusY', 'movementSpeed', 'curviness', 'orbitRadiusX', 'orbitRadiusY'];
     params.forEach(param => {
@@ -202,7 +202,7 @@ const applyBPMModulations = (layer, bpmContext) => {
             modifiedLayer = { ...modifiedLayer, [param]: value };
         }
     });
-    
+
     return modifiedLayer;
 };
 
@@ -210,21 +210,21 @@ const applyBPMModulations = (layer, bpmContext) => {
 const applyAudioModulations = (layer, audioContext) => {
     const { mappings, getFeatures } = audioContext;
     if (!getFeatures) return layer;
-    
+
     // Get current features from ref (doesn't trigger re-renders)
     const features = getFeatures();
-    
+
     const layerKey = layer.name || 'Layer';
     let modifiedLayer = { ...layer };
-    
+
     // Helper to get audio value for a parameter
     const getAudioValue = (paramId) => {
         const mapping = mappings[`layer:${layerKey}:${paramId}`];
         if (!mapping || mapping.band === 'none') return null;
-        
+
         const { band, range } = mapping;
         let audioLevel = 0;
-        
+
         switch (band) {
             case 'rms': audioLevel = features.rms || 0; break;
             case 'bass': audioLevel = features.bass || 0; break;
@@ -232,13 +232,13 @@ const applyAudioModulations = (layer, audioContext) => {
             case 'highs': audioLevel = features.highs || 0; break;
             default: return null;
         }
-        
+
         // Map audio level (0-1) to output range
         const { inputMin = 0, inputMax = 1, outputMin, outputMax } = range;
         const normalizedInput = Math.max(0, Math.min(1, (audioLevel - inputMin) / (inputMax - inputMin)));
         return outputMin + normalizedInput * (outputMax - outputMin);
     };
-    
+
     // Apply to scale
     const scaleValue = getAudioValue('scale');
     if (scaleValue !== null && modifiedLayer.position) {
@@ -247,7 +247,7 @@ const applyAudioModulations = (layer, audioContext) => {
             position: { ...modifiedLayer.position, scale: scaleValue }
         };
     }
-    
+
     // Apply to other numeric parameters
     const params = ['numSides', 'radiusFactor', 'radiusX', 'radiusY', 'movementSpeed', 'curviness', 'orbitRadiusX', 'orbitRadiusY'];
     params.forEach(param => {
@@ -256,7 +256,7 @@ const applyAudioModulations = (layer, audioContext) => {
             modifiedLayer = { ...modifiedLayer, [param]: value };
         }
     });
-    
+
     return modifiedLayer;
 };
 
@@ -290,11 +290,11 @@ export const useAnimation = (
 ) => {
     const animationFrameId = useRef(null);
     const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext } = useAppState() || {};
-    
+
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
     useEffect(() => { modulationStoreRef.current = modulationStore; }, [modulationStore]);
-    
+
     // Store shape track updates ref for access in animation loop
     // Update synchronously to avoid stale data
     const shapeTrackUpdatesRefLocal = useRef(shapeTrackUpdatesRef);
@@ -307,7 +307,7 @@ export const useAnimation = (
     // Track node edit mode and context so we can avoid overwriting user-edited geometry
     const isNodeEditModeRef = useRef(isNodeEditMode);
     useEffect(() => { isNodeEditModeRef.current = isNodeEditMode; }, [isNodeEditMode]);
-    
+
     const nodeEditContextRef = useRef(nodeEditContext);
     useEffect(() => { nodeEditContextRef.current = nodeEditContext; }, [nodeEditContext]);
 
@@ -325,17 +325,17 @@ export const useAnimation = (
 
     const animatedLayersRefLocal = useRef(animatedLayersRef);
     useEffect(() => { animatedLayersRefLocal.current = animatedLayersRef; }, [animatedLayersRef]);
-    
+
     const runWithoutDirtyRef = useRef(runWithoutDirty);
     useEffect(() => { runWithoutDirtyRef.current = runWithoutDirty; }, [runWithoutDirty]);
-    
+
     // Store other values in refs to stabilize the animate callback
     const isFrozenRef = useRef(isFrozen);
     useEffect(() => { isFrozenRef.current = isFrozen; }, [isFrozen]);
-    
+
     const globalSpeedMultiplierRef = useRef(globalSpeedMultiplier);
     useEffect(() => { globalSpeedMultiplierRef.current = globalSpeedMultiplier; }, [globalSpeedMultiplier]);
-    
+
     const zIgnoreRef = useRef(zIgnore);
     useEffect(() => { zIgnoreRef.current = zIgnore; }, [zIgnore]);
 
@@ -376,7 +376,7 @@ export const useAnimation = (
                     || !approxEqual(basePos.y, prevBasePos.y)
                     || !approxEqual(basePos.scale, prevBasePos.scale);
             })();
-            
+
             // ALWAYS preserve animated position from prevAnimated.
             // The animation loop is the source of truth for x, y, scale during animation.
             // Base layer changes (colors, numSides, etc.) should flow through, but position
@@ -430,18 +430,18 @@ export const useAnimation = (
     const applyModulationsOnly = useCallback(() => {
         const store = modulationStoreRef.current;
         if (!store || !store.timelineModsRef) return;
-        
+
         const timelineMods = store.timelineModsRef.current || {};
         const bpmMods = store.bpmModsRef?.current || {};
         const audioMods = store.audioModsRef?.current || {};
-        
+
         // Check if there are any modulations to apply
         const hasTimelineMods = Object.keys(timelineMods).length > 0;
         const hasBpmMods = Object.keys(bpmMods).length > 0;
         const hasAudioMods = Object.keys(audioMods).length > 0;
-        
+
         if (!hasTimelineMods && !hasBpmMods && !hasAudioMods) return;
-        
+
         const effectiveBpmMods = bpmMods;
         const effectiveAudioMods = audioMods;
 
@@ -511,7 +511,7 @@ export const useAnimation = (
                 outRef.current = applyStoreModulations(animatedPrevRef.current);
             }
         }
-        
+
         if (isFrozenRef.current) {
             // When frozen, still apply modulations but don't advance movement
             // Only sync to React on throttled frames
@@ -545,15 +545,15 @@ export const useAnimation = (
         // This eliminates race conditions between separate RAF loops
         const tlCtx = timelineContextRef.current;
         let shapeUpdatesMap = new Map();
-        
+
         if (tlCtx?.isPlaying && tlCtx?.visible && Array.isArray(tlCtx?.tracks)) {
             // Direct evaluation: get current position and evaluate all shape tracks
             const pos = tlCtx.getPositionSeconds?.() ?? tlCtx.positionSeconds ?? 0;
             const currentLayers = sourceLayersRefLocal.current?.current || animatedPrevRef.current || [];
-            
+
             for (const track of tlCtx.tracks) {
                 if (!track.enabled || !track.targetId) continue;
-                
+
                 // Handle global shape tracks
                 if (track.type === 'globalShape') {
                     const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
@@ -561,7 +561,7 @@ export const useAnimation = (
                         globalResult.layers.forEach((interpolatedData, index) => {
                             const layer = currentLayers[index];
                             if (!layer || !interpolatedData) return;
-                            
+
                             const updateData = {
                                 layerId: layer.id,
                                 nodes: interpolatedData.nodes,
@@ -570,23 +570,24 @@ export const useAnimation = (
                                 shapeParams: interpolatedData.shapeParams,
                                 animation: interpolatedData.animation,
                                 colors: interpolatedData.colors,
+                                base: interpolatedData.base,
                                 isGlobalShapeTrack: true,
                             };
-                            
+
                             if (layer.id) shapeUpdatesMap.set(layer.id, updateData);
                             if (layer.name) shapeUpdatesMap.set(layer.name, updateData);
                         });
                     }
                     continue;
                 }
-                
+
                 // Handle single-layer shape tracks
                 if (track.type === 'shape') {
                     const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
                     if (shapeResult) {
                         const parts = track.targetId.split(':');
                         const layerName = parts.length >= 2 ? parts[1] : null;
-                        
+
                         if (layerName) {
                             const updateData = {
                                 layerId: layerName,
@@ -596,9 +597,10 @@ export const useAnimation = (
                                 shapeParams: shapeResult.shapeParams,
                                 animation: shapeResult.animation,
                                 colors: shapeResult.colors,
+                                base: shapeResult.base,
                             };
                             shapeUpdatesMap.set(layerName, updateData);
-                            
+
                             // Also store by layer id if we can find it
                             const matchingLayer = currentLayers.find(l => l?.name === layerName);
                             if (matchingLayer?.id && matchingLayer.id !== layerName) {
@@ -613,92 +615,197 @@ export const useAnimation = (
             // Fallback: use pre-computed shape updates from useTimelineModulation (for scrubbing/paused)
             shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
         }
-        
+
         const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, idx) => {
             // Check if this layer has shape track updates
             // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
             const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);
             const hasShapeUpdate = !!shapeUpdate;
-            
+
             // 1. Update layer animation (movement, scale oscillation, etc.)
             // Skip if shape track is controlling this layer (to avoid conflicts with keyframe interpolation)
             // Noise and wobble still apply (they're applied in Canvas, not here)
-            let updatedLayer = hasShapeUpdate 
+            let updatedLayer = hasShapeUpdate
                 ? { ...layer }
                 : updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
-            
+
             // 2. Apply shape track updates if present (at animation loop framerate for smoothness)
             // During playback, timeline is authoritative - always apply geometry
             // Node edit protection only applies when paused (handled by useTimelineModulation)
             if (shapeUpdate) {
                 const nodeEditActive = !!isNodeEditModeRef.current;
                 const editContext = nodeEditContextRef.current;
-                
+
                 // Check if this specific layer is being node-edited
                 const isEditedLayer = editContext && (
                     layer?.id === editContext.layerId ||
                     layer?.name === editContext.layerName
                 );
-                
+
                 // During playback, apply geometry unless user is actively editing THIS layer
                 // (indicated by nodeEditMode being active for this specific layer)
                 const shouldBlockGeometry = nodeEditActive && isEditedLayer;
-                
-                if (!shouldBlockGeometry) {
-                    if (shapeUpdate.subpaths) {
-                        updatedLayer.subpaths = shapeUpdate.subpaths;
-                        updatedLayer.nodes = undefined;
-                    } else if (shapeUpdate.nodes) {
-                        updatedLayer.nodes = shapeUpdate.nodes;
-                        updatedLayer.subpaths = undefined;
+
+                // Helper for runtime blending
+                const lerp = (a, b, t) => a + (b - a) * t;
+                const getT = (param) => {
+                    const val = layer[param] ?? layer.variation ?? 0.2;
+                    return Math.max(0, Math.min(1, Number(val)));
+                };
+
+                // Runtime Blending Logic
+                // If shapeUpdate has 'base' data (unvaried state), we blend between base and varied
+                // using the current live slider values (t). This allows sliders to act as multipliers at playback.
+                if (shapeUpdate.base) {
+                    // 1. Geometry Blending
+                    if (!shouldBlockGeometry) {
+                        const tShape = getT('variationShape');
+
+                        // Try subpaths
+                        if (shapeUpdate.subpaths && shapeUpdate.base.subpaths && lerpSubpaths) {
+                            const blended = lerpSubpaths(shapeUpdate.base.subpaths, shapeUpdate.subpaths, tShape);
+                            if (blended) {
+                                updatedLayer.subpaths = blended;
+                                updatedLayer.nodes = undefined;
+                            }
+                        }
+                        // Try nodes
+                        else if (updatedLayer.subpaths === undefined && shapeUpdate.nodes && shapeUpdate.base.nodes && lerpNodes) {
+                            const blended = lerpNodes(shapeUpdate.base.nodes, shapeUpdate.nodes, tShape);
+                            if (blended) {
+                                updatedLayer.nodes = blended;
+                                updatedLayer.subpaths = undefined;
+                            }
+                        }
+
+                        // Fallback if blending failed but update exists
+                        if (!updatedLayer.nodes && !updatedLayer.subpaths) {
+                            if (shapeUpdate.subpaths) {
+                                updatedLayer.subpaths = shapeUpdate.subpaths;
+                                updatedLayer.nodes = undefined;
+                            } else if (shapeUpdate.nodes) {
+                                updatedLayer.nodes = shapeUpdate.nodes;
+                                updatedLayer.subpaths = undefined;
+                            }
+                        }
                     }
-                }
-                
-                // Apply position interpolation
-                if (shapeUpdate.position) {
-                    updatedLayer.position = {
-                        ...updatedLayer.position,
-                        x: shapeUpdate.position.x ?? updatedLayer.position?.x ?? 0.5,
-                        y: shapeUpdate.position.y ?? updatedLayer.position?.y ?? 0.5,
-                        scale: shapeUpdate.position.scale ?? updatedLayer.position?.scale ?? 1,
-                    };
-                    if (shapeUpdate.position.xOffset !== undefined) {
-                        updatedLayer.xOffset = shapeUpdate.position.xOffset;
+
+                    // 2. Position/Scale Blending
+                    if (shapeUpdate.position && shapeUpdate.base.position) {
+                        const tPos = getT('variationPosition');
+                        const tScale = getT('variationScale'); // Use scale slider if available? Or Position?
+                        // Actually variationScale defaults to 0 usually, but let's use it if distinct
+                        // If variationScale is not set/used, maybe use variationPosition? 
+                        // Base logic used normalizedWeights for keyframe gen.
+
+                        const pBase = shapeUpdate.base.position;
+                        const pVar = shapeUpdate.position;
+                        const curPos = updatedLayer.position || { x: 0.5, y: 0.5, scale: 1 };
+
+                        updatedLayer.position = {
+                            ...curPos,
+                            x: lerp(pBase.x ?? 0.5, pVar.x ?? 0.5, tPos),
+                            y: lerp(pBase.y ?? 0.5, pVar.y ?? 0.5, tPos),
+                            // Use scale slider for scale, fall back to position slider
+                            scale: lerp(pBase.scale ?? 1, pVar.scale ?? 1, tScale > 0 ? tScale : tPos),
+                            xOffset: lerp(pBase.xOffset ?? 0, pVar.xOffset ?? 0, tPos),
+                            yOffset: lerp(pBase.yOffset ?? 0, pVar.yOffset ?? 0, tPos),
+                        };
                     }
-                    if (shapeUpdate.position.yOffset !== undefined) {
-                        updatedLayer.yOffset = shapeUpdate.position.yOffset;
+
+                    // 3. Shape Params Blending
+                    if (shapeUpdate.shapeParams && shapeUpdate.base.shapeParams) {
+                        const tShape = getT('variationShape');
+                        const sBase = shapeUpdate.base.shapeParams;
+                        const sVar = shapeUpdate.shapeParams;
+
+                        updatedLayer.numSides = Math.round(lerp(sBase.numSides ?? 6, sVar.numSides ?? 6, tShape));
+                        updatedLayer.curviness = lerp(sBase.curviness ?? 1.0, sVar.curviness ?? 1.0, tShape);
+                        updatedLayer.radiusFactor = lerp(sBase.radiusFactor ?? 0.125, sVar.radiusFactor ?? 0.125, tShape);
+                        updatedLayer.radiusFactorX = lerp(sBase.radiusFactorX ?? sBase.radiusFactor ?? 0.125, sVar.radiusFactorX ?? sVar.radiusFactor ?? 0.125, tShape);
+                        updatedLayer.radiusFactorY = lerp(sBase.radiusFactorY ?? sBase.radiusFactor ?? 0.125, sVar.radiusFactorY ?? sVar.radiusFactor ?? 0.125, tShape);
+                        updatedLayer.rotation = lerp(sBase.rotation ?? 0, sVar.rotation ?? 0, tShape);
                     }
-                }
-                
-                // Apply shape params (Layer Shape Tab: Sides, Curviness, Size, Size X, Size Y, Rotate)
-                if (shapeUpdate.shapeParams) {
-                    const sp = shapeUpdate.shapeParams;
-                    if (sp.numSides !== undefined) updatedLayer.numSides = sp.numSides;
-                    if (sp.curviness !== undefined) updatedLayer.curviness = sp.curviness;
-                    if (sp.radiusFactor !== undefined) updatedLayer.radiusFactor = sp.radiusFactor;
-                    if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
-                    if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
-                    if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
-                }
-                
-                // Apply animation parameters if present
-                if (shapeUpdate.animation) {
-                    const anim = shapeUpdate.animation;
-                    if (anim.movementStyle !== undefined) updatedLayer.movementStyle = anim.movementStyle;
-                    if (anim.movementSpeed !== undefined) updatedLayer.movementSpeed = anim.movementSpeed;
-                    if (anim.movementAngle !== undefined) updatedLayer.movementAngle = anim.movementAngle;
-                    if (anim.scaleSpeed !== undefined) updatedLayer.scaleSpeed = anim.scaleSpeed;
-                    if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
-                    if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
-                }
-                
-                // Apply colors if present
-                if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
-                    updatedLayer.colors = shapeUpdate.colors;
-                    updatedLayer.numColors = shapeUpdate.colors.length;
+
+                    // 4. Animation Params Blending
+                    if (shapeUpdate.animation && shapeUpdate.base.animation) {
+                        const tAnim = getT('variationAnim');
+                        const aBase = shapeUpdate.base.animation;
+                        const aVar = shapeUpdate.animation;
+
+                        updatedLayer.movementSpeed = lerp(aBase.movementSpeed ?? 1, aVar.movementSpeed ?? 1, tAnim);
+                        updatedLayer.movementAngle = lerp(aBase.movementAngle ?? 45, aVar.movementAngle ?? 45, tAnim);
+                        updatedLayer.scaleSpeed = lerp(aBase.scaleSpeed ?? 0.05, aVar.scaleSpeed ?? 0.05, tAnim);
+                        updatedLayer.scaleMin = lerp(aBase.scaleMin ?? 0, aVar.scaleMin ?? 0, tAnim);
+                        updatedLayer.scaleMax = lerp(aBase.scaleMax ?? 1.5, aVar.scaleMax ?? 1.5, tAnim);
+                        updatedLayer.movementStyle = aVar.movementStyle; // Style not blended
+                    }
+
+                    // Colors are tricky to interpolate cheaply here, fallback to Varied state for now
+                    // or implement lerpColor array if critical. Given complexity, using Varied state is safer.
+                    if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors)) {
+                        updatedLayer.colors = shapeUpdate.colors;
+                        updatedLayer.numColors = shapeUpdate.colors.length;
+                    }
+
+                } else {
+                    // Legacy / Standard fallback (no base data)
+                    if (!shouldBlockGeometry) {
+                        if (shapeUpdate.subpaths) {
+                            updatedLayer.subpaths = shapeUpdate.subpaths;
+                            updatedLayer.nodes = undefined;
+                        } else if (shapeUpdate.nodes) {
+                            updatedLayer.nodes = shapeUpdate.nodes;
+                            updatedLayer.subpaths = undefined;
+                        }
+                    }
+
+                    // Apply position interpolation (legacy)
+                    if (shapeUpdate.position) {
+                        updatedLayer.position = {
+                            ...updatedLayer.position,
+                            x: shapeUpdate.position.x ?? updatedLayer.position?.x ?? 0.5,
+                            y: shapeUpdate.position.y ?? updatedLayer.position?.y ?? 0.5,
+                            scale: shapeUpdate.position.scale ?? updatedLayer.position?.scale ?? 1,
+                        };
+                        if (shapeUpdate.position.xOffset !== undefined) {
+                            updatedLayer.xOffset = shapeUpdate.position.xOffset;
+                        }
+                        if (shapeUpdate.position.yOffset !== undefined) {
+                            updatedLayer.yOffset = shapeUpdate.position.yOffset;
+                        }
+                    }
+
+                    // Apply shape params (legacy)
+                    if (shapeUpdate.shapeParams) {
+                        const sp = shapeUpdate.shapeParams;
+                        if (sp.numSides !== undefined) updatedLayer.numSides = sp.numSides;
+                        if (sp.curviness !== undefined) updatedLayer.curviness = sp.curviness;
+                        if (sp.radiusFactor !== undefined) updatedLayer.radiusFactor = sp.radiusFactor;
+                        if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
+                        if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
+                        if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
+                    }
+
+                    // Apply animation parameters (legacy)
+                    if (shapeUpdate.animation) {
+                        const anim = shapeUpdate.animation;
+                        if (anim.movementStyle !== undefined) updatedLayer.movementStyle = anim.movementStyle;
+                        if (anim.movementSpeed !== undefined) updatedLayer.movementSpeed = anim.movementSpeed;
+                        if (anim.movementAngle !== undefined) updatedLayer.movementAngle = anim.movementAngle;
+                        if (anim.scaleSpeed !== undefined) updatedLayer.scaleSpeed = anim.scaleSpeed;
+                        if (anim.scaleMin !== undefined) updatedLayer.scaleMin = anim.scaleMin;
+                        if (anim.scaleMax !== undefined) updatedLayer.scaleMax = anim.scaleMax;
+                    }
+
+                    // Apply colors (legacy)
+                    if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
+                        updatedLayer.colors = shapeUpdate.colors;
+                        updatedLayer.numColors = shapeUpdate.colors.length;
+                    }
                 }
             }
-            
+
             // 3. Apply Audio/BPM/Timeline modulations from the store (single pass)
             const store = modulationStoreRef.current;
             if (store && store.bpmModsRef && store.audioModsRef) {
@@ -712,7 +819,7 @@ export const useAnimation = (
                     timelineMods
                 );
             }
-            
+
             return updatedLayer;
         });
 
