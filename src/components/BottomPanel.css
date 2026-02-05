@@ -246,7 +246,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 14px; /* generous target */
+  width: 6px; /* narrow so it doesn't cover the scrollbar */
   cursor: ew-resize;
   z-index: 5;
   pointer-events: auto;
@@ -376,7 +376,8 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 16px;
+  margin-right: 10px; /* inset scrollbar away from the edge resize handle */
 }
 
 /* Scrollbar styling */
