@@ -27,7 +27,7 @@ const ColorPicker = ({ label, colors, onChange, layerId }) => {
     const next = [...safeColors];
     next[index] = nextColor;
     onChange(next);
-  }, [colors, onChange]);
+  }, [safeColors, onChange]);
 
   const addColor = useCallback(() => {
     const base = safeColors.length ? safeColors[safeColors.length - 1] : FALLBACK_COLOR;

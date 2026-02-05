@@ -282,8 +282,6 @@ export function useRandomization({
       const wShape = clamp((Number(sampledShape) || 0) / 3, 0, 1);
       const wAnim = clamp((Number(sampledAnim) || 0) / 3, 0, 1);
       const wColor = clamp(boostAboveOne(sampledColor) / 3, 0, 1);
-      const wScale = clamp((Number(sampledScale) || 0) / 3, 0, 1);
-
       // IMPORTANT: Randomize All should affect core properties based on isRandomizable flags.
       // Use variation only to scale the intensity of the change.
       

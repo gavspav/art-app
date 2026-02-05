@@ -12,7 +12,7 @@ import React, { useRef, useCallback, useEffect, useState } from 'react';
 const DraggableDivider = ({
   direction = 'horizontal',
   onResize,
-  initialRatio = 0.5,
+  initialRatio: _initialRatio = 0.5,
   minRatio = 0.1,
   maxRatio = 0.9,
   style = {},

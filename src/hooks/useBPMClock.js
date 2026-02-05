@@ -59,7 +59,7 @@ export const useBPMClock = ({
     }
 
     animationFrameRef.current = requestAnimationFrame(updateClock);
-  }, [isPlaying, bpm, beatDurationMs, beatsPerBar]);
+  }, [isPlaying, beatDurationMs, beatsPerBar]);
 
   // Start/resume playback
   const play = useCallback(() => {

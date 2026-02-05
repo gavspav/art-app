@@ -28,7 +28,7 @@ export const CURVE_TYPES = {
 // Returns y value for a given x (0-1)
 const evaluateCubicBezier = (t, cp1x, cp1y, cp2x, cp2y) => {
   // Bezier curve parametric equations
-  const x = 3 * (1-t) * (1-t) * t * cp1x + 3 * (1-t) * t * t * cp2x + t * t * t;
+  const _x = 3 * (1-t) * (1-t) * t * cp1x + 3 * (1-t) * t * t * cp2x + t * t * t;
   const y = 3 * (1-t) * (1-t) * t * cp1y + 3 * (1-t) * t * t * cp2y + t * t * t;
   return y;
 };
@@ -77,7 +77,7 @@ const getBezierControlPoints = (curveType, tension = 0.5) => {
 // Easing functions for curve interpolation - uses cubic bezier to match SVG
 // tension: 0 = very gentle, 0.5 = default, 1 = very steep
 const easingFunctions = {
-  linear: (t, tension = 0.5) => t,
+  linear: (t, _tension = 0.5) => t,
   easeIn: (t, tension = 0.5) => {
     const { cp1x, cp1y, cp2x, cp2y } = getBezierControlPoints('easeIn', tension);
     return cubicBezierY(t, cp1x, cp1y, cp2x, cp2y);
@@ -288,13 +288,11 @@ export const evaluateEnvelope = (envelope, x) => {
   // Find the two nodes to interpolate between
   let left = nodes[0];
   let right = nodes[nodes.length - 1];
-  let leftIndex = 0;
   
   for (let i = 0; i < nodes.length - 1; i++) {
     if (x >= nodes[i].x && x <= nodes[i + 1].x) {
       left = nodes[i];
       right = nodes[i + 1];
-      leftIndex = i;
       break;
     }
   }
@@ -386,7 +384,7 @@ const BPMEnvelopeEditor = ({
   const [addNodeMode, setAddNodeMode] = useState(false);
   
   // Padding for the editor - more space for labels
-  const padding = { top: 16, right: 16, bottom: 24, left: 16 };
+  const padding = useMemo(() => ({ top: 16, right: 16, bottom: 24, left: 16 }), []);
   const innerWidth = Math.max(1, effectiveWidth - padding.left - padding.right);
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   
@@ -435,7 +433,6 @@ const BPMEnvelopeEditor = ({
       } else {
         // Bezier curves for easing - tension affects control point positions
         const dx = p1.x - p0.x;
-        const dy = p1.y - p0.y;
         // tension 0 = gentle curve, 0.5 = default, 1 = steep curve
         const cpOffset = 0.1 + tension * 0.8; // 0.1 to 0.9
         let cp1x, cp1y, cp2x, cp2y;

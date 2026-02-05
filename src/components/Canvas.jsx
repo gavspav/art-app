@@ -155,7 +155,7 @@ const convertPositionBetweenCoordinateSystems = (layer, canvas, oldMovementStyle
 
 const getLayerGeometry = (layer, canvas) => {
     if (!layer || !canvas) return null;
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const { width: _canvasWidth, height: _canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: artOffsetX, offsetY: artOffsetY, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     if (spanX <= 0 || spanY <= 0 || artSize <= 0) return null;
     const { position = {} } = layer;
@@ -244,7 +244,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const { width: _canvasWidth, height: _canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
@@ -834,7 +834,6 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => 
             const last = wrapDebugLastLogMsByLayerId.get(key) || 0;
             if (now - last > 1000) {
                 wrapDebugLastLogMsByLayerId.set(key, now);
-                // eslint-disable-next-line no-console
                 console.log('[wrap-debug] drawing wrapped copies', {
                     id: layer?.id,
                     name: layer?.name,
@@ -881,7 +880,7 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = globalBlendMode;
 
-    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const { width: _canvasWidth, height: _canvasHeight } = getCanvasLogicalDimensions(canvas);
 
     const filters = [];
     if (imageBlur > 0) filters.push(`blur(${imageBlur}px)`);
@@ -1199,7 +1198,7 @@ const Canvas = forwardRef(({
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
     // Drive re-render for color fade while frozen so colours visibly animate
-    const [colorTick, setColorTick] = useState(0);
+    const [, setColorTick] = useState(0);
     // Accumulated animation time (seconds), advances only when not frozen
     const animationTimeRef = useRef(0);
     const lastTimeStampRef = useRef(null);
@@ -2034,7 +2033,6 @@ const Canvas = forwardRef(({
     }, [
         layerChanges,
         backgroundChanged,
-        colorTick,
         hideLayerIndex,
         hideLayerId,
         renderOverlayLayers,
@@ -2046,17 +2044,11 @@ const Canvas = forwardRef(({
         classicMode,
         isFrozen,
         colorFadeWhileFrozen,
-        canvasSize.width,
-        canvasSize.height,
-        canvasSize.pixelRatio,
         layers,
         layersRef,
         overlayLayersRef,
         selectedLayerIdsCtx,
-        getActiveTargetLayerIdsProp,
-        getActiveTargetLayerIdsCtx,
-        isolateMode,
-        isolateIdSet,
+        getActiveTargetLayerIdsLatest,
         isLayerVisible,
         showLayerOutlines,
     ]);
@@ -2512,8 +2504,8 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            const n1 = nodes[update.mid];
-                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const _n1 = nodes[update.mid];
+                            const _n2 = nodes[(update.mid + 1) % nodes.length];
                             const newNode = { x: update.nx, y: update.ny };
                             nodes.splice(update.mid + 1, 0, newNode);
                             const cache = nodesCacheRef.current.get(update.selIndex);
@@ -2581,8 +2573,8 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            const n1 = nodes[update.mid];
-                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const _n1 = nodes[update.mid];
+                            const _n2 = nodes[(update.mid + 1) % nodes.length];
                             const newNode = { x: update.nx, y: update.ny };
                             nodes.splice(update.mid + 1, 0, newNode);
                             const cache = nodesCacheRef.current.get(update.selIndex);
@@ -2645,8 +2637,8 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            const n1 = nodes[update.mid];
-                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const _n1 = nodes[update.mid];
+                            const _n2 = nodes[(update.mid + 1) % nodes.length];
                             const newNode = { x: update.nx, y: update.ny };
                             nodes.splice(update.mid + 1, 0, newNode);
                             const cache = nodesCacheRef.current.get(update.selIndex);
@@ -2730,8 +2722,8 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            const n1 = nodes[update.mid];
-                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const _n1 = nodes[update.mid];
+                            const _n2 = nodes[(update.mid + 1) % nodes.length];
                             const newNode = { x: update.nx, y: update.ny };
                             nodes.splice(update.mid + 1, 0, newNode);
                             const cache = nodesCacheRef.current.get(update.selIndex);

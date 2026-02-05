@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import TimelineCurveEditor from './TimelineCurveEditor.jsx';
 
 /**
@@ -10,7 +10,7 @@ import TimelineCurveEditor from './TimelineCurveEditor.jsx';
  */
 const TimelineTrackRow = ({
   track,
-  index,
+  index: _index,
   lengthSeconds,
   positionSeconds,
   pixelsPerSecond,
@@ -27,7 +27,7 @@ const TimelineTrackRow = ({
   onCaptureShapeKeyframe,
   onCaptureGlobalShapeKeyframe,
   onGenerateGlobalVariationKeyframe,
-  onRerollGlobalShapeKeyframe,
+  onRerollGlobalShapeKeyframe: _onRerollGlobalShapeKeyframe,
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,

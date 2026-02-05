@@ -141,7 +141,7 @@ const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => 
 };
 
 // Apply BPM modulations to a layer
-const applyBPMModulations = (layer, bpmContext) => {
+const _applyBPMModulations = (layer, bpmContext) => {
     const { mappings, getClockState, isPlaying } = bpmContext;
     if (!mappings || !getClockState || !isPlaying) return layer;
 
@@ -207,7 +207,7 @@ const applyBPMModulations = (layer, bpmContext) => {
 };
 
 // Apply Audio modulations to a layer
-const applyAudioModulations = (layer, audioContext) => {
+const _applyAudioModulations = (layer, audioContext) => {
     const { mappings, getFeatures } = audioContext;
     if (!getFeatures) return layer;
 
@@ -616,7 +616,7 @@ export const useAnimation = (
             shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
         }
 
-        const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, idx) => {
+        const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, _idx) => {
             // Check if this layer has shape track updates
             // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
             const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);

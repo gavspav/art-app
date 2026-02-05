@@ -962,6 +962,7 @@ export const AppStateProvider = ({ children }) => {
     setLastSavedAt,
     markDirty,
     noteUserInteraction,
+    isUserInteracting,
     presetSlots,
     setPresetSlots,
     setPresetSlot,

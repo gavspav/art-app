@@ -103,7 +103,6 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
 
   const wShape = clamp((v.shape || 0) / 3, 0, 1);
   const wAnim = clamp((v.anim || 0) / 3, 0, 1);
-  const wScale = clamp((v.scale || 0) / 3, 0, 1);
   const boostAboveOne = (x) => {
     let z = Number(x) || 0;
     if (z > 1) z = 1 + (z - 1) * 1.4;

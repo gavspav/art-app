@@ -179,7 +179,6 @@ const MainApp = () => {
     morphMode,
     setMorphMode,
     morphNodes,
-    setMorphNodes,
     applyVariationInstantly,
     setApplyVariationInstantly,
   } = appStateCtx;
@@ -408,13 +407,15 @@ const MainApp = () => {
   const [leftPanelRatio, setLeftPanelRatio] = useState(() => {
     try {
       const saved = localStorage.getItem('artapp-left-panel-ratio');
-      return saved ? parseFloat(saved) : 0.25;
+      const parsed = saved ? parseFloat(saved) : 0.25;
+      return Number.isFinite(parsed) ? Math.min(0.5, Math.max(0.15, parsed)) : 0.25;
     } catch { return 0.25; }
   });
   const [topPanelRatio, setTopPanelRatio] = useState(() => {
     try {
       const saved = localStorage.getItem('artapp-top-panel-ratio');
-      return saved ? parseFloat(saved) : 0.5;
+      const parsed = saved ? parseFloat(saved) : 0.5;
+      return Number.isFinite(parsed) ? Math.min(0.8, Math.max(0.2, parsed)) : 0.5;
     } catch { return 0.5; }
   });
   const TOP_BAR_HEIGHT = 40;
@@ -610,7 +611,7 @@ const MainApp = () => {
     } catch {
       return [];
     }
-  }, [layers, layersRef, palettes, globalPaletteIndex, globalPaletteRef, customPalettes]);
+  }, [layers, layersRef, globalPaletteIndex, globalPaletteRef, customPalettes]);
 
 
 	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
@@ -718,13 +719,16 @@ const MainApp = () => {
   // Wrapper for setIsNodeEditMode that sets context with layer info and timeline position
   // When entering node edit mode, first sync animated positions to React state so Canvas
   // (which switches to using `layers` in node edit mode) shows the correct positions
-  const handleSetNodeEditMode = useCallback((value) => {
+  const handleSetNodeEditMode = useCallback((value, options = {}) => {
     if (value) {
       // CRITICAL: Sync the currently-rendered (animated) snapshot into React state before entering node edit mode.
       // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode.
       // Without this sync, entering node edit mode causes a visual jump (often to a timeline-evaluated shape).
       const animatedLayers = animatedLayersRef.current;
-      const selectedIndex = selectedLayerIndexRef.current || 0;
+      const requestedIndex = Number.isFinite(options?.selectedIndex) ? Math.floor(options.selectedIndex) : null;
+      const selectedIndex = requestedIndex != null
+        ? Math.max(0, requestedIndex)
+        : (selectedLayerIndexRef.current || 0);
       if (Array.isArray(animatedLayers) && animatedLayers.length > 0) {
         setLayers(prev => {
           if (!Array.isArray(prev)) return prev;
@@ -1045,7 +1049,7 @@ const MainApp = () => {
       uniformColorCount,
       ...options,
     }),
-    [DEFAULT_LAYER, palettesWithCustom, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
+    [palettesWithCustom, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
   );
 
   const handleImportFile = useCallback(async (e) => {
@@ -1141,7 +1145,7 @@ const MainApp = () => {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, mergeCustomPaletteList]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, mergeCustomPaletteList]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
@@ -1279,7 +1283,7 @@ const MainApp = () => {
 
       // Select the first of the newly added layers
       setSelectedLayerIndex(layersSnapshot.length);
-      handleSetNodeEditMode(true);
+      handleSetNodeEditMode(true, { selectedIndex: layersSnapshot.length });
       
       // Success log
       console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layers.length} existing layer(s)`);
@@ -1449,7 +1453,7 @@ const MainApp = () => {
     }
     const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  }, [colorCountMax, colorCountMin, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
+  }, [colorCountMax, colorCountMin, randomizeNumColors, randomizePalette, palettesWithCustom, sampleColorsEven, selectedLayerIndex, setLayers]);
 
   // randomizeBackgroundColor handled within useRandomization
 

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 
 /**
  * TimelineWaveform - Audio waveform display component
@@ -190,13 +190,6 @@ const TimelineWaveform = ({
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, [handleMouseUp]);
-
-  // Calculate canvas width
-  const canvasWidth = useMemo(() => {
-    if (timelineWidth) return timelineWidth;
-    const container = containerRef.current;
-    return container?.clientWidth || 800;
-  }, [timelineWidth]);
 
   if (!audio) return null;
 

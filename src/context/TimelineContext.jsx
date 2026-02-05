@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
+import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
 import {
   computeEnergyFlux,
   detectTransientsFromFlux,

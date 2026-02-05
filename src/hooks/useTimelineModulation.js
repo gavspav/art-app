@@ -56,7 +56,7 @@ export function useTimelineModulation({
   midiContext,
   // Global setters for global parameters
   setGlobalSpeedMultiplier,
-  setGlobalOpacity,
+  setGlobalOpacity: _setGlobalOpacity,
   setBackgroundColor,
   setGlobalBlendMode,
   // Global appearance helpers
@@ -816,12 +816,20 @@ export function useTimelineModulation({
       shapeTrackUpdatesRef.current = new Map();
     }
   }, [
+    blendModes,
+    layers,
+    palettes,
+    sampleColorsEven,
+    setBackgroundColor,
+    setGlobalBlendMode,
     timeline?.isPlaying,
     timeline?.positionSeconds,
     timeline?.tracks,
+    timeline,
     parseTargetId,
     setGlobalSpeedMultiplier,
     setLayers,
+    shapeTrackUpdatesRef,
     isNodeEditMode,
     nodeEditContext,
     timelineMode,

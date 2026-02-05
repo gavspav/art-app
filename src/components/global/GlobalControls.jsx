@@ -602,7 +602,7 @@ const AudioSpawnSection = ({
 };
 
 // BPM/Beat Sync Section Component - Master BPM controls
-const BPMSection = ({ showBeatCounter = false }) => {
+const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
   const bpm = useBPM();
 
   if (!bpm) {
@@ -679,25 +679,22 @@ const BPMSection = ({ showBeatCounter = false }) => {
 };
 
 // Audio control row component - shown per parameter in settings panel
-const AudioControlRow = ({ paramId, label }) => {
+const AudioControlRow = ({ paramId, label: _label }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
   const [showRange, setShowRange] = useState(false);
-  
-  if (!audio) return null;
-  
-  const { 
-    isActive, 
-    mappings, 
-    setMapping, 
-    clearMapping,
-    learnParamId,
-    beginLearn,
-    cancelLearn,
-    AUDIO_BANDS,
-    DEFAULT_RANGE,
-  } = audio;
+
+  const hasAudio = !!audio;
+  const isActive = !!audio?.isActive;
+  const mappings = audio?.mappings || {};
+  const setMapping = audio?.setMapping;
+  const clearMapping = audio?.clearMapping;
+  const learnParamId = audio?.learnParamId;
+  const _beginLearn = audio?.beginLearn;
+  const cancelLearn = audio?.cancelLearn;
+  const AUDIO_BANDS = audio?.AUDIO_BANDS || ['none'];
+  const DEFAULT_RANGE = audio?.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 };
   
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
@@ -706,6 +703,7 @@ const AudioControlRow = ({ paramId, label }) => {
   const isLearning = learnParamId === paramId;
   
   const handleBandChange = (band) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
     if (band === 'none') {
       // Preserve the last-used range so re-enabling keeps the same min/max
       setMapping(paramId, { band: 'none', range: currentRange });
@@ -722,10 +720,13 @@ const AudioControlRow = ({ paramId, label }) => {
   };
   
   const handleRangeChange = (update) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
     if (currentBand === 'none') return;
     setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update } });
   };
-  
+
+  if (!hasAudio) return null;
+
   return (
     <div style={{ marginTop: '0.25rem' }}>
       <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -811,23 +812,21 @@ const BPMControlRow = React.memo(({ paramId }) => {
   });
   const [playheadPosition, setPlayheadPosition] = useState(null);
   const [indicatorPhase, setIndicatorPhase] = useState(0);
-  
-  if (!bpm) return null;
-  
-  const { 
-    isPlaying,
-    mappings, 
-    setMapping, 
-    clearMapping,
-    getPhaseForParam,
-    BEAT_SPEEDS,
-    LOOP_MODES,
-    DEFAULT_RANGE,
-    beatsPerBar,
-  } = bpm;
+
+  const hasBpm = !!bpm;
+  const isPlaying = !!bpm?.isPlaying;
+  const mappings = bpm?.mappings || {};
+  const setMapping = bpm?.setMapping;
+  const clearMapping = bpm?.clearMapping;
+  const getPhaseForParam = bpm?.getPhaseForParam;
+  const BEAT_SPEEDS = bpm?.BEAT_SPEEDS || [];
+  const LOOP_MODES = bpm?.LOOP_MODES || [];
+  const DEFAULT_RANGE = bpm?.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 };
+  const beatsPerBar = bpm?.beatsPerBar;
   
   // Poll for playhead position when envelope is shown and playing
   useEffect(() => {
+    if (!hasBpm) return;
     if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
     
     let frameId;
@@ -841,7 +840,7 @@ const BPMControlRow = React.memo(({ paramId }) => {
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  }, [hasBpm, showEnvelope, isPlaying, getPhaseForParam, paramId]);
   // Persist envelope open state so remounts don't auto-close it
   useEffect(() => {
     try {
@@ -889,6 +888,7 @@ const BPMControlRow = React.memo(({ paramId }) => {
   // Lightweight indicator (does not mutate actual slider values):
   // show current phase so users can see BPM automation is active even if UI controls are not animated.
   useEffect(() => {
+    if (!hasBpm) return;
     if (!isEnabled || typeof getPhaseForParam !== 'function') {
       setIndicatorPhase(0);
       return undefined;
@@ -917,8 +917,10 @@ const BPMControlRow = React.memo(({ paramId }) => {
     const phase = getPhaseForParam(paramId);
     setIndicatorPhase(Number.isFinite(phase) ? phase : 0);
     return undefined;
-  }, [isEnabled, isPlaying, getPhaseForParam, paramId]);
-  
+  }, [hasBpm, isEnabled, isPlaying, getPhaseForParam, paramId]);
+
+  if (!hasBpm) return null;
+
   return (
     <div style={{ marginTop: '0.25rem' }}>
       <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -1061,8 +1063,8 @@ const GlobalControls = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
-  enableBreathing,
-  setEnableBreathing,
+  enableBreathing: _enableBreathing,
+  setEnableBreathing: _setEnableBreathing,
   energyInfluence,
   setEnergyInfluence,
   audioSpawnEnabled,
@@ -1201,10 +1203,10 @@ const GlobalControls = ({
   // which causes re-renders on every animation frame
   const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
-  const audioContext = useAudioReactive() || {};
-  const { applyAudioSnapshot } = audioContext;
-  const bpmContext = useBPM() || {};
-  const { applyBPMSnapshot } = bpmContext;
+  const audioContext = useAudioReactive();
+  const applyAudioSnapshot = audioContext?.applyAudioSnapshot;
+  const bpmContext = useBPM();
+  const applyBPMSnapshot = bpmContext?.applyBPMSnapshot;
 
   const [canvasFps, setCanvasFpsState] = useState(() => getCanvasFps());
   useEffect(() => subscribeCanvasFps(setCanvasFpsState), []);
@@ -1633,12 +1635,6 @@ const GlobalControls = ({
     updateSeed(Number(e.target.value));
   }, [updateSeed]);
 
-  const handleSeedInputChange = useCallback((e) => {
-    const val = e.target.value;
-    if (val === '') return;
-    updateSeed(Number(val));
-  }, [updateSeed]);
-
   // Numeric bounds (min/max/step) for sliders
   const [speedMin, setSpeedMin] = useState(0);
   const [speedMax, setSpeedMax] = useState(5);
@@ -1660,7 +1656,7 @@ const GlobalControls = ({
   }, [layers.length]);
 
   // Helper to set layer count uniformly from slider or number box
-  const setLayerCount = (targetRaw) => {
+  const setLayerCount = useCallback((targetRaw) => {
     let target = Number(targetRaw);
     if (!Number.isFinite(target)) return;
     target = Math.round(target);
@@ -1703,7 +1699,16 @@ const GlobalControls = ({
       }
       return next;
     });
-  };
+  }, [
+    DEFAULT_LAYER,
+    audioSpawnUseGlobalPalette,
+    buildVariedLayerFrom,
+    generateLayerSeed,
+    layersMax,
+    layersMin,
+    paletteColorsForVariation,
+    setLayers,
+  ]);
 
   const commitLayerCountDraft = useCallback((nextValue) => {
     setLayerCount(nextValue);

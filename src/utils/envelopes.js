@@ -75,7 +75,7 @@ export const getBezierControlPoints = (curveType, tension = 0.5) => {
  * tension: 0 = very gentle, 0.5 = default, 1 = very steep
  */
 export const easingFunctions = {
-  linear: (t, tension = 0.5) => t,
+  linear: (t, _tension = 0.5) => t,
   easeIn: (t, tension = 0.5) => {
     const { cp1x, cp1y, cp2x, cp2y } = getBezierControlPoints('easeIn', tension);
     return cubicBezierY(t, cp1x, cp1y, cp2x, cp2y);

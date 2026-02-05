@@ -179,10 +179,11 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
-  
-  if (!audio) return null;
-  
-  const { mappings, setMapping, AUDIO_BANDS } = audio;
+
+  const hasAudio = !!audio;
+  const mappings = audio?.mappings || {};
+  const setMapping = audio?.setMapping;
+  const AUDIO_BANDS = audio?.AUDIO_BANDS || ['none'];
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
   
@@ -191,6 +192,7 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   
   // Auto-fix stale mappings that have wrong output range values
   useEffect(() => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
     if (mapping && mapping.band !== 'none' && mapping.range) {
       const storedMin = mapping.range.outputMin;
       const storedMax = mapping.range.outputMax;
@@ -202,9 +204,10 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
         });
       }
     }
-  }, [paramId, min, max, mapping, setMapping]);
+  }, [hasAudio, paramId, min, max, mapping, setMapping]);
   
   const handleBandChange = (band) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
     if (band === 'none') {
       setMapping(paramId, { band: 'none', range: defaultRange });
     } else {
@@ -216,6 +219,8 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
     }
   };
   
+  if (!hasAudio) return null;
+
   return (
     <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
       <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
@@ -250,13 +255,19 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
     }
   });
   const [playheadPosition, setPlayheadPosition] = useState(null);
-  
-  if (!bpm) return null;
-  
-  const { mappings, setMapping, getPhaseForParam, isPlaying, BEAT_SPEEDS, LOOP_MODES, beatsPerBar } = bpm;
+
+  const hasBpm = !!bpm;
+  const mappings = bpm?.mappings || {};
+  const setMapping = bpm?.setMapping;
+  const getPhaseForParam = bpm?.getPhaseForParam;
+  const isPlaying = !!bpm?.isPlaying;
+  const BEAT_SPEEDS = bpm?.BEAT_SPEEDS || [];
+  const LOOP_MODES = bpm?.LOOP_MODES || [];
+  const beatsPerBar = bpm?.beatsPerBar;
   
   // Poll for playhead position when envelope is shown and playing
   useEffect(() => {
+    if (!hasBpm) return;
     if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
     
     let frameId;
@@ -270,7 +281,7 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  }, [hasBpm, showEnvelope, isPlaying, getPhaseForParam, paramId]);
   // Persist envelope open state so remounts don't auto-close it
   useEffect(() => {
     try {
@@ -288,6 +299,7 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
   
   // Auto-fix stale mappings that have wrong range values
   useEffect(() => {
+    if (!hasBpm || typeof setMapping !== 'function') return;
     if (mapping?.enabled && mapping?.range) {
       const storedMin = mapping.range.outputMin;
       const storedMax = mapping.range.outputMax;
@@ -296,9 +308,10 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
         setMapping(paramId, { ...mapping, range: { outputMin: min, outputMax: max } });
       }
     }
-  }, [paramId, min, max, mapping, setMapping]);
+  }, [hasBpm, paramId, min, max, mapping, setMapping]);
   
   const handleToggle = () => {
+    if (!hasBpm || typeof setMapping !== 'function') return;
     // Always use defaultRange when toggling to ensure correct min/max
     const rangeToUse = defaultRange;
     if (isEnabled) {
@@ -312,20 +325,25 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
   };
   
   const handleSpeedChange = (speed) => {
+    if (!hasBpm || typeof setMapping !== 'function') return;
     // Always use defaultRange to ensure correct min/max for this parameter
     setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange, envelope: currentEnvelope });
   };
   
   const handleLoopModeChange = (loopMode) => {
+    if (!hasBpm || typeof setMapping !== 'function') return;
     // Always use defaultRange to ensure correct min/max for this parameter
     setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange, envelope: currentEnvelope });
   };
   
   const handleEnvelopeChange = (newEnvelope) => {
+    if (!hasBpm || typeof setMapping !== 'function') return;
     console.debug('[Controls] handleEnvelopeChange', { paramId, newEnvelope });
     setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
   };
-  
+
+  if (!hasBpm) return null;
+
   return (
     <div style={{ marginTop: '0.35rem' }}>
       <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -625,7 +643,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     } else {
       updateLayer(factory(currentLayer));
     }
-  }, [buildTargetSet, currentLayer, id, setLayers, targetMode, updateLayer]);
+  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
 
   const handleChange = (e) => {
     let newValue;

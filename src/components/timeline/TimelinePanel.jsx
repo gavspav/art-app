@@ -51,11 +51,8 @@ const TimelinePanel = ({
   } = useAppState() || {};
   const containerRef = useRef(null);
   const tracksContainerRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [showWaveform, setShowWaveform] = useState(true);
   const {
-    session,
     tracks,
     lengthSeconds,
     loop,
@@ -83,7 +80,6 @@ const TimelinePanel = ({
     updateKeyframe,
     removeKeyframe,
     addShapeKeyframe,
-    addGlobalShapeKeyframe,
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,
     rerollGlobalShapeKeyframe,
@@ -95,7 +91,6 @@ const TimelinePanel = ({
     clearAudio,
     setZoom,
     setScrollLeft,
-    setVisible,
     getPositionSeconds,
     transients,
     transientSettings,
@@ -393,16 +388,6 @@ const TimelinePanel = ({
       scroller.scrollLeft = target;
     }
   }, [scrollLeft]);
-
-  // Handle click on timeline to seek
-  const handleTimelineClick = useCallback((e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + (scrollLeft || 0);
-    const time = x / pixelsPerSecond;
-    if (seekTo) {
-      seekTo(Math.max(0, Math.min(lengthSeconds, time)));
-    }
-  }, [pixelsPerSecond, scrollLeft, seekTo, lengthSeconds]);
 
   // Handle zoom with mouse wheel
   const handleWheel = useCallback((e) => {
@@ -760,7 +745,6 @@ const TimelinePanel = ({
 
       // Compute peaks for waveform display
       const channelData = audioBuffer.getChannelData(0);
-      const sampleRate = audioBuffer.sampleRate;
       const duration = audioBuffer.duration;
 
       // Downsample to ~2000 peaks

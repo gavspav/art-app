@@ -43,7 +43,10 @@ const TimelineCurveEditor = ({
   const [curveMenuPos, setCurveMenuPos] = useState({ x: 0, y: 0 });
   const [curveMenuKeyframeId, setCurveMenuKeyframeId] = useState(null);
 
-  const keyframes = track?.keyframes || [];
+  const keyframes = useMemo(
+    () => (Array.isArray(track?.keyframes) ? track.keyframes : []),
+    [track?.keyframes],
+  );
   const trackColor = track?.color || '#4fc3f7';
   const isShapeTrack = track?.type === 'shape' || track?.type === 'globalShape';
   const isColorTrack = track?.type === 'color';
@@ -63,7 +66,7 @@ const TimelineCurveEditor = ({
   );
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
-  const padding = { top: 8, right: 8, bottom: 8, left: 0 };
+  const padding = useMemo(() => ({ top: 8, right: 8, bottom: 8, left: 0 }), []);
   const innerHeight = Math.max(1, height - padding.top - padding.bottom);
   
   // For shape/color tracks, keyframes sit on a horizontal centerline
@@ -515,7 +518,7 @@ const TimelineCurveEditor = ({
     const max = track?.range?.outputMax ?? 1;
     const t = (value - min) / Math.max(0.0001, (max - min));
     return padding.top + (1 - t) * innerHeight;
-  }, [track?.range?.outputMin, track?.range?.outputMax, innerHeight]);
+  }, [track?.range?.outputMin, track?.range?.outputMax, innerHeight, padding.top]);
 
   if (collapsed) {
     // Collapsed view: just show a thin line

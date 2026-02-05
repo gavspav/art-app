@@ -13,22 +13,22 @@ export function useBPMHandlers({
   setGlobalBlendMode,
   blendModes,
   // Layers
-  layers,
+  layers: _layers,
   setLayers,
   DEFAULT_LAYER,
   buildVariedLayerFrom,
-  setSelectedLayerIndex,
+  setSelectedLayerIndex: _setSelectedLayerIndex,
   // Palette helpers
   palettes,
   sampleColorsEven,
   // Background
-  backgroundColor,
+  backgroundColor: _backgroundColor,
   setBackgroundColor,
   // Randomize All
   rndAllPrevRef,
   handleRandomizeAll,
   // Selection
-  clampedSelectedIndex,
+  clampedSelectedIndex: _clampedSelectedIndex,
 }) {
   // Randomize All (rising-edge trigger)
   useEffect(() => {
