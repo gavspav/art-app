@@ -483,6 +483,8 @@ const BottomPanel = ({
     try { const v = JSON.parse(localStorage.getItem('artapp-bottom-panel-dock') || '{}').h; return ['left','center','right'].includes(v) ? v : 'center'; } catch { return 'center'; }
   });
   const isDockDraggingRef = useRef(false);
+  const dockDragStartRef = useRef({ x: 0, y: 0 });
+  const dockDragMovedRef = useRef(false);
 
   useEffect(() => {
     panelWidthVWRef.current = panelWidthVW;
@@ -596,9 +598,10 @@ const BottomPanel = ({
     if (!isResizingRef.current) return;
     const minH = 160;
     const maxH = Math.min( Math.round(window.innerHeight * 0.9), 600 );
-    const newH = Math.max(minH, Math.min(maxH, window.innerHeight - e.clientY));
+    const rawH = dockV === 'top' ? e.clientY : (window.innerHeight - e.clientY);
+    const newH = Math.max(minH, Math.min(maxH, rawH));
     setPanelHeight(newH);
-  }, []);
+  }, [dockV]);
 
   const onResizeEnd = useCallback(() => {
     if (!isResizingRef.current) return;
@@ -617,19 +620,16 @@ const BottomPanel = ({
   }, [onResizeMove, onResizeEnd]);
 
   // Drag the peek bar to set docking position (top/bottom + left/center/right)
-  const onDockDragStart = useCallback(() => {
+  const onDockDragStart = useCallback((e) => {
+    e.preventDefault();
     isDockDraggingRef.current = true;
+    dockDragMovedRef.current = false;
+    dockDragStartRef.current = { x: e.clientX, y: e.clientY };
     document.body.style.cursor = 'move';
     document.body.style.userSelect = 'none';
   }, []);
 
-  const onDockDragEnd = useCallback((e) => {
-    if (!isDockDraggingRef.current) return;
-    isDockDraggingRef.current = false;
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    const x = e.clientX;
-    const y = e.clientY;
+  const applyDockFromPoint = useCallback((x, y) => {
     const third = window.innerWidth / 3;
     const hPos = x < third ? 'left' : (x < third * 2 ? 'center' : 'right');
     const vPos = y < window.innerHeight / 2 ? 'top' : 'bottom';
@@ -638,11 +638,39 @@ const BottomPanel = ({
     try { localStorage.setItem('artapp-bottom-panel-dock', JSON.stringify({ h: hPos, v: vPos })); } catch { /* noop */ }
   }, []);
 
+  const onDockDragMove = useCallback((e) => {
+    if (!isDockDraggingRef.current) return;
+    const movedX = Math.abs(e.clientX - dockDragStartRef.current.x);
+    const movedY = Math.abs(e.clientY - dockDragStartRef.current.y);
+    if ((movedX + movedY) > 6) {
+      dockDragMovedRef.current = true;
+      applyDockFromPoint(e.clientX, e.clientY);
+    }
+  }, [applyDockFromPoint]);
+
+  const onDockDragEnd = useCallback((e) => {
+    if (!isDockDraggingRef.current) return;
+    isDockDraggingRef.current = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    const movedX = Math.abs(e.clientX - dockDragStartRef.current.x);
+    const movedY = Math.abs(e.clientY - dockDragStartRef.current.y);
+    const didMove = (movedX + movedY) > 6;
+    dockDragMovedRef.current = didMove;
+    if (!didMove) return;
+    applyDockFromPoint(e.clientX, e.clientY);
+  }, [applyDockFromPoint]);
+
   useEffect(() => {
+    const move = (e) => onDockDragMove(e);
     const up = (e) => onDockDragEnd(e);
+    window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
-    return () => window.removeEventListener('mouseup', up);
-  }, [onDockDragEnd]);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+  }, [onDockDragMove, onDockDragEnd]);
 
   // Start side resize (width)
   const onSideResizeStart = useCallback((side) => (e) => {
@@ -727,6 +755,15 @@ const BottomPanel = ({
     { id: 'presets', label: 'Presets', icon: '🎛️' },
     { id: 'groups', label: 'Groups', icon: '🧰' },
   ]), []);
+  const showInlineTitleBar = dockV === 'top' && panelState !== 'peek';
+  const showFloatingPeekBar = !showInlineTitleBar;
+  const handlePeekBarClick = useCallback(() => {
+    if (dockDragMovedRef.current) {
+      dockDragMovedRef.current = false;
+      return;
+    }
+    setPanelState(panelState === 'expanded' ? 'peek' : 'expanded');
+  }, [panelState]);
 
   // Keyboard shortcuts: 1..5 to switch tabs (no modifiers)
   useEffect(() => {
@@ -998,22 +1035,24 @@ const BottomPanel = ({
       onMouseMove={handlePanelInteraction}
       onClick={handlePanelInteraction}
     >
-      {/* Peek bar - always visible when not hidden */}
-      <div
-        className="panel-peek-bar"
-        style={{
-          width: `${panelWidthVW}vw`,
-          transform: dockH === 'center' ? `translateX(${panelOffsetVW}vw)` : undefined,
-        }}
-        onMouseDown={onDockDragStart}
-        onClick={() => setPanelState(panelState === 'expanded' ? 'peek' : 'expanded')}
-      >
-        <div className="peek-indicator">
-          <span className="peek-line"></span>
-          <span className="peek-text">Controls</span>
-          <span className="peek-line"></span>
+      {/* Floating peek bar (not used in top-docked non-peek states) */}
+      {showFloatingPeekBar && (
+        <div
+          className="panel-peek-bar"
+          style={{
+            width: `${panelWidthVW}vw`,
+            transform: dockH === 'center' ? `translateX(${panelOffsetVW}vw)` : undefined,
+          }}
+          onMouseDown={onDockDragStart}
+          onClick={handlePeekBarClick}
+        >
+          <div className="peek-indicator">
+            <span className="peek-line"></span>
+            <span className="peek-text">Controls</span>
+            <span className="peek-line"></span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main panel content */}
       <div
@@ -1024,8 +1063,12 @@ const BottomPanel = ({
           transform: dockH === 'center' ? `translateX(${panelOffsetVW}vw)` : undefined,
         }}
       >
-        {/* Resize handle at top edge */}
-        <div className="panel-resize-handle" onMouseDown={onResizeStart} title="Drag up/down to resize" />
+        {/* Resize handle at the free vertical edge (opposite of docked edge) */}
+        <div
+          className={`panel-resize-handle ${dockV === 'top' ? 'bottom-edge' : 'top-edge'}`}
+          onMouseDown={onResizeStart}
+          title="Drag up/down to resize"
+        />
         {/* Side handles for width resize */}
         <div
           className={`panel-resize-handle-side left ${dockH === 'left' ? 'disabled' : ''}`}
@@ -1037,6 +1080,23 @@ const BottomPanel = ({
           onMouseDown={onSideResizeStart('right')}
           title={dockH === 'right' ? 'Edge handle disabled when docked right' : 'Drag left/right to resize'}
         />
+        {showInlineTitleBar && (
+          <div
+            className="panel-title-bar-inline"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              onDockDragStart(e);
+            }}
+            onClick={handlePeekBarClick}
+            title="Drag to move panel · Click to minimize"
+          >
+            <div className="panel-title-inline-content">
+              <span className="panel-title-inline-line"></span>
+              <span className="panel-title-inline-text">Controls</span>
+              <span className="panel-title-inline-line"></span>
+            </div>
+          </div>
+        )}
         {/* Tab navigation */}
         <div className="tab-navigation">
           <div className="tabs-container" ref={tabsContainerRef}>

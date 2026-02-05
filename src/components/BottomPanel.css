@@ -36,7 +36,7 @@
   transform: translateY(-100%);
 }
 .bottom-panel.dock-top.peek {
-  transform: translateY(calc(-100% + 20px));
+  transform: translateY(0);
 }
 .bottom-panel.dock-top.expanded,
 .bottom-panel.dock-top.locked {
@@ -68,25 +68,22 @@
   border-top-color: rgba(79, 195, 247, 0.3);
 }
 
-/* Top-docked: flip peek bar styling so the title is visible */
+/* Top-docked: keep title strip at the top of the control box */
 .bottom-panel.dock-top .panel-peek-bar {
-  background: linear-gradient(0deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
-  border-top: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  border-bottom-left-radius: 10px;
-  border-bottom-right-radius: 10px;
+  background: linear-gradient(180deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: none;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
   box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0; /* reveal this bar in peek state */
-  z-index: 1100; /* ensure above content */
+  position: relative;
+  z-index: 2;
 }
 .bottom-panel.dock-top .panel-peek-bar:hover {
-  background: linear-gradient(0deg, rgba(40, 40, 50, 0.95) 0%, rgba(30, 30, 40, 0.98) 100%);
-  border-bottom-color: rgba(79, 195, 247, 0.3);
+  background: linear-gradient(180deg, rgba(40, 40, 50, 0.95) 0%, rgba(30, 30, 40, 0.98) 100%);
+  border-top-color: rgba(79, 195, 247, 0.3);
 }
 
 .peek-indicator {
@@ -163,17 +160,78 @@
   border-top: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 30px rgba(0,0,0,0.3);
-  padding-bottom: 20px; /* ensure content sits above the peek bar at bottom */
+  padding-bottom: 0;
+  /* Fully opaque so inline title bar isn't faded against canvas */
+  background: linear-gradient(180deg, rgb(20, 20, 30) 0%, rgb(15, 15, 25) 100%);
+}
+
+/* In top-docked peek mode, show only the title strip */
+.bottom-panel.dock-top.peek .panel-content {
+  display: none;
+}
+
+.panel-title-bar-inline {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  opacity: 1 !important;
+  background: linear-gradient(180deg, rgb(30, 30, 40) 0%, rgb(20, 20, 30) 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 12;
+  flex-shrink: 0;
+}
+
+.panel-title-bar-inline:hover {
+  background: linear-gradient(180deg, rgba(40, 40, 50, 0.95) 0%, rgba(30, 30, 40, 0.98) 100%);
+  border-top-color: rgba(79, 195, 247, 0.3);
+}
+
+.panel-title-inline-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.panel-title-inline-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.96);
+  font-weight: 600;
+}
+
+.panel-title-inline-line {
+  width: 40px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(79, 195, 247, 0.7), transparent);
 }
 
 /* Drag handle for resizing */
 .panel-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
   height: 16px;
   cursor: ns-resize;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: auto;
+  z-index: 6;
+}
+
+.panel-resize-handle.top-edge {
+  top: 0;
+}
+
+.panel-resize-handle.bottom-edge {
+  bottom: 0;
 }
 .panel-resize-handle::before {
   content: '';
