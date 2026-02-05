@@ -13,6 +13,10 @@ import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from './common/BPMEnvelopeEditor.jsx';
+import { useLayerTargeting } from '../hooks/controls/useLayerTargeting.js';
+import LayerAnimationSection from './layer/sections/LayerAnimationSection.jsx';
+import LayerShapeSection from './layer/sections/LayerShapeSection.jsx';
+import LayerColorSection from './layer/sections/LayerColorSection.jsx';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -1207,28 +1211,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 // The performance impact is negligible since controls are lightweight.
 const DynamicControl = DynamicControlBase;
 
-// Collapsible Section component defined at module scope to maintain stable identity across renders
-const Section = ({ title, id, defaultOpen = false, children }) => {
-  const [open, setOpen] = React.useState(!!defaultOpen);
-  return (
-    <div className="control-group" data-section-id={id}>
-      <div
-        className="section-header"
-        onClick={() => setOpen(o => !o)}
-        style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-      >
-        <span>{open ? '▾' : '▸'}</span>
-        <span>{title}</span>
-      </div>
-      {open && (
-        <div className="section-body" style={{ marginTop: '0.5rem' }}>
-          {children}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const Controls = forwardRef(({ 
   currentLayer, 
   updateLayer, 
@@ -1358,65 +1340,18 @@ const Controls = forwardRef(({
     return `layer:${idx}`;
   }, [editTarget, layerGroups, selectionCount, selectedLayerIndex]);
 
-  const buildTargetSet = useCallback((options = {}) => {
-    const mode = options.mode || 'targeted'; // 'targeted' or 'all'
-    if (mode === 'all') {
-      return new Set((layerIds || []).filter(Boolean));
-    }
-    if (typeof getActiveTargetLayerIds !== 'function') return new Set();
-    const ids = getActiveTargetLayerIds();
-    return new Set(Array.isArray(ids) ? ids.filter(Boolean) : []);
-  }, [getActiveTargetLayerIds, layerIds]);
-
-  const applyTargetedUpdate = useCallback((updater) => {
-    const { effective: targets } = resolveLayerTargets({
-      currentLayer,
-      buildTargetSet,
-      targetMode,
-    });
-    const factory = typeof updater === 'function'
-      ? updater
-      : (() => updater || {});
-
-    const ids = Array.from(targets || []);
-    if (targetMode === 'individual' && ids.length === 1) {
-      const nextPatch = factory(currentLayer);
-      if (nextPatch && typeof updateLayer === 'function') {
-        updateLayer(nextPatch);
-        return;
-      }
-    }
-
-    if (typeof setLayers === 'function' && targets.size > 0) {
-      setLayers(prev => applyWithVary({
-        layers: prev,
-        targets,
-        updater: (layer) => ({
-          ...layer,
-          ...factory(layer),
-        }),
-      }));
-    } else if (typeof factory === 'function') {
-      updateLayer(factory(currentLayer));
-    }
-  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
+  const { buildTargetSet, applyTargetedUpdate } = useLayerTargeting({
+    currentLayer,
+    layerIds,
+    targetMode,
+    getActiveTargetLayerIds,
+    setLayers,
+    updateLayer,
+  });
 
   const applyRotation = useCallback((wrapped) => {
-    const { effective: targets } = resolveLayerTargets({
-      currentLayer,
-      buildTargetSet,
-      targetMode,
-    });
-    if (typeof setLayers === 'function' && targets.size > 0) {
-      setLayers(prev => applyWithVary({
-        layers: prev,
-        targets,
-        updater: () => ({ rotation: wrapped }),
-      }));
-    } else {
-      updateLayer({ rotation: wrapped });
-    }
-  }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
+    applyTargetedUpdate(() => ({ rotation: wrapped }));
+  }, [applyTargetedUpdate]);
 
   // Optional: expose for manual inspection from DevTools when settings debug is enabled
   useEffect(() => {
@@ -1617,512 +1552,84 @@ const Controls = forwardRef(({
   };
 
   const renderAnimationTab = () => (
-    <div className="tab-section">
-      {/* MIDI Position Control Section remains a dedicated card */}
-      <MidiPositionSection currentLayer={currentLayer} updateLayer={updateLayer} />
-
-      {/* Consolidated movement params into one compact card */}
-      {!(currentLayer?.manualMidiPositionEnabled) && (
-        <div className="control-card">
-            <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 600 }}>Animation</div>
-              <button
-                type="button"
-                className="icon-btn sm"
-              title="Randomize animation for selected layer"
-              aria-label="Randomize animation for selected layer"
-              onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
-            >
-              🎲
-            </button>
-          </div>
-          <div style={{ marginTop: '0.5rem' }}>
-            {movementParams.map(param => (
-              <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
-                <DynamicControl
-                  param={param}
-                  currentLayer={currentLayer}
-                  updateLayer={updateLayer}
-                  setLayers={setLayers}
-                  buildTargetSet={buildTargetSet}
-                  targetMode={targetMode}
-                  editTarget={editTarget}
-                  debugSettingsEnabled={debugSettingsEnabled}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Orbit Settings (visible when movement style is 'orbit') */}
-      {currentLayer?.movementStyle === 'orbit' && (
-        <div className="control-card" style={{ marginTop: '0.6rem' }}>
-          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600 }}>Orbit</div>
-          </div>
-          <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.6rem' }}>
-            <div>
-              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span className="compact-label">Radius X</span>
-                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusX ?? 0).toFixed(3)}</span>
-                </div>
-              </div>
-              <input
-                key={`orbitX-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-                type="range"
-                min={0}
-                max={0.5}
-                step={0.001}
-                value={Math.max(0, Math.min(0.5, Number(currentLayer?.orbitRadiusX ?? 0.15)))}
-                onChange={handleOrbitRadiusChange('x')}
-                className="dc-slider"
-              />
-            </div>
-
-            <div>
-              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <span className="compact-label">Radius Y</span>
-                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusY ?? 0).toFixed(3)}</span>
-                </div>
-              </div>
-              <input
-                key={`orbitY-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-                type="range"
-                min={0}
-                max={0.5}
-                step={0.001}
-                value={Math.max(0, Math.min(0.5, Number(currentLayer?.orbitRadiusY ?? 0.15)))}
-                onChange={handleOrbitRadiusChange('y')}
-                className="dc-slider"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <LayerAnimationSection
+      currentLayer={currentLayer}
+      editTarget={editTarget}
+      movementParams={movementParams}
+      DynamicControl={DynamicControl}
+      updateLayer={updateLayer}
+      setLayers={setLayers}
+      buildTargetSet={buildTargetSet}
+      targetMode={targetMode}
+      debugSettingsEnabled={debugSettingsEnabled}
+      randomizeAnimationOnly={randomizeAnimationOnly}
+      handleOrbitRadiusChange={handleOrbitRadiusChange}
+    />
   );
 
   const renderShapeTab = () => (
-    <div className="tab-section">
-      <div className="control-card">
-        {shapeParams.map(param => (
-          <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
-            <DynamicControl
-              param={param}
-              currentLayer={currentLayer}
-              updateLayer={updateLayer}
-              setLayers={setLayers}
-              buildTargetSet={buildTargetSet}
-              targetMode={targetMode}
-              debugSettingsEnabled={debugSettingsEnabled}
-            />
-          </div>
-        ))}
-        {/* Rotation slider for shape layers */}
-        {currentLayer?.layerType === 'shape' && (
-          <div className="control-group" style={{ marginTop: '0.5rem' }}>
-            <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span style={{ fontWeight: 600 }}>Rotate</span>
-                <span style={{ opacity: 0.8 }}>{Number(currentLayer?.rotation ?? 0).toFixed(0)}°</span>
-              </div>
-              <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="Randomize rotation"
-                  aria-label="Randomize rotation"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const low = Math.min(rotateMin, rotateMax);
-                    const high = Math.max(rotateMin, rotateMax);
-                    let v = low + Math.random() * Math.max(0, high - low);
-                    // wrap into [-180,180]
-                    const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-                    applyRotation(wrapped);
-                  }}
-                >
-                  🎲
-                </button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="Rotation settings"
-                  aria-label="Rotation settings"
-                  onClick={(e) => { e.stopPropagation(); setShowRotateSettings(s => !s); }}
-                >
-                  ⚙
-                </button>
-              </div>
-            </div>
-            <input
-              key={`rotation-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-              type="range"
-              min={-180}
-              max={180}
-              step={1}
-              value={Math.max(-180, Math.min(180, Number(currentLayer?.rotation ?? 0)))}
-              onChange={(e) => {
-                let v = parseFloat(e.target.value);
-                if (!Number.isFinite(v)) v = 0;
-                // wrap into [-180,180]
-                const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-                applyRotation(wrapped);
-              }}
-              className="dc-slider"
-            />
-            {showRotateSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={Number.isFinite(rotateMin) ? rotateMin : -180}
-                    min={-360}
-                    max={360}
-                    step={1}
-                    onCommit={(next) => setRotateMin(Number.isFinite(next) ? next : -180)}
-                    className="compact-number"
-                    inputMode="numeric"
-                    style={{ width: '4.5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('rotation')}`}</label>
-                  <BufferedNumberInput
-                    value={Number.isFinite(rotateMax) ? rotateMax : 180}
-                    min={-360}
-                    max={360}
-                    step={1}
-                    onCommit={(next) => setRotateMax(Number.isFinite(next) ? next : 180)}
-                    className="compact-number"
-                    inputMode="numeric"
-                    style={{ width: '4.5rem' }}
-                  />
-                </div>
-                <div className="compact-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
-                  <label className="compact-label" title="Include rotation in Randomize All">
-                    <input
-                      type="checkbox"
-                      checked={!!(getIsRnd && getIsRnd('rotation'))}
-                      onChange={(e) => setIsRnd && setIsRnd('rotation', !!e.target.checked)}
-                    />
-                    Include in Randomize All
-                  </label>
-                </div>
-                {/* MIDI/Audio/BPM controls for Rotation - inside settings panel */}
-                {(() => {
-                  const layerKey = (currentLayer?.name || 'Layer').toString();
-                  const paramId = `layer:${layerKey}:rotation`;
-                  return (
-                    <>
-                      <MidiRotationStatus paramId={paramId} />
-                      <AudioRotationStatus paramId={paramId} />
-                      <BPMRotationStatus paramId={paramId} />
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+    <LayerShapeSection
+      currentLayer={currentLayer}
+      editTarget={editTarget}
+      shapeParams={shapeParams}
+      DynamicControl={DynamicControl}
+      updateLayer={updateLayer}
+      setLayers={setLayers}
+      buildTargetSet={buildTargetSet}
+      targetMode={targetMode}
+      debugSettingsEnabled={debugSettingsEnabled}
+      rotateMin={rotateMin}
+      rotateMax={rotateMax}
+      showRotateSettings={showRotateSettings}
+      setShowRotateSettings={setShowRotateSettings}
+      setRotateMin={setRotateMin}
+      setRotateMax={setRotateMax}
+      applyRotation={applyRotation}
+      getIsRnd={getIsRnd}
+      setIsRnd={setIsRnd}
+      MidiRotationStatus={MidiRotationStatus}
+      AudioRotationStatus={AudioRotationStatus}
+      BPMRotationStatus={BPMRotationStatus}
+    />
   );
-
-  // Appearance tab removed
-
-  // Colour handlers: apply according to the selected target mode
-  const handleLayerColorChange = (newColors) => {
-    const arr = Array.isArray(newColors) ? newColors : [];
-    const n = Math.max(1, arr.length);
-    applyTargetedUpdate(() => ({ colors: [...arr], numColors: n, selectedColor: 0 }));
-  };
-
-  const handleLayerNumColorsChange = (rawValue) => {
-    let n = Math.round(Number(rawValue));
-    if (!Number.isFinite(n) || n < 1) n = 1;
-    applyTargetedUpdate((layer) => {
-      const base = Array.isArray(layer?.colors) ? layer.colors : [];
-      let next = base.slice(0, n);
-      while (next.length < n) next.push(base[base.length - 1] || '#ffffff');
-      return { colors: [...next], numColors: n, selectedColor: 0 };
-    });
-  };
 
   const renderColorsTab = () => (
-    <div className="tab-section">
-      <div className="control-card">
-        {/* MIDI Colour Control */}
-        <MidiColorSection
-          currentLayer={currentLayer}
-          updateLayer={updateLayer}
-          setLayers={setLayers}
-          buildTargetSet={buildTargetSet}
-          targetMode={targetMode}
-        />
-
-        {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
-
-        <label>Number of colours:</label>
-        <BufferedNumberInput
-          key={`numColors-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-          min={1}
-          step={1}
-          value={Math.max(1, Number.isFinite(currentLayer?.numColors) ? currentLayer.numColors : (Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 1))}
-          onCommit={handleLayerNumColorsChange}
-          className="compact-number"
-          inputMode="numeric"
-          style={{ width: '5rem' }}
-        />
-
-        <label>Colour Preset:</label>
-        <select
-          key={`palette-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-          value={(() => {
-            const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-            return matchPaletteValue(colors);
-          })()}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === 'custom') return;
-            const src = paletteValueMap.get(val);
-            if (!Array.isArray(src) || src.length === 0) return;
-            const count = Number.isFinite(currentLayer?.numColors)
-              ? currentLayer.numColors
-              : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || src.length);
-            const nextColors = sampleColors(src, count);
-            applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
-          }}
-        >
-          <option value="custom">Custom</option>
-          {paletteOptions.builtins.length > 0 && (
-            <optgroup label="Built-in">
-              {paletteOptions.builtins.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </optgroup>
-          )}
-          {paletteOptions.customs.length > 0 && (
-            <optgroup label="Custom">
-              {paletteOptions.customs.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-        <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="btn-compact-secondary"
-            onClick={() => {
-              const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-              const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
-              if (!safe.length || typeof onSaveCustomPalette !== 'function') return;
-              const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
-              if (!name) return;
-              onSaveCustomPalette({ name, colors: safe });
-            }}
-          >
-            Save as custom
-          </button>
-        </div>
-
-        {/* Colours header with settings and random icons */}
-        <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
-          <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontWeight: 600 }}>Colours</div>
-            <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Randomize colours for this layer"
-                aria-label="Randomize colours"
-                onClick={(e) => { e.stopPropagation(); onRandomizeLayerColors && onRandomizeLayerColors(); }}
-              >
-                🎲
-              </button>
-              <button
-                type="button"
-                className="icon-btn"
-                title="Colour settings"
-                aria-label="Colour settings"
-                onClick={(e) => { e.stopPropagation(); setShowColourSettings(s => !s); }}
-              >
-                ⚙
-              </button>
-            </div>
-          </div>
-          {/* Colour settings panel */}
-          {showColourSettings && (
-            <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <label className="compact-label" title="Allow randomize to change palette">
-                  <input
-                    type="checkbox"
-                    checked={!!randomizePalette}
-                    onChange={(e) => setRandomizePalette && setRandomizePalette(!!e.target.checked)}
-                  />
-                  Randomise palette
-                </label>
-              <label className="compact-label" title="Allow randomize to change number of colours">
-                <input
-                  type="checkbox"
-                  checked={!!randomizeNumColors}
-                  onChange={(e) => setRandomizeNumColors && setRandomizeNumColors(!!e.target.checked)}
-                />
-                Randomise number of colours
-              </label>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
-              <label className="compact-label">Min</label>
-              <BufferedNumberInput
-                min={1}
-                max={colorCountMax || 8}
-                step={1}
-                value={Math.max(1, Number(colorCountMin || 1))}
-                onCommit={(next) => {
-                  if (!setColorCountMin) return;
-                  const safe = Math.max(1, Math.round(Number(next) || 1));
-                  setColorCountMin(safe);
-                }}
-                className="compact-number"
-                inputMode="numeric"
-                style={{ width: '4.5rem' }}
-              />
-              <label className="compact-label">Max</label>
-              <BufferedNumberInput
-                min={colorCountMin || 1}
-                max={32}
-                step={1}
-                value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
-                onCommit={(next) => {
-                  if (!setColorCountMax) return;
-                  const floor = Number(colorCountMin || 1);
-                  const safe = Math.max(floor, Math.round(Number(next) || floor));
-                  setColorCountMax(safe);
-                }}
-                className="compact-number"
-                inputMode="numeric"
-                style={{ width: '4.5rem' }}
-              />
-            </div>
-            {/* Palette MIDI/Audio/BPM controls */}
-            {(() => {
-              const layerKey = (currentLayer?.name || 'Layer').toString();
-              const paramId = `layer:${layerKey}:paletteIndex`;
-              return (
-                <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: '0.4rem' }}>
-                    <strong>Palette Control</strong>
-                  </div>
-                  {/* MIDI */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                      <span style={{ opacity: 0.7 }}>MIDI:</span> {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                      {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
-                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
-                    </div>
-                  </div>
-                  {/* Audio */}
-                  <AudioRotationStatus paramId={paramId} min={0} max={1} />
-                  {/* BPM */}
-                  <BPMRotationStatus paramId={paramId} min={0} max={1} />
-                </div>
-              );
-            })()}
-          </div>
-          )}
-          {/* Animate colours (fade between palette stops) */}
-          <div className="dc-inner" style={{ marginTop: '0.5rem' }}>
-            <div className="compact-row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', flexWrap: 'wrap' }}>
-              <label className="compact-label" title="Fade smoothly between the colours in this layer's palette"
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!currentLayer?.colorFadeEnabled}
-                  onChange={(e) => {
-                    const enabled = !!e.target.checked;
-                    const ensureTwoStops = (arr) => {
-                      if (!Array.isArray(arr) || arr.length === 0) return ['#000000', '#000000'];
-                      if (arr.length === 1) return [arr[0], arr[0]];
-                      return arr;
-                    };
-                    const baseSpeed = Number(currentLayer?.colorFadeSpeed ?? 0);
-                    const nextSpeed = enabled ? (baseSpeed > 0 ? baseSpeed : 0.5) : baseSpeed;
-                    applyTargetedUpdate((layer) => {
-                      const arr = Array.isArray(layer?.colors) ? layer.colors : [];
-                      const nextColors = enabled ? ensureTwoStops(arr) : arr;
-                      const patch = {
-                        colorFadeEnabled: enabled,
-                        colorFadeSpeed: nextSpeed,
-                      };
-                      if (enabled) {
-                        patch.colors = nextColors;
-                        patch.numColors = Array.isArray(nextColors) ? nextColors.length : (layer?.numColors || 1);
-                      }
-                      return patch;
-                    });
-                  }}
-                  onMouseDown={(e) => { e.stopPropagation(); }}
-                  onClick={(e) => { e.stopPropagation(); }}
-                />
-                Animate colours
-              </label>
-            </div>
-            {!!currentLayer?.colorFadeEnabled && (
-              <div style={{ marginTop: '0.5rem' }}>
-                <div className="compact-row" style={{ alignItems: 'center', gap: '0.6rem' }}>
-                  <label className="compact-label">Fade speed</label>
-                  <input
-                    key={`colorFadeSpeed-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-                    type="range"
-                    min={0}
-                    max={4}
-                    step={0.01}
-                    value={Math.max(0, Math.min(4, Number(currentLayer?.colorFadeSpeed ?? 0.5)))}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      applyTargetedUpdate(() => ({ colorFadeSpeed: v }));
-                    }}
-                    className="dc-slider"
-                  />
-                  <span style={{ minWidth: 48, textAlign: 'right', opacity: 0.85 }}>{Number(currentLayer?.colorFadeSpeed ?? 0.5).toFixed(2)}</span>
-                </div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
-                {/* Audio/BPM controls for colorFadeSpeed */}
-                {(() => {
-                  const layerKey = (currentLayer?.name || 'Layer').toString();
-                  const paramId = `layer:${layerKey}:colorFadeSpeed`;
-                  return (
-                    <>
-                      <AudioRotationStatus paramId={paramId} min={0} max={4} />
-                      <BPMRotationStatus paramId={paramId} min={0} max={4} />
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-
-          <ColorPicker 
-            key={`colorpicker-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-            label="Colours"
-            colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
-            onChange={handleLayerColorChange}
-            layerId={currentLayer?.id}
-          />
-        </div>
-      </div>
-    </div>
+    <LayerColorSection
+      currentLayer={currentLayer}
+      editTarget={editTarget}
+      targetMode={targetMode}
+      updateLayer={updateLayer}
+      setLayers={setLayers}
+      buildTargetSet={buildTargetSet}
+      applyTargetedUpdate={applyTargetedUpdate}
+      MidiColorSection={MidiColorSection}
+      randomizePalette={randomizePalette}
+      setRandomizePalette={setRandomizePalette}
+      randomizeNumColors={randomizeNumColors}
+      setRandomizeNumColors={setRandomizeNumColors}
+      colorCountMin={colorCountMin}
+      colorCountMax={colorCountMax}
+      setColorCountMin={setColorCountMin}
+      setColorCountMax={setColorCountMax}
+      midiSupported={midiSupported}
+      midiMappings={midiMappings}
+      mappingLabel={mappingLabel}
+      learnParamId={learnParamId}
+      beginLearn={beginLearn}
+      clearMapping={clearMapping}
+      onRandomizeLayerColors={onRandomizeLayerColors}
+      showColourSettings={showColourSettings}
+      setShowColourSettings={setShowColourSettings}
+      palettes={palettes}
+      paletteOptions={paletteOptions}
+      paletteValueMap={paletteValueMap}
+      matchPaletteValue={matchPaletteValue}
+      sampleColors={sampleColors}
+      onSaveCustomPalette={onSaveCustomPalette}
+      AudioRotationStatus={AudioRotationStatus}
+      BPMRotationStatus={BPMRotationStatus}
+    />
   );
-
 
   // MIDI context for header actions
   const {
@@ -2161,9 +1668,7 @@ const Controls = forwardRef(({
     const layerKey = (currentLayer?.name || 'Layer').toString();
     const paramId = `layer:${layerKey}:rotation`;
     const unregister = registerParamHandler(paramId, ({ value01 }) => {
-      // Map 0..1 to -180..180 linearly
       const v = -180 + (value01 * 360);
-      // wrap to [-180,180]
       const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
       applyRotation(wrapped);
     });

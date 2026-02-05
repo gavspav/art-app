@@ -1,5 +1,6 @@
 import { useRef, useCallback, useMemo } from 'react';
 import { MOVEMENT_STYLES } from './movementStyles.js';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 /**
  * useModulationStore - Centralized store for Audio/BPM/Timeline modulations
@@ -252,18 +253,21 @@ export function useModulationStore() {
 
 // Helper to convert hex color to RGB components
 function hexToRgbComponents(hex) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? {
-    r: parseInt(result[1], 16) / 255,
-    g: parseInt(result[2], 16) / 255,
-    b: parseInt(result[3], 16) / 255,
-  } : { r: 0, g: 0, b: 0 };
+  const rgb = hexToRgb(hex || '#000000');
+  return {
+    r: rgb.r / 255,
+    g: rgb.g / 255,
+    b: rgb.b / 255,
+  };
 }
 
 // Helper to convert RGB components (0-1) to hex
 function rgbComponentsToHex(r, g, b) {
-  const toHex = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  return rgbToHex({
+    r: Math.max(0, Math.min(1, r)) * 255,
+    g: Math.max(0, Math.min(1, g)) * 255,
+    b: Math.max(0, Math.min(1, b)) * 255,
+  });
 }
 
 /**

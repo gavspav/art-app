@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { createSeededRandom } from '../utils/randomUtils.js';
 
 export function useRandomizationControls({
   layersRef,
@@ -13,6 +14,7 @@ export function useRandomizationControls({
   randomizeNumColors,
   colorCountMin,
   colorCountMax,
+  seed = 1,
   classicMode,
   classicRandomizeAll,
   modernRandomizeAll,
@@ -30,6 +32,7 @@ export function useRandomizationControls({
     // legacy key kept for backward compat with saved states; not used by new UI
     variation: true,
   });
+  const randomCallRef = useRef(0);
 
   const getIsRnd = useCallback((id) => !!includeRnd[id], [includeRnd]);
 
@@ -61,9 +64,18 @@ export function useRandomizationControls({
     const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, snapshot.length - 1)));
     const layer = snapshot[idx];
     if (!layer) return;
+    const normalizeSeed = (value) => {
+      const n = Math.abs(Number.isFinite(value) ? Math.floor(value) : 1);
+      const mod = n % 2147483646;
+      return mod === 0 ? 1 : mod;
+    };
+    randomCallRef.current += 1;
+    const rand = createSeededRandom(
+      normalizeSeed(seed + (idx + 1) * 1009 + randomCallRef.current * 131071),
+    );
     const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
     const srcPalette = randomizePalette
-      ? pickPaletteColors(palettes, Math.random, baseColors)
+      ? pickPaletteColors(palettes, rand, baseColors)
       : baseColors;
     const cMin = Math.max(1, Math.floor(colorCountMin));
     const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
@@ -71,7 +83,7 @@ export function useRandomizationControls({
     if (randomizeNumColors) {
       const maxN = Math.min(cMaxCap, (srcPalette.length || cMaxCap));
       const minN = cMin;
-      n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : 1;
+      n = maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : 1;
     }
     let nextColors = sampleColorsEven(srcPalette, Math.max(1, n));
     if (!randomizePalette && !randomizeNumColors) {
@@ -80,13 +92,13 @@ export function useRandomizationControls({
         && baseColors.every((color, index) => color === nextColors[index]);
       if (same) {
         if ((baseColors?.length || 0) <= 1) {
-          const pool = pickPaletteColors(palettes, Math.random, baseColors.length ? baseColors : ['#ffffff']);
+          const pool = pickPaletteColors(palettes, rand, baseColors.length ? baseColors : ['#ffffff']);
           if (pool.length) {
-            let pick = pool[Math.floor(Math.random() * pool.length)];
+            let pick = pool[Math.floor(rand() * pool.length)];
             if (baseColors.length && pool.length > 1) {
               let guard = 0;
               while (pick === baseColors[0] && guard++ < 8) {
-                pick = pool[Math.floor(Math.random() * pool.length)];
+                pick = pool[Math.floor(rand() * pool.length)];
               }
             }
             nextColors = [pick];
@@ -95,7 +107,7 @@ export function useRandomizationControls({
         } else {
           const arr = [...baseColors];
           const len = arr.length;
-          const offset = Math.max(1, Math.floor(Math.random() * len));
+          const offset = Math.max(1, Math.floor(rand() * len));
           nextColors = Array.from({ length: len }, (_, i) => arr[(i + offset) % len]);
         }
       }
@@ -107,7 +119,7 @@ export function useRandomizationControls({
       selectedColor: 0,
     };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  }, [colorCountMax, colorCountMin, layersRef, palettes, pickPaletteColors, randomizeNumColors, randomizePalette, sampleColorsEven, selectedLayerIndex, setLayers]);
+  }, [colorCountMax, colorCountMin, layersRef, palettes, pickPaletteColors, randomizeNumColors, randomizePalette, sampleColorsEven, seed, selectedLayerIndex, setLayers]);
 
   const handleRandomizeAll = useCallback(() => {
     if (classicMode) {

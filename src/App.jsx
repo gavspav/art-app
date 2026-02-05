@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
-import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
-import { MidiProvider, useMidi } from './context/MidiContext.jsx';
-import { AudioProvider, useAudioReactive } from './context/AudioContext.jsx';
-import { BPMProvider, useBPM } from './context/BPMContext.jsx';
-import { TimelineProvider, useTimeline } from './context/TimelineContext.jsx';
+import { useParameters } from './context/ParameterContext.jsx';
+import { useAppState } from './context/AppStateContext.jsx';
+import { useMidi } from './context/MidiContext.jsx';
+import { useAudioReactive } from './context/AudioContext.jsx';
+import { useBPM } from './context/BPMContext.jsx';
+import { useTimeline } from './context/TimelineContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -28,17 +28,11 @@ import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers 
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
 import { createCustomPaletteEntry, loadCustomPalettes, mergeCustomPalettes, saveCustomPalettes } from './utils/customPalettes.js';
+import { createSeededRandom } from './utils/randomUtils.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
-
-import Canvas from './components/Canvas';
-import Controls from './components/Controls';
-import GlobalControls from './components/global/GlobalControls.jsx';
-import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
-import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
-import BottomPanel from './components/BottomPanel.jsx';
-import { TimelinePanel } from './components/timeline/index.js';
+import AppProviders from './components/app/AppProviders.jsx';
+import WorkspaceRouter from './components/workspaces/WorkspaceRouter.jsx';
 import { useTimelineModulation } from './hooks/useTimelineModulation.js';
-import DraggableDivider from './components/common/DraggableDivider.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -198,6 +192,7 @@ const MainApp = () => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const includeRndRef = useRef(DEFAULT_INCLUDE_RND);
+  const colorRandomCallRef = useRef(0);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
   // Shape track updates ref - shared between useTimelineModulation and useAnimation
@@ -1408,11 +1403,19 @@ const MainApp = () => {
     const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, snapshot.length - 1)));
     const layer = snapshot[idx];
     if (!layer) return;
+    const normalizeSeed = (value) => {
+      const n = Math.abs(Number.isFinite(value) ? Math.floor(value) : 1);
+      const mod = n % 2147483646;
+      return mod === 0 ? 1 : mod;
+    };
+    colorRandomCallRef.current += 1;
+    const seedBase = normalizeSeed(
+      (globalSeed || 1) + (idx + 1) * 1009 + (layer.seed || 0) + colorRandomCallRef.current * 131071,
+    );
+    const rand = createSeededRandom(seedBase);
     const baseColors = Array.isArray(layer.colors) ? layer.colors : [];
-    // NOTE: This path intentionally uses true entropy for quick exploration
-    // Deterministic flows are handled inside useRandomization via seeded RNG
     const srcPalette = randomizePalette
-      ? pickPaletteColors(palettesWithCustom, Math.random, baseColors)
+      ? pickPaletteColors(palettesWithCustom, rand, baseColors)
       : baseColors;
     const cMin = Math.max(1, Math.floor(colorCountMin));
     const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
@@ -1420,7 +1423,7 @@ const MainApp = () => {
     if (randomizeNumColors) {
       const maxN = Math.min(cMaxCap, (srcPalette.length || cMaxCap));
       const minN = cMin;
-      n = maxN > 0 ? Math.floor(Math.random() * (maxN - minN + 1)) + minN : 1;
+      n = maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : 1;
     }
     let nextColors = sampleColorsEven(srcPalette, Math.max(1, n));
     // Fallbacks when both toggles are off: ensure a visible change
@@ -1429,14 +1432,14 @@ const MainApp = () => {
       if (same) {
         if ((baseColors?.length || 0) <= 1) {
           // Single colour: pick a different colour from a palette
-          const pool = pickPaletteColors(palettesWithCustom, Math.random, baseColors.length ? baseColors : ['#ffffff']);
+          const pool = pickPaletteColors(palettesWithCustom, rand, baseColors.length ? baseColors : ['#ffffff']);
           if (pool.length) {
             // Try to pick a colour that's different
-            let pick = pool[Math.floor(Math.random() * pool.length)];
+            let pick = pool[Math.floor(rand() * pool.length)];
             if (baseColors.length && pool.length > 1) {
               let guard = 0;
               while (pick === baseColors[0] && guard++ < 8) {
-                pick = pool[Math.floor(Math.random() * pool.length)];
+                pick = pool[Math.floor(rand() * pool.length)];
               }
             }
             nextColors = [pick];
@@ -1446,14 +1449,14 @@ const MainApp = () => {
           // Multiple colours: rotate by a random offset to change order deterministically
           const arr = [...baseColors];
           const len = arr.length;
-          const offset = Math.max(1, Math.floor(Math.random() * len));
+          const offset = Math.max(1, Math.floor(rand() * len));
           nextColors = Array.from({ length: len }, (_, i) => arr[(i + offset) % len]);
         }
       }
     }
     const updated = { ...layer, colors: nextColors, numColors: nextColors.length, selectedColor: 0 };
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
-  }, [colorCountMax, colorCountMin, randomizeNumColors, randomizePalette, palettesWithCustom, sampleColorsEven, selectedLayerIndex, setLayers]);
+  }, [colorCountMax, colorCountMin, globalSeed, randomizeNumColors, randomizePalette, palettesWithCustom, sampleColorsEven, selectedLayerIndex, setLayers]);
 
   // randomizeBackgroundColor handled within useRandomization
 
@@ -2117,6 +2120,186 @@ const MainApp = () => {
     }
   }, [isFrozen, setIsFrozen, suppressEphemeralOverlays]);
 
+  const canvasProps = {
+    layers,
+    layersRef: animatedLayersRef,
+    overlayLayersRef: audioSpawnOverlayLayersRef,
+    renderOverlayLayers: !suppressEphemeralOverlays,
+    hideLayerIndex: audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1,
+    hideLayerId: audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null,
+    isFrozen,
+    colorFadeWhileFrozen,
+    backgroundColor,
+    globalSeed,
+    globalBlendMode,
+    isNodeEditMode,
+    selectedLayerIndex,
+    setLayers,
+    setSelectedLayerIndex,
+    classicMode,
+    isolateMode,
+    getActiveTargetLayerIds,
+  };
+
+  const importAdjustProps = {
+    showImportAdjust,
+    importAdjust,
+    applyImportAdjust,
+    importFitEnabled,
+    setImportFitEnabled,
+    importDebug,
+    setImportDebug,
+    setShowImportAdjust,
+  };
+
+  const floatingActionProps = {
+    onDownload: downloadImage,
+    onRandomize: randomizeScene,
+    onToggleFullscreen: toggleFullscreen,
+    isFullscreen,
+    onStartRecording: startRecording,
+    onStopRecording: stopRecording,
+    isRecording,
+    onToggleTargetMode: toggleParameterTargetMode,
+    parameterTargetMode,
+  };
+
+  const bottomPanelProps = {
+    backgroundColor,
+    setBackgroundColor,
+    backgroundImage,
+    setBackgroundImage,
+    isFrozen,
+    setIsFrozen,
+    enableBreathing,
+    setEnableBreathing,
+    colorFadeWhileFrozen,
+    setColorFadeWhileFrozen,
+    classicMode,
+    setClassicMode,
+    zIgnore,
+    setZIgnore,
+    globalSeed,
+    setGlobalSeed,
+    globalSpeedMultiplier,
+    setGlobalSpeedMultiplier,
+    getIsRnd,
+    setIsRnd,
+    palettes: palettesWithCustom,
+    automationPalettes: palettes,
+    globalPaletteIndex,
+    globalPaletteRef,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
+    customPalettes,
+    onSaveCustomPalette: addCustomPalette,
+    blendModes,
+    globalBlendMode,
+    setGlobalBlendMode,
+    parameterTargetMode,
+    setParameterTargetMode,
+    onQuickSave: handleQuickSave,
+    onQuickLoad: handleQuickLoad,
+    energyInfluence,
+    setEnergyInfluence,
+    audioSpawnEnabled,
+    setAudioSpawnEnabled,
+    audioSpawnTriggerMode,
+    setAudioSpawnTriggerMode,
+    audioSpawnRepeatWhileAbove,
+    setAudioSpawnRepeatWhileAbove,
+    audioSpawnHysteresis,
+    setAudioSpawnHysteresis,
+    audioSpawnUseGlobalPalette,
+    setAudioSpawnUseGlobalPalette,
+    audioSpawnBand,
+    setAudioSpawnBand,
+    audioSpawnThreshold,
+    setAudioSpawnThreshold,
+    audioSpawnCooldownMs,
+    setAudioSpawnCooldownMs,
+    audioSpawnHalfLifeMs,
+    setAudioSpawnHalfLifeMs,
+    audioSpawnHalfLifeEnergyFactor,
+    setAudioSpawnHalfLifeEnergyFactor,
+    audioSpawnMaxLayers,
+    setAudioSpawnMaxLayers,
+    timelineMode,
+    setTimelineMode,
+    layers: uiLayers,
+    selectedLayerIds,
+    toggleLayerSelection,
+    clearSelection,
+    layerGroups,
+    editTarget,
+    setEditTarget,
+    getActiveTargetLayerIds,
+    sampleColorsEven,
+    assignOneColorPerLayer,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    handleRandomizeAll,
+    currentLayer,
+    updateCurrentLayer,
+    randomizeCurrentLayer,
+    randomizeAnimationForCurrentLayer,
+    randomizeCurrentLayerColors,
+    baseColors,
+    baseNumColors,
+    isNodeEditMode,
+    setIsNodeEditMode: handleSetNodeEditMode,
+    randomizePalette,
+    setRandomizePalette,
+    randomizeNumColors,
+    setRandomizeNumColors,
+    syncLayerColorsToFirst,
+    setSyncLayerColorsToFirst,
+    colorCountMin,
+    colorCountMax,
+    setColorCountMin,
+    setColorCountMax,
+    layerNames: uiLayerNames,
+    selectedLayerIndex: clampedSelectedIndex,
+    selectLayer,
+    addNewLayer,
+    deleteLayer,
+    moveSelectedLayerUp,
+    moveSelectedLayerDown,
+    handleImportSVGClick,
+    presetSlots,
+    getPresetSlot,
+    loadAppState,
+    morphEnabled,
+    morphRoute,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    morphMode,
+    setMorphMode,
+    applyVariationInstantly,
+    setApplyVariationInstantly,
+    randomizeColorsPerLayer,
+    setRandomizeColorsPerLayer,
+    uniformColorCount,
+    setUniformColorCount,
+  };
+
+  const timelinePanelProps = {
+    layers,
+    animatedLayersRef,
+    onClose: () => setTimelineMode?.(false),
+    isRecording,
+    onStartRecording: startRecording,
+    onStopRecording: stopRecording,
+  };
+
   return (
     <div ref={containerRef} className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
@@ -2161,591 +2344,40 @@ const MainApp = () => {
           onChange={handleImportFile}
         />
 
-        {/* Full canvas mode when timeline is hidden */}
-        {!isFullscreen && !timelineMode && (
-          <div
-            className="canvas-container"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              height: '100%',
-            }}
-          >
-	            <Canvas
-	              ref={canvasRef}
-	              layers={layers}
-	              layersRef={animatedLayersRef}
-	              overlayLayersRef={audioSpawnOverlayLayersRef}
-	              renderOverlayLayers={!suppressEphemeralOverlays}
-	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
-                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
-	              isFrozen={isFrozen}
-	              colorFadeWhileFrozen={colorFadeWhileFrozen}
-	              backgroundColor={backgroundColor}
-	              globalSeed={globalSeed}
-              globalBlendMode={globalBlendMode}
-              isNodeEditMode={isNodeEditMode}
-              selectedLayerIndex={selectedLayerIndex}
-              setLayers={setLayers}
-              setSelectedLayerIndex={setSelectedLayerIndex}
-              classicMode={classicMode}
-	              isolateMode={isolateMode}
-	              getActiveTargetLayerIds={getActiveTargetLayerIds}
-	            />
-            
-            {showImportAdjust && (
-              <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
-                <ImportAdjustPanel
-                  importAdjust={importAdjust}
-                  onChange={(adj)=> applyImportAdjust(adj)}
-                  fitEnabled={importFitEnabled}
-                  onToggleFit={()=> setImportFitEnabled(v=>!v)}
-                  debug={importDebug}
-                  onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
-                  onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
-                  onClose={()=> setShowImportAdjust(false)}
-                />
-              </div>
-            )}
-            
-            <FloatingActionButtons
-              onDownload={downloadImage}
-              onRandomize={randomizeScene}
-              onToggleFullscreen={toggleFullscreen}
-              isFullscreen={isFullscreen}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
-              isRecording={isRecording}
-              onToggleTargetMode={toggleParameterTargetMode}
-              parameterTargetMode={parameterTargetMode}
-            />
-            
-            <button
-              type="button"
-              onClick={() => setTimelineMode?.((v) => !v)}
-              style={{
-                position: 'absolute',
-                bottom: 16,
-                left: 16,
-                background: 'rgba(0, 0, 0, 0.5)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 8,
-                padding: '8px 16px',
-                color: 'white',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                zIndex: 50,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-              title="Toggle Timeline (T)"
-            >
-              🎬 Timeline
-            </button>
-            
-            {/* Bottom Panel with controls - shown when timeline is hidden */}
-            <div
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: 0,
-                maxHeight: '55vh',
-                overflowY: 'auto',
-                background: 'rgba(20, 20, 30, 0.95)',
-                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-	              <BottomPanel
-	              backgroundColor={backgroundColor}
-	              setBackgroundColor={setBackgroundColor}
-	              backgroundImage={backgroundImage}
-	              setBackgroundImage={setBackgroundImage}
-              isFrozen={isFrozen}
-              setIsFrozen={setIsFrozen}
-              enableBreathing={enableBreathing}
-              setEnableBreathing={setEnableBreathing}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
-              zIgnore={zIgnore}
-              setZIgnore={setZIgnore}
-              globalSeed={globalSeed}
-              setGlobalSeed={setGlobalSeed}
-              globalSpeedMultiplier={globalSpeedMultiplier}
-              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-	              getIsRnd={getIsRnd}
-	              setIsRnd={setIsRnd}
-	                palettes={palettesWithCustom}
-                  automationPalettes={palettes}
-                  globalPaletteIndex={globalPaletteIndex}
-                  globalPaletteRef={globalPaletteRef}
-                  setGlobalPaletteIndex={setGlobalPaletteIndex}
-                  setGlobalPaletteRef={setGlobalPaletteRef}
-                  customPalettes={customPalettes}
-                  onSaveCustomPalette={addCustomPalette}
-	              blendModes={blendModes}
-	              globalBlendMode={globalBlendMode}
-	              setGlobalBlendMode={setGlobalBlendMode}
-              parameterTargetMode={parameterTargetMode}
-              setParameterTargetMode={setParameterTargetMode}
-	              onQuickSave={handleQuickSave}
-	              onQuickLoad={handleQuickLoad}
-	              energyInfluence={energyInfluence}
-	              setEnergyInfluence={setEnergyInfluence}
-		              audioSpawnEnabled={audioSpawnEnabled}
-		              setAudioSpawnEnabled={setAudioSpawnEnabled}
-		              audioSpawnTriggerMode={audioSpawnTriggerMode}
-		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
-		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
-		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
-		              audioSpawnHysteresis={audioSpawnHysteresis}
-		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-		              audioSpawnBand={audioSpawnBand}
-		              setAudioSpawnBand={setAudioSpawnBand}
-	              audioSpawnThreshold={audioSpawnThreshold}
-	              setAudioSpawnThreshold={setAudioSpawnThreshold}
-	              audioSpawnCooldownMs={audioSpawnCooldownMs}
-	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
-	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
-	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
-	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
-	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
-	              audioSpawnMaxLayers={audioSpawnMaxLayers}
-	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
-	              timelineMode={timelineMode}
-	              setTimelineMode={setTimelineMode}
-	              layers={uiLayers}
-	              selectedLayerIds={selectedLayerIds}
-              toggleLayerSelection={toggleLayerSelection}
-              clearSelection={clearSelection}
-              layerGroups={layerGroups}
-              editTarget={editTarget}
-              setEditTarget={setEditTarget}
-              getActiveTargetLayerIds={getActiveTargetLayerIds}
-              sampleColorsEven={sampleColorsEven}
-              assignOneColorPerLayer={assignOneColorPerLayer}
-              setLayers={setLayers}
-              DEFAULT_LAYER={DEFAULT_LAYER}
-              buildVariedLayerFrom={buildVariedLayerFrom}
-              setSelectedLayerIndex={setSelectedLayerIndex}
-              handleRandomizeAll={handleRandomizeAll}
-              currentLayer={currentLayer}
-              updateCurrentLayer={updateCurrentLayer}
-              randomizeCurrentLayer={randomizeCurrentLayer}
-              randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
-              randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-              baseColors={baseColors}
-              baseNumColors={baseNumColors}
-              isNodeEditMode={isNodeEditMode}
-              setIsNodeEditMode={handleSetNodeEditMode}
-              randomizePalette={randomizePalette}
-              setRandomizePalette={setRandomizePalette}
-              randomizeNumColors={randomizeNumColors}
-              setRandomizeNumColors={setRandomizeNumColors}
-              syncLayerColorsToFirst={syncLayerColorsToFirst}
-              setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
-              colorCountMin={colorCountMin}
-              colorCountMax={colorCountMax}
-              setColorCountMin={setColorCountMin}
-              setColorCountMax={setColorCountMax}
-              layerNames={uiLayerNames}
-              selectedLayerIndex={clampedSelectedIndex}
-              selectLayer={selectLayer}
-              addNewLayer={addNewLayer}
-              deleteLayer={deleteLayer}
-              moveSelectedLayerUp={moveSelectedLayerUp}
-              moveSelectedLayerDown={moveSelectedLayerDown}
-              handleImportSVGClick={handleImportSVGClick}
-              presetSlots={presetSlots}
-              getPresetSlot={getPresetSlot}
-              loadAppState={loadAppState}
-              morphEnabled={morphEnabled}
-              morphRoute={morphRoute}
-              morphDurationPerLeg={morphDurationPerLeg}
-              morphEasing={morphEasing}
-              morphLoopMode={morphLoopMode}
-              setMorphEnabled={setMorphEnabled}
-              setMorphRoute={setMorphRoute}
-              setMorphDurationPerLeg={setMorphDurationPerLeg}
-              setMorphEasing={setMorphEasing}
-              setMorphLoopMode={setMorphLoopMode}
-              morphMode={morphMode}
-              setMorphMode={setMorphMode}
-              applyVariationInstantly={applyVariationInstantly}
-              setApplyVariationInstantly={setApplyVariationInstantly}
-              randomizeColorsPerLayer={randomizeColorsPerLayer}
-              setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
-              uniformColorCount={uniformColorCount}
-              setUniformColorCount={setUniformColorCount}
-            />
-            </div>
-          </div>
-        )}
-
-        {/* Split layout when timeline is visible */}
-        {!isFullscreen && timelineMode && timelineVisible && (
-          <div
-            style={{
-              position: 'fixed',
-              top: `${TOP_BAR_HEIGHT}px`,
-              left: 0,
-              right: 0,
-              height: topPanelHeightExpr,
-              display: 'flex',
-              flexDirection: 'row',
-              zIndex: 150,
-              overflow: 'hidden',
-            }}
-          >
-            {/* Left Panel - Controls */}
-            <div
-              style={{
-                width: `${leftPanelRatio * 100}%`,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                background: 'rgba(20, 20, 30, 0.95)',
-                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <div
-                style={{
-                  height: '100%', // match top panel height
-                  flex: 1,
-                  minHeight: 0,
-                  overflowY: 'auto',
-                  padding: '0 12px 0 12px',
-                  boxSizing: 'border-box',
-                }}
-              >
-                <BottomPanel
-                // GlobalControls props
-                backgroundColor={backgroundColor}
-                setBackgroundColor={setBackgroundColor}
-                backgroundImage={backgroundImage}
-                setBackgroundImage={setBackgroundImage}
-                isFrozen={isFrozen}
-                setIsFrozen={setIsFrozen}
-                enableBreathing={enableBreathing}
-                setEnableBreathing={setEnableBreathing}
-                energyInfluence={energyInfluence}
-                setEnergyInfluence={setEnergyInfluence}
-	                audioSpawnEnabled={audioSpawnEnabled}
-	                setAudioSpawnEnabled={setAudioSpawnEnabled}
-	                audioSpawnTriggerMode={audioSpawnTriggerMode}
-	                setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
-	                audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
-	                setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
-	                audioSpawnHysteresis={audioSpawnHysteresis}
-	                setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-	                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-	                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-	                audioSpawnBand={audioSpawnBand}
-	                setAudioSpawnBand={setAudioSpawnBand}
-                audioSpawnThreshold={audioSpawnThreshold}
-                setAudioSpawnThreshold={setAudioSpawnThreshold}
-                audioSpawnCooldownMs={audioSpawnCooldownMs}
-                setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
-                audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
-                setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
-                audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
-                setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
-                audioSpawnMaxLayers={audioSpawnMaxLayers}
-                setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
-                colorFadeWhileFrozen={colorFadeWhileFrozen}
-                setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-                classicMode={classicMode}
-                setClassicMode={setClassicMode}
-                zIgnore={zIgnore}
-                setZIgnore={setZIgnore}
-                globalSeed={globalSeed}
-                setGlobalSeed={setGlobalSeed}
-                globalSpeedMultiplier={globalSpeedMultiplier}
-                setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-	                getIsRnd={getIsRnd}
-	                setIsRnd={setIsRnd}
-	                palettes={palettesWithCustom}
-                  automationPalettes={palettes}
-                  customPalettes={customPalettes}
-                  onSaveCustomPalette={addCustomPalette}
-                  globalPaletteIndex={globalPaletteIndex}
-                  globalPaletteRef={globalPaletteRef}
-                  setGlobalPaletteRef={setGlobalPaletteRef}
-                  setGlobalPaletteIndex={setGlobalPaletteIndex}
-	                blendModes={blendModes}
-	                globalBlendMode={globalBlendMode}
-	                setGlobalBlendMode={setGlobalBlendMode}
-                parameterTargetMode={parameterTargetMode}
-                setParameterTargetMode={setParameterTargetMode}
-                onQuickSave={handleQuickSave}
-                onQuickLoad={handleQuickLoad}
-                timelineMode={timelineMode}
-                setTimelineMode={setTimelineMode}
-                layers={uiLayers}
-                selectedLayerIds={selectedLayerIds}
-                toggleLayerSelection={toggleLayerSelection}
-                clearSelection={clearSelection}
-                layerGroups={layerGroups}
-                editTarget={editTarget}
-                setEditTarget={setEditTarget}
-                getActiveTargetLayerIds={getActiveTargetLayerIds}
-                sampleColorsEven={sampleColorsEven}
-                assignOneColorPerLayer={assignOneColorPerLayer}
-                setLayers={setLayers}
-                DEFAULT_LAYER={DEFAULT_LAYER}
-                buildVariedLayerFrom={buildVariedLayerFrom}
-                setSelectedLayerIndex={setSelectedLayerIndex}
-                handleRandomizeAll={handleRandomizeAll}
-                // Controls props
-                currentLayer={currentLayer}
-                updateCurrentLayer={updateCurrentLayer}
-                randomizeCurrentLayer={randomizeCurrentLayer}
-                randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
-                randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-                baseColors={baseColors}
-                baseNumColors={baseNumColors}
-                isNodeEditMode={isNodeEditMode}
-                setIsNodeEditMode={handleSetNodeEditMode}
-                randomizePalette={randomizePalette}
-                setRandomizePalette={setRandomizePalette}
-                randomizeNumColors={randomizeNumColors}
-                setRandomizeNumColors={setRandomizeNumColors}
-                syncLayerColorsToFirst={syncLayerColorsToFirst}
-                setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
-                colorCountMin={colorCountMin}
-                colorCountMax={colorCountMax}
-                setColorCountMin={setColorCountMin}
-                setColorCountMax={setColorCountMax}
-                layerNames={uiLayerNames}
-                selectedLayerIndex={clampedSelectedIndex}
-                selectLayer={selectLayer}
-                addNewLayer={addNewLayer}
-                deleteLayer={deleteLayer}
-                moveSelectedLayerUp={moveSelectedLayerUp}
-                moveSelectedLayerDown={moveSelectedLayerDown}
-                handleImportSVGClick={handleImportSVGClick}
-                // Morph props for GlobalControls
-                presetSlots={presetSlots}
-                getPresetSlot={getPresetSlot}
-                loadAppState={loadAppState}
-                morphEnabled={morphEnabled}
-                morphRoute={morphRoute}
-                morphDurationPerLeg={morphDurationPerLeg}
-                morphEasing={morphEasing}
-                morphLoopMode={morphLoopMode}
-                setMorphEnabled={setMorphEnabled}
-                setMorphRoute={setMorphRoute}
-                setMorphDurationPerLeg={setMorphDurationPerLeg}
-                setMorphEasing={setMorphEasing}
-                setMorphLoopMode={setMorphLoopMode}
-                morphMode={morphMode}
-                setMorphMode={setMorphMode}
-                applyVariationInstantly={applyVariationInstantly}
-                setApplyVariationInstantly={setApplyVariationInstantly}
-                randomizeColorsPerLayer={randomizeColorsPerLayer}
-                setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
-                uniformColorCount={uniformColorCount}
-                setUniformColorCount={setUniformColorCount}
-              />
-              </div>
-            </div>
-            
-            {/* Horizontal Divider */}
-            <DraggableDivider
-              direction="horizontal"
-              onResize={setLeftPanelRatio}
-              initialRatio={leftPanelRatio}
-              minRatio={0.15}
-              maxRatio={0.5}
-            />
-            
-            {/* Right Panel - Canvas */}
-            <div
-              className="canvas-container"
-              style={{
-                flex: 1,
-                height: '100%',
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-            >
-	            <Canvas
-	              ref={canvasRef}
-	              layers={layers}
-	              layersRef={animatedLayersRef}
-	              overlayLayersRef={audioSpawnOverlayLayersRef}
-	              renderOverlayLayers={!suppressEphemeralOverlays}
-	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
-                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
-	              isFrozen={isFrozen}
-	              colorFadeWhileFrozen={colorFadeWhileFrozen}
-	              backgroundColor={backgroundColor}
-	              globalSeed={globalSeed}
-                globalBlendMode={globalBlendMode}
-                isNodeEditMode={isNodeEditMode}
-                selectedLayerIndex={selectedLayerIndex}
-                setLayers={setLayers}
-                setSelectedLayerIndex={setSelectedLayerIndex}
-                classicMode={classicMode}
-	              isolateMode={isolateMode}
-	              getActiveTargetLayerIds={getActiveTargetLayerIds}
-	            />
-              
-              {/* Import Adjust Panel (multi-file SVG import) */}
-              {showImportAdjust && (
-                <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
-                  <ImportAdjustPanel
-                    importAdjust={importAdjust}
-                    onChange={(adj)=> applyImportAdjust(adj)}
-                    fitEnabled={importFitEnabled}
-                    onToggleFit={()=> setImportFitEnabled(v=>!v)}
-                    debug={importDebug}
-                    onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
-                    onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
-                    onClose={()=> setShowImportAdjust(false)}
-                  />
-                </div>
-              )}
-              
-              {/* Floating Action Buttons */}
-              <FloatingActionButtons
-                onDownload={downloadImage}
-                onRandomize={randomizeScene}
-                onToggleFullscreen={toggleFullscreen}
-                isFullscreen={isFullscreen}
-                onStartRecording={startRecording}
-                onStopRecording={stopRecording}
-                isRecording={isRecording}
-                onToggleTargetMode={toggleParameterTargetMode}
-                parameterTargetMode={parameterTargetMode}
-              />
-              
-              {/* Timeline toggle button */}
-              <button
-                type="button"
-                onClick={() => setTimelineMode?.((v) => !v)}
-                style={{
-                  position: 'absolute',
-                  bottom: 16,
-                  left: 16,
-                  background: 'rgba(79, 195, 247, 0.3)',
-                  border: '1px solid rgba(79, 195, 247, 0.5)',
-                  borderRadius: 8,
-                  padding: '8px 16px',
-                  color: '#4fc3f7',
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  zIndex: 50,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-                title="Toggle Timeline (T)"
-              >
-                🎬 Timeline
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Fullscreen mode - canvas only */}
-        {isFullscreen && (
-          <div
-            className="canvas-container"
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              height: '100%',
-            }}
-          >
-	              <Canvas
-	                ref={canvasRef}
-	                layers={layers}
-	                layersRef={animatedLayersRef}
-	                overlayLayersRef={audioSpawnOverlayLayersRef}
-	                renderOverlayLayers={!suppressEphemeralOverlays}
-	                hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
-                  hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
-	                isFrozen={isFrozen}
-	                colorFadeWhileFrozen={colorFadeWhileFrozen}
-	                backgroundColor={backgroundColor}
-	                globalSeed={globalSeed}
-                globalBlendMode={globalBlendMode}
-              isNodeEditMode={isNodeEditMode}
-              selectedLayerIndex={selectedLayerIndex}
-              setLayers={setLayers}
-              setSelectedLayerIndex={setSelectedLayerIndex}
-              classicMode={classicMode}
-              isolateMode={isolateMode}
-              getActiveTargetLayerIds={getActiveTargetLayerIds}
-            />
-            <FloatingActionButtons
-              onDownload={downloadImage}
-              onRandomize={randomizeScene}
-              onToggleFullscreen={toggleFullscreen}
-              isFullscreen={isFullscreen}
-              onStartRecording={startRecording}
-              onStopRecording={stopRecording}
-              isRecording={isRecording}
-              onToggleTargetMode={toggleParameterTargetMode}
-              parameterTargetMode={parameterTargetMode}
-            />
-          </div>
-        )}
-        
-        {/* Timeline Panel - shown in lower portion when visible */}
-        {!isFullscreen && timelineMode && timelineVisible && (
-          <>
-            {/* Vertical Divider between top and timeline */}
-            <DraggableDivider
-              direction="vertical"
-              onResize={setTopPanelRatio}
-              initialRatio={topPanelRatio}
-              minRatio={0.2}
-              maxRatio={0.8}
-              style={{
-                position: 'fixed',
-                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
-                left: 0,
-                right: 0,
-                zIndex: 201,
-              }}
-            />
-            <div
-              style={{
-                position: 'fixed',
-                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
-                left: 0,
-                right: 0,
-                height: timelineHeightExpr,
-                zIndex: 200,
-              }}
-            >
-              <TimelinePanel
-                layers={layers}
-                animatedLayersRef={animatedLayersRef}
-                onClose={() => setTimelineMode?.(false)}
-                isRecording={isRecording}
-                onStartRecording={startRecording}
-                onStopRecording={stopRecording}
-              />
-            </div>
-          </>
-        )}
+        <WorkspaceRouter
+          isFullscreen={isFullscreen}
+          timelineMode={timelineMode}
+          timelineVisible={timelineVisible}
+          fullscreenWorkspaceProps={{
+            canvasRef,
+            canvasProps,
+            floatingActionProps,
+          }}
+          freeWorkspaceProps={{
+            canvasRef,
+            canvasProps,
+            importAdjustProps,
+            floatingActionProps,
+            onToggleTimelineMode: () => setTimelineMode?.((v) => !v),
+            bottomPanelProps,
+          }}
+          timelineWorkspaceProps={{
+            topBarHeight: TOP_BAR_HEIGHT,
+            topPanelHeightExpr,
+            timelineHeightExpr,
+            leftPanelRatio,
+            setLeftPanelRatio,
+            topPanelRatio,
+            setTopPanelRatio,
+            canvasRef,
+            canvasProps,
+            importAdjustProps,
+            floatingActionProps,
+            onToggleTimelineMode: () => setTimelineMode?.((v) => !v),
+            bottomPanelProps,
+            timelinePanelProps,
+          }}
+        />
       </main>
     </div>
   );
@@ -2753,19 +2385,9 @@ const MainApp = () => {
 
 // Root App (no router)
 const App = () => (
-  <AppStateProvider>
-    <ParameterProvider>
-      <MidiProvider>
-        <AudioProvider>
-          <BPMProvider>
-            <TimelineProvider>
-              <MainApp />
-            </TimelineProvider>
-          </BPMProvider>
-        </AudioProvider>
-      </MidiProvider>
-    </ParameterProvider>
-  </AppStateProvider>
+  <AppProviders>
+    <MainApp />
+  </AppProviders>
 );
 
 export default App;

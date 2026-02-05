@@ -145,11 +145,11 @@ Goal: Remove duplication and centralize helpers.
 4) Random Utilities
 - [x] Create `src/utils/randomUtils.js`.
 - [x] Provide wrappers around `createSeededRandom(seed)` and helpers like `pick(array, rnd)` using seeded RNG.
-- [ ] Replace `Math.random()` in randomization paths for reproducibility (see Phase 4 Consistent Seeded Randomness).
+- [x] Replace `Math.random()` in randomization paths for reproducibility (see Phase 4 Consistent Seeded Randomness).
 
 Acceptance for Phase 3
-- [ ] No duplicate HSL/HEX conversions remain.
-- [ ] Random selection uses seeded RNG where reproducibility is required.
+- [x] No duplicate HSL/HEX conversions remain.
+- [x] Random selection uses seeded RNG where reproducibility is required.
 
 ---
 

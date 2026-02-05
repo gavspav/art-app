@@ -1,27 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { hexToRgb as hexToRgbInt, rgbToHex as rgbToHexInt } from '../../utils/colorUtils.js';
 
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 
-const hexToRgb = (hex) => {
-  if (typeof hex !== 'string') return { r: 1, g: 1, b: 1 };
+const normalizeHex = (hex) => {
+  if (typeof hex !== 'string') return '#ffffff';
   const value = hex.trim().replace('#', '');
-  if (![3, 6].includes(value.length)) return { r: 1, g: 1, b: 1 };
-  const full = value.length === 3 ? value.split('').map((v) => v + v).join('') : value;
-  const intVal = Number.parseInt(full, 16);
-  if (Number.isNaN(intVal)) return { r: 1, g: 1, b: 1 };
+  if (value.length === 3) {
+    return `#${value.split('').map((v) => `${v}${v}`).join('')}`;
+  }
+  if (value.length === 6) return `#${value}`;
+  return '#ffffff';
+};
+
+const hexToRgb = (hex) => {
+  const parsed = hexToRgbInt(normalizeHex(hex));
   return {
-    r: ((intVal >> 16) & 255) / 255,
-    g: ((intVal >> 8) & 255) / 255,
-    b: (intVal & 255) / 255,
+    r: parsed.r / 255,
+    g: parsed.g / 255,
+    b: parsed.b / 255,
   };
 };
 
-const rgbToHex = ({ r, g, b }) => `#${[r, g, b]
-  .map((channel) => {
-    const c = Math.round(clamp01(channel) * 255).toString(16).padStart(2, '0');
-    return c;
-  })
-  .join('')}`;
+const rgbToHex = ({ r, g, b }) => rgbToHexInt({
+  r: clamp01(r) * 255,
+  g: clamp01(g) * 255,
+  b: clamp01(b) * 255,
+});
 
 const rgbToHsva = ({ r, g, b }) => {
   const max = Math.max(r, g, b);
