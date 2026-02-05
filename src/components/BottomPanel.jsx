@@ -464,7 +464,18 @@ const BottomPanel = ({
       return Number.isFinite(v) ? Math.max(20, Math.min(95, v)) : 50;
     } catch { return 50; }
   });
+  const [panelOffsetVW, setPanelOffsetVW] = useState(() => {
+    try {
+      const v = parseFloat(localStorage.getItem('artapp-bottom-panel-offsetvw') || '0');
+      return Number.isFinite(v) ? v : 0;
+    } catch { return 0; }
+  });
   const resizeSideRef = useRef(null); // 'left' | 'right' | null
+  const sideResizeStartXRef = useRef(0);
+  const sideResizeStartWidthRef = useRef(50);
+  const sideResizeStartOffsetRef = useRef(0);
+  const panelWidthVWRef = useRef(panelWidthVW);
+  const panelOffsetVWRef = useRef(panelOffsetVW);
   const [dockV, setDockV] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem('artapp-bottom-panel-dock') || '{}').v; return v === 'top' ? 'top' : 'bottom'; } catch { return 'bottom'; }
   });
@@ -472,6 +483,13 @@ const BottomPanel = ({
     try { const v = JSON.parse(localStorage.getItem('artapp-bottom-panel-dock') || '{}').h; return ['left','center','right'].includes(v) ? v : 'center'; } catch { return 'center'; }
   });
   const isDockDraggingRef = useRef(false);
+
+  useEffect(() => {
+    panelWidthVWRef.current = panelWidthVW;
+  }, [panelWidthVW]);
+  useEffect(() => {
+    panelOffsetVWRef.current = panelOffsetVW;
+  }, [panelOffsetVW]);
 
   // MIDI context
   const {
@@ -628,31 +646,70 @@ const BottomPanel = ({
 
   // Start side resize (width)
   const onSideResizeStart = useCallback((side) => (e) => {
+    const isOuterEdgeHandle =
+      (dockH === 'left' && side === 'left')
+      || (dockH === 'right' && side === 'right');
     if (panelState !== 'expanded') return;
+    if (isOuterEdgeHandle) return;
     resizeSideRef.current = side; // 'left' | 'right'
+    sideResizeStartXRef.current = e.clientX;
+    sideResizeStartWidthRef.current = panelWidthVWRef.current;
+    sideResizeStartOffsetRef.current = panelOffsetVWRef.current;
     e.preventDefault();
     document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
-  }, [panelState]);
+  }, [dockH, panelState]);
 
   // Handle side resize (width) on mousemove
   useEffect(() => {
     const onMove = (e) => {
       const side = resizeSideRef.current;
       if (!side) return;
-      const centerX = window.innerWidth / 2;
-      const halfWidthPx = Math.max(120, Math.min((window.innerWidth * 0.95) / 2, Math.abs(e.clientX - centerX)));
-      const fullWidthPx = Math.min(window.innerWidth * 0.95, halfWidthPx * 2);
-      const vw = (fullWidthPx / window.innerWidth) * 100;
-      const clampedVW = Math.max(20, Math.min(95, vw));
-      setPanelWidthVW(clampedVW);
+      const deltaX = e.clientX - sideResizeStartXRef.current;
+      const deltaVW = (deltaX / window.innerWidth) * 100;
+      if (dockH === 'center') {
+        // Center-docked behavior: drag only the grabbed edge and let center shift.
+        const startW = sideResizeStartWidthRef.current;
+        const startO = sideResizeStartOffsetRef.current;
+        const startLeft = 50 + startO - (startW / 2);
+        const startRight = 50 + startO + (startW / 2);
+        let left = startLeft;
+        let right = startRight;
+        if (side === 'right') {
+          right = startRight + deltaVW;
+        } else {
+          left = startLeft + deltaVW;
+        }
+        let nextW = right - left;
+        if (nextW < 20) {
+          if (side === 'right') right = left + 20;
+          else left = right - 20;
+          nextW = 20;
+        } else if (nextW > 95) {
+          if (side === 'right') right = left + 95;
+          else left = right - 95;
+          nextW = 95;
+        }
+        const nextCenter = (left + right) / 2;
+        const nextOffset = nextCenter - 50;
+        setPanelWidthVW(nextW);
+        setPanelOffsetVW(nextOffset);
+        return;
+      }
+
+      // Edge-docked behavior (left/right): resize from the inward-facing side.
+      const nextVW = side === 'right'
+        ? sideResizeStartWidthRef.current + deltaVW
+        : sideResizeStartWidthRef.current - deltaVW;
+      setPanelWidthVW(Math.max(20, Math.min(95, nextVW)));
     };
     const onUp = () => {
       if (!resizeSideRef.current) return;
       resizeSideRef.current = null;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      try { localStorage.setItem('artapp-bottom-panel-widthvw', String(panelWidthVW)); } catch { /* noop */ }
+      try { localStorage.setItem('artapp-bottom-panel-widthvw', String(panelWidthVWRef.current)); } catch { /* noop */ }
+      try { localStorage.setItem('artapp-bottom-panel-offsetvw', String(panelOffsetVWRef.current)); } catch { /* noop */ }
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -660,7 +717,7 @@ const BottomPanel = ({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [panelWidthVW]);
+  }, [dockH, panelWidthVW]);
 
   const tabs = useMemo(() => ([
     { id: 'global', label: 'Global', icon: '🌍' },
@@ -942,7 +999,15 @@ const BottomPanel = ({
       onClick={handlePanelInteraction}
     >
       {/* Peek bar - always visible when not hidden */}
-      <div className="panel-peek-bar" style={{ width: `${panelWidthVW}vw` }} onMouseDown={onDockDragStart} onClick={() => setPanelState(panelState === 'expanded' ? 'peek' : 'expanded')}>
+      <div
+        className="panel-peek-bar"
+        style={{
+          width: `${panelWidthVW}vw`,
+          transform: dockH === 'center' ? `translateX(${panelOffsetVW}vw)` : undefined,
+        }}
+        onMouseDown={onDockDragStart}
+        onClick={() => setPanelState(panelState === 'expanded' ? 'peek' : 'expanded')}
+      >
         <div className="peek-indicator">
           <span className="peek-line"></span>
           <span className="peek-text">Controls</span>
@@ -951,12 +1016,27 @@ const BottomPanel = ({
       </div>
 
       {/* Main panel content */}
-      <div className="panel-content" style={{ height: panelHeight, width: `${panelWidthVW}vw` }}>
+      <div
+        className="panel-content"
+        style={{
+          height: panelHeight,
+          width: `${panelWidthVW}vw`,
+          transform: dockH === 'center' ? `translateX(${panelOffsetVW}vw)` : undefined,
+        }}
+      >
         {/* Resize handle at top edge */}
         <div className="panel-resize-handle" onMouseDown={onResizeStart} title="Drag up/down to resize" />
         {/* Side handles for width resize */}
-        <div className="panel-resize-handle-side left" onMouseDown={onSideResizeStart('left')} title="Drag left/right to resize" />
-        <div className="panel-resize-handle-side right" onMouseDown={onSideResizeStart('right')} title="Drag left/right to resize" />
+        <div
+          className={`panel-resize-handle-side left ${dockH === 'left' ? 'disabled' : ''}`}
+          onMouseDown={onSideResizeStart('left')}
+          title={dockH === 'left' ? 'Edge handle disabled when docked left' : 'Drag left/right to resize'}
+        />
+        <div
+          className={`panel-resize-handle-side right ${dockH === 'right' ? 'disabled' : ''}`}
+          onMouseDown={onSideResizeStart('right')}
+          title={dockH === 'right' ? 'Edge handle disabled when docked right' : 'Drag left/right to resize'}
+        />
         {/* Tab navigation */}
         <div className="tab-navigation">
           <div className="tabs-container" ref={tabsContainerRef}>

@@ -10,7 +10,8 @@ import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 import AutosaveRecovery from './AutosaveRecovery.jsx';
-import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
+// Legacy (unused after Phase 4 extraction):
+// import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
@@ -21,8 +22,9 @@ const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
 
-// Range mapping editor sub-component
-import { RangeMappingEditor, AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
+import { AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
+// Legacy (unused directly here; retained in module export for reference):
+// import { RangeMappingEditor } from './sections/GlobalAutomationSections.jsx';
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({

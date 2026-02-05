@@ -224,6 +224,33 @@ Acceptance for Phase 6
 
 ---
 
+## Restructure Plan Status (Newer Plan)
+
+This section tracks the later restructuring plan discussed in-session:
+
+- Phase 0: Hardening baseline
+- Phase 1: Product simplification decisions
+- Phase 2: App shell split
+- Phase 3: State boundary cleanup
+- Phase 4: Control architecture cleanup
+- Phase 5: Deletion pass
+
+Current status:
+- [x] Phase 0 completed.
+- [ ] Phase 1 decisions deferred (needs explicit product choices).
+- [x] Phase 2 completed.
+- [x] Phase 3 completed.
+- [x] Phase 4 completed.
+- [~] Phase 5 in progress via **commented-out legacy paths** (not hard-deleted yet).
+
+Phase 5 notes:
+- Legacy/redundant modules were disabled by commenting code and leaving compatibility stubs.
+- Active-file legacy blocks were also commented where unused.
+- Validation after these changes remains green (`lint`, `build`, `test`).
+- Canonical tracking document: `docs/LEGACY_DISABLED.md`.
+
+---
+
 ## Acceptance Criteria (Overall)
 
 - [ ] `src/App.jsx` reduced to <300 lines and primarily composes components/hooks.

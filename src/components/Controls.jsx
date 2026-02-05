@@ -153,11 +153,12 @@ const HoverDropdown = ({ value, options, onChange }) => {
   );
 };
 
-// Per-layer MIDI Position control block
-// Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
+// Legacy (unused): previous per-layer MIDI position panel stub kept for reference.
+/*
 const MidiPositionSection = ({ currentLayer: _currentLayer, updateLayer: _updateLayer }) => {
   return null;
 };
+*/
 
 // Small helper component to show MIDI mapping status and controls for rotation
 const MidiRotationStatus = ({ paramId }) => {
@@ -1510,7 +1511,8 @@ const Controls = forwardRef(({
 
   // (Removed old duplicate color handlers; consolidated below)
 
-  // eslint-disable-next-line no-unused-vars
+  // Legacy (unused): old per-layer image upload path, superseded by current flow.
+  /*
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file && (file.type === 'image/jpeg' || file.type === 'image/png')) {
@@ -1525,6 +1527,7 @@ const Controls = forwardRef(({
       reader.readAsDataURL(file);
     }
   };
+  */
 
   // Hide per-layer opacity (global control exists)
   const overlayControls = parameters.filter(p => p.showInOverlay && p.id !== 'opacity');

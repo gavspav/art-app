@@ -195,6 +195,11 @@
 }
 .panel-resize-handle-side.left { left: 0; }
 .panel-resize-handle-side.right { right: 0; }
+.panel-resize-handle-side.disabled {
+  pointer-events: none;
+  opacity: 0.2;
+  cursor: default;
+}
 
 /* Tab navigation */
 .tab-navigation {
