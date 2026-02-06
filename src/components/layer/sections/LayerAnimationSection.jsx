@@ -18,7 +18,6 @@ export default function LayerAnimationSection({
   return (
     <div className="tab-section">
       <ControlSectionCard
-        title="Animation"
         actions={(
           <button
             type="button"

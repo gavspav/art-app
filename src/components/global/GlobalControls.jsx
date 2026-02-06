@@ -1330,9 +1330,12 @@ const GlobalControls = ({
   return (
     <div className="tab-section global-controls-panel">
       <div className="control-card">
-        <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontWeight: 600 }}>Global</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <div className="control-row" style={{ justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem 0.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem 0.8rem', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end' }}>
+            <label className="compact-label"><input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze</label>
+            <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade</label>
+            <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ign</label>
+            <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic</label>
             <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}>🎲</button>
             {hasSelectedMidiDevice && (
               <>
@@ -1344,21 +1347,12 @@ const GlobalControls = ({
         </div>
         <div style={{ marginTop: '0.5rem' }}>
           {/* Seed */}
-          <div style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <span className="gc-variation-label">Seed</span>
-                <input
-                  className="dc-slider gc-variation-slider gc-seed-slider"
-                  type="range"
-                  min={GLOBAL_SEED_MIN}
-                  max={GLOBAL_SEED_MAX}
-                  step={1}
-                  value={seedValue}
-                  onChange={handleSeedSliderChange}
-                />
-                <span className="gc-variation-value">{seedValue}</span>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Seed: {seedValue}</span></div>
               </div>
+              <input className="dc-slider" type="range" min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} value={seedValue} onChange={handleSeedSliderChange} />
             </div>
           </div>
           {/* Background */}
@@ -1391,45 +1385,16 @@ const GlobalControls = ({
               )}
             </div>
           </div>
-          {/* Toggles */}
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.2rem 0' }}>
-                <label className="compact-label"><input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze</label>
-                <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade while frozen</label>
-                <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ignore</label>
-                <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode</label>
-              </div>
-            </div>
-          </div>
           {/* Global Speed */}
-          <div style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <button
-                  type="button"
-                  className="icon-btn sm gc-variation-trigger"
-                  onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }}
-                  title="Global Speed settings"
-                  aria-label="Global Speed settings"
-                >
-                  ⚙
-                </button>
-                <span className="gc-variation-label">
-                  Global Speed
-                  {renderAutomationBadge('globalSpeedMultiplier')}
-                </span>
-                <input
-                  className="dc-slider gc-variation-slider"
-                  type="range"
-                  min={speedMin}
-                  max={speedMax}
-                  step={speedStep}
-                  value={globalSpeedMultiplier}
-                  onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
-                />
-                <span className="gc-variation-value">{globalSpeedMultiplier.toFixed(2)}</span>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Global Speed: {globalSpeedMultiplier.toFixed(2)}{renderAutomationBadge('globalSpeedMultiplier')}</span></div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
               </div>
+              <input className="dc-slider" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1476,35 +1441,22 @@ const GlobalControls = ({
           {/* Palette */}
           <div style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <button
-                  type="button"
-                  className="icon-btn sm gc-variation-trigger"
-                  onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }}
-                  title="Palette settings"
-                  aria-label="Palette settings"
-                >
-                  ⚙
-                </button>
-                <span className="gc-variation-label">
-                  Palette
-                  {renderAutomationBadge('globalPaletteIndex')}
-                </span>
-                <select className="compact-select gc-inline-select gc-palette-select" value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
-                  <option value="custom">Custom</option>
-                  {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
-                  {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
-                </select>
-                <button
-                  type="button"
-                  className="btn-compact-secondary gc-save-custom-btn"
-                  onClick={() => { if (typeof onSaveCustomPalette !== 'function') return; const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : []; const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0); if (!safe.length) return; const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim(); if (!name) return; const created = onSaveCustomPalette({ name, colors: safe }); if (created?.id) setGlobalPaletteRef?.(created.id); }}
-                >
-                  Save as custom
-                </button>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Palette{renderAutomationBadge('globalPaletteIndex')}</span></div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
               </div>
+              <select className="compact-select" value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
+                <option value="custom">Custom</option>
+                {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
+                {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
+              </select>
               {showPaletteSettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <button type="button" className="btn-compact-secondary" onClick={() => { if (typeof onSaveCustomPalette !== 'function') return; const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : []; const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0); if (!safe.length) return; const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim(); if (!name) return; const created = onSaveCustomPalette({ name, colors: safe }); if (created?.id) setGlobalPaletteRef?.(created.id); }}>Save current colours as custom palette</button>
+                  </div>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                     <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                     {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1520,24 +1472,15 @@ const GlobalControls = ({
           {/* Style */}
           <div style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <button
-                  type="button"
-                  className="icon-btn sm gc-variation-trigger"
-                  onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }}
-                  title="Style settings"
-                  aria-label="Style settings"
-                >
-                  ⚙
-                </button>
-                <span className="gc-variation-label">
-                  Style
-                  {renderAutomationBadge('globalBlendMode')}
-                </span>
-                <select className="compact-select gc-inline-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
-                  {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
-                </select>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Style{renderAutomationBadge('globalBlendMode')}</span></div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
               </div>
+              <select className="compact-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
+                {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
+              </select>
               {showBlendModeSettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1553,33 +1496,15 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Global Opacity */}
-          <div style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <button
-                  type="button"
-                  className="icon-btn sm gc-variation-trigger"
-                  onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }}
-                  title="Opacity settings"
-                  aria-label="Opacity settings"
-                >
-                  ⚙
-                </button>
-                <span className="gc-variation-label">
-                  Global Opacity
-                  {renderAutomationBadge('globalOpacity')}
-                </span>
-                <input
-                  className="dc-slider gc-variation-slider"
-                  type="range"
-                  min={opacityMin}
-                  max={opacityMax}
-                  step={opacityStep}
-                  value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1}
-                  onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }}
-                />
-                <span className="gc-variation-value">{(Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1).toFixed(2)}</span>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Global Opacity: {(Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1).toFixed(2)}{renderAutomationBadge('globalOpacity')}</span></div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
               </div>
+              <input className="dc-slider" type="range" min={opacityMin} max={opacityMax} step={opacityStep} value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} />
               {showOpacitySettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1603,36 +1528,15 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Layers */}
-          <div style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
-              <div className="gc-variation-row">
-                <button
-                  type="button"
-                  className="icon-btn sm gc-variation-trigger"
-                  onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }}
-                  title="Layers settings"
-                  aria-label="Layers settings"
-                >
-                  ⚙
-                </button>
-                <span className="gc-variation-label">
-                  Layers
-                  {renderAutomationBadge('layersCount')}
-                </span>
-                <input
-                  className="dc-slider gc-variation-slider"
-                  type="range"
-                  min={layersMin}
-                  max={layersMax}
-                  step={layersStep}
-                  value={layerCountDraft}
-                  onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }}
-                  onPointerDown={() => { layerCountDraggingRef.current = true; }}
-                  onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }}
-                  onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }}
-                />
-                <span className="gc-variation-value">{layerCountDraft}</span>
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div><span>Layers: {layerCountDraft}{renderAutomationBadge('layersCount')}</span></div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
               </div>
+              <input className="dc-slider" type="range" min={layersMin} max={layersMax} step={layersStep} value={layerCountDraft} onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }} onPointerDown={() => { layerCountDraggingRef.current = true; }} onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} />
               {showLayersSettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1651,25 +1555,20 @@ const GlobalControls = ({
                     <label className="compact-label">Step</label>
                     <BufferedNumberInput value={layersStep} step={1} min={1} onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
                   </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <label className="compact-label" title="Every layer copies Layer 1 colours"><input type="checkbox" checked={!!syncLayerColorsToFirst} onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)} /> Match colours to Layer 1</label>
+                    <label className="compact-label" title="Apply variation sliders in real time"><input type="checkbox" checked={!!applyVariationInstantly} onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)} /> Instant variation</label>
+                    <label className="compact-label" title="Each layer gets random colour count"><input type="checkbox" checked={!!randomizeColorsPerLayer} onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)} /> Randomise colours per layer</label>
+                    <label className="compact-label" title="Use global palette for generation"><input type="checkbox" checked={!!audioSpawnUseGlobalPalette} disabled={!setAudioSpawnUseGlobalPalette} onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)} /> Use global palette</label>
+                    {!randomizeColorsPerLayer && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
+                        <BufferedNumberInput value={uniformColorCount ?? 3} min={1} max={32} step={1} onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))} className="compact-number" style={{ width: '3.5rem' }} inputMode="numeric" />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
-          {/* Layer Options */}
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.2rem 0' }}>
-                <label className="compact-label" title="Every layer copies Layer 1 colours"><input type="checkbox" checked={!!syncLayerColorsToFirst} onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)} /> Match colours to Layer 1</label>
-                <label className="compact-label" title="Apply variation sliders in real time"><input type="checkbox" checked={!!applyVariationInstantly} onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)} /> Instant variation</label>
-                <label className="compact-label" title="Each layer gets random colour count"><input type="checkbox" checked={!!randomizeColorsPerLayer} onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)} /> Randomise colours per layer</label>
-                <label className="compact-label" title="Use global palette for generation"><input type="checkbox" checked={!!audioSpawnUseGlobalPalette} disabled={!setAudioSpawnUseGlobalPalette} onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)} /> Use global palette</label>
-                {!randomizeColorsPerLayer && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
-                    <BufferedNumberInput value={uniformColorCount ?? 3} min={1} max={32} step={1} onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))} className="compact-number" style={{ width: '3.5rem' }} inputMode="numeric" />
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>
@@ -1687,33 +1586,16 @@ const GlobalControls = ({
             { key: 'variationColor', label: 'Colour', value: layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor, min: variationColorMin, max: variationColorMax, step: variationColorStep, showSettings: showVariationColorSettings, setShowSettings: setShowVariationColorSettings, setMin: setVariationColorMin, setMax: setVariationColorMax, setStep: setVariationColorStep },
             { key: 'variationScale', label: 'Scale', value: layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0, min: variationScaleMin, max: variationScaleMax, step: variationScaleStep, showSettings: showVariationScaleSettings, setShowSettings: setShowVariationScaleSettings, setMin: setVariationScaleMin, setMax: setVariationScaleMax, setStep: setVariationScaleStep },
           ].map(v => (
-            <div key={v.key} style={{ marginBottom: '0.4rem' }}>
+            <div key={v.key} className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
               <div className="dc-inner">
-                <div className="gc-variation-row">
-                  <button
-                    type="button"
-                    className="icon-btn sm gc-variation-trigger"
-                    onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }}
-                    title={`${v.label} settings`}
-                    aria-label={`${v.label} settings`}
-                  >
-                    ⚙
-                  </button>
-                  <span className="gc-variation-label">
-                    {v.label}
-                    {renderAutomationBadge(v.key)}
-                  </span>
-                  <input
-                    className="dc-slider gc-variation-slider"
-                    type="range"
-                    min={v.min}
-                    max={v.max}
-                    step={v.step}
-                    value={Number(v.value)}
-                    onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))}
-                  />
-                  <span className="gc-variation-value">{Number(v.value).toFixed(2)}</span>
+                <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <div><span>{v.label}: {Number(v.value).toFixed(2)}{renderAutomationBadge(v.key)}</span></div>
+                  <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <label className="compact-label" title={`Include ${v.label} Variation in Randomize All`}><input type="checkbox" checked={!!getIsRnd(v.key)} onChange={(e) => setIsRnd(v.key, e.target.checked)} /> Incl</label>
+                    <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }} title={`${v.label} settings`} style={{ padding: '0 0.4rem' }}>⚙</button>
+                  </div>
                 </div>
+                <input className="dc-slider" type="range" min={v.min} max={v.max} step={v.step} value={Number(v.value)} onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))} />
                 {v.showSettings && (
                   <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                     <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>

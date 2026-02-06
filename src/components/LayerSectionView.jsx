@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Controls from './Controls.jsx';
 
 /**
@@ -17,13 +17,6 @@ export default function LayerSectionView({
 }) {
   const ctrlRef = useRef(null);
 
-  const labels = useMemo(() => ({
-    layer: 'Layer',
-    shape: 'Shape',
-    animation: 'Animation',
-    colour: 'Colour',
-  }), []);
-
   useEffect(() => {
     // Map external section ids to Controls internal tab names
     const map = {
@@ -39,11 +32,6 @@ export default function LayerSectionView({
 
   return (
     <div className={hideTabbar ? 'no-tabbar' : undefined}>
-      {hideTabbar && visibleSection !== 'layer' && (
-        <div className="section-header-mini" aria-label={`${labels[visibleSection]} controls`}>
-          {labels[visibleSection]}
-        </div>
-      )}
       <Controls ref={ctrlRef} showMidi={showMidi} showAudio={showAudio} showBPM={showBPM} {...controlProps} />
     </div>
   );

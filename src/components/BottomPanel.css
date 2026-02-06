@@ -125,6 +125,7 @@
   flex-direction: column;
   /* Centered and constrained width */
   width: 50vw;
+  min-width: 320px;
   margin: 0 auto;
   border-top-left-radius: var(--radius-md);
   border-top-right-radius: var(--radius-md);
@@ -378,6 +379,7 @@
   overflow-x: hidden;
   padding: 12px 16px 12px 16px;
   margin-right: 10px; /* inset scrollbar away from the edge resize handle */
+  min-width: 0; /* allow flex child to shrink below content size */
 }
 
 /* Scrollbar styling */

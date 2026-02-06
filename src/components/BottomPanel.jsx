@@ -695,11 +695,13 @@ const BottomPanel = ({
 
   // Handle side resize (width) on mousemove
   useEffect(() => {
+    const MIN_PANEL_PX = 320; // pixel floor – matches CSS min-width
     const onMove = (e) => {
       const side = resizeSideRef.current;
       if (!side) return;
       const deltaX = e.clientX - sideResizeStartXRef.current;
       const deltaVW = (deltaX / window.innerWidth) * 100;
+      const minVW = Math.max(20, (MIN_PANEL_PX / window.innerWidth) * 100);
       if (dockH === 'center') {
         // Center-docked behavior: drag only the grabbed edge and let center shift.
         const startW = sideResizeStartWidthRef.current;
@@ -714,10 +716,10 @@ const BottomPanel = ({
           left = startLeft + deltaVW;
         }
         let nextW = right - left;
-        if (nextW < 20) {
-          if (side === 'right') right = left + 20;
-          else left = right - 20;
-          nextW = 20;
+        if (nextW < minVW) {
+          if (side === 'right') right = left + minVW;
+          else left = right - minVW;
+          nextW = minVW;
         } else if (nextW > 95) {
           if (side === 'right') right = left + 95;
           else left = right - 95;
@@ -734,7 +736,7 @@ const BottomPanel = ({
       const nextVW = side === 'right'
         ? sideResizeStartWidthRef.current + deltaVW
         : sideResizeStartWidthRef.current - deltaVW;
-      setPanelWidthVW(Math.max(20, Math.min(95, nextVW)));
+      setPanelWidthVW(Math.max(minVW, Math.min(95, nextVW)));
     };
     const onUp = () => {
       if (!resizeSideRef.current) return;

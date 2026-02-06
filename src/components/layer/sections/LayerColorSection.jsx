@@ -133,7 +133,6 @@ export default function LayerColorSection({
 
         <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
           <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ fontWeight: 600 }}>Colours</div>
             <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
               <button
                 type="button"
