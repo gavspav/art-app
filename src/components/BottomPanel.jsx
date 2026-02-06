@@ -847,7 +847,7 @@ const BottomPanel = ({
       
       case 'global':
         return (
-          <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
+          <div className="tab-content global-tab">
 	            <GlobalControls
 	              key={`glob-${parameterTargetMode}`}
 	              isActiveTab={activeTab === 'global'}

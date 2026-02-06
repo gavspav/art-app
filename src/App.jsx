@@ -413,7 +413,7 @@ const MainApp = () => {
       return Number.isFinite(parsed) ? Math.min(0.8, Math.max(0.2, parsed)) : 0.5;
     } catch { return 0.5; }
   });
-  const TOP_BAR_HEIGHT = 40;
+  const TOP_BAR_HEIGHT = 0;
   const availableHeightExpr = `calc(100vh - ${TOP_BAR_HEIGHT}px)`; // exclude fixed top bar
   const topPanelHeightExpr = `calc(${availableHeightExpr} * ${topPanelRatio})`;
   const timelineHeightExpr = `calc(${availableHeightExpr} * ${1 - topPanelRatio})`;
@@ -2307,24 +2307,6 @@ const MainApp = () => {
           visible={showShortcuts}
           onClose={() => setShowShortcuts(false)}
         />
-        {/* Quick save/load buttons in top bar */}
-        <div className="top-bar" style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          right: 0, 
-          height: '40px',
-          background: 'linear-gradient(180deg, rgba(20, 20, 30, 0.9) 0%, transparent 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 16px',
-          gap: '8px',
-          zIndex: 100,
-          pointerEvents: isFullscreen ? 'none' : 'auto',
-          opacity: isFullscreen ? 0 : 1,
-          transition: 'opacity 300ms ease'
-        }}>
-        </div>
         
         {/* Hidden file inputs */}
         <input
