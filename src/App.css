@@ -315,13 +315,7 @@ canvas {
   gap: 0.5rem;
 }
 
-/* Compact Global controls layout */
-.global-compact-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  align-items: center;
-}
+
 .compact-row {
   display: flex;
   flex-wrap: wrap; /* allow MIDI row to wrap on narrow sidebars */
@@ -437,8 +431,8 @@ input[type="checkbox"] {
   opacity: 0.9;
 }
 .bgcolor-mini {
-  width: 18px;
-  height: 18px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 1px solid rgba(255,255,255,0.35);
   border-radius: 4px;
@@ -499,6 +493,85 @@ input[type="checkbox"] {
   border-radius: 6px;
   font-size: 14px;
   padding: 0;
+}
+
+/* Global tab UI sizing normalization */
+.global-controls-panel .icon-btn.sm {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 6px;
+  padding: 0;
+}
+
+.global-controls-panel .compact-select,
+.global-controls-panel .compact-number,
+.global-controls-panel .btn-compact-secondary,
+.global-controls-panel .btn-compact-primary {
+  height: 30px;
+  min-height: 30px;
+  box-sizing: border-box;
+}
+
+.global-controls-panel label {
+  justify-content: flex-start;
+}
+
+.global-controls-panel .gc-variation-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.global-controls-panel .gc-variation-trigger {
+  flex: 0 0 auto;
+}
+
+.global-controls-panel .gc-variation-label {
+  min-width: 8.2rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.global-controls-panel .gc-variation-slider {
+  flex: 1 1 14rem;
+  width: auto;
+  max-width: 15.5rem;
+  min-width: 8.5rem;
+  margin-top: 0;
+}
+
+.global-controls-panel .gc-seed-slider {
+  flex-basis: 11.5rem;
+  max-width: 11.5rem;
+  min-width: 7.5rem;
+}
+
+.global-controls-panel .gc-variation-value {
+  width: 3.8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.global-controls-panel .gc-inline-select {
+  width: 11.5rem;
+  min-width: 10rem;
+  max-width: 11.5rem;
+  margin-left: auto;
+}
+
+.global-controls-panel .gc-palette-select {
+  width: 9.5rem;
+  min-width: 8.5rem;
+  max-width: 9.5rem;
+}
+
+.global-controls-panel .gc-save-custom-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0 0.55rem;
+  font-size: 0.84rem;
 }
 
 /* Compact dark number input used in Colours panel */

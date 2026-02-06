@@ -407,22 +407,43 @@ const AudioSpawnSection = ({
   const disabledByTimeline = !!timelineMode;
   const canRun = !disabledByTimeline && enabled;
   const mode = (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level';
+  const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
+  const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
 
   return (
     <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>⚡ Audio Spawn (Live)</span>
-        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Spawn temporary layers on audio threshold crossings (not exported)">
-          <input
-            type="checkbox"
-            checked={!!audioSpawnEnabled}
-            disabled={!setAudioSpawnEnabled || disabledByTimeline}
-            onChange={(e) => setAudioSpawnEnabled?.(!!e.target.checked)}
-          />
-          Enabled
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          {!audioSpawnEnabled && (
+            <button
+              type="button"
+              className="icon-btn sm"
+              title={showSettingsWhenDisabled ? 'Hide Audio Spawn settings' : 'Show Audio Spawn settings'}
+              aria-label={showSettingsWhenDisabled ? 'Hide Audio Spawn settings' : 'Show Audio Spawn settings'}
+              onClick={() => setShowSettingsWhenDisabled(v => !v)}
+            >
+              ⚙️
+            </button>
+          )}
+          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Spawn temporary layers on audio threshold crossings (not exported)">
+            <input
+              type="checkbox"
+              checked={!!audioSpawnEnabled}
+              disabled={!setAudioSpawnEnabled || disabledByTimeline}
+              onChange={(e) => {
+                const next = !!e.target.checked;
+                setAudioSpawnEnabled?.(next);
+                if (!next) setShowSettingsWhenDisabled(false);
+              }}
+            />
+            Enabled
+          </label>
+        </div>
       </div>
 
+      {showAdvancedControls && (
+        <>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
         <span className="compact-label" style={{ width: 58 }}>Band</span>
         <select
@@ -579,6 +600,8 @@ const AudioSpawnSection = ({
         <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', opacity: 0.7 }}>
           Disabled while Timeline mode is active.
         </div>
+      )}
+        </>
       )}
     </div>
   );

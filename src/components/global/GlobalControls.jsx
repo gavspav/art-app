@@ -97,8 +97,8 @@ const GlobalControls = ({
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
-  parameterTargetMode,
-  setParameterTargetMode,
+  parameterTargetMode: _parameterTargetMode,
+  setParameterTargetMode: _setParameterTargetMode,
   // MIDI input
   midiInputs,
   midiInputId,
@@ -138,6 +138,7 @@ const GlobalControls = ({
   setRandomizeColorsPerLayer,
   uniformColorCount,
   setUniformColorCount,
+  hideAudioSections = false,
 }) => {
   const layerSeedNonceRef = useRef(0);
   const generateLayerSeed = useCallback(() => {
@@ -572,15 +573,7 @@ const GlobalControls = ({
   ]);
 
 
-  const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
-
-  const handleTargetModeChange = useCallback((event) => {
-    if (!setParameterTargetMode) return;
-    const raw = typeof event === 'string' ? event : event?.target?.value;
-    const normalized = (typeof raw === 'string' && raw.toLowerCase() === 'global') ? 'global' : 'individual';
-    try { console.debug('[GlobalControls] Target mode ->', normalized); } catch { /* noop */ }
-    setParameterTargetMode(normalized);
-  }, [setParameterTargetMode]);
+  const hasSelectedMidiDevice = !!(midiSupported && midiInputId);
 
   // Settings panel visibility toggles
   const [showSpeedSettings, setShowSpeedSettings] = useState(false);
@@ -588,6 +581,7 @@ const GlobalControls = ({
   const [showBlendModeSettings, setShowBlendModeSettings] = useState(false);
   const [showOpacitySettings, setShowOpacitySettings] = useState(false);
   const [showLayersSettings, setShowLayersSettings] = useState(false);
+  const [showFpsSettings, setShowFpsSettings] = useState(false);
   const [showVariationPositionSettings, setShowVariationPositionSettings] = useState(false);
   const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
   const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
@@ -1334,229 +1328,108 @@ const GlobalControls = ({
   }, [morphEnabled, setBackgroundColor, setLayers]);
 
   return (
-    <div className="control-card">
-      <h3 style={{ marginTop: 0, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <span>Global</span>
-        <button className="icon-btn sm" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything">🎲</button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 220px', minWidth: 0 }}>
-          <span className="compact-label" style={{ whiteSpace: 'nowrap' }}>Seed</span>
-          <input
-            className="compact-range"
-            type="range"
-            min={GLOBAL_SEED_MIN}
-            max={GLOBAL_SEED_MAX}
-            step={1}
-            value={seedValue}
-            onChange={handleSeedSliderChange}
-            title="Adjust global seed"
-            aria-label="Adjust global seed"
-            style={{ flex: '1 1 auto' }}
-          />
-          <BufferedNumberInput
-            value={seedValue}
-            min={GLOBAL_SEED_MIN}
-            max={GLOBAL_SEED_MAX}
-            step={1}
-            onCommit={updateSeed}
-            title="Global seed value"
-            className="compact-number"
-            style={{ width: 80 }}
-            inputMode="numeric"
-          />
-        </div>
-        {(
-          <>
-            <button
-              className="btn-compact-secondary"
-              onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }}
-              disabled={!midiSupported}
-              title="MIDI Learn: Randomize All"
-            >
-              Learn
-            </button>
-            <button
-              className="btn-compact-secondary"
-              onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }}
-              disabled={!midiSupported || !midiMappings?.randomizeAll}
-              title="Clear MIDI for Randomize All"
-            >
-              Clear
-            </button>
-            {midiSupported && (
-              <span className="compact-label" style={{ opacity: 0.8 }}>
-                {midiMappings?.randomizeAll ? (mappingLabel ? mappingLabel(midiMappings.randomizeAll) : 'Mapped') : 'Not mapped'}
-                {learnParamId === 'randomizeAll' && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
-              </span>
-            )}
-          </>
-        )}
-      </h3>
-      {/* Presets & Morph Controls (optional) */}
-      {!hidePresets && (
-        <PresetControls
-          setLayers={setLayers}
-          setBackgroundColor={setBackgroundColor}
-          setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-        />
-      )}
-      {showAutosaveRecovery && (
-        <AutosaveRecovery
-          slots={autosaveSlots}
-          onRestore={handleRestoreAutosave}
-          onClearAll={handleClearAutosaves}
-          onRefresh={handleRefreshAutosaves}
-          onClose={handleCloseAutosaveRecovery}
-          message={autosaveMessage}
-          error={autosaveError}
-        />
-      )}
-      <div className="control-group" style={{ margin: 0 }}>
-        <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-            <label className="compact-label">Canvas FPS</label>
-            <label className="compact-label" title="Helps performance by limiting draw rate">
-              <input
-                type="checkbox"
-                checked={canvasFps <= 30}
-                onChange={(e) => setCanvasFps(e.target.checked ? 30 : 60)}
-              /> 30fps limit
-            </label>
-          </div>
-          <select
-            className="compact-select"
-            value={canvasFps}
-            onChange={(e) => setCanvasFps(Number(e.target.value))}
-            title="Canvas draw rate (lower = more responsive UI)"
-          >
-            <option value={15}>15 fps</option>
-            <option value={24}>24 fps</option>
-            <option value={30}>30 fps</option>
-            <option value={60}>60 fps</option>
-          </select>
-        </div>
-
-        <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-            <label className="compact-label" htmlFor="global-target-mode">Target</label>
-            <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>
-              {targetMode === 'global' ? 'Apply changes to every layer' : 'Edit only the active layer/selection'}
-            </span>
-          </div>
-          <select
-            id="global-target-mode"
-            className="compact-select"
-            value={targetMode}
-            onChange={handleTargetModeChange}
-          >
-            <option value="individual">Individual</option>
-            <option value="global">Global</option>
-          </select>
-        </div>
-        {/* Background Color with inline include toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600 }}>Background</span>
-            <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
-            <label className="compact-label" title="Enable background image">
-              <input
-                type="checkbox"
-                checked={!!backgroundImage?.enabled}
-                onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))}
-              />
-              Img
-            </label>
-            {backgroundImage?.enabled && (
+    <div className="tab-section global-controls-panel">
+      <div className="control-card">
+        <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontWeight: 600 }}>Global</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}>🎲</button>
+            {hasSelectedMidiDevice && (
               <>
-                <input
-                  type="file"
-                  accept="image/png, image/jpeg"
-                  title="Set background image"
-                  aria-label="Set background image"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (ev) => {
-                      const src = String(ev.target?.result || '');
-                      setBackgroundImage(prev => ({ ...(prev || {}), src, enabled: true }));
-                    };
-                    reader.readAsDataURL(file);
-                    e.target.value = '';
-                  }}
-                  style={{ width: 24 }}
-                />
-                <label className="compact-label" title="Background image opacity">
-                  Opac
-                  <input
-                    type="range"
-                    className="compact-range"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={Math.max(0, Math.min(1, Number(backgroundImage?.opacity ?? 1)))}
-                    onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), opacity: parseFloat(e.target.value) }))}
-                    style={{ width: 80 }}
-                  />
-                </label>
-                <select
-                  className="compact-select"
-                  value={backgroundImage?.fit || 'cover'}
-                  onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), fit: e.target.value }))}
-                  title="Background image fit"
-                  aria-label="Background image fit"
-                >
-                  <option value="cover">cover</option>
-                  <option value="contain">contain</option>
-                  <option value="stretch">stretch</option>
-                  <option value="center">center</option>
-                </select>
-                <button
-                  type="button"
-                  className="btn-compact-secondary"
-                  title="Clear background image"
-                  onClick={() => setBackgroundImage({ src: null, enabled: false, opacity: 1, fit: 'cover' })}
-                >
-                  Clear
-                </button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }} disabled={!midiSupported} title="MIDI Learn: Randomize All">Learn</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }} disabled={!midiSupported || !midiMappings?.randomizeAll} title="Clear MIDI for Randomize All">Clear</button>
               </>
             )}
           </div>
-          <label className="compact-label" title="Include Background Color in Randomize All" style={{ marginLeft: 'auto' }}>
-            <input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} />
-            Include
-          </label>
         </div>
-        {/* No settings panel for Background (non-numeric) */}
-
-        <div className="global-compact-row">
-          <label className="compact-label">
-            <input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze
-          </label>
-          <label className="compact-label" title="Continue palette colour fading while frozen">
-            <input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade while frozen
-          </label>
-          <label className="compact-label" title="Ignore Z movement (disable scaling animation)">
-            <input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ignore
-          </label>
-          <label className="compact-label">
-            <input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode
-          </label>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}{renderAutomationBadge('globalSpeedMultiplier')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Global Speed settings"
-                aria-label="Global Speed settings"
-                onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Global Speed in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /> Include
-              </label>
+        <div style={{ marginTop: '0.5rem' }}>
+          {/* Seed */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <span className="gc-variation-label">Seed</span>
+                <input
+                  className="dc-slider gc-variation-slider gc-seed-slider"
+                  type="range"
+                  min={GLOBAL_SEED_MIN}
+                  max={GLOBAL_SEED_MAX}
+                  step={1}
+                  value={seedValue}
+                  onChange={handleSeedSliderChange}
+                />
+                <span className="gc-variation-value">{seedValue}</span>
+              </div>
             </div>
-            <input className="compact-range" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
+          </div>
+          {/* Background */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span>Background</span>
+                  <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
+                </div>
+                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label className="compact-label" title="Include in Randomize All"><input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} /> Incl</label>
+                  <label className="compact-label" title="Enable background image"><input type="checkbox" checked={!!backgroundImage?.enabled} onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))} /> Img</label>
+                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowFpsSettings(s => !s); }} title="FPS settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                </div>
+              </div>
+              {backgroundImage?.enabled && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                  <input type="file" accept="image/png, image/jpeg" title="Set background image" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setBackgroundImage(prev => ({ ...(prev || {}), src: String(ev.target?.result || ''), enabled: true })); }; reader.readAsDataURL(file); e.target.value = ''; }} style={{ width: 24 }} />
+                  <label className="compact-label" title="Background image opacity">Opac <input type="range" className="dc-slider" min={0} max={1} step={0.01} value={Math.max(0, Math.min(1, Number(backgroundImage?.opacity ?? 1)))} onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), opacity: parseFloat(e.target.value) }))} style={{ width: 80, margin: 0 }} /></label>
+                  <select className="compact-select" value={backgroundImage?.fit || 'cover'} onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), fit: e.target.value }))} title="Background image fit"><option value="cover">cover</option><option value="contain">contain</option><option value="stretch">stretch</option><option value="center">center</option></select>
+                  <button type="button" className="btn-compact-secondary" title="Clear background image" onClick={() => setBackgroundImage({ src: null, enabled: false, opacity: 1, fit: 'cover' })}>Clear</button>
+                </div>
+              )}
+              {showFpsSettings && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem' }}>
+                  <label className="compact-label"><input type="checkbox" checked={canvasFps <= 30} onChange={(e) => setCanvasFps(e.target.checked ? 30 : 60)} /> 30fps limit</label>
+                  <select className="compact-select" value={canvasFps} onChange={(e) => setCanvasFps(Number(e.target.value))} title="Canvas draw rate"><option value={15}>15 fps</option><option value={24}>24 fps</option><option value={30}>30 fps</option><option value={60}>60 fps</option></select>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Toggles */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.2rem 0' }}>
+                <label className="compact-label"><input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze</label>
+                <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade while frozen</label>
+                <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ignore</label>
+                <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode</label>
+              </div>
+            </div>
+          </div>
+          {/* Global Speed */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <button
+                  type="button"
+                  className="icon-btn sm gc-variation-trigger"
+                  onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }}
+                  title="Global Speed settings"
+                  aria-label="Global Speed settings"
+                >
+                  ⚙
+                </button>
+                <span className="gc-variation-label">
+                  Global Speed
+                  {renderAutomationBadge('globalSpeedMultiplier')}
+                </span>
+                <input
+                  className="dc-slider gc-variation-slider"
+                  type="range"
+                  min={speedMin}
+                  max={speedMax}
+                  step={speedStep}
+                  value={globalSpeedMultiplier}
+                  onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))}
+                />
+                <span className="gc-variation-value">{globalSpeedMultiplier.toFixed(2)}</span>
+              </div>
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1598,743 +1471,346 @@ const GlobalControls = ({
                 </div>
               </div>
             )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Palette{renderAutomationBadge('globalPaletteIndex')}</label>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Palette settings"
-                aria-label="Palette settings"
-                onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Allow Randomize All to change the palette">
-                <input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /> Include
-              </label>
-            </div>
-            <select
-              className="compact-select"
-              value={selectedPaletteValue}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'custom') {
-                  setGlobalPaletteIndex?.('custom');
-                  setGlobalPaletteRef?.(null);
-                  return;
-                }
-                if (val.startsWith('custom:')) {
-                  const id = val.slice('custom:'.length);
-                  if (!id) return;
-                  setGlobalPaletteRef?.(id);
-                } else if (val.startsWith('builtin:')) {
-                  const idx = parseInt(val.slice('builtin:'.length), 10);
-                  if (!Number.isFinite(idx) || !palettes[idx]) return;
-                  setGlobalPaletteRef?.(null);
-                  setGlobalPaletteIndex?.(idx);
-                }
-                const src = paletteValueMap.get(val) || [];
-                const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
-                assignOneColorPerLayer(nextColors);
-              }}
-            >
-              <option value="custom">Custom</option>
-              {paletteOptions.builtins.length > 0 && (
-                <optgroup label="Built-in">
-                  {paletteOptions.builtins.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </optgroup>
-              )}
-              {paletteOptions.customs.length > 0 && (
-                <optgroup label="Custom">
-                  {paletteOptions.customs.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={() => {
-                  if (typeof onSaveCustomPalette !== 'function') return;
-                  const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : [];
-                  const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
-                  if (!safe.length) return;
-                  const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
-                  if (!name) return;
-                  const created = onSaveCustomPalette({ name, colors: safe });
-                  if (created?.id) setGlobalPaletteRef?.(created.id);
-                }}
-              >
-                Save as custom
-              </button>
-            </div>
-            {showPaletteSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
-                </div>
-                <AudioControlRow paramId="globalPaletteIndex" />
-                <BPMControlRow paramId="globalPaletteIndex" />
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Style{renderAutomationBadge('globalBlendMode')}</label>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Style settings"
-                aria-label="Style settings"
-                onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Style in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /> Include
-              </label>
-            </div>
-            <select className="compact-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
-              {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
-            </select>
-            {showBlendModeSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
-                </div>
-                <AudioControlRow paramId="globalBlendMode" />
-                <BPMControlRow paramId="globalBlendMode" />
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">MIDI Input</span>
-            </div>
-            {!midiSupported ? (
-              <div style={{ opacity: 0.7 }}>No Web MIDI</div>
-            ) : (
-              <select className="compact-select" value={midiInputId || ''} onChange={(e) => setMidiInputId(e.target.value)}>
-                <option value="">None</option>
-                {(midiInputs || []).map(inp => (<option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>))}
-              </select>
-            )}
-            {/* No settings panel for MIDI Input (non-numeric) */}
-          </div>
-
-          {/* Audio Reactive Section */}
-          <AudioReactiveSection isActiveTab={isActiveTab} />
-
-          {/* Live audio spawn (non-export overlays) */}
-	          <AudioSpawnSection
-	            isActiveTab={isActiveTab}
-	            timelineMode={timelineMode}
-	            energyInfluence={energyInfluence}
-	            setEnergyInfluence={setEnergyInfluence}
-	            audioSpawnEnabled={audioSpawnEnabled}
-	            setAudioSpawnEnabled={setAudioSpawnEnabled}
-	            audioSpawnTriggerMode={audioSpawnTriggerMode}
-	            setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
-	            audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
-	            setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
-	            audioSpawnHysteresis={audioSpawnHysteresis}
-	            setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-	            audioSpawnBand={audioSpawnBand}
-	            setAudioSpawnBand={setAudioSpawnBand}
-            audioSpawnThreshold={audioSpawnThreshold}
-            setAudioSpawnThreshold={setAudioSpawnThreshold}
-            audioSpawnCooldownMs={audioSpawnCooldownMs}
-            setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
-            audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
-            setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
-            audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
-            setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
-            audioSpawnMaxLayers={audioSpawnMaxLayers}
-            setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
-          />
-
-          {/* BPM/Beat Sync Section */}
-          <BPMSection />
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Opacity{renderAutomationBadge('globalOpacity')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Global Opacity settings"
-                aria-label="Global Opacity settings"
-                onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Opacity in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={opacityMin}
-              max={opacityMax}
-              step={opacityStep}
-              value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1}
-              onChange={(e) => {
-                const v = Math.max(0, Math.min(1, parseFloat(e.target.value)));
-                setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
-              }}
-            />
-            {showOpacitySettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
-                </div>
-                <AudioControlRow paramId="globalOpacity" />
-                <BPMControlRow paramId="globalOpacity" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={opacityMin}
-                    step={0.01}
-                    min={0}
-                    max={1}
-                    onCommit={setOpacityMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('globalOpacity')}`}</label>
-                  <BufferedNumberInput
-                    value={opacityMax}
-                    step={0.01}
-                    min={0}
-                    max={1}
-                    onCommit={setOpacityMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={opacityStep}
-                    step={0.001}
-                    min={0.001}
-                    onCommit={(next) => setOpacityStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Layers{renderAutomationBadge('layersCount')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Layers settings"
-                aria-label="Layers settings"
-                onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Layer Count in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /> Include
-              </label>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px', gap: '8px', alignItems: 'center' }}>
-              <input
-                className="compact-range"
-                type="range"
-                min={layersMin}
-                max={layersMax}
-                step={layersStep}
-                value={layerCountDraft}
-                onChange={(e) => {
-                  setLayerCountDraft(Number(e.target.value));
-                }}
-                onPointerDown={() => { layerCountDraggingRef.current = true; }}
-                onPointerUp={() => {
-                  layerCountDraggingRef.current = false;
-                  commitLayerCountDraft(layerCountDraft);
-                }}
-                onPointerCancel={() => {
-                  layerCountDraggingRef.current = false;
-                  commitLayerCountDraft(layerCountDraft);
-                }}
-              />
-              <BufferedNumberInput
-                value={layerCountDraft}
-                min={layersMin}
-                max={layersMax}
-                step={layersStep}
-                onCommit={commitLayerCountDraft}
-                className="compact-number"
-                style={{ width: '5.5rem', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
-                inputMode="numeric"
-              />
-            </div>
-            {showLayersSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
-                </div>
-                <AudioControlRow paramId="layersCount" />
-                <BPMControlRow paramId="layersCount" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={layersMin}
-                    step={1}
-                    min={1}
-                    onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                    inputMode="numeric"
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('layersCount')}`}</label>
-                  <BufferedNumberInput
-                    value={layersMax}
-                    step={1}
-                    min={layersMin}
-                    onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                    inputMode="numeric"
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={layersStep}
-                    step={1}
-                    min={1}
-                    onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                    inputMode="numeric"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <label
-                className="compact-label"
-                title="When enabled, every layer copies Layer 1 colours"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-              >
-                <span>Match colours to Layer 1</span>
-                <input
-                  type="checkbox"
-                  checked={!!syncLayerColorsToFirst}
-                  onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
-                />
-              </label>
-              <label
-                className="compact-label"
-                title="Apply variation sliders to every layer in real time"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-              >
-                <span>Instant variation</span>
-                <input
-                  type="checkbox"
-                  checked={!!applyVariationInstantly}
-                  onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)}
-                />
-              </label>
             </div>
           </div>
-
-	          {/* Randomize Colors Per Layer */}
-	          <div className="compact-field">
-	            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-	              <label
-	                className="compact-label"
-	                title="When checked, each layer gets a random number of colours. When unchecked, all layers use the same colour count."
-	                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-	              >
-	                <input
-	                  type="checkbox"
-	                  checked={!!randomizeColorsPerLayer}
-	                  onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)}
-	                />
-	                <span>Randomise colours per layer</span>
-	              </label>
-                <label
-                  className="compact-label"
-                  title="When enabled, generated layers/keyframes pick colours only from the current Global palette selection."
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+          {/* Palette */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <button
+                  type="button"
+                  className="icon-btn sm gc-variation-trigger"
+                  onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }}
+                  title="Palette settings"
+                  aria-label="Palette settings"
                 >
-                  <input
-                    type="checkbox"
-                    checked={!!audioSpawnUseGlobalPalette}
-                    disabled={!setAudioSpawnUseGlobalPalette}
-                    onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
-                  />
-                  <span>Use global palette for generation</span>
-                </label>
-	              {!randomizeColorsPerLayer && (
-	                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-	                  <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
-	                  <BufferedNumberInput
-	                    value={uniformColorCount ?? 3}
-                    min={1}
-                    max={32}
-                    step={1}
-                    onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))}
-                    className="compact-number"
-                    style={{ width: '3.5rem', padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
-                    inputMode="numeric"
-                  />
+                  ⚙
+                </button>
+                <span className="gc-variation-label">
+                  Palette
+                  {renderAutomationBadge('globalPaletteIndex')}
+                </span>
+                <select className="compact-select gc-inline-select gc-palette-select" value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
+                  <option value="custom">Custom</option>
+                  {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
+                  {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
+                </select>
+                <button
+                  type="button"
+                  className="btn-compact-secondary gc-save-custom-btn"
+                  onClick={() => { if (typeof onSaveCustomPalette !== 'function') return; const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : []; const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0); if (!safe.length) return; const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim(); if (!name) return; const created = onSaveCustomPalette({ name, colors: safe }); if (created?.id) setGlobalPaletteRef?.(created.id); }}
+                >
+                  Save as custom
+                </button>
+              </div>
+              {showPaletteSettings && (
+                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                    <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                    {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported}>Learn</button>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex}>Clear</button>
+                  </div>
+                  <AudioControlRow paramId="globalPaletteIndex" />
+                  <BPMControlRow paramId="globalPaletteIndex" />
                 </div>
               )}
             </div>
           </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}{renderAutomationBadge('variationPosition')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Variation settings"
-                aria-label="Variation settings"
-                onClick={(e) => { e.stopPropagation(); setShowVariationPositionSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Position Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variationPosition')} onChange={(e) => setIsRnd('variationPosition', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationPositionMin}
-              max={variationPositionMax}
-              step={variationPositionStep}
-              value={Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                applyVariationValue('variationPosition', v);
-              }}
-            />
-            {showVariationPositionSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationPosition ? (mappingLabel ? mappingLabel(midiMappings.variationPosition) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'variationPosition' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationPosition'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationPosition'); }} disabled={!midiSupported || !midiMappings?.variationPosition}>Clear</button>
-                </div>
-                <AudioControlRow paramId="variationPosition" />
-                <BPMControlRow paramId="variationPosition" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={variationPositionMin}
-                    step={0.01}
-                    onCommit={setVariationPositionMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('variationPosition')}`}</label>
-                  <BufferedNumberInput
-                    value={variationPositionMax}
-                    step={0.01}
-                    onCommit={setVariationPositionMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={variationPositionStep}
-                    step={0.001}
-                    min={0.0001}
-                    onCommit={(next) => setVariationPositionStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                </div>
+          {/* Style */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <button
+                  type="button"
+                  className="icon-btn sm gc-variation-trigger"
+                  onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }}
+                  title="Style settings"
+                  aria-label="Style settings"
+                >
+                  ⚙
+                </button>
+                <span className="gc-variation-label">
+                  Style
+                  {renderAutomationBadge('globalBlendMode')}
+                </span>
+                <select className="compact-select gc-inline-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
+                  {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
+                </select>
               </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}{renderAutomationBadge('variationShape')}</span>
-              <button type="button" className="icon-btn sm" title="Variation settings" aria-label="Variation settings" onClick={(e) => { e.stopPropagation(); setShowVariationShapeSettings(s => !s); }}>⚙</button>
-              <label className="compact-label" title="Include Shape Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variationShape')} onChange={(e) => setIsRnd('variationShape', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationShapeMin}
-              max={variationShapeMax}
-              step={variationShapeStep}
-              value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                applyVariationValue('variationShape', v);
-              }}
-            />
-            {showVariationShapeSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationShape ? (mappingLabel ? mappingLabel(midiMappings.variationShape) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'variationShape' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationShape'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationShape'); }} disabled={!midiSupported || !midiMappings?.variationShape}>Clear</button>
-                </div>
-                <AudioControlRow paramId="variationShape" />
-                <BPMControlRow paramId="variationShape" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={variationShapeMin}
-                    step={0.01}
-                    onCommit={setVariationShapeMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('variationShape')}`}</label>
-                  <BufferedNumberInput
-                    value={variationShapeMax}
-                    step={0.01}
-                    onCommit={setVariationShapeMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={variationShapeStep}
-                    step={0.001}
-                    min={0.0001}
-                    onCommit={(next) => setVariationShapeStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}{renderAutomationBadge('variationAnim')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Variation settings"
-                aria-label="Variation settings"
-                onClick={(e) => { e.stopPropagation(); setShowVariationAnimSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Animation Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variationAnim')} onChange={(e) => setIsRnd('variationAnim', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationAnimMin}
-              max={variationAnimMax}
-              step={variationAnimStep}
-              value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                applyVariationValue('variationAnim', v);
-              }}
-            />
-            {showVariationAnimSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationAnim ? (mappingLabel ? mappingLabel(midiMappings.variationAnim) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'variationAnim' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationAnim'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationAnim'); }} disabled={!midiSupported || !midiMappings?.variationAnim}>Clear</button>
-                </div>
-                <AudioControlRow paramId="variationAnim" />
-                <BPMControlRow paramId="variationAnim" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={variationAnimMin}
-                    step={0.01}
-                    onCommit={setVariationAnimMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('variationAnim')}`}</label>
-                  <BufferedNumberInput
-                    value={variationAnimMax}
-                    step={0.01}
-                    onCommit={setVariationAnimMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={variationAnimStep}
-                    step={0.001}
-                    min={0.0001}
-                    onCommit={(next) => setVariationAnimStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}{renderAutomationBadge('variationColor')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Variation settings"
-                aria-label="Variation settings"
-                onClick={(e) => { e.stopPropagation(); setShowVariationColorSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Colour Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variationColor')} onChange={(e) => setIsRnd('variationColor', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationColorMin}
-              max={variationColorMax}
-              step={variationColorStep}
-              value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                applyVariationValue('variationColor', v);
-              }}
-            />
-            {showVariationColorSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'variationColor' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationColor'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
-                </div>
-                <AudioControlRow paramId="variationColor" />
-                <BPMControlRow paramId="variationColor" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={variationColorMin}
-                    step={0.01}
-                    onCommit={setVariationColorMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('variationColor')}`}</label>
-                  <BufferedNumberInput
-                    value={variationColorMax}
-                    step={0.01}
-                    onCommit={setVariationColorMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={variationColorStep}
-                    step={0.001}
-                    min={0.0001}
-                    onCommit={(next) => setVariationColorStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="compact-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Scale Variation: {Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0).toFixed(2)}{renderAutomationBadge('variationScale')}</span>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Variation settings"
-                aria-label="Variation settings"
-                onClick={(e) => { e.stopPropagation(); setShowVariationScaleSettings(s => !s); }}
-              >⚙</button>
-              <label className="compact-label" title="Include Scale Variation in Randomize All">
-                <input type="checkbox" checked={!!getIsRnd('variationScale')} onChange={(e) => setIsRnd('variationScale', e.target.checked)} /> Include
-              </label>
-            </div>
-            <input
-              className="compact-range"
-              type="range"
-              min={variationScaleMin}
-              max={variationScaleMax}
-              step={variationScaleStep}
-              value={Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0)}
-              onChange={(e) => {
-                const v = parseFloat(e.target.value);
-                applyVariationValue('variationScale', v);
-              }}
-            />
-            {showVariationScaleSettings && (
-              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationScale ? (mappingLabel ? mappingLabel(midiMappings.variationScale) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                  {learnParamId === 'variationScale' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationScale'); }} disabled={!midiSupported}>Learn</button>
-                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationScale'); }} disabled={!midiSupported || !midiMappings?.variationScale}>Clear</button>
-                </div>
-                <AudioControlRow paramId="variationScale" />
-                <BPMControlRow paramId="variationScale" />
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
-                  <BufferedNumberInput
-                    value={variationScaleMin}
-                    step={0.01}
-                    onCommit={setVariationScaleMin}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('variationScale')}`}</label>
-                  <BufferedNumberInput
-                    value={variationScaleMax}
-                    step={0.01}
-                    onCommit={setVariationScaleMax}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
-                  <label className="compact-label">Step</label>
-                  <BufferedNumberInput
-                    value={variationScaleStep}
-                    step={0.001}
-                    min={0.0001}
-                    onCommit={(next) => setVariationScaleStep(next || 0.01)}
-                    className="compact-number"
-                    style={{ width: '5rem' }}
-                  />
+              {showBlendModeSettings && (
+                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                    <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                    {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
                   </div>
+                  <AudioControlRow paramId="globalBlendMode" />
+                  <BPMControlRow paramId="globalBlendMode" />
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Global Opacity */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <button
+                  type="button"
+                  className="icon-btn sm gc-variation-trigger"
+                  onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }}
+                  title="Opacity settings"
+                  aria-label="Opacity settings"
+                >
+                  ⚙
+                </button>
+                <span className="gc-variation-label">
+                  Global Opacity
+                  {renderAutomationBadge('globalOpacity')}
+                </span>
+                <input
+                  className="dc-slider gc-variation-slider"
+                  type="range"
+                  min={opacityMin}
+                  max={opacityMax}
+                  step={opacityStep}
+                  value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1}
+                  onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }}
+                />
+                <span className="gc-variation-value">{(Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1).toFixed(2)}</span>
               </div>
-            )}
+              {showOpacitySettings && (
+                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                    <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                    {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
+                  </div>
+                  <AudioControlRow paramId="globalOpacity" />
+                  <BPMControlRow paramId="globalOpacity" />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                    <label className="compact-label">Min</label>
+                    <BufferedNumberInput value={opacityMin} step={0.01} min={0} max={1} onCommit={setOpacityMin} className="compact-number" style={{ width: '5rem' }} />
+                    <label className="compact-label">{`Max${getOperationalMaxHint('globalOpacity')}`}</label>
+                    <BufferedNumberInput value={opacityMax} step={0.01} min={0} max={1} onCommit={setOpacityMax} className="compact-number" style={{ width: '5rem' }} />
+                    <label className="compact-label">Step</label>
+                    <BufferedNumberInput value={opacityStep} step={0.001} min={0.001} onCommit={(next) => setOpacityStep(next || 0.01)} className="compact-number" style={{ width: '5rem' }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Layers */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div className="gc-variation-row">
+                <button
+                  type="button"
+                  className="icon-btn sm gc-variation-trigger"
+                  onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }}
+                  title="Layers settings"
+                  aria-label="Layers settings"
+                >
+                  ⚙
+                </button>
+                <span className="gc-variation-label">
+                  Layers
+                  {renderAutomationBadge('layersCount')}
+                </span>
+                <input
+                  className="dc-slider gc-variation-slider"
+                  type="range"
+                  min={layersMin}
+                  max={layersMax}
+                  step={layersStep}
+                  value={layerCountDraft}
+                  onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }}
+                  onPointerDown={() => { layerCountDraggingRef.current = true; }}
+                  onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }}
+                  onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }}
+                />
+                <span className="gc-variation-value">{layerCountDraft}</span>
+              </div>
+              {showLayersSettings && (
+                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                  <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                    <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                    {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
+                  </div>
+                  <AudioControlRow paramId="layersCount" />
+                  <BPMControlRow paramId="layersCount" />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                    <label className="compact-label">Min</label>
+                    <BufferedNumberInput value={layersMin} step={1} min={1} onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
+                    <label className="compact-label">{`Max${getOperationalMaxHint('layersCount')}`}</label>
+                    <BufferedNumberInput value={layersMax} step={1} min={layersMin} onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
+                    <label className="compact-label">Step</label>
+                    <BufferedNumberInput value={layersStep} step={1} min={1} onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Layer Options */}
+          <div style={{ marginBottom: '0.4rem' }}>
+            <div className="dc-inner">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1rem', padding: '0.2rem 0' }}>
+                <label className="compact-label" title="Every layer copies Layer 1 colours"><input type="checkbox" checked={!!syncLayerColorsToFirst} onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)} /> Match colours to Layer 1</label>
+                <label className="compact-label" title="Apply variation sliders in real time"><input type="checkbox" checked={!!applyVariationInstantly} onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)} /> Instant variation</label>
+                <label className="compact-label" title="Each layer gets random colour count"><input type="checkbox" checked={!!randomizeColorsPerLayer} onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)} /> Randomise colours per layer</label>
+                <label className="compact-label" title="Use global palette for generation"><input type="checkbox" checked={!!audioSpawnUseGlobalPalette} disabled={!setAudioSpawnUseGlobalPalette} onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)} /> Use global palette</label>
+                {!randomizeColorsPerLayer && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
+                    <BufferedNumberInput value={uniformColorCount ?? 3} min={1} max={32} step={1} onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))} className="compact-number" style={{ width: '3.5rem' }} inputMode="numeric" />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
+      {/* Variation card */}
+      <div className="control-card">
+        <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontWeight: 600 }}>Variation</div>
+        </div>
+        <div style={{ marginTop: '0.5rem' }}>
+          {[
+            { key: 'variationPosition', label: 'Position', value: layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition, min: variationPositionMin, max: variationPositionMax, step: variationPositionStep, showSettings: showVariationPositionSettings, setShowSettings: setShowVariationPositionSettings, setMin: setVariationPositionMin, setMax: setVariationPositionMax, setStep: setVariationPositionStep },
+            { key: 'variationShape', label: 'Shape', value: layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape, min: variationShapeMin, max: variationShapeMax, step: variationShapeStep, showSettings: showVariationShapeSettings, setShowSettings: setShowVariationShapeSettings, setMin: setVariationShapeMin, setMax: setVariationShapeMax, setStep: setVariationShapeStep },
+            { key: 'variationAnim', label: 'Animation', value: layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim, min: variationAnimMin, max: variationAnimMax, step: variationAnimStep, showSettings: showVariationAnimSettings, setShowSettings: setShowVariationAnimSettings, setMin: setVariationAnimMin, setMax: setVariationAnimMax, setStep: setVariationAnimStep },
+            { key: 'variationColor', label: 'Colour', value: layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor, min: variationColorMin, max: variationColorMax, step: variationColorStep, showSettings: showVariationColorSettings, setShowSettings: setShowVariationColorSettings, setMin: setVariationColorMin, setMax: setVariationColorMax, setStep: setVariationColorStep },
+            { key: 'variationScale', label: 'Scale', value: layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0, min: variationScaleMin, max: variationScaleMax, step: variationScaleStep, showSettings: showVariationScaleSettings, setShowSettings: setShowVariationScaleSettings, setMin: setVariationScaleMin, setMax: setVariationScaleMax, setStep: setVariationScaleStep },
+          ].map(v => (
+            <div key={v.key} style={{ marginBottom: '0.4rem' }}>
+              <div className="dc-inner">
+                <div className="gc-variation-row">
+                  <button
+                    type="button"
+                    className="icon-btn sm gc-variation-trigger"
+                    onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }}
+                    title={`${v.label} settings`}
+                    aria-label={`${v.label} settings`}
+                  >
+                    ⚙
+                  </button>
+                  <span className="gc-variation-label">
+                    {v.label}
+                    {renderAutomationBadge(v.key)}
+                  </span>
+                  <input
+                    className="dc-slider gc-variation-slider"
+                    type="range"
+                    min={v.min}
+                    max={v.max}
+                    step={v.step}
+                    value={Number(v.value)}
+                    onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))}
+                  />
+                  <span className="gc-variation-value">{Number(v.value).toFixed(2)}</span>
+                </div>
+                {v.showSettings && (
+                  <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                      <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.[v.key] ? (mappingLabel ? mappingLabel(midiMappings[v.key]) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                      {learnParamId === v.key && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(v.key); }} disabled={!midiSupported}>Learn</button>
+                      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(v.key); }} disabled={!midiSupported || !midiMappings?.[v.key]}>Clear</button>
+                    </div>
+                    <AudioControlRow paramId={v.key} />
+                    <BPMControlRow paramId={v.key} />
+                    <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                      <label className="compact-label">Min</label>
+                      <BufferedNumberInput value={v.min} step={0.01} onCommit={v.setMin} className="compact-number" style={{ width: '5rem' }} />
+                      <label className="compact-label">{`Max${getOperationalMaxHint(v.key)}`}</label>
+                      <BufferedNumberInput value={v.max} step={0.01} onCommit={v.setMax} className="compact-number" style={{ width: '5rem' }} />
+                      <label className="compact-label">Step</label>
+                      <BufferedNumberInput value={v.step} step={0.001} min={0.0001} onCommit={(next) => v.setStep(next || 0.01)} className="compact-number" style={{ width: '5rem' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Audio/MIDI card */}
+      {!hideAudioSections && (
+        <div className="control-card">
+          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: 600 }}>Audio &amp; MIDI</div>
+          </div>
+          <div style={{ marginTop: '0.5rem' }}>
+            <div style={{ marginBottom: '0.4rem' }}>
+              <div className="dc-inner">
+                <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <div><span>MIDI Input</span></div>
+                </div>
+                {!midiSupported ? (
+                  <div style={{ opacity: 0.7 }}>No Web MIDI</div>
+                ) : (
+                  <select className="compact-select" value={midiInputId || ''} onChange={(e) => setMidiInputId(e.target.value)}>
+                    <option value="">None</option>
+                    {(midiInputs || []).map(inp => (<option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>))}
+                  </select>
+                )}
+              </div>
+            </div>
+            <AudioReactiveSection isActiveTab={isActiveTab} />
+            <AudioSpawnSection
+              isActiveTab={isActiveTab}
+              timelineMode={timelineMode}
+              energyInfluence={energyInfluence}
+              setEnergyInfluence={setEnergyInfluence}
+              audioSpawnEnabled={audioSpawnEnabled}
+              setAudioSpawnEnabled={setAudioSpawnEnabled}
+              audioSpawnTriggerMode={audioSpawnTriggerMode}
+              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+              audioSpawnHysteresis={audioSpawnHysteresis}
+              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+              audioSpawnBand={audioSpawnBand}
+              setAudioSpawnBand={setAudioSpawnBand}
+              audioSpawnThreshold={audioSpawnThreshold}
+              setAudioSpawnThreshold={setAudioSpawnThreshold}
+              audioSpawnCooldownMs={audioSpawnCooldownMs}
+              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+              audioSpawnMaxLayers={audioSpawnMaxLayers}
+              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+            />
+            <BPMSection />
+          </div>
+        </div>
+      )}
+      {/* Presets & Morph Controls (optional) */}
+      {!hidePresets && (
+        <PresetControls
+          setLayers={setLayers}
+          setBackgroundColor={setBackgroundColor}
+          setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+        />
+      )}
+      {showAutosaveRecovery && (
+        <AutosaveRecovery
+          slots={autosaveSlots}
+          onRestore={handleRestoreAutosave}
+          onClearAll={handleClearAutosaves}
+          onRefresh={handleRefreshAutosaves}
+          onClose={handleCloseAutosaveRecovery}
+          message={autosaveMessage}
+          error={autosaveError}
+        />
+      )}
     </div>
   );
 };

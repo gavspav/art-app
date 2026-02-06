@@ -199,6 +199,11 @@ export const MidiProvider = ({ children }) => {
   useEffect(() => {
     try { localStorage.setItem(LS_MIDI_SELECTED, selectedInputId || ''); } catch { /* noop */ }
   }, [selectedInputId]);
+  useEffect(() => {
+    if (!selectedInputId && learnParamId) {
+      setLearnParamId(null);
+    }
+  }, [selectedInputId, learnParamId]);
 
   // MIDI message handler
   const SECRET_CC_PARAMS = useMemo(() => ({
@@ -275,8 +280,9 @@ export const MidiProvider = ({ children }) => {
   }, [access, selectedInputId, onMidiMessage]);
 
   const beginLearn = useCallback((paramId) => {
+    if (!selectedInputId) return;
     setLearnParamId(paramId || null);
-  }, []);
+  }, [selectedInputId]);
 
   const value = useMemo(() => ({
     supported,

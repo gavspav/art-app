@@ -1536,11 +1536,16 @@ const Canvas = forwardRef(({
         // Merge: use layers for geometry/nodes, but layersRef for positions.
         let layersForRender;
         if (isNodeEditMode) {
-            const animatedLayers = (layersRef && layersRef.current) ? layersRef.current : null;
-            if (animatedLayers && Array.isArray(animatedLayers) && animatedLayers.length === layers.length) {
-                // Merge: use React state layers but with animated positions
+            const animatedLayers = (layersRef && Array.isArray(layersRef.current)) ? layersRef.current : null;
+            if (animatedLayers && animatedLayers.length > 0) {
+                const byId = new Map();
+                animatedLayers.forEach((l, i) => {
+                    if (l?.id != null) byId.set(l.id, { layer: l, index: i });
+                });
+                // Merge: use React state layers for editable geometry, but animated positions where available.
                 layersForRender = layers.map((layer, i) => {
-                    const animated = animatedLayers[i];
+                    const byIdHit = layer?.id != null ? byId.get(layer.id) : null;
+                    const animated = byIdHit?.layer || animatedLayers[i] || null;
                     if (!animated || !animated.position) return layer;
                     return {
                         ...layer,
@@ -1912,7 +1917,14 @@ const Canvas = forwardRef(({
         // Draw draggable node + midpoint handles and orbit center for selected layer when in node edit mode
         if (isNodeEditMode && selectedLayerIndex != null && Array.isArray(layers) && layers.length > 0) {
             const clampedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
-            const sel = layers[clampedIndex];
+            const editableLayer = layers[clampedIndex];
+            const renderLayer = (Array.isArray(layersForRender) && layersForRender[clampedIndex]) ? layersForRender[clampedIndex] : editableLayer;
+            const sel = renderLayer && editableLayer ? {
+                ...editableLayer,
+                position: renderLayer.position || editableLayer.position,
+                orbitAngle: renderLayer.orbitAngle ?? editableLayer.orbitAngle,
+                spinAngle: renderLayer.spinAngle ?? editableLayer.spinAngle,
+            } : (editableLayer || renderLayer);
             const mapping = getLayerCanvasMapping(canvas, sel);
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
@@ -2239,6 +2251,28 @@ const Canvas = forwardRef(({
 
     const mouseDownRef = useRef({ x: 0, y: 0, t: 0 }); // eslint-disable-line no-unused-vars
 
+    const getNodeEditInteractiveLayer = (layerIndex) => {
+        const base = layers[layerIndex];
+        if (!base) return base;
+        const animatedLayers = (layersRef && Array.isArray(layersRef.current)) ? layersRef.current : null;
+        if (!animatedLayers || animatedLayers.length === 0) return base;
+        const animated = (base.id != null
+            ? animatedLayers.find(l => l?.id === base.id)
+            : null) || animatedLayers[layerIndex];
+        if (!animated || !animated.position) return base;
+        return {
+            ...base,
+            position: {
+                ...base.position,
+                x: animated.position.x ?? base.position?.x ?? 0.5,
+                y: animated.position.y ?? base.position?.y ?? 0.5,
+                scale: animated.position.scale ?? base.position?.scale ?? 1,
+            },
+            orbitAngle: animated.orbitAngle ?? base.orbitAngle,
+            spinAngle: animated.spinAngle ?? base.spinAngle,
+        };
+    };
+
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
         // If holding a selection modifier (Shift/Cmd/Ctrl), skip drag initiation so we can select on mouseup
@@ -2249,7 +2283,7 @@ const Canvas = forwardRef(({
         clearDragState();
 
         const layerIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
-        const layer = layers[layerIndex];
+        const layer = getNodeEditInteractiveLayer(layerIndex);
         if (!layer) return;
         const geometry = getLayerGeometry(layer, canvas);
         if (!geometry) return;
@@ -2431,7 +2465,7 @@ const Canvas = forwardRef(({
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
-        const layer = layers[selIndex];
+        const layer = getNodeEditInteractiveLayer(selIndex);
         if (!layer || !layer.position) return;
         const gestureGeometry = gestureRef.current?.geometry;
         const liveGeometry = getLayerGeometry(layer, canvas);

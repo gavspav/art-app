@@ -8,6 +8,7 @@ import Controls from './Controls.jsx';
 import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
+import { AudioReactiveSection, AudioSpawnSection, BPMSection } from './global/sections/GlobalAutomationSections.jsx';
 import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 
@@ -485,6 +486,7 @@ const BottomPanel = ({
   const isDockDraggingRef = useRef(false);
   const dockDragStartRef = useRef({ x: 0, y: 0 });
   const dockDragMovedRef = useRef(false);
+  const lastMidiInputIdRef = useRef('');
 
   useEffect(() => {
     panelWidthVWRef.current = panelWidthVW;
@@ -505,6 +507,9 @@ const BottomPanel = ({
     mappingLabel,
     learnParamId,
   } = useMidi() || {};
+  useEffect(() => {
+    if (midiInputId) lastMidiInputIdRef.current = midiInputId;
+  }, [midiInputId]);
 
   // Auto-hide logic
   const resetHideTimer = useCallback(() => {
@@ -752,6 +757,7 @@ const BottomPanel = ({
     { id: 'layer-shape', label: 'Layer Shape', icon: '⬟' },
     { id: 'layer-animation', label: 'Layer Animation', icon: '▶️' },
     { id: 'layer-colour', label: 'Layer Colour', icon: '🎨' },
+    { id: 'audio', label: 'Audio', icon: '🎵' },
     { id: 'presets', label: 'Presets', icon: '🎛️' },
     { id: 'groups', label: 'Groups', icon: '🧰' },
   ]), []);
@@ -765,14 +771,14 @@ const BottomPanel = ({
     setPanelState(panelState === 'expanded' ? 'peek' : 'expanded');
   }, [panelState]);
 
-  // Keyboard shortcuts: 1..5 to switch tabs (no modifiers)
+  // Keyboard shortcuts: 1..7 to switch tabs (no modifiers)
   useEffect(() => {
     const handler = (e) => {
       if (shouldIgnoreGlobalKey(e)) return;
-      // Require no modifiers (Shift/Ctrl/Meta/Alt) so it's simple 1..6
+      // Require no modifiers (Shift/Ctrl/Meta/Alt) so it's simple 1..7
       if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const key = e.key;
-      if (key >= '1' && key <= '6') {
+      if (key >= '1' && key <= '7') {
         const idx = parseInt(key, 10) - 1;
         const t = tabs[idx];
         if (t) {
@@ -848,70 +854,70 @@ const BottomPanel = ({
       case 'global':
         return (
           <div className="tab-content global-tab">
-	            <GlobalControls
-	              key={`glob-${parameterTargetMode}`}
-	              isActiveTab={activeTab === 'global'}
-	              autosaveToggleToken={autosaveToggleToken}
-	              timelineMode={timelineMode}
-	              backgroundColor={backgroundColor}
-	              setBackgroundColor={setBackgroundColor}
-	              backgroundImage={backgroundImage}
-	              setBackgroundImage={setBackgroundImage}
-	              isFrozen={isFrozen}
-	              setIsFrozen={setIsFrozen}
-	              enableBreathing={enableBreathing}
-	              setEnableBreathing={setEnableBreathing}
-	              energyInfluence={energyInfluence}
-	              setEnergyInfluence={setEnergyInfluence}
-		              audioSpawnEnabled={audioSpawnEnabled}
-		              setAudioSpawnEnabled={setAudioSpawnEnabled}
-		              audioSpawnTriggerMode={audioSpawnTriggerMode}
-		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
-		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
-		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
-		              audioSpawnHysteresis={audioSpawnHysteresis}
-		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-		              audioSpawnBand={audioSpawnBand}
-		              setAudioSpawnBand={setAudioSpawnBand}
-	              audioSpawnThreshold={audioSpawnThreshold}
-	              setAudioSpawnThreshold={setAudioSpawnThreshold}
-	              audioSpawnCooldownMs={audioSpawnCooldownMs}
-	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
-	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
-	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
-	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
-	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
-	              audioSpawnMaxLayers={audioSpawnMaxLayers}
-	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
-	              colorFadeWhileFrozen={colorFadeWhileFrozen}
-	              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-	              classicMode={classicMode}
-	              setClassicMode={setClassicMode}
-	              zIgnore={zIgnore}
-	              setZIgnore={setZIgnore}
+            <GlobalControls
+              key={`glob-${parameterTargetMode}`}
+              isActiveTab={activeTab === 'global'}
+              autosaveToggleToken={autosaveToggleToken}
+              timelineMode={timelineMode}
+              backgroundColor={backgroundColor}
+              setBackgroundColor={setBackgroundColor}
+              backgroundImage={backgroundImage}
+              setBackgroundImage={setBackgroundImage}
+              isFrozen={isFrozen}
+              setIsFrozen={setIsFrozen}
+              enableBreathing={enableBreathing}
+              setEnableBreathing={setEnableBreathing}
+              energyInfluence={energyInfluence}
+              setEnergyInfluence={setEnergyInfluence}
+              audioSpawnEnabled={audioSpawnEnabled}
+              setAudioSpawnEnabled={setAudioSpawnEnabled}
+              audioSpawnTriggerMode={audioSpawnTriggerMode}
+              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+              audioSpawnHysteresis={audioSpawnHysteresis}
+              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+              audioSpawnBand={audioSpawnBand}
+              setAudioSpawnBand={setAudioSpawnBand}
+              audioSpawnThreshold={audioSpawnThreshold}
+              setAudioSpawnThreshold={setAudioSpawnThreshold}
+              audioSpawnCooldownMs={audioSpawnCooldownMs}
+              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+              audioSpawnMaxLayers={audioSpawnMaxLayers}
+              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
+              zIgnore={zIgnore}
+              setZIgnore={setZIgnore}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
               getIsRnd={getIsRnd}
               setIsRnd={setIsRnd}
-		              palettes={palettes}
-                  globalPaletteIndex={globalPaletteIndex}
-                  globalPaletteRef={globalPaletteRef}
-                  setGlobalPaletteIndex={setGlobalPaletteIndex}
-                  setGlobalPaletteRef={setGlobalPaletteRef}
-                  customPalettes={customPalettes}
-                  onSaveCustomPalette={onSaveCustomPalette}
-		              blendModes={blendModes}
-		              globalBlendMode={globalBlendMode}
-		              setGlobalBlendMode={setGlobalBlendMode}
+              palettes={palettes}
+              globalPaletteIndex={globalPaletteIndex}
+              globalPaletteRef={globalPaletteRef}
+              setGlobalPaletteIndex={setGlobalPaletteIndex}
+              setGlobalPaletteRef={setGlobalPaletteRef}
+              customPalettes={customPalettes}
+              onSaveCustomPalette={onSaveCustomPalette}
+              blendModes={blendModes}
+              globalBlendMode={globalBlendMode}
+              setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
-	              setParameterTargetMode={setParameterTargetMode}
-	              midiSupported={midiSupported}
-	              beginLearn={beginLearn}
-	              clearMapping={clearMapping}
+              setParameterTargetMode={setParameterTargetMode}
+              midiSupported={midiSupported}
+              beginLearn={beginLearn}
+              clearMapping={clearMapping}
               midiMappings={midiMappings}
               mappingLabel={mappingLabel}
               learnParamId={learnParamId}
@@ -929,7 +935,7 @@ const BottomPanel = ({
               syncLayerColorsToFirst={syncLayerColorsToFirst}
               setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
               hidePresets
-              // Morph props
+              hideAudioSections
               presetSlots={presetSlots}
               getPresetSlot={getPresetSlot}
               loadAppState={loadAppState}
@@ -1015,6 +1021,55 @@ const BottomPanel = ({
           </div>
         );
       }
+      case 'audio':
+        return (
+          <div className="tab-content global-tab">
+            <div className="control-card">
+              <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Audio</h3>
+              <div className="compact-field">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span className="compact-label">MIDI Input</span>
+                </div>
+                {!midiSupported ? (
+                  <div style={{ opacity: 0.7 }}>No Web MIDI</div>
+                ) : (
+                  <select className="compact-select" value={midiInputId || ''} onChange={(e) => setMidiInputId?.(e.target.value)}>
+                    <option value="">None</option>
+                    {(midiInputs || []).map(inp => (<option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>))}
+                  </select>
+                )}
+              </div>
+              <AudioReactiveSection isActiveTab={activeTab === 'audio'} />
+              <AudioSpawnSection
+                isActiveTab={activeTab === 'audio'}
+                timelineMode={timelineMode}
+                energyInfluence={energyInfluence}
+                setEnergyInfluence={setEnergyInfluence}
+                audioSpawnEnabled={audioSpawnEnabled}
+                setAudioSpawnEnabled={setAudioSpawnEnabled}
+                audioSpawnTriggerMode={audioSpawnTriggerMode}
+                setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+                audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+                setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+                audioSpawnHysteresis={audioSpawnHysteresis}
+                setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+                audioSpawnBand={audioSpawnBand}
+                setAudioSpawnBand={setAudioSpawnBand}
+                audioSpawnThreshold={audioSpawnThreshold}
+                setAudioSpawnThreshold={setAudioSpawnThreshold}
+                audioSpawnCooldownMs={audioSpawnCooldownMs}
+                setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+                audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+                setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+                audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+                setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+                audioSpawnMaxLayers={audioSpawnMaxLayers}
+                setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              />
+              <BPMSection />
+            </div>
+          </div>
+        );
       case 'groups':
         return (
           <div className="tab-content groups-tab">
@@ -1190,6 +1245,29 @@ const BottomPanel = ({
             style={{ opacity: timelineMode ? 1 : 0.35 }}
           >
             {timelineMode ? '🕒' : '⏱️'}
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={!midiSupported || !(Array.isArray(midiInputs) && midiInputs.length > 0)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              if (midiInputId) {
+                setMidiInputId?.('');
+                return;
+              }
+              const preferred = lastMidiInputIdRef.current;
+              const candidate = (midiInputs || []).find(inp => inp?.id === preferred)?.id
+                || (midiInputs || [])[0]?.id
+                || '';
+              if (candidate) setMidiInputId?.(candidate);
+            }}
+            title={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
+            aria-label={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
+            style={{ opacity: midiInputId ? 1 : 0.45 }}
+          >
+            🎹
           </button>
           <BeatIndicator panelExpanded={panelState === 'expanded'} />
           <AudioIndicator panelExpanded={panelState === 'expanded'} />

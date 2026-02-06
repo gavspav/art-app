@@ -1683,8 +1683,8 @@ const Controls = forwardRef(({
       <div className="controls-header compact" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
           <h2 style={{ margin: 0, fontSize: '1rem' }}>Layer Controls</h2>
-          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-            <label className="compact-label" style={{ opacity: 0.9 }}>Active layer:</label>
+          <div style={{ gap: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <label className="compact-label" style={{ opacity: 0.9, flex: '0 0 auto' }}>Active layer:</label>
             <HoverDropdown
               value={targetSelectValue}
               options={dropdownOptions}
