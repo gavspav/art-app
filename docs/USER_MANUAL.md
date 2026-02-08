@@ -1,182 +1,398 @@
 # Art App User Manual
 
-> **Version:** _draft generated automatically_
+## 1. What This App Does
 
-Welcome to the Art-App!  This manual summarises how to use the main UI, keyboard shortcuts and advanced features.  Screenshots/GIFs are referenced inline – record your own or replace the placeholder files inside `assets/docs/`.
+Art App is a real-time generative art tool built around layered shapes, color systems, animation controls, automation (MIDI, audio, BPM), presets, and timeline keyframing.
 
----
+You can use it in two main ways:
 
-## 1. Quick Start
+- Free performance mode (live tweaking and randomization)
+- Timeline mode (keyframes, waveform, transport, and sequence building)
 
-1. Launch the app (`npm run dev` or open the deployed URL).  
-2. The **Canvas** fills the window; the **Left Sidebar** contains layer and global controls.  
-3. The **Bottom Control Panel** docks bottom-centre by default – hover near the bottom edge to reveal if hidden.
+## 2. Interface Overview
 
-![Main UI](assets/docs/main_ui.png)
+The app has four main UI areas:
 
----
+- Canvas: the rendered artwork
+- Floating action buttons: quick actions (target mode, export image, randomize, fullscreen, recording)
+- Bottom control panel: tabbed controls (Global, Layer sections, Audio, Presets, Groups)
+- Timeline panel (optional): transport + tracks + keyframes
 
-## 2. Panels & Docking
+The bottom panel can be:
 
-| Action | Gesture |
-|--------|---------|
-| Toggle lock / unlock | **L** |
-| Hide / Show (peek)   | **H** |
-| Drag to top / bottom | Grab the peek bar and drag to edge |
-| Resize height        | Drag the horizontal handle |
-| Resize width         | Drag the side handles |
+- Docked top or bottom
+- Aligned left/center/right
+- Resized in height and width
+- Collapsed to peek mode
+- Locked/unlocked
 
-![Docking the panel](assets/docs/dock_bottom.gif)
+Panel state is remembered in local storage.
 
----
+## 3. Workspace Modes
 
-## 3. Tabs
+### Free Mode
 
-| Key | Tab |
-|-----|-----|
-| 1 | Global |
-| 2 | Layer Shape |
-| 3 | Layer Animation |
-| 4 | Layer Colour |
-| 5 | Presets |
+- Full-screen canvas with floating actions
+- Bottom panel for editing
+- Optional import-adjust overlay after SVG import
 
-Use **1-5** to switch tabs quickly.
+### Timeline Mode
 
----
+- Split layout with:
+- Left/top area: controls panel
+- Right/top area: canvas
+- Bottom area: timeline panel
+- Audio/BPM live automation is forced off while timeline mode is active
 
-## 4. Canvas Interaction
+### Fullscreen Mode
 
-- **Node-Edit Mode** – enable in Layer Colour tab → _Node Edit_ toggle or press **N**.  
-- Drag white nodes to reshape; mid-points add new nodes.  
-- **Undo / Redo** inside node-edit: **Ctrl+Z / Ctrl+Y** (coming soon).
+- Minimal UI
+- Exit via `F` or fullscreen button
 
-![Node edit](assets/docs/node_edit.gif)
+## 4. Bottom Panel Tabs
 
----
+Hotkeys `1` to `7` switch tabs:
 
-## 5. Keyboard Shortcuts
+1. Global
+2. Layer Shape
+3. Layer Animation
+4. Layer Colour
+5. Audio
+6. Presets
+7. Groups
 
-| Key | Description |
-|-----|-------------|
-| **F** | Toggle fullscreen |
-| **G** | Toggle parameter target (Individual / Global) |
-| **Space** | Freeze / Unfreeze |
-| **Shift+1..9** | Activate layers 1–9 |
-| **M** | Toggle MIDI panel |
-| **R** | Randomise all parameters |
-| **Z** | Toggle Z-Ignore |
-| **[ / ]** | Select previous / next layer |
-| **K** | Show / hide shortcuts overlay |
-| **L** | Show / Hide layer outlines |
-| **H** | Hide / Show control panel |
-| **Esc** | Close dialogs / overlays |
+### 4.1 Global Tab
 
----
+Global tab controls scene-wide behavior:
 
-## 6. Saving & Loading
+- Background color and optional background image (source, opacity, fit, enable)
+- Freeze and color fade while frozen
+- Classic mode
+- Z-ignore
+- Global seed
+- Global speed multiplier
+- Global palette and custom palettes
+- Blend/style mode
+- Global opacity
+- Layer count
+- Variation sliders for position, shape, animation, colour, and scale
+- Randomize All button and include toggles per global parameter
+- MIDI input selector
+- Automation mapping status (audio/BPM badges)
+- Optional autosave recovery modal
 
-| Icon | Action |
-|------|--------|
-| 💾 | **Save** current configuration to JSON |
-| 📂 | **Load** configuration from JSON |
+Variation/layer controls also include options like:
 
-Saved files contain parameters, optional app-state & MIDI mappings.
+- Match all layer colours to layer 1
+- Apply variation instantly
+- Randomize colors per layer vs uniform count
+- Use global palette during generation/spawn workflows
 
----
+### 4.2 Layer Shape Tab
 
-## 7. Randomisation & Presets
+- All shape-related parameters from the parameter configuration
+- Dedicated rotation control with randomize, range settings, include-in-randomize, and MIDI/Audio/BPM mapping controls
 
-### 7.1 Randomize All  
-Click the 🎲 button in the Global tab (or press **R**) to instantly create a fresh composition.  
-• Only parameters that have **Include in Randomize All** checked (⚙→checkbox in each control) will change.  
-• Frozen scenes remain visually static, but the parameters still change – **unfreeze** to see the effect.  
-• Randomise logic honours min / max settings for sliders in the ⚙ sub-menus.
+### 4.3 Layer Animation Tab
 
-### 7.2 Per-Parameter Randomise  
-Each control header has its own 🎲 button.  This only randomises that single slider/drop-down using its individual random-min / random-max settings.
+- Movement parameters
+- Animation-only randomize button
+- Orbit radius X/Y controls when movement style is `orbit`
 
-### 7.3 Preset Slots & Morphing  
-The Presets tab has two slots — **Slot A** and **Slot B** — and a **Morph** slider.
+### 4.4 Layer Colour Tab
 
-1. **Save a Slot**  
-   • Set up a look you like.  
-   • Click **Save to A** or **Save to B** – the slot’s button turns solid.
-2. **Morph**  
-   • Drag the slider between 0 % (pure A) and 100 % (pure B).  
-   • Most numeric parameters tween linearly; colours tween in RGB; layers blend opacity if counts differ.  
-   • The morph is *live* – leave the slider mid-way and keep editing; changes are written back to the active endpoint.
-3. **Clear**  
-   • Click the trash icon on a slot to reset it.
+- Per-layer color editing via color picker
+- Number of colours control
+- Palette preset selection (built-in + custom)
+- Save current colors as custom palette
+- Colour randomization controls (randomize palette toggle, randomize color-count toggle, min/max count bounds)
+- Animate colours toggle + fade speed
+- Per-parameter MIDI/Audio/BPM mapping options for color-related controls
 
-Slots include:  
-• All parameters & app-state.  
-• Layer list (count, order, nodes, images).  
-• Global MIDI mappings.  
-• Background colour / image.
+### 4.5 Audio Tab
 
-> Tip:  Save a minimal scene in Slot A and a busy scene in Slot B, then scrub the slider during a performance.
+Global audio systems:
 
+- Enable/disable audio input
+- Input device selection (mic mode)
+- File playback mode (load file, play/pause, seek, close file)
+- Live band meters: level/bass/mids/highs
+- Audio response settings (sensitivity, smoothing/attack, release/falloff)
 
----
+Also includes:
 
-## 8. MIDI Integration
+- Audio Spawn controls (live ephemeral layer generation)
+- BPM section (tempo play/pause/reset/tap)
 
-1. Toggle the MIDI panel (**M**).  
-2. Select an input device.  
-3. Click **Learn** next to a control, move a knob → mapping saved.  
-4. **Clear** to remove mapping.
+### 4.6 Presets Tab
 
-Mappings persist in localStorage and export files.
+- 16 preset slots (`P1` to `P16`)
+- Click a slot to recall
+- Shift-click (or Cmd+Shift click behavior) to save current state to that slot
+- Per-slot MIDI learn/clear for hardware triggering
+- Morph engine controls (enable, route, duration per leg, easing, loop mode, morph mode)
 
----
+### 4.7 Groups Tab
 
-## 9. Importing SVG
+- Create groups from current selection or create empty group
+- Color + name for each group
+- Add/remove members using index syntax (example: `1,3,5-7`)
+- Select group members
+- Delete group
+- Set target mode (Individual vs Global)
 
-- Click **Import SVG** (bottom of Layer tab) and choose files.  
-- App auto-scales & positions shapes; adjust with Import Adjust panel.
+## 5. Layer Targeting and Selection
 
----
+Layer edits can target:
 
-## 10. Advanced Settings
+- Single active layer
+- Current selection
+- Group
+- All layers (global mode)
 
-### 10.1 Layer Variation Sliders  
-Located near the bottom of the **Global** tab.
+In the layer header, use the Active Layer dropdown to switch targets.
+Shift-click selection workflows and group targeting are integrated into this flow.
 
-| Slider | What it Influences | Typical Range |
-|--------|-------------------|---------------|
-| **Shape Variation** | Geometry: number-of-sides, curviness, wobble, noise, radius-factor, etc. | 0 – 3 |
-| **Animation Variation** | Movement style, speed, scale oscillation, rotation speed | 0 – 3 |
-| **Colour Variation** | Palette selection, colour-fade speed, opacity | 0 – 3 |
+## 6. Randomization System
 
-• The value is a *weight* – 0 adds new layers that are exact copies; 3 adds highly varied layers.  
-• Variation is applied when you press **+ Add Layer** or when the **Layers** slider / number box increases the count.
+Randomization exists at multiple levels:
 
-### 10.2 Target Mode  
-Global Settings now include a **Target** dropdown.  Set it to **Individual** to have parameter edits affect only the active layer (or the current selection/group).  Switch to **Global** to broadcast parameter changes to every layer.
+- Scene-wide randomize (`R` or global randomize action)
+- Per-layer randomize
+- Animation-only randomize
+- Color-only randomize
+- Rotation randomize
 
-Examples:  
-• Target **Global**, set `numSides` to *5* — every layer snaps to a pentagon.  
-• Target **Individual**, change `movementSpeed` — only the selected layer(s) update.
+Controls expose per-parameter random ranges and include flags.
+Global include flags are persisted and reloaded with app state (`includeRnd`).
 
-### 10.3 Z-Ignore  
-Global toggle (Global > Animation).  When enabled the Z-axis is ignored when computing motion blur & depth scaling, resulting in a flat, poster-like style.
+## 7. SVG Import Workflow
 
-### 10.4 Classic Mode  
-Switches the randomiser to the pre-2024 algorithm for retro compatibility.  Classic mode uses the original colour palettes and ignores some newer parameters (e.g. per-layer opacity).  Toggle it if you prefer the “old school” look.
+SVG import is layer-based:
 
-### 10.5 Other Tweaks
-• **Global Speed Multiplier** – scales *all* animation speeds (0 = pause).  
-• **Colour-Fade While Frozen** – let colours keep looping even when motion is frozen.  
-• **Import Adjust Panel** – appears after importing SVGs; drag to reposition or scale the batch before committing.
+- Import one or multiple SVG files
+- Parsed layers are appended to existing layers
+- For single-file import, current layer animation/style settings can be copied to imported layer
+- Multi-file imports can open Import Adjust panel with translate (`dx`, `dy`), scale (`s`), auto-fit, debug, reset, and close
 
----
+Imported layers can enter node edit mode immediately for manual refinement.
 
----
+## 8. Export, Save, and Load
 
-### Need more help?
+### 8.1 Image Export (PNG)
 
-Press **K** anytime for the shortcut reference.
+Download action exports current canvas at selected target size:
 
----
+- `VIEW`
+- `A4`
+- `A3`
+- `A2`
 
-© 2025 Art-App
+Export freezes briefly and hides ephemeral overlays for clean output.
+
+### 8.2 Video Recording
+
+Recording is available from floating controls and timeline header:
+
+- Starts MediaRecorder capture from canvas stream
+- Tries to include timeline audio stream when available
+- Prompts for filename on stop
+- Exports `mp4` or `webm` depending on browser support
+
+### 8.3 JSON Save/Load
+
+Quick save exports a JSON scene package containing:
+
+- Parameters
+- Optional app state
+- Custom palettes
+- MIDI mappings
+- Audio config
+- BPM config
+- Timeline config
+- Export metadata
+
+Quick load imports JSON and can optionally load app state.
+
+### 8.4 RAM Preset (Temporary)
+
+- `S` saves a temporary in-memory snapshot
+- `Shift+A` recalls it
+
+This is separate from the 16 preset slots.
+
+### 8.5 Autosave Recovery
+
+Autosave stores rotating slots in local storage and can restore:
+
+- Parameters
+- App state
+- Audio config
+- BPM config
+
+Recovery UI is opened from the lifebuoy icon in the toolbar.
+
+## 9. Timeline Mode Manual
+
+## 9.1 Transport
+
+- Play/pause
+- Stop
+- Position/time readout
+- Timeline length
+- Loop enable + loop start/end
+- Zoom (buttons + dragable zoom value)
+- Load/remove audio file
+
+## 9.2 Waveform and Audio Analysis
+
+When timeline audio is loaded:
+
+- Waveform row displays peaks
+- Toggle transient markers
+- Adjust transient sensitivity
+- Energy influence control for variation generation workflows
+
+## 9.3 Tracks
+
+Tracks can target global or layer parameters.
+Each track supports:
+
+- Name, color, enable/disable
+- Target selection (global/layer)
+- Parameter selection
+- Output range (for numeric tracks)
+- Delete track
+
+Special track types:
+
+- Shape track
+- Global Shape track
+
+Shape/global shape tracks support capture and variation generation actions.
+
+## 9.4 Keyframe Editing
+
+In curve editor:
+
+- Double-click to add keyframe
+- Drag keyframes to move
+- Double-click interior keyframe to delete (where valid)
+- Right-click keyframe/background for curve menu and operations
+- Color tracks use color keyframes
+- Shape tracks use snapshot keyframes
+
+Keyframe operations include copy/paste and variation reroll where supported.
+
+## 9.5 Timeline Generation Tools
+
+Available actions (hotkeys and UI-assisted flows):
+
+- Capture selected layer shape keyframe (`C` in timeline context)
+- Capture global scene keyframe (`Shift+C`)
+- Generate one variation keyframe (`Shift+V`)
+- Generate N random keyframes (`Shift+R`)
+- Fill keyframes between two bounds (`Shift+F`)
+
+These flows can use:
+
+- Variation slider weights
+- Breathing/node modulation options
+- Audio transient timing
+- Energy scaling
+- Optional global palette constraints
+
+## 9.6 Timeline Start Preset
+
+`TL` button in timeline header:
+
+- Click: recall start preset at `t=0`
+- Shift+click: save current scene as timeline start preset
+- Alt+click: clear start preset
+
+## 10. Automation Systems
+
+## 10.1 MIDI
+
+- Per-parameter learn/clear
+- Global and layer parameters supported
+- Preset recall MIDI mappings supported
+- Mappings persist in local storage and are included in JSON exports
+
+## 10.2 Audio Reactive Mapping
+
+Per-parameter audio mapping supports:
+
+- Band source (`rms`, `bass`, `mids`, `highs`)
+- Output range mapping
+- Multiple mapping modes (direct and advanced modes)
+- Mode-specific settings
+
+## 10.3 BPM Mapping
+
+Per-parameter BPM mapping supports:
+
+- Enable/disable
+- Beat speed
+- Loop mode (`forward`, `reverse`, `pingpong`, `oneshot`)
+- Output range
+- Envelope curve
+
+## 11. Keyboard Shortcuts
+
+Global shortcuts:
+
+- `F`: fullscreen
+- `Space`: freeze/unfreeze, or timeline play/pause when timeline is visible
+- `R`: randomize all
+- `G`: toggle parameter target mode (individual/global)
+- `I`: toggle isolate mode
+- `O`: toggle layer outlines
+- `N`: toggle node edit mode
+- `Z`: toggle z-ignore
+- `A`: toggle audio reactive input
+- `B`: toggle BPM play/pause
+- `T`: toggle timeline visibility/mode
+- `P`: timeline play/pause
+- `Home`: stop timeline to start
+- `[`, `]`: previous/next layer
+- `Shift+1` to `Shift+9`: select layer 1..9
+- `Delete` / `Backspace`: delete selected layer (node edit mode, if more than one layer exists)
+- `H`: panel show/hide
+- `L`: panel lock/unlock
+- `K`: open/close shortcuts overlay
+- `Esc`: close overlays/dialogs
+- `S`: save RAM preset
+- `Shift+A`: recall RAM preset
+- `1` to `7`: switch bottom panel tabs
+
+Timeline generation shortcuts:
+
+- `C`: capture selected-layer shape keyframe
+- `Shift+C`: capture global shape keyframe
+- `Shift+V`: generate variation keyframe
+- `Shift+R`: generate random keyframes
+- `Shift+F`: fill keyframes between keyframes
+
+## 12. Persistence Summary
+
+Persisted in local storage:
+
+- App state
+- Panel layout and docking
+- Randomize include flags
+- Preset slots
+- MIDI mappings
+- Audio settings + mappings
+- BPM settings + mappings
+- Autosave slots and metadata
+- Custom palettes
+
+## 13. Practical Workflow
+
+1. Build a scene in Free mode (Global + Layer tabs).
+2. Configure randomness bounds and include flags.
+3. Map key controls to MIDI/audio/BPM if performing live.
+4. Save working states to preset slots and/or JSON exports.
+5. Switch to Timeline mode for sequencing and keyframes.
+6. Export final stills (PNG) or recordings (video).

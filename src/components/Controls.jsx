@@ -13,6 +13,8 @@ import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from './common/BPMEnvelopeEditor.jsx';
+import { AUDIO_MAPPING_MODES, DEFAULT_MODE_SETTINGS } from '../utils/audioMappingModes.js';
+import { AudioModeSettings } from './global/sections/GlobalAutomationSections.jsx';
 import { useLayerTargeting } from '../hooks/controls/useLayerTargeting.js';
 import LayerAnimationSection from './layer/sections/LayerAnimationSection.jsx';
 import LayerShapeSection from './layer/sections/LayerShapeSection.jsx';
@@ -185,63 +187,171 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
+  const [showRange, setShowRange] = useState(false);
+  const [showModeSettings, setShowModeSettings] = useState(false);
 
   const hasAudio = !!audio;
   const mappings = audio?.mappings || {};
   const setMapping = audio?.setMapping;
+  const clearMapping = audio?.clearMapping;
   const AUDIO_BANDS = audio?.AUDIO_BANDS || ['none'];
   const mapping = mappings?.[paramId];
   const currentBand = mapping?.band || 'none';
   
-  // Use parameter's min/max as default output range (simplified - no inputMin/inputMax)
   const defaultRange = { outputMin: min, outputMax: max };
+  const currentRange = mapping?.range || defaultRange;
+  const currentMode = mapping?.mode || 'direct';
+  const currentModeSettings = mapping?.modeSettings || DEFAULT_MODE_SETTINGS[currentMode] || {};
   
-  // Auto-fix stale mappings that have wrong output range values
+  // Auto-fix stale mappings - use stable value comparison to avoid infinite loops
+  const storedMin = mapping?.range?.outputMin;
+  const storedMax = mapping?.range?.outputMax;
+  const storedBand = mapping?.band;
   useEffect(() => {
     if (!hasAudio || typeof setMapping !== 'function') return;
-    if (mapping && mapping.band !== 'none' && mapping.range) {
-      const storedMin = mapping.range.outputMin;
-      const storedMax = mapping.range.outputMax;
-      // If stored output range doesn't match parameter's actual range, update it
+    if (storedBand && storedBand !== 'none' && storedMin !== undefined && storedMax !== undefined) {
       if (storedMin !== min || storedMax !== max) {
         setMapping(paramId, { 
           ...mapping, 
-          range: { ...mapping.range, outputMin: min, outputMax: max } 
+          range: { outputMin: min, outputMax: max } 
         });
       }
     }
-  }, [hasAudio, paramId, min, max, mapping, setMapping]);
+  // Only re-run when the actual primitive values change, not the mapping object
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAudio, paramId, min, max, storedMin, storedMax, storedBand, setMapping]);
   
   const handleBandChange = (band) => {
     if (!hasAudio || typeof setMapping !== 'function') return;
     if (band === 'none') {
-      setMapping(paramId, { band: 'none', range: defaultRange });
+      setMapping(paramId, { band: 'none', range: currentRange, mode: currentMode, modeSettings: currentModeSettings });
     } else {
-      // Always use defaultRange to ensure correct output min/max
-      setMapping(paramId, { band, range: defaultRange });
-      // Clear MIDI and BPM (mutual exclusivity)
+      setMapping(paramId, { band, range: defaultRange, mode: currentMode, modeSettings: currentModeSettings });
       if (midi?.clearMapping) midi.clearMapping(paramId);
       if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
     }
   };
+
+  const handleRangeChange = (update) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
+    if (currentBand === 'none') return;
+    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update }, mode: currentMode, modeSettings: currentModeSettings });
+  };
+
+  const handleModeChange = (mode) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
+    const newSettings = DEFAULT_MODE_SETTINGS[mode] || {};
+    setMapping(paramId, { band: currentBand, range: currentRange, mode, modeSettings: newSettings });
+    if (mode !== 'direct') setShowModeSettings(true);
+  };
+
+  const handleModeSettingsChange = (newSettings) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
+    setMapping(paramId, { band: currentBand, range: currentRange, mode: currentMode, modeSettings: newSettings });
+  };
   
   if (!hasAudio) return null;
 
+  const modeInfo = AUDIO_MAPPING_MODES.find(m => m.value === currentMode);
+  const hasNonDirectMode = currentMode && currentMode !== 'direct';
+
   return (
-    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
-      <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
-      <select
-        className="compact-select"
-        style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
-        value={currentBand}
-        onChange={(e) => handleBandChange(e.target.value)}
-      >
-        {AUDIO_BANDS.map(b => (
-          <option key={b} value={b}>
-            {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
-          </option>
-        ))}
-      </select>
+    <div style={{ marginTop: '0.25rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
+        <select
+          className="compact-select"
+          style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+          value={currentBand}
+          onChange={(e) => handleBandChange(e.target.value)}
+        >
+          {AUDIO_BANDS.map(b => (
+            <option key={b} value={b}>
+              {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+            </option>
+          ))}
+        </select>
+        {currentBand !== 'none' && (
+          <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.65rem', padding: '2px 3px', minWidth: '5rem', color: hasNonDirectMode ? '#a78bfa' : undefined }}
+              value={currentMode}
+              onChange={(e) => handleModeChange(e.target.value)}
+              title={modeInfo?.desc || ''}
+            >
+              {AUDIO_MAPPING_MODES.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            {hasNonDirectMode && (
+              <button
+                className="btn-compact-secondary"
+                style={{ fontSize: '0.6rem', padding: '2px 4px', background: showModeSettings ? 'rgba(167, 139, 250, 0.3)' : undefined }}
+                onClick={() => setShowModeSettings(s => !s)}
+                title={`${modeInfo?.label} settings`}
+              >
+                ⚙
+              </button>
+            )}
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => setShowRange(r => !r)}
+              title="Edit range mapping"
+            >
+              Range
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => clearMapping(paramId)}
+              title="Clear audio mapping"
+            >
+              Clear
+            </button>
+          </>
+        )}
+        {currentBand !== 'none' && (
+          <span style={{ fontSize: '0.65rem', color: hasNonDirectMode ? '#a78bfa' : '#4fc3f7' }}>●</span>
+        )}
+      </div>
+
+      {/* Mode-specific settings */}
+      {showModeSettings && currentBand !== 'none' && hasNonDirectMode && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.35rem', borderRadius: 4, background: 'rgba(167, 139, 250, 0.06)', borderLeft: '2px solid rgba(167, 139, 250, 0.3)' }}>
+          <div style={{ fontSize: '0.6rem', opacity: 0.6, marginBottom: '0.2rem' }}>{modeInfo?.desc}</div>
+          <AudioModeSettings
+            mode={currentMode}
+            modeSettings={currentModeSettings}
+            onSettingsChange={handleModeSettingsChange}
+          />
+        </div>
+      )}
+      
+      {/* Range editor */}
+      {showRange && currentBand !== 'none' && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Min:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMin}
+              onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, marginLeft: '0.5rem' }}>Max:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMax}
+              onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

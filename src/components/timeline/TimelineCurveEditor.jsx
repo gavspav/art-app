@@ -50,6 +50,7 @@ const TimelineCurveEditor = ({
   const trackColor = track?.color || '#4fc3f7';
   const isShapeTrack = track?.type === 'shape' || track?.type === 'globalShape';
   const isColorTrack = track?.type === 'color';
+  const isNumericTrack = !isShapeTrack && !isColorTrack;
 
   // Color picker state
   const [colorPickerKeyframeId, setColorPickerKeyframeId] = useState(null);
@@ -184,11 +185,11 @@ const TimelineCurveEditor = ({
     const kfIndex = keyframes.findIndex(kf => kf.id === draggingKeyframe);
     if (kfIndex === -1) return;
     
-    // Clamp time between neighbors (except for first/last)
+    // Clamp time between neighbors. Lock first/last only for numeric tracks.
     let clampedTime = timeSeconds;
-    if (kfIndex === 0) {
+    if (isNumericTrack && kfIndex === 0) {
       clampedTime = 0; // First keyframe locked to start
-    } else if (kfIndex === keyframes.length - 1) {
+    } else if (isNumericTrack && kfIndex === keyframes.length - 1) {
       clampedTime = lengthSeconds; // Last keyframe locked to end
     } else {
       const prevTime = keyframes[kfIndex - 1]?.timeSeconds || 0;
@@ -200,7 +201,7 @@ const TimelineCurveEditor = ({
       timeSeconds: clampedTime,
       value01,
     });
-  }, [draggingKeyframe, keyframes, lengthSeconds, svgToKeyframe, onUpdateKeyframe]);
+  }, [draggingKeyframe, isNumericTrack, keyframes, lengthSeconds, svgToKeyframe, onUpdateKeyframe]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -512,6 +513,41 @@ const TimelineCurveEditor = ({
     return evaluateTrackAtTime(track, positionSeconds);
   }, [track, positionSeconds]);
 
+  const handleSvgKeyDown = useCallback((e) => {
+    if (!onSeek) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const step = e.shiftKey ? 1 : 0.1;
+      const delta = e.key === 'ArrowLeft' ? -step : step;
+      const next = Math.max(0, Math.min(lengthSeconds, (positionSeconds || 0) + delta));
+      onSeek(next);
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      onSeek(0);
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      onSeek(lengthSeconds);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (isColorTrack) {
+        onAddKeyframe?.(positionSeconds, 0.5, 'linear', 0.5, { color: '#ffffff' });
+      } else {
+        const seed = Number.isFinite(currentValue) ? currentValue : 0.5;
+        const min = track?.range?.outputMin ?? 0;
+        const max = track?.range?.outputMax ?? 1;
+        const denom = Math.max(0.0001, max - min);
+        const value01 = Math.max(0, Math.min(1, (seed - min) / denom));
+        onAddKeyframe?.(positionSeconds, value01, 'linear', 0.5);
+      }
+    }
+  }, [currentValue, isColorTrack, lengthSeconds, onAddKeyframe, onSeek, positionSeconds, track?.range?.outputMax, track?.range?.outputMin]);
+
   // Helper to map value -> Y using same scaling as path
   const valueToY = useCallback((value) => {
     const min = track?.range?.outputMin ?? 0;
@@ -565,12 +601,16 @@ const TimelineCurveEditor = ({
         ref={svgRef}
         width={containerWidth}
         height={height}
+        tabIndex={0}
+        role="application"
+        aria-label="Timeline curve editor. Arrow keys move playhead, Enter adds keyframe."
         style={{
           display: 'block',
           cursor: draggingKeyframe ? 'grabbing' : 'crosshair',
         }}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleBackgroundContextMenu}
+        onKeyDown={handleSvgKeyDown}
       >
         {/* Background grid */}
         <defs>

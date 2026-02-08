@@ -185,6 +185,27 @@ const TimelineWaveform = ({
     isDraggingRef.current = false;
   }, []);
 
+  const handleWaveformKeyDown = useCallback((e) => {
+    if (!onSeek) return;
+    const current = Number.isFinite(positionSeconds) ? positionSeconds : 0;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const step = e.shiftKey ? 1 : 0.1;
+      const next = e.key === 'ArrowLeft' ? current - step : current + step;
+      onSeek(Math.max(0, Math.min(lengthSeconds, next)));
+      return;
+    }
+    if (e.key === 'Home') {
+      e.preventDefault();
+      onSeek(0);
+      return;
+    }
+    if (e.key === 'End') {
+      e.preventDefault();
+      onSeek(lengthSeconds);
+    }
+  }, [lengthSeconds, onSeek, positionSeconds]);
+
   // Global mouse up listener
   useEffect(() => {
     window.addEventListener('mouseup', handleMouseUp);
@@ -209,6 +230,12 @@ const TimelineWaveform = ({
     >
       <canvas
         ref={canvasRef}
+        tabIndex={0}
+        role="slider"
+        aria-label="Audio waveform seek bar"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, lengthSeconds)}
+        aria-valuenow={Math.max(0, Math.min(lengthSeconds, Number(positionSeconds) || 0))}
         style={{
           display: 'block',
           width: timelineWidth ? `${timelineWidth}px` : '100%',
@@ -216,6 +243,7 @@ const TimelineWaveform = ({
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
+        onKeyDown={handleWaveformKeyDown}
       />
       {/* Audio info overlay */}
       <div

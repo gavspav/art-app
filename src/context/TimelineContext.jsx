@@ -552,22 +552,42 @@ export const TimelineProvider = ({ children }) => {
   }, []);
 
   const setLoop = useCallback((loopConfig) => {
-    setSession(prev => ({
-      ...prev,
-      loop: { ...prev.loop, ...loopConfig },
-    }));
+    setSession(prev => {
+      const length = Math.max(1, Number(prev.lengthSeconds) || DEFAULT_LENGTH_SECONDS);
+      const merged = { ...prev.loop, ...(loopConfig || {}) };
+      const enabled = !!merged.enabled;
+
+      const startRaw = Number(merged.startSeconds);
+      const endRaw = Number(merged.endSeconds);
+      const safeStart = Number.isFinite(startRaw) ? startRaw : prev.loop.startSeconds;
+      const safeEnd = Number.isFinite(endRaw) ? endRaw : prev.loop.endSeconds;
+
+      const clampedStart = Math.max(0, Math.min(length - 0.01, safeStart ?? 0));
+      const minEnd = clampedStart + 0.01;
+      const clampedEnd = Math.max(minEnd, Math.min(length, safeEnd ?? length));
+
+      return {
+        ...prev,
+        loop: {
+          enabled,
+          startSeconds: enabled ? clampedStart : Math.max(0, Math.min(length, clampedStart)),
+          endSeconds: enabled ? clampedEnd : Math.max(0, Math.min(length, clampedEnd)),
+        },
+      };
+    });
   }, []);
 
   // --- Track CRUD ---
 
-  const addTrack = useCallback((name, targetId) => {
+  const addTrack = useCallback((name, targetId, color, lengthSeconds, type = 'numeric') => {
     setSession(prev => {
       const colorIndex = prev.tracks.length % TRACK_COLORS.length;
       const newTrack = createTrack(
         name || `Track ${prev.tracks.length + 1}`,
         targetId || '',
-        TRACK_COLORS[colorIndex],
-        prev.lengthSeconds
+        color || TRACK_COLORS[colorIndex],
+        Number.isFinite(lengthSeconds) ? lengthSeconds : prev.lengthSeconds,
+        type
       );
       return { ...prev, tracks: [...prev.tracks, newTrack] };
     });
@@ -676,6 +696,15 @@ export const TimelineProvider = ({ children }) => {
    */
   const addShapeKeyframe = useCallback((trackId, timeSeconds, nodes, subpaths, label = '', extras = {}) => {
     const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
+    const existingTrack = session.tracks.find(track => track.id === trackId);
+    const isShapeTrack = existingTrack?.type === 'shape' || existingTrack?.targetId?.endsWith(':shape');
+    if (!existingTrack || !isShapeTrack) return null;
+
+    const existingAtTime = existingTrack.keyframes.find(
+      kf => Math.abs(kf.timeSeconds - timeSeconds) < TIME_EPSILON
+    );
+    const resolvedId = existingAtTime?.id || generateId();
+
     setSession(prev => ({
       ...prev,
       tracks: prev.tracks.map(track => {
@@ -705,15 +734,18 @@ export const TimelineProvider = ({ children }) => {
               : kf
           );
         } else {
-          // Add new keyframe with extended data
-          const newKeyframe = createShapeKeyframe(timeSeconds, nodes, subpaths, label, extras);
+          const newKeyframe = {
+            ...createShapeKeyframe(timeSeconds, nodes, subpaths, label, extras),
+            id: resolvedId,
+          };
           keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
         }
 
         return { ...track, type: 'shape', keyframes };
       }),
     }));
-  }, []);
+    return resolvedId;
+  }, [session.tracks]);
 
   /**
    * Add or update a global shape keyframe on a globalShape track

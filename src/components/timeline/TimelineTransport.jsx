@@ -99,6 +99,7 @@ const TimelineTransport = ({
         <button
           type="button"
           onClick={onTogglePlay}
+          aria-label={isPlaying ? 'Pause timeline' : 'Play timeline'}
           style={{
             background: isPlaying ? 'rgba(255, 152, 0, 0.3)' : 'rgba(79, 195, 247, 0.3)',
             border: `1px solid ${isPlaying ? 'rgba(255, 152, 0, 0.5)' : 'rgba(79, 195, 247, 0.5)'}`,
@@ -116,6 +117,7 @@ const TimelineTransport = ({
         <button
           type="button"
           onClick={onStop}
+          aria-label="Stop timeline"
           style={{
             background: 'rgba(255, 255, 255, 0.1)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -158,6 +160,7 @@ const TimelineTransport = ({
           onChange={(e) => onSetLength?.(Number(e.target.value) || 60)}
           min={1}
           max={3600}
+          aria-label="Timeline length in seconds"
           style={{
             width: 60,
             background: 'rgba(0, 0, 0, 0.3)',
@@ -180,6 +183,7 @@ const TimelineTransport = ({
           type="checkbox"
           checked={loop?.enabled || false}
           onChange={(e) => onSetLoop?.({ enabled: e.target.checked })}
+          aria-label="Enable loop region"
           style={{ cursor: 'pointer' }}
         />
         {loop?.enabled && (
@@ -187,9 +191,14 @@ const TimelineTransport = ({
             <input
               type="number"
               value={Math.round(loop.startSeconds || 0)}
-              onChange={(e) => onSetLoop?.({ startSeconds: Number(e.target.value) || 0 })}
+              onChange={(e) => {
+                const nextStart = Math.max(0, Number(e.target.value) || 0);
+                const currentEnd = Number(loop?.endSeconds ?? lengthSeconds) || lengthSeconds;
+                onSetLoop?.({ startSeconds: Math.min(nextStart, Math.max(0, currentEnd - 0.01)) });
+              }}
               min={0}
               max={lengthSeconds - 1}
+              aria-label="Loop start in seconds"
               style={{
                 width: 50,
                 background: 'rgba(0, 0, 0, 0.3)',
@@ -205,9 +214,15 @@ const TimelineTransport = ({
             <input
               type="number"
               value={Math.round(loop.endSeconds || lengthSeconds)}
-              onChange={(e) => onSetLoop?.({ endSeconds: Number(e.target.value) || lengthSeconds })}
+              onChange={(e) => {
+                const currentStart = Number(loop?.startSeconds ?? 0) || 0;
+                const nextEnd = Number(e.target.value);
+                const safeEnd = Number.isFinite(nextEnd) ? nextEnd : lengthSeconds;
+                onSetLoop?.({ endSeconds: Math.max(currentStart + 0.01, safeEnd) });
+              }}
               min={1}
               max={lengthSeconds}
+              aria-label="Loop end in seconds"
               style={{
                 width: 50,
                 background: 'rgba(0, 0, 0, 0.3)',
@@ -231,6 +246,7 @@ const TimelineTransport = ({
         <button
           type="button"
           onClick={() => onZoomChange?.((zoom || 1) * 0.8)}
+          aria-label="Zoom out timeline"
           style={{
             background: 'rgba(255, 255, 255, 0.1)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -247,6 +263,11 @@ const TimelineTransport = ({
         <div
           ref={zoomSliderRef}
           onMouseDown={handleZoomMouseDown}
+          role="slider"
+          aria-label="Timeline zoom"
+          aria-valuemin={10}
+          aria-valuemax={400000}
+          aria-valuenow={Math.round((zoom || 1) * 100)}
           style={{
             fontSize: '0.7rem',
             color: isDraggingZoom ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)',
@@ -266,6 +287,7 @@ const TimelineTransport = ({
         <button
           type="button"
           onClick={() => onZoomChange?.((zoom || 1) * 1.25)}
+          aria-label="Zoom in timeline"
           style={{
             background: 'rgba(255, 255, 255, 0.1)',
             border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -295,6 +317,7 @@ const TimelineTransport = ({
         <button
           type="button"
           onClick={handleLoadAudioClick}
+          aria-label={hasAudio ? 'Replace audio file' : 'Load audio file'}
           style={{
             background: hasAudio ? 'rgba(129, 199, 132, 0.2)' : 'rgba(255, 255, 255, 0.1)',
             border: `1px solid ${hasAudio ? 'rgba(129, 199, 132, 0.5)' : 'rgba(255, 255, 255, 0.2)'}`,
@@ -312,6 +335,7 @@ const TimelineTransport = ({
           <button
             type="button"
             onClick={onClearAudio}
+            aria-label="Remove audio file"
             style={{
               background: 'rgba(244, 67, 54, 0.2)',
               border: '1px solid rgba(244, 67, 54, 0.5)',
@@ -332,6 +356,7 @@ const TimelineTransport = ({
       <button
         type="button"
         onClick={onClose}
+        aria-label="Close timeline panel"
         style={{
           background: 'rgba(255, 255, 255, 0.1)',
           border: '1px solid rgba(255, 255, 255, 0.2)',

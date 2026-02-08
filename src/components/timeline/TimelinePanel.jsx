@@ -33,6 +33,10 @@ const TimelinePanel = ({
   isRecording = false,
   onStartRecording,
   onStopRecording,
+  onGenerateVariationKeyframe,
+  onGenerateRandomKeyframes,
+  onFillKeyframesBetween,
+  onCaptureGlobalKeyframe,
 }) => {
   const timeline = useTimeline();
   const {
@@ -100,6 +104,14 @@ const TimelinePanel = ({
   } = timeline || {};
 
   const rulerHeight = 44;
+  const [randomCount, setRandomCount] = useState(5);
+  const [fillCount, setFillCount] = useState(3);
+  const [genStartTime, setGenStartTime] = useState('');
+  const [genEndTime, setGenEndTime] = useState('');
+  const [useTransientTimes, setUseTransientTimes] = useState(false);
+  const [useNodeMod, setUseNodeMod] = useState(false);
+  const [nodeModAmount, setNodeModAmount] = useState(0.15);
+  const [nodeModCycles, setNodeModCycles] = useState(1);
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
@@ -734,6 +746,50 @@ const TimelinePanel = ({
     clearStartPreset,
   ]);
 
+  const handleGenerateRandomFromPanel = useCallback(() => {
+    if (typeof onGenerateRandomKeyframes !== 'function') return;
+    const startTime = Number(genStartTime);
+    const endTime = Number(genEndTime);
+    onGenerateRandomKeyframes({
+      count: Math.max(1, Math.floor(Number(randomCount) || 5)),
+      startTime: Number.isFinite(startTime) ? startTime : undefined,
+      endTime: Number.isFinite(endTime) ? endTime : undefined,
+      useTransients: !!useTransientTimes,
+      nodeModEnabled: !!useNodeMod,
+      nodeModAmount: Number(nodeModAmount),
+      nodeModCycles: Number(nodeModCycles),
+      energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : undefined,
+    });
+  }, [
+    onGenerateRandomKeyframes,
+    genStartTime,
+    genEndTime,
+    randomCount,
+    useTransientTimes,
+    useNodeMod,
+    nodeModAmount,
+    nodeModCycles,
+    energyInfluence,
+  ]);
+
+  const handleFillBetweenFromPanel = useCallback(() => {
+    if (typeof onFillKeyframesBetween !== 'function') return;
+    onFillKeyframesBetween({
+      count: Math.max(1, Math.floor(Number(fillCount) || 3)),
+      nodeModEnabled: !!useNodeMod,
+      nodeModAmount: Number(nodeModAmount),
+      nodeModCycles: Number(nodeModCycles),
+      energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : undefined,
+    });
+  }, [
+    onFillKeyframesBetween,
+    fillCount,
+    useNodeMod,
+    nodeModAmount,
+    nodeModCycles,
+    energyInfluence,
+  ]);
+
   // Handle audio file load
   const handleLoadAudio = useCallback(async (file) => {
     if (!file) return;
@@ -852,6 +908,7 @@ const TimelinePanel = ({
                   <button
                     type="button"
                     onClick={() => setShowWaveform(false)}
+                    aria-label="Hide waveform"
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -868,6 +925,7 @@ const TimelinePanel = ({
                   <button
                     type="button"
                     onClick={() => setTransientsEnabled?.(!transientSettings?.enabled)}
+                    aria-label={transientSettings?.enabled ? 'Hide transient markers' : 'Show transient markers'}
                     style={{
                       background: transientSettings?.enabled ? 'rgba(255,152,0,0.3)' : 'transparent',
                       border: '1px solid rgba(255,152,0,0.5)',
@@ -894,6 +952,7 @@ const TimelinePanel = ({
                       step="1"
                       value={transientSettings?.sensitivity ?? 50}
                       onChange={(e) => setTransientSensitivity?.(Number(e.target.value))}
+                      aria-label="Transient sensitivity"
                       style={{ flex: 1, height: 12, cursor: 'pointer' }}
                       title={`Transient sensitivity: ${transientSettings?.sensitivity ?? 50}%`}
                     />
@@ -919,6 +978,7 @@ const TimelinePanel = ({
                       value={Number.isFinite(energyInfluence) ? energyInfluence : 0.5}
                       disabled={!energyMap?.length || !enableEnergyScaling}
                       onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
+                      aria-label="Energy influence"
                       style={{ flex: 1, height: 12, cursor: (!energyMap?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
                       title={`Energy influence: ${(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}\n\nThis scales keyframe variation by audio energy:\n• 0 = Energy has no effect\n• 0.5 = Moderate effect (default)\n• 1.0 = Strong effect (0.05x at quiet, 2x at loud)\n• 2.0 = Extreme effect (nearly 0x at quiet, 4x at loud)`}
                     />
@@ -951,6 +1011,7 @@ const TimelinePanel = ({
                 <button
                   type="button"
                   onClick={() => setShowWaveform(true)}
+                  aria-label="Show waveform"
                   style={{
                     background: 'transparent',
                     border: 'none',
@@ -991,6 +1052,7 @@ const TimelinePanel = ({
                     <button
                       type="button"
                       onClick={isRecording ? onStopRecording : onStartRecording}
+                      aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                       title={isRecording ? 'Stop Recording' : 'Start Recording'}
                       style={{
                         width: 22,
@@ -1017,6 +1079,7 @@ const TimelinePanel = ({
                     <button
                       type="button"
                       onClick={handleTimelinePresetClick}
+                      aria-label="Timeline start preset"
                       title={
                         hasTimelinePreset
                           ? 'Timeline Preset\nClick: Recall at t=0\nShift+Click: Save current scene\nAlt+Click: Clear preset'
@@ -1053,6 +1116,7 @@ const TimelinePanel = ({
                       type="checkbox"
                       checked={!!isFrozen}
                       onChange={(e) => setIsFrozen?.(!!e.target.checked)}
+                      aria-label="Freeze animation"
                       style={{ margin: 0, cursor: 'pointer' }}
                     />
                     <span>Freeze</span>
@@ -1065,6 +1129,7 @@ const TimelinePanel = ({
                       type="checkbox"
                       checked={!!enableBreathing}
                       onChange={(e) => setEnableBreathing?.(!!e.target.checked)}
+                      aria-label="Enable breathing modulation"
                       style={{ margin: 0, cursor: 'pointer' }}
                     />
                     <span>Breathing</span>
@@ -1081,6 +1146,7 @@ const TimelinePanel = ({
                         checked={!!enableEnergyScaling}
                         disabled={!energyMap?.length}
                         onChange={(e) => setEnableEnergyScaling?.(!!e.target.checked)}
+                        aria-label="Enable energy scaling"
                         style={{ margin: 0, cursor: energyMap?.length ? 'pointer' : 'not-allowed' }}
                       />
                       <span>Energy</span>
@@ -1139,6 +1205,160 @@ const TimelinePanel = ({
 
           {/* Track rows */}
           <div className="timeline-tracks" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(12,12,18,0.8)' }}>
+              <div
+                style={{
+                  width: 200,
+                  minWidth: 200,
+                  position: 'sticky',
+                  left: 0,
+                  zIndex: 6,
+                  background: 'rgba(25,25,34,0.98)',
+                  padding: '8px',
+                  borderRight: '1px solid rgba(255,255,255,0.1)',
+                  display: 'grid',
+                  gap: 6,
+                  fontSize: '0.62rem',
+                  color: 'rgba(255,255,255,0.8)',
+                }}
+              >
+                <div style={{ fontWeight: 600, color: '#90caf9' }}>Generator</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                  <label style={{ display: 'grid', gap: 2 }}>
+                    <span>Random N</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={randomCount}
+                      onChange={(e) => setRandomCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                      aria-label="Number of random keyframes"
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 2 }}>
+                    <span>Fill N</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={fillCount}
+                      onChange={(e) => setFillCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                      aria-label="Number of fill keyframes"
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                  <label style={{ display: 'grid', gap: 2 }}>
+                    <span>Start s</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={genStartTime}
+                      onChange={(e) => setGenStartTime(e.target.value)}
+                      placeholder="auto"
+                      aria-label="Random generation start time"
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 2 }}>
+                    <span>End s</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={genEndTime}
+                      onChange={(e) => setGenEndTime(e.target.value)}
+                      placeholder="auto"
+                      aria-label="Random generation end time"
+                      style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                    />
+                  </label>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: transients?.length ? 'pointer' : 'not-allowed', opacity: transients?.length ? 1 : 0.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!useTransientTimes}
+                    disabled={!transients?.length}
+                    onChange={(e) => setUseTransientTimes(!!e.target.checked)}
+                    aria-label="Use transient markers for random keyframe timing"
+                  />
+                  <span>Use transients</span>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!useNodeMod}
+                      onChange={(e) => setUseNodeMod(!!e.target.checked)}
+                      aria-label="Enable node modulation"
+                    />
+                    <span>Breath</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={0.5}
+                    step={0.01}
+                    value={nodeModAmount}
+                    disabled={!useNodeMod}
+                    onChange={(e) => setNodeModAmount(Math.max(0.01, Math.min(0.5, Number(e.target.value) || 0.15)))}
+                    aria-label="Node modulation amount"
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                  />
+                  <input
+                    type="number"
+                    min={0.25}
+                    max={20}
+                    step={0.25}
+                    value={nodeModCycles}
+                    disabled={!useNodeMod}
+                    onChange={(e) => setNodeModCycles(Math.max(0.25, Number(e.target.value) || 1))}
+                    aria-label="Node modulation cycles"
+                    style={{ width: '100%', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white', fontSize: '0.65rem' }}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                  <button
+                    type="button"
+                    onClick={onGenerateVariationKeyframe}
+                    aria-label="Generate one variation keyframe"
+                    style={{ background: 'rgba(79,195,247,0.2)', border: '1px solid rgba(79,195,247,0.45)', color: '#90caf9', borderRadius: 3, cursor: 'pointer', fontSize: '0.62rem' }}
+                  >
+                    +1 Var
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateRandomFromPanel}
+                    aria-label="Generate random keyframes"
+                    style={{ background: 'rgba(129,199,132,0.2)', border: '1px solid rgba(129,199,132,0.45)', color: '#a5d6a7', borderRadius: 3, cursor: 'pointer', fontSize: '0.62rem' }}
+                  >
+                    Random
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFillBetweenFromPanel}
+                    aria-label="Fill keyframes between surrounding keyframes"
+                    style={{ background: 'rgba(255,183,77,0.2)', border: '1px solid rgba(255,183,77,0.45)', color: '#ffcc80', borderRadius: 3, cursor: 'pointer', fontSize: '0.62rem' }}
+                  >
+                    Fill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCaptureGlobalKeyframe}
+                    aria-label="Capture global keyframe"
+                    style={{ background: 'rgba(206,147,216,0.2)', border: '1px solid rgba(206,147,216,0.45)', color: '#e1bee7', borderRadius: 3, cursor: 'pointer', fontSize: '0.62rem' }}
+                  >
+                    Global Cap
+                  </button>
+                </div>
+              </div>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', padding: '0 10px', color: 'rgba(255,255,255,0.45)', fontSize: '0.68rem' }}>
+                Non-modal generation: configure options once, then iterate quickly with buttons or `Shift+R` / `Shift+F`.
+              </div>
+            </div>
             {tracks?.map((track, index) => (
               <TimelineTrackRow
                 key={track.id}

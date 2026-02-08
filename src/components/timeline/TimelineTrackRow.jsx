@@ -157,13 +157,16 @@ const TimelineTrackRow = ({
         {/* Track name and controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {/* Color indicator */}
-          <div
+          <button
+            type="button"
             style={{
               width: 12,
               height: 12,
               borderRadius: 2,
               background: track.color || '#4fc3f7',
               cursor: 'pointer',
+              border: '1px solid rgba(255,255,255,0.35)',
+              padding: 0,
             }}
             onClick={() => {
               // Cycle through colors
@@ -173,6 +176,7 @@ const TimelineTrackRow = ({
               onUpdateTrack?.({ color: nextColor });
             }}
             title="Click to change color"
+            aria-label={`Change color for ${track?.name || 'track'}`}
           />
           
           {/* Enable toggle */}
@@ -182,6 +186,7 @@ const TimelineTrackRow = ({
             onChange={handleToggleEnabled}
             style={{ cursor: 'pointer' }}
             title={track.enabled ? 'Disable track' : 'Enable track'}
+            aria-label={track.enabled ? 'Disable track' : 'Enable track'}
           />
           
           {/* Track name */}
@@ -189,6 +194,7 @@ const TimelineTrackRow = ({
             type="text"
             value={track.name || ''}
             onChange={handleNameChange}
+            aria-label="Track name"
             style={{
               flex: 1,
               background: 'transparent',
@@ -243,6 +249,7 @@ const TimelineTrackRow = ({
             <select
               value={targetType === 'global' ? 'global' : (layerId || '')}
               onChange={(e) => handleLayerChange(e.target.value)}
+              aria-label="Track target"
               style={{
                 flex: 1,
                 background: 'rgba(0, 0, 0, 0.3)',
@@ -274,6 +281,7 @@ const TimelineTrackRow = ({
           <select
             value={paramId || ''}
             onChange={(e) => handleParamChange(e.target.value)}
+            aria-label="Track parameter"
             style={{
               width: '100%',
               background: 'rgba(0, 0, 0, 0.3)',
@@ -303,6 +311,7 @@ const TimelineTrackRow = ({
               value={track.range?.outputMin ?? 0}
               onChange={(e) => handleRangeChange('outputMin', e.target.value)}
               step="0.1"
+              aria-label="Track minimum output"
               style={{
                 width: 45,
                 background: 'rgba(0, 0, 0, 0.3)',
@@ -319,6 +328,7 @@ const TimelineTrackRow = ({
               value={track.range?.outputMax ?? 1}
               onChange={(e) => handleRangeChange('outputMax', e.target.value)}
               step="0.1"
+              aria-label="Track maximum output"
               style={{
                 width: 45,
                 background: 'rgba(0, 0, 0, 0.3)',

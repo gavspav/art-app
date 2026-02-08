@@ -1212,4 +1212,4 @@ const BPMControlRow = React.memo(({ paramId }) => {
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 
-export { RangeMappingEditor, AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow };
+export { RangeMappingEditor, AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow, AudioModeSettings };
