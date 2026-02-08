@@ -229,9 +229,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     if (!Number.isFinite(ps)) ps = 1;
     const x = px, y = py, scale = ps;
     const random = createSeededRandom((Number(globalSeed) || 1) + (Number(noiseSeed) || 0));
-    // In node edit mode we render the *editable* base geometry, not the time/noise-deformed result,
-    // otherwise dragging a handle (which inverts an undeformed transform) can cause large jumps.
-    const effectiveNoiseAmount = _isNodeEditMode ? 0 : noiseAmount;
+    const effectiveNoiseAmount = noiseAmount;
 
     // Precompute frequencies and symmetry factor for noise deformation (shared between node and procedural shapes)
     const actualFreq1 = freq1 + (random() - 0.5) * 3;
@@ -1677,7 +1675,7 @@ const Canvas = forwardRef(({
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow), [], { renderedPoints });
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints });
                 }
             });
             // Ephemeral overlay layers (non-interactive / non-selectable)
@@ -1801,17 +1799,12 @@ const Canvas = forwardRef(({
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        if (!isNodeEditMode) {
-                            renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
-                            renderedPointsRef.current.set(index, renderedPoints);
-                        } else {
-                            // In node edit mode, keep handles stable and aligned with editable geometry.
-                            renderedPointsRef.current.delete(index);
-                        }
+                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+                        renderedPointsRef.current.set(index, renderedPoints);
                     } else {
                         renderedPointsRef.current.delete(index);
                     }
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass), [], { renderedPoints });
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints });
                 }
             }
         });

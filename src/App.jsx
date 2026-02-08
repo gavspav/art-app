@@ -64,7 +64,9 @@ const DEFAULT_INCLUDE_RND = Object.freeze({
   globalSpeedMultiplier: true,
   globalBlendMode: true,
   globalOpacity: true,
+  globalPaletteIndex: true,
   layersCount: true,
+  rotation: true,
   // Split variation include flags
   variationPosition: true,
   variationShape: true,
@@ -814,8 +816,17 @@ const MainApp = () => {
   } = parametersCtx;
 
 	  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
-	  const [includeRnd, setIncludeRnd] = useState(DEFAULT_INCLUDE_RND);
-    useEffect(() => { includeRndRef.current = includeRnd; }, [includeRnd]);
+	  const [includeRnd, setIncludeRnd] = useState(() => {
+      try {
+        const stored = window.localStorage.getItem('artapp-includeRnd');
+        if (stored) return { ...DEFAULT_INCLUDE_RND, ...JSON.parse(stored) };
+      } catch { /* ignore */ }
+      return DEFAULT_INCLUDE_RND;
+    });
+    useEffect(() => {
+      includeRndRef.current = includeRnd;
+      try { window.localStorage.setItem('artapp-includeRnd', JSON.stringify(includeRnd)); } catch { /* ignore */ }
+    }, [includeRnd]);
 	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
 	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
 
@@ -898,8 +909,14 @@ const MainApp = () => {
     };
   }, []);
 
-  const getCurrentAppStateRef = useRef(getCurrentAppState);
-  useEffect(() => { getCurrentAppStateRef.current = getCurrentAppState; }, [getCurrentAppState]);
+  // Wrap getCurrentAppState to persist includeRnd checkboxes alongside app state
+  const getFullAppState = useCallback(() => {
+    const base = typeof getCurrentAppState === 'function' ? getCurrentAppState() : {};
+    return { ...base, includeRnd };
+  }, [getCurrentAppState, includeRnd]);
+
+  const getCurrentAppStateRef = useRef(getFullAppState);
+  useEffect(() => { getCurrentAppStateRef.current = getFullAppState; }, [getFullAppState]);
 
   const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
@@ -926,7 +943,7 @@ const MainApp = () => {
     try {
       const snapshot = {
         parameters: Array.isArray(parameters) ? parameters : [],
-        appState: typeof getCurrentAppState === 'function' ? getCurrentAppState() : null,
+        appState: typeof getFullAppState === 'function' ? getFullAppState() : null,
         audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
         bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
         timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
@@ -937,7 +954,7 @@ const MainApp = () => {
     } catch (error) {
       console.warn('[RAM Preset] Failed to capture snapshot', error);
     }
-  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
+  }, [getFullAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
 
   const handleRamPresetRecall = useCallback(() => {
     if (!quickPreset) {
@@ -950,6 +967,10 @@ const MainApp = () => {
       }
       if (quickPreset.appState && typeof loadAppState === 'function') {
         loadAppState(quickPreset.appState);
+        // Restore randomization include checkboxes
+        if (quickPreset.appState.includeRnd && typeof quickPreset.appState.includeRnd === 'object') {
+          setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...quickPreset.appState.includeRnd });
+        }
       }
       if (quickPreset.exportMeta && typeof window !== 'undefined') {
         window.__artapp_lastImportMeta = quickPreset.exportMeta;
@@ -1106,6 +1127,10 @@ const MainApp = () => {
         res = loadState ? loadFullConfiguration(persistedName) : loadParameters(persistedName);
         if (res?.success && loadState && res.appState && typeof loadAppState === 'function') {
           loadAppState(res.appState);
+          // Restore randomization include checkboxes
+          if (res.appState.includeRnd && typeof res.appState.includeRnd === 'object') {
+            setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...res.appState.includeRnd });
+          }
         }
       } else {
         // Fallback path: apply directly from the imported JSON without persisting
@@ -1122,6 +1147,12 @@ const MainApp = () => {
 
         // Synthesize minimal result object so exportMeta can still be propagated
         res = { success: true, exportMeta: data?.exportMeta, appState: data?.appState };
+      }
+
+      // Restore randomization include checkboxes from loaded state
+      const loadedAppState = res?.appState || data?.appState;
+      if (loadState && loadedAppState?.includeRnd && typeof loadedAppState.includeRnd === 'object') {
+        setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...loadedAppState.includeRnd });
       }
 
       if (res?.exportMeta && typeof window !== 'undefined') {
@@ -1365,6 +1396,8 @@ const MainApp = () => {
     setBackgroundColor,
     setGlobalBlendMode,
     setGlobalSpeedMultiplier,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
   });
 
   useAutosave({
@@ -1372,7 +1405,7 @@ const MainApp = () => {
     setIsDirty,
     lastSavedAt,
     setLastSavedAt,
-    getCurrentAppState,
+    getCurrentAppState: getFullAppState,
     parameters,
     isFrozen,
     getAudioSnapshot,
@@ -2185,6 +2218,7 @@ const MainApp = () => {
     setGlobalSpeedMultiplier,
     getIsRnd,
     setIsRnd,
+    restoreIncludeRnd: setIncludeRnd,
     palettes: palettesWithCustom,
     automationPalettes: palettes,
     globalPaletteIndex,

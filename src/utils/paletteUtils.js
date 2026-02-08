@@ -53,3 +53,13 @@ export function pickPaletteColors(palettes = [], rnd = Math.random, fallback = [
   const colors = getColorsFromPalette(list[idx]);
   return colors.length ? colors : [...fallback];
 }
+
+// Like pickPaletteColors but also returns the palette entry and index
+export function pickPaletteWithIndex(palettes = [], rnd = Math.random, fallback = ['#ffffff']) {
+  const list = Array.isArray(palettes) ? palettes : [];
+  if (!list.length) return { colors: [...fallback], index: -1, entry: null };
+  const idx = Math.max(0, Math.min(list.length - 1, Math.floor(rnd() * list.length)));
+  const entry = list[idx];
+  const colors = getColorsFromPalette(entry);
+  return { colors: colors.length ? colors : [...fallback], index: idx, entry };
+}

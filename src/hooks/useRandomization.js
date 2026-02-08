@@ -2,7 +2,7 @@ import { useMemo, useRef, useEffect, useCallback } from 'react';
 import { hslToHex, hexToHsl } from '../utils/colorUtils.js';
 import { clamp } from '../utils/mathUtils.js';
 import { createSeededRandom } from '../utils/random.js';
-import { getColorsFromPalette, pickPaletteColors } from '../utils/paletteUtils.js';
+import { getColorsFromPalette, pickPaletteColors, pickPaletteWithIndex } from '../utils/paletteUtils.js';
 // Randomization hook: provides modern/classic/randomize-layer/scene functions
 export function useRandomization({
   // inputs and helpers
@@ -31,6 +31,8 @@ export function useRandomization({
   setBackgroundColor,
   setGlobalBlendMode,
   setGlobalSpeedMultiplier,
+  setGlobalPaletteIndex,
+  setGlobalPaletteRef,
 }) {
   // Keep latest layers & selection in refs so callbacks stay stable between renders
   const layersRef = useRef(layers);
@@ -198,14 +200,20 @@ export function useRandomization({
       : layers.length;
 
     // Pick a scene palette. If Include (palette) is ON, try to avoid re-picking the current base palette for visible change.
-    let sceneColors = pickPaletteColors(palettes, rand, []);
+    let scenePick = pickPaletteWithIndex(palettes, rand, []);
+    let sceneColors = scenePick.colors;
+    let scenePaletteIndex = scenePick.index;
+    let scenePaletteEntry = scenePick.entry;
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     if (incPalette) {
       const curKey = JSON.stringify(currentBase);
       let guard = 0;
       // Try a few times to get a different palette than current
       while (JSON.stringify(sceneColors) === curKey && guard++ < 5) {
-        sceneColors = pickPaletteColors(palettes, rand, currentBase.length ? currentBase : []);
+        scenePick = pickPaletteWithIndex(palettes, rand, currentBase.length ? currentBase : []);
+        sceneColors = scenePick.colors;
+        scenePaletteIndex = scenePick.index;
+        scenePaletteEntry = scenePick.entry;
       }
     }
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
@@ -389,10 +397,10 @@ export function useRandomization({
       }
 
       // Colors (continuous response):
-      // - wColor === 0: no change
+      // - incPalette OFF or wColor === 0: no change
       // - Otherwise: compute continuous perturbation magnitude; increase probability of shuffle and palette swap as w grows
       if (Array.isArray(prev.colors) && prev.colors.length) {
-        if (wColor <= 0) {
+        if (!incPalette || wColor <= 0) {
           varied.colors = [...prev.colors];
           varied.numColors = prev.numColors ?? prev.colors.length;
         } else {
@@ -449,35 +457,12 @@ export function useRandomization({
           layersOut[i].selectedColor = 0;
         }
       } else {
-        // Respect per-layer color randomization settings (global toggles control behavior)
-        // If randomizeColorsPerLayer is false, use uniformColorCount for all layers
-        const cMin = Math.max(1, Math.floor(colorCountMin));
-        const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
-        // Pre-compute uniform color count if not randomizing per layer
-        const uniformN = !randomizeColorsPerLayer ? Math.max(1, Math.min(32, uniformColorCount)) : null;
+        // incPalette is OFF — preserve existing per-layer colours
         for (let i = 0; i < layersOut.length; i++) {
           const prev = layers[i] || DEFAULT_LAYER;
           const curColors = Array.isArray(prev.colors) ? prev.colors : [];
-          // Per-layer palette choice: if global randomizePalette is ON, pick per layer; else keep current
-          const perLayerPalette = randomizePalette
-            ? (pickPaletteColors(palettes, rand, curColors) || curColors)
-            : curColors;
-          const maxN = Math.min(cMaxCap, (perLayerPalette.length || cMaxCap));
-          const minN = cMin;
-          let n;
-          if (!randomizeColorsPerLayer) {
-            // Use uniform color count for all layers
-            n = uniformN;
-          } else if (randomizeNumColors) {
-            // Random color count per layer
-            n = maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1);
-          } else {
-            // Keep existing color count
-            n = prev.numColors || curColors.length || 1;
-          }
-          const next = sampleColorsEven(perLayerPalette.length ? perLayerPalette : curColors, Math.max(1, n));
-          layersOut[i].colors = next;
-          layersOut[i].numColors = next.length;
+          layersOut[i].colors = curColors.length ? [...curColors] : layersOut[i].colors;
+          layersOut[i].numColors = Number.isFinite(prev.numColors) ? prev.numColors : (curColors.length || layersOut[i].numColors);
           layersOut[i].selectedColor = 0;
         }
       }
@@ -504,6 +489,18 @@ export function useRandomization({
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
     setSelectedLayerIndex(0);
 
+    // Update palette dropdown to reflect the picked palette
+    if (incPalette && scenePaletteIndex >= 0) {
+      const isCustom = scenePaletteEntry?.__source === 'custom' && scenePaletteEntry?.id;
+      if (isCustom) {
+        setGlobalPaletteRef?.(scenePaletteEntry.id);
+      } else {
+        const builtinIdx = Number.isFinite(scenePaletteEntry?.__index) ? scenePaletteEntry.__index : scenePaletteIndex;
+        setGlobalPaletteIndex?.(builtinIdx);
+        setGlobalPaletteRef?.(null);
+      }
+    }
+
     // Background
     if (incBG) setBackgroundColor(randomBackgroundColor());
     // Blend
@@ -516,7 +513,7 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
@@ -561,7 +558,10 @@ export function useRandomization({
     const sampledVScale = incVarScale ? sampleClassic(pVScale, prevVScale) : prevVScale;
 
     // Scene palette
-    let baseColors = pickPaletteColors(palettes, rnd, []);
+    let classicPick = pickPaletteWithIndex(palettes, rnd, []);
+    let baseColors = classicPick.colors;
+    let classicPaletteIndex = classicPick.index;
+    let classicPaletteEntry = classicPick.entry;
     const currentBase = Array.isArray(layers?.[0]?.colors) ? layers[0].colors : [];
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     // Only change global base colors if Include (palette) is ON
@@ -736,6 +736,18 @@ export function useRandomization({
     setLayers(newLayers);
     setSelectedLayerIndex(0);
 
+    // Update palette dropdown to reflect the picked palette
+    if (incPalette && classicPaletteIndex >= 0) {
+      const isCustom = classicPaletteEntry?.__source === 'custom' && classicPaletteEntry?.id;
+      if (isCustom) {
+        setGlobalPaletteRef?.(classicPaletteEntry.id);
+      } else {
+        const builtinIdx = Number.isFinite(classicPaletteEntry?.__index) ? classicPaletteEntry.__index : classicPaletteIndex;
+        setGlobalPaletteIndex?.(builtinIdx);
+        setGlobalPaletteRef?.(null);
+      }
+    }
+
     if (incBG) setBackgroundColor(randomBackgroundColor());
     if (incBlend && Array.isArray(blendModes) && blendModes.length) {
       setGlobalBlendMode(blendModes[Math.floor(rnd() * blendModes.length)]);
@@ -747,7 +759,7 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const randomizeScene = useCallback(() => {
     const layers = getLayersSnapshot();

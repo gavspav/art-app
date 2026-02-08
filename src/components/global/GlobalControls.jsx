@@ -87,6 +87,7 @@ const GlobalControls = ({
   setGlobalSpeedMultiplier,
   getIsRnd,
   setIsRnd,
+  restoreIncludeRnd,
   // Fade while frozen
   colorFadeWhileFrozen,
   setColorFadeWhileFrozen,
@@ -323,6 +324,10 @@ const GlobalControls = ({
       }
       if (data?.appState && loadAppState) {
         loadAppState(data.appState);
+        // Restore randomization include checkboxes
+        if (data.appState.includeRnd && typeof data.appState.includeRnd === 'object' && typeof restoreIncludeRnd === 'function') {
+          restoreIncludeRnd(prev => ({ ...prev, ...data.appState.includeRnd }));
+        }
       }
       // Restore audio config if present
       if (data?.audioConfig && applyAudioSnapshot) {
@@ -338,7 +343,7 @@ const GlobalControls = ({
       console.warn('[Autosave] Failed to restore autosave', slotKey, error);
       setAutosaveError('Failed to restore autosave. Check console for details.');
     }
-  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots, applyAudioSnapshot, applyBPMSnapshot]);
+  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots, applyAudioSnapshot, applyBPMSnapshot, restoreIncludeRnd]);
 
   const handleClearAutosaves = useCallback(() => {
     if (typeof window === 'undefined' || !window.localStorage) {
@@ -1456,6 +1461,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Speed:</span><BufferedNumberInput value={globalSpeedMultiplier} min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} precision={2} onCommit={(next) => setGlobalSpeedMultiplier(next)} className="dc-value-input" />{renderAutomationBadge('globalSpeedMultiplier')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label className="compact-label" title="Include Global Speed in Randomize All"><input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /> Incl</label>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
@@ -1514,6 +1520,7 @@ const GlobalControls = ({
                 {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
                 {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
               </select>
+              <label className="compact-label" title="Include Palette in Randomize All" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /> Incl</label>
               <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
               {showPaletteSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
@@ -1539,6 +1546,7 @@ const GlobalControls = ({
               <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
                 {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
               </select>
+              <label className="compact-label" title="Include Style in Randomize All" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /> Incl</label>
               <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
               {showBlendModeSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
@@ -1560,6 +1568,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Opacity:</span><BufferedNumberInput value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} precision={2} onCommit={(next) => { const v = Math.max(0, Math.min(1, next)); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} className="dc-value-input" />{renderAutomationBadge('globalOpacity')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label className="compact-label" title="Include Global Opacity in Randomize All"><input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /> Incl</label>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
@@ -1592,6 +1601,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Layers:</span><BufferedNumberInput value={layerCountDraft} min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} precision={0} onCommit={(next) => commitLayerCountDraft(Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(next))))} className="dc-value-input" inputMode="numeric" />{renderAutomationBadge('layersCount')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <label className="compact-label" title="Include Layers in Randomize All"><input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /> Incl</label>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
