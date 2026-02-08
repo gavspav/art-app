@@ -1400,33 +1400,37 @@ const GlobalControls = ({
   return (
     <div className="tab-section global-controls-panel">
       <div className="control-card">
-        <div className="control-row" style={{ justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem 0.6rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem 0.8rem', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end' }}>
-            <label className="compact-label"><input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze</label>
-            <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade</label>
-            <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ign</label>
-            <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic</label>
-            <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}>🎲</button>
-            {hasSelectedMidiDevice && (
-              <>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }} disabled={!midiSupported} title="MIDI Learn: Randomize All">Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }} disabled={!midiSupported || !midiMappings?.randomizeAll} title="Clear MIDI for Randomize All">Clear</button>
-              </>
-            )}
-          </div>
-        </div>
-        <div style={{ marginTop: '0.5rem' }}>
-          {/* Seed */}
-          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner">
-              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Seed:</span><BufferedNumberInput value={seedValue} min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} precision={0} onCommit={(next) => handleSeedSliderChange({ target: { value: next } })} className="dc-value-input" inputMode="numeric" /></div>
+        <details style={{ marginBottom: '0.4rem' }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: '0.9em', opacity: 0.85, padding: '0.2rem 0' }}>Settings</summary>
+          <div style={{ marginTop: '0.4rem' }}>
+            <div className="control-row" style={{ justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem 0.6rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem 0.8rem', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end' }}>
+                <label className="compact-label"><input type="checkbox" checked={isFrozen} onChange={(e) => setIsFrozen(e.target.checked)} /> Freeze</label>
+                <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade</label>
+                <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ign</label>
+                <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic</label>
+                <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}>🎲</button>
+                {hasSelectedMidiDevice && (
+                  <>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }} disabled={!midiSupported} title="MIDI Learn: Randomize All">Learn</button>
+                    <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeAll'); }} disabled={!midiSupported || !midiMappings?.randomizeAll} title="Clear MIDI for Randomize All">Clear</button>
+                  </>
+                )}
               </div>
-              <input className="dc-slider" type="range" min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} value={seedValue} onChange={handleSeedSliderChange} />
+            </div>
+            {/* Seed */}
+            <div className="dc-wrap" style={{ marginTop: '0.4rem', marginBottom: '0.4rem' }}>
+              <div className="dc-inner">
+                <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Seed:</span><BufferedNumberInput value={seedValue} min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} precision={0} onCommit={(next) => handleSeedSliderChange({ target: { value: next } })} className="dc-value-input" inputMode="numeric" /></div>
+                </div>
+                <input className="dc-slider" type="range" min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} value={seedValue} onChange={handleSeedSliderChange} />
+              </div>
             </div>
           </div>
+        </details>
           {/* Background */}
-          <div style={{ marginBottom: '0.4rem' }}>
+          <div style={{ marginBottom: '0.2rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1456,7 +1460,7 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Global Speed */}
-          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.2rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Speed:</span><BufferedNumberInput value={globalSpeedMultiplier} min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} precision={2} onCommit={(next) => setGlobalSpeedMultiplier(next)} className="dc-value-input" />{renderAutomationBadge('globalSpeedMultiplier')}</div>
@@ -1512,8 +1516,8 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Palette */}
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ marginBottom: '0.2rem' }}>
+            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
               <span style={{ whiteSpace: 'nowrap' }}>Palette{renderAutomationBadge('globalPaletteIndex')}</span>
               <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
                 <option value="custom">Custom</option>
@@ -1540,8 +1544,8 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Style */}
-          <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <div style={{ marginBottom: '0.2rem' }}>
+            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
               <span style={{ whiteSpace: 'nowrap' }}>Style{renderAutomationBadge('globalBlendMode')}</span>
               <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
                 {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
@@ -1563,7 +1567,7 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Global Opacity */}
-          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.2rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Opacity:</span><BufferedNumberInput value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} precision={2} onCommit={(next) => { const v = Math.max(0, Math.min(1, next)); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} className="dc-value-input" />{renderAutomationBadge('globalOpacity')}</div>
@@ -1596,7 +1600,7 @@ const GlobalControls = ({
             </div>
           </div>
           {/* Layers */}
-          <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
+          <div className="dc-wrap" style={{ marginBottom: '0.2rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Layers:</span><BufferedNumberInput value={layerCountDraft} min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} precision={0} onCommit={(next) => commitLayerCountDraft(Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(next))))} className="dc-value-input" inputMode="numeric" />{renderAutomationBadge('layersCount')}</div>
@@ -1640,7 +1644,6 @@ const GlobalControls = ({
               )}
             </div>
           </div>
-        </div>
       </div>
       {/* Variation card */}
       <div className="control-card">

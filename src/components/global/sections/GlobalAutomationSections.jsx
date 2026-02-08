@@ -4,6 +4,7 @@ import { useAudioReactive } from '../../../context/AudioContext.jsx';
 import { useBPM } from '../../../context/BPMContext.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../../common/BPMEnvelopeEditor.jsx';
+import { AUDIO_MAPPING_MODES, DEFAULT_MODE_SETTINGS } from '../../../utils/audioMappingModes.js';
 
 const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange }) => {
   const [expanded, setExpanded] = useState(false);
@@ -684,12 +685,118 @@ const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
   );
 };
 
+// Helper: compact number input for mode settings
+const ModeSettingInput = ({ label, value, onChange, step = 0.01, min, max, title }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+    <span style={{ fontSize: '0.6rem', opacity: 0.7, minWidth: '3rem' }} title={title}>{label}</span>
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      value={Number.isFinite(value) ? value : 0}
+      onChange={(e) => onChange(parseFloat(e.target.value))}
+      style={{ width: '3.5rem', fontSize: '0.6rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+    />
+  </div>
+);
+
+// Mode-specific settings panel
+const AudioModeSettings = ({ mode, modeSettings, onSettingsChange }) => {
+  if (!mode || mode === 'direct') return null;
+
+  const defaults = DEFAULT_MODE_SETTINGS[mode] || {};
+  const s = { ...defaults, ...modeSettings };
+  const update = (key, val) => onSettingsChange({ ...s, [key]: val });
+
+  const bandOptions = ['rms', 'bass', 'mids', 'highs'];
+
+  switch (mode) {
+    case 'accumulate':
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.25rem' }}>
+          <ModeSettingInput label="Rate" value={s.rate} onChange={v => update('rate', v)} step={0.005} min={0.001} max={0.5} title="How fast audio pushes the value" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>Wrap</span>
+            <input type="checkbox" checked={!!s.wrap} onChange={e => update('wrap', e.target.checked)} style={{ cursor: 'pointer' }} />
+          </div>
+        </div>
+      );
+
+    case 'leaky':
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.25rem' }}>
+          <ModeSettingInput label="Rate" value={s.rate} onChange={v => update('rate', v)} step={0.005} min={0.001} max={0.5} title="Accumulation speed" />
+          <ModeSettingInput label="Decay" value={s.decay} onChange={v => update('decay', v)} step={0.001} min={0.9} max={0.9999} title="Per-frame decay (closer to 1 = slower)" />
+          <ModeSettingInput label="Rest" value={s.restValue} onChange={v => update('restValue', v)} step={0.05} min={0} max={1} title="Value to decay toward" />
+        </div>
+      );
+
+    case 'bandRatio':
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>Num</span>
+            <select className="compact-select" style={{ fontSize: '0.6rem', padding: '1px 3px' }} value={s.numerator} onChange={e => update('numerator', e.target.value)}>
+              {bandOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>Den</span>
+            <select className="compact-select" style={{ fontSize: '0.6rem', padding: '1px 3px' }} value={s.denominator} onChange={e => update('denominator', e.target.value)}>
+              {bandOptions.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <ModeSettingInput label="Scale" value={s.scale} onChange={v => update('scale', v)} step={0.5} min={0.5} max={10} title="Normalization divisor for ratio" />
+        </div>
+      );
+
+    case 'runningAvg':
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.25rem' }}>
+          <ModeSettingInput label="Window (s)" value={s.windowSeconds} onChange={v => update('windowSeconds', v)} step={0.5} min={0.5} max={30} title="Averaging window in seconds" />
+        </div>
+      );
+
+    case 'onsetDrift':
+      return (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.25rem' }}>
+          <ModeSettingInput label="Thresh" value={s.threshold} onChange={v => update('threshold', v)} step={0.1} min={1.1} max={5} title="Onset detection multiplier" />
+          <ModeSettingInput label="Min Lvl" value={s.minLevel} onChange={v => update('minLevel', v)} step={0.05} min={0} max={1} title="Minimum level to trigger onset" />
+          <ModeSettingInput label="Drift" value={s.driftSpeed} onChange={v => update('driftSpeed', v)} step={0.005} min={0.001} max={0.2} title="Speed of drift toward target" />
+        </div>
+      );
+
+    case 'hysteresis':
+      return (
+        <div style={{ marginTop: '0.25rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem' }}>
+            <ModeSettingInput label="Q→M" value={s.quietToMed} onChange={v => update('quietToMed', v)} step={0.05} min={0} max={1} title="Threshold: quiet to medium" />
+            <ModeSettingInput label="M→L" value={s.medToLoud} onChange={v => update('medToLoud', v)} step={0.05} min={0} max={1} title="Threshold: medium to loud" />
+            <ModeSettingInput label="L→M" value={s.loudToMed} onChange={v => update('loudToMed', v)} step={0.05} min={0} max={1} title="Threshold: loud to medium" />
+            <ModeSettingInput label="M→Q" value={s.medToQuiet} onChange={v => update('medToQuiet', v)} step={0.05} min={0} max={1} title="Threshold: medium to quiet" />
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.2rem' }}>
+            <ModeSettingInput label="Lerp" value={s.lerpSpeed} onChange={v => update('lerpSpeed', v)} step={0.001} min={0.001} max={0.1} title="Per-frame lerp speed" />
+            <ModeSettingInput label="Quiet" value={s.quietValue} onChange={v => update('quietValue', v)} step={0.05} min={0} max={1} title="Output in quiet zone" />
+            <ModeSettingInput label="Med" value={s.medValue} onChange={v => update('medValue', v)} step={0.05} min={0} max={1} title="Output in medium zone" />
+            <ModeSettingInput label="Loud" value={s.loudValue} onChange={v => update('loudValue', v)} step={0.05} min={0} max={1} title="Output in loud zone" />
+          </div>
+        </div>
+      );
+
+    default:
+      return null;
+  }
+};
+
 // Audio control row component - shown per parameter in settings panel
 const AudioControlRow = ({ paramId, label: _label }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
   const [showRange, setShowRange] = useState(false);
+  const [showModeSettings, setShowModeSettings] = useState(false);
 
   const hasAudio = !!audio;
   const isActive = !!audio?.isActive;
@@ -706,20 +813,18 @@ const AudioControlRow = ({ paramId, label: _label }) => {
   const currentBand = mapping?.band || 'none';
   const fallbackRange = mapping?.range || DEFAULT_RANGE;
   const currentRange = fallbackRange;
+  const currentMode = mapping?.mode || 'direct';
+  const currentModeSettings = mapping?.modeSettings || DEFAULT_MODE_SETTINGS[currentMode] || {};
   const isLearning = learnParamId === paramId;
   
   const handleBandChange = (band) => {
     if (!hasAudio || typeof setMapping !== 'function') return;
     if (band === 'none') {
-      // Preserve the last-used range so re-enabling keeps the same min/max
-      setMapping(paramId, { band: 'none', range: currentRange });
+      setMapping(paramId, { band: 'none', range: currentRange, mode: currentMode, modeSettings: currentModeSettings });
     } else {
-      // Enable Audio and disable MIDI/BPM for this parameter (mutual exclusivity)
       const nextRange = mapping?.range || DEFAULT_RANGE;
-      setMapping(paramId, { band, range: nextRange });
-      // Clear MIDI mapping
+      setMapping(paramId, { band, range: nextRange, mode: currentMode, modeSettings: currentModeSettings });
       if (midi?.clearMapping) midi.clearMapping(paramId);
-      // Clear BPM mapping
       if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
     }
     if (isLearning) cancelLearn();
@@ -728,14 +833,29 @@ const AudioControlRow = ({ paramId, label: _label }) => {
   const handleRangeChange = (update) => {
     if (!hasAudio || typeof setMapping !== 'function') return;
     if (currentBand === 'none') return;
-    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update } });
+    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update }, mode: currentMode, modeSettings: currentModeSettings });
+  };
+
+  const handleModeChange = (mode) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
+    const newSettings = DEFAULT_MODE_SETTINGS[mode] || {};
+    setMapping(paramId, { band: currentBand, range: currentRange, mode, modeSettings: newSettings });
+    if (mode !== 'direct') setShowModeSettings(true);
+  };
+
+  const handleModeSettingsChange = (newSettings) => {
+    if (!hasAudio || typeof setMapping !== 'function') return;
+    setMapping(paramId, { band: currentBand, range: currentRange, mode: currentMode, modeSettings: newSettings });
   };
 
   if (!hasAudio) return null;
 
+  const modeInfo = AUDIO_MAPPING_MODES.find(m => m.value === currentMode);
+  const hasNonDirectMode = currentMode && currentMode !== 'direct';
+
   return (
     <div style={{ marginTop: '0.25rem' }}>
-      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
         <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
         <select
           className="compact-select"
@@ -751,6 +871,27 @@ const AudioControlRow = ({ paramId, label: _label }) => {
         </select>
         {currentBand !== 'none' && (
           <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.65rem', padding: '2px 3px', minWidth: '5rem', color: hasNonDirectMode ? '#a78bfa' : undefined }}
+              value={currentMode}
+              onChange={(e) => handleModeChange(e.target.value)}
+              title={modeInfo?.desc || ''}
+            >
+              {AUDIO_MAPPING_MODES.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+            {hasNonDirectMode && (
+              <button
+                className="btn-compact-secondary"
+                style={{ fontSize: '0.6rem', padding: '2px 4px', background: showModeSettings ? 'rgba(167, 139, 250, 0.3)' : undefined }}
+                onClick={() => setShowModeSettings(s => !s)}
+                title={`${modeInfo?.label} settings`}
+              >
+                ⚙
+              </button>
+            )}
             <button
               className="btn-compact-secondary"
               style={{ fontSize: '0.65rem', padding: '2px 4px' }}
@@ -770,9 +911,21 @@ const AudioControlRow = ({ paramId, label: _label }) => {
           </>
         )}
         {isActive && currentBand !== 'none' && (
-          <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>●</span>
+          <span style={{ fontSize: '0.65rem', color: hasNonDirectMode ? '#a78bfa' : '#4fc3f7' }}>●</span>
         )}
       </div>
+
+      {/* Mode-specific settings */}
+      {showModeSettings && currentBand !== 'none' && hasNonDirectMode && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.35rem', borderRadius: 4, background: 'rgba(167, 139, 250, 0.06)', borderLeft: '2px solid rgba(167, 139, 250, 0.3)' }}>
+          <div style={{ fontSize: '0.6rem', opacity: 0.6, marginBottom: '0.2rem' }}>{modeInfo?.desc}</div>
+          <AudioModeSettings
+            mode={currentMode}
+            modeSettings={currentModeSettings}
+            onSettingsChange={handleModeSettingsChange}
+          />
+        </div>
+      )}
       
       {/* Range editor - simplified to just output min/max */}
       {showRange && currentBand !== 'none' && (

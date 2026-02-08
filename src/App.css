@@ -302,7 +302,7 @@ canvas {
   background: rgba(28, 28, 28, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-lg);
-  padding: 1rem;
+  padding: 0.5rem 0.6rem;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 6px 16px rgba(0,0,0,0.35);
   position: relative;
   z-index: var(--z-card);
@@ -481,7 +481,7 @@ input[type="checkbox"] {
 }
 
 /* DynamicControl header/actions + icon buttons */
-.dc-header { margin-bottom: 0.5rem; flex-wrap: wrap; }
+.dc-header { margin-bottom: 0.2rem; flex-wrap: wrap; }
 .dc-actions { gap: 0.5rem; flex-wrap: wrap; }
 .icon-btn {
   width: 36px;
@@ -753,7 +753,7 @@ input[type="checkbox"] {
 }
 
 /* Slider visual spacing */
-.dc-slider { margin-top: 0.5rem; }
+.dc-slider { margin-top: 0.15rem; }
 
 /* Wrapper for each dynamic control — acts as container query context */
 .dc-wrap {
@@ -764,8 +764,8 @@ input[type="checkbox"] {
 .dc-inner {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 0.75rem 0.9rem 1rem;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem 0.4rem;
 }
 
 /* Wide layout: single row with header + inline slider */

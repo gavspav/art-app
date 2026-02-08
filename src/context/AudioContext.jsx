@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
+import { AudioModeProcessor, DEFAULT_MODE_SETTINGS } from '../utils/audioMappingModes.js';
 
 /**
  * AudioContext - Global audio reactive state provider
@@ -28,6 +29,9 @@ const DEFAULT_RANGE = {
   outputMin: 0,
   outputMax: 1,
 };
+
+// Singleton mode processor instance (persists across re-renders)
+const modeProcessor = new AudioModeProcessor();
 
 // Default audio settings (global settings only)
 const DEFAULT_AUDIO_SETTINGS = {
@@ -92,6 +96,9 @@ export const AudioProvider = ({ children }) => {
   
   // Cache of last dispatched values per param (used for change detection)
   const lastValuesRef = useRef({});
+  
+  // Track last dispatch timestamp for dt calculation
+  const lastDispatchTimeRef = useRef(performance.now());
 
   // Use the audio hook with current settings
   const {
@@ -194,13 +201,25 @@ export const AudioProvider = ({ children }) => {
       } else if (mapping && typeof mapping === 'object') {
         // Validate and store - simplified range (just output min/max)
         const range = mapping.range || DEFAULT_RANGE;
-        next[paramId] = {
+        const entry = {
           band: AUDIO_BANDS.includes(mapping.band) ? mapping.band : 'none',
           range: {
             outputMin: Number.isFinite(Number(range.outputMin)) ? Number(range.outputMin) : 0,
             outputMax: Number.isFinite(Number(range.outputMax)) ? Number(range.outputMax) : 1,
           },
         };
+        // Preserve mode and modeSettings if provided
+        if (mapping.mode && typeof mapping.mode === 'string') {
+          entry.mode = mapping.mode;
+          // Clear processor state when mode changes
+          modeProcessor.clearParam(paramId);
+        }
+        if (mapping.modeSettings && typeof mapping.modeSettings === 'object') {
+          entry.modeSettings = { ...mapping.modeSettings };
+          // Clear processor state when settings change
+          modeProcessor.clearParam(paramId);
+        }
+        next[paramId] = entry;
       }
       return next;
     });
@@ -271,14 +290,27 @@ export const AudioProvider = ({ children }) => {
 
       const mappings = effectiveMappingsRef.current;
       const currentFeatures = getFeatures();
+      
+      // Calculate dt for framerate-independent mode processing
+      const prevTime = lastDispatchTimeRef.current;
+      const dt = Math.min(0.2, (now - prevTime) / 1000); // Cap at 200ms
+      lastDispatchTimeRef.current = now;
 
       handlers.forEach((handlerSet, paramId) => {
         const mapping = mappings[paramId];
         if (!mapping || mapping.band === 'none') return;
 
         const bandValue = currentFeatures[mapping.band] || 0;
-        // Map the raw 0-1 audio value through the output range
-        const mappedValue = mapRange(bandValue, mapping.range);
+        
+        // Apply mode processing if a non-direct mode is set
+        const mode = mapping.mode || 'direct';
+        const modeSettings = mapping.modeSettings || DEFAULT_MODE_SETTINGS[mode];
+        const processedValue = modeProcessor.process(
+          paramId, bandValue, currentFeatures, mode, modeSettings, dt
+        );
+        
+        // Map the processed 0-1 value through the output range
+        const mappedValue = mapRange(processedValue, mapping.range);
 
         // Skip dispatch if value hasn't changed significantly
         const lastValue = lastValuesRef.current[paramId];
@@ -286,12 +318,10 @@ export const AudioProvider = ({ children }) => {
         if (lastValue !== undefined && Math.abs(mappedValue - lastValue) < threshold) return;
         lastValuesRef.current[paramId] = mappedValue;
 
-        // Send both the mapped value and raw 0-1 value
-        // - mappedValue: already scaled to outputMin→outputMax (use directly for most params)
-        // - raw: the raw 0-1 audio level (use for special cases like palette index)
+        // Send the mapped value, raw audio level, and processed value
         handlerSet.forEach(fn => {
           try {
-            fn({ value01: mappedValue, band: mapping.band, raw: bandValue });
+            fn({ value01: mappedValue, band: mapping.band, raw: bandValue, processed: processedValue });
           } catch { /* noop */ }
         });
       });
@@ -438,6 +468,7 @@ export const AudioProvider = ({ children }) => {
     audioMappingLabel,
     AUDIO_BANDS,
     DEFAULT_RANGE,
+    DEFAULT_MODE_SETTINGS,
   }), [
     isActive,
     error,
