@@ -1,6 +1,7 @@
 import React from 'react';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
+import RangeSlider from '../../common/RangeSlider.jsx';
 
 export default function LayerShapeSection({
   currentLayer,
@@ -51,7 +52,19 @@ export default function LayerShapeSection({
             <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                 <span style={{ fontWeight: 600 }}>Rotate</span>
-                <span style={{ opacity: 0.8 }}>{Number(currentLayer?.rotation ?? 0).toFixed(0)}°</span>
+                <BufferedNumberInput
+                  value={Number(currentLayer?.rotation ?? 0)}
+                  min={-180}
+                  max={180}
+                  step={1}
+                  precision={0}
+                  onCommit={(next) => {
+                    const wrapped = ((((next + 180) % 360) + 360) % 360) - 180;
+                    applyRotation(wrapped);
+                  }}
+                  className="dc-value-input"
+                />
+                <span style={{ opacity: 0.8 }}>°</span>
               </div>
               <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
                 <button
@@ -81,9 +94,8 @@ export default function LayerShapeSection({
                 </button>
               </div>
             </div>
-            <input
-              key={`rotation-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-              type="range"
+            <RangeSlider
+              sliderKey={`rotation-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               min={-180}
               max={180}
               step={1}
@@ -95,6 +107,10 @@ export default function LayerShapeSection({
                 applyRotation(wrapped);
               }}
               className="dc-slider"
+              rangeMin={rotateMin}
+              rangeMax={rotateMax}
+              onRangeMinChange={setRotateMin}
+              onRangeMaxChange={setRotateMax}
             />
             {showRotateSettings && (
               <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>

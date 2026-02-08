@@ -17,6 +17,7 @@ import { useLayerTargeting } from '../hooks/controls/useLayerTargeting.js';
 import LayerAnimationSection from './layer/sections/LayerAnimationSection.jsx';
 import LayerShapeSection from './layer/sections/LayerShapeSection.jsx';
 import LayerColorSection from './layer/sections/LayerColorSection.jsx';
+import RangeSlider from './common/RangeSlider.jsx';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -1159,24 +1160,36 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       const displayValue = (Number.isFinite(numericValue)
         ? Math.min(max, Math.max(min, numericValue))
         : (Number.isFinite(min) ? min : 0));
+      const valuePrecision = (id.includes('Speed') || id === 'curviness' || id === 'movementSpeed') ? 3 : 2;
       return (
         <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
           <div className="dc-inner">
             <Header>
-              <span>
-                {label}: {Number(displayValue).toFixed(id.includes('Speed') || id === 'curviness' || id === 'movementSpeed' ? 3 : 2)}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                {label}:
+                <BufferedNumberInput
+                  value={displayValue}
+                  min={min}
+                  max={max}
+                  step={step}
+                  precision={valuePrecision}
+                  onCommit={(next) => handleChange({ target: { value: next } })}
+                  className="dc-value-input"
+                />
               </span>
             </Header>
-            <input
-              key={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
-              type="range"
+            <RangeSlider
+              sliderKey={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               min={min}
               max={max}
               step={step}
               value={displayValue}
               onChange={handleChange}
+              rangeMin={param.randomMin}
+              rangeMax={param.randomMax}
+              onRangeMinChange={onMetaChange('randomMin')}
+              onRangeMaxChange={onMetaChange('randomMax')}
               className="dc-slider"
-              style={{}}
             />
           </div>
           <SettingsPanel />
@@ -1692,75 +1705,77 @@ const Controls = forwardRef(({
               }}
             />
           </div>
-          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="icon-btn sm"
-              title="Add a layer"
-              aria-label="Add a layer"
-              onClick={() => onAddLayer && onAddLayer()}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="icon-btn sm"
-              title="Move selected layer up"
-              aria-label="Move selected layer up"
-              onClick={() => onMoveLayerUp && onMoveLayerUp()}
-              disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex >= Math.max(0, (layerNames || []).length - 1)}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              className="icon-btn sm"
-              title="Move selected layer down"
-              aria-label="Move selected layer down"
-              onClick={() => onMoveLayerDown && onMoveLayerDown()}
-              disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex <= 0}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              className="icon-btn sm"
-              title="Remove selected layer"
-              aria-label="Remove selected layer"
-              onClick={() => setShowDeletePicker(true)}
-              disabled={((layerNames || []).length) <= 1}
-            >
-              -
-            </button>
-          </div>
-          <div className="controls-actions" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="Import SVG as nodes (adds new layer)"
-            aria-label="Import SVG"
-            onClick={() => onImportSVG && onImportSVG()}
-          >
-            SVG
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="Edit nodes"
-            aria-label="Edit nodes"
-            onClick={() => setIsNodeEditMode(!isNodeEditMode)}
-          >
-            {isNodeEditMode ? '⛔' : '✎'}
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="Randomize selected layer"
-            aria-label="Randomize selected layer"
-            onClick={() => randomizeCurrentLayer(false)}
-          >
-            🎲
-          </button>
+          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Add a layer"
+                aria-label="Add a layer"
+                onClick={() => onAddLayer && onAddLayer()}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Move selected layer up"
+                aria-label="Move selected layer up"
+                onClick={() => onMoveLayerUp && onMoveLayerUp()}
+                disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex >= Math.max(0, (layerNames || []).length - 1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Move selected layer down"
+                aria-label="Move selected layer down"
+                onClick={() => onMoveLayerDown && onMoveLayerDown()}
+                disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex <= 0}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Remove selected layer"
+                aria-label="Remove selected layer"
+                onClick={() => setShowDeletePicker(true)}
+                disabled={((layerNames || []).length) <= 1}
+              >
+                -
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Import SVG as nodes (adds new layer)"
+                aria-label="Import SVG"
+                onClick={() => onImportSVG && onImportSVG()}
+              >
+                SVG
+              </button>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Edit nodes"
+                aria-label="Edit nodes"
+                onClick={() => setIsNodeEditMode(!isNodeEditMode)}
+              >
+                {isNodeEditMode ? '⛔' : '✎'}
+              </button>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Randomize selected layer"
+                aria-label="Randomize selected layer"
+                onClick={() => randomizeCurrentLayer(false)}
+              >
+                🎲
+              </button>
+            </div>
           </div>
         </div>
       </div>

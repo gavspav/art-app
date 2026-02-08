@@ -1,5 +1,6 @@
 import React from 'react';
 import ControlSectionCard from '../../controls/common/ControlSectionCard.jsx';
+import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 
 export default function LayerAnimationSection({
   currentLayer,
@@ -55,7 +56,15 @@ export default function LayerAnimationSection({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <span className="compact-label">Radius X</span>
-                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusX ?? 0).toFixed(3)}</span>
+                  <BufferedNumberInput
+                    value={Number(currentLayer?.orbitRadiusX ?? 0)}
+                    min={0}
+                    max={0.5}
+                    step={0.001}
+                    precision={3}
+                    onCommit={(next) => handleOrbitRadiusChange('x')({ target: { value: next } })}
+                    className="dc-value-input"
+                  />
                 </div>
               </div>
               <input
@@ -74,7 +83,15 @@ export default function LayerAnimationSection({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <span className="compact-label">Radius Y</span>
-                  <span style={{ opacity: 0.8 }}>{Number(currentLayer?.orbitRadiusY ?? 0).toFixed(3)}</span>
+                  <BufferedNumberInput
+                    value={Number(currentLayer?.orbitRadiusY ?? 0)}
+                    min={0}
+                    max={0.5}
+                    step={0.001}
+                    precision={3}
+                    onCommit={(next) => handleOrbitRadiusChange('y')({ target: { value: next } })}
+                    className="dc-value-input"
+                  />
                 </div>
               </div>
               <input

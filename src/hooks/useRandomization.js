@@ -191,8 +191,8 @@ export function useRandomization({
     const getParam = (id) => parameters.find(p => p.id === id);
 
     const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
-    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 8;
+    const defMinL = Number.isFinite(layersParam?.randomMin) ? layersParam.randomMin : (Number.isFinite(layersParam?.min) ? layersParam.min : 1);
+    const defMaxL = Number.isFinite(layersParam?.randomMax) ? layersParam.randomMax : (Number.isFinite(layersParam?.max) ? layersParam.max : 8);
     const layerCount = incLayers
       ? Math.floor(rand() * (defMaxL - defMinL + 1)) + defMinL
       : layers.length;
@@ -486,8 +486,8 @@ export function useRandomization({
     // Global opacity randomization (gated)
     if (incOpacity) {
       const p = getParam('globalOpacity');
-      const omin = Number.isFinite(p?.min) ? p.min : 0;
-      const omax = Number.isFinite(p?.max) ? p.max : 1;
+      const omin = Number.isFinite(p?.randomMin) ? p.randomMin : (Number.isFinite(p?.min) ? p.min : 0);
+      const omax = Number.isFinite(p?.randomMax) ? p.randomMax : (Number.isFinite(p?.max) ? p.max : 1);
       const oval = omin + rand() * Math.max(0, omax - omin);
       layersOut.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
     }
@@ -511,8 +511,8 @@ export function useRandomization({
     // Speed
     if (incSpeed) {
       const p = getParam('globalSpeedMultiplier');
-      const smin = Number.isFinite(p?.min) ? p.min : 0;
-      const smax = Number.isFinite(p?.max) ? p.max : 5;
+      const smin = Number.isFinite(p?.randomMin) ? p.randomMin : (Number.isFinite(p?.min) ? p.min : 0);
+      const smax = Number.isFinite(p?.randomMax) ? p.randomMax : (Number.isFinite(p?.max) ? p.max : 5);
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
@@ -581,8 +581,8 @@ export function useRandomization({
 
     // Layers count
     const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
-    const defMaxL = Number.isFinite(layersParam?.max) ? layersParam.max : 20;
+    const defMinL = Number.isFinite(layersParam?.randomMin) ? layersParam.randomMin : (Number.isFinite(layersParam?.min) ? layersParam.min : 1);
+    const defMaxL = Number.isFinite(layersParam?.randomMax) ? layersParam.randomMax : (Number.isFinite(layersParam?.max) ? layersParam.max : 20);
     const layerCount = incLayers ? (Math.floor(rnd() * (defMaxL - defMinL + 1)) + defMinL) : layers.length;
 
     // If rotation should not vary across layers, sample once (classic) for Rotate slider
@@ -727,8 +727,8 @@ export function useRandomization({
 
     if (incOpacity) {
       const p = parameters.find(pp => pp.id === 'globalOpacity');
-      const omin = Number.isFinite(p?.min) ? p.min : 0;
-      const omax = Number.isFinite(p?.max) ? p.max : 1;
+      const omin = Number.isFinite(p?.randomMin) ? p.randomMin : (Number.isFinite(p?.min) ? p.min : 0);
+      const omax = Number.isFinite(p?.randomMax) ? p.randomMax : (Number.isFinite(p?.max) ? p.max : 1);
       const oval = omin + rnd() * Math.max(0, omax - omin);
       newLayers.forEach(l => { l.opacity = Number(oval.toFixed(2)); });
     }
@@ -742,8 +742,8 @@ export function useRandomization({
     }
     if (incSpeed) {
       const p = parameters.find(pp => pp.id === 'globalSpeedMultiplier');
-      const smin = Number.isFinite(p?.min) ? p.min : 0;
-      const smax = Number.isFinite(p?.max) ? p.max : 5;
+      const smin = Number.isFinite(p?.randomMin) ? p.randomMin : (Number.isFinite(p?.min) ? p.min : 0);
+      const smax = Number.isFinite(p?.randomMax) ? p.randomMax : (Number.isFinite(p?.max) ? p.max : 5);
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }

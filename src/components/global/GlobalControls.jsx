@@ -15,9 +15,22 @@ import AutosaveRecovery from './AutosaveRecovery.jsx';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
+import RangeSlider from '../common/RangeSlider.jsx';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
+
+// Fixed slider bounds (wider than default randomisation ranges)
+const SPEED_SLIDER_MIN = 0;
+const SPEED_SLIDER_MAX = 10;
+const OPACITY_SLIDER_MIN = 0;
+const OPACITY_SLIDER_MAX = 1;
+const LAYERS_SLIDER_MIN = 1;
+const LAYERS_SLIDER_MAX = 400;
+const VARIATION_SLIDER_MIN = 0;
+const VARIATION_SLIDER_MAX = 5;
+const VARIATION_SCALE_SLIDER_MIN = -5;
+const VARIATION_SCALE_SLIDER_MAX = 5;
 const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
@@ -177,7 +190,7 @@ const GlobalControls = ({
   }, [backgroundImage]);
   // Presets: these values are now passed as props to avoid useAppState() subscription
   // which causes re-renders on every animation frame
-  const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
+  const { loadFullConfiguration, applyParametersSnapshot, parameters, updateParameter } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
   const audioContext = useAudioReactive();
   const applyAudioSnapshot = audioContext?.applyAudioSnapshot;
@@ -604,20 +617,91 @@ const GlobalControls = ({
     updateSeed(Number(e.target.value));
   }, [updateSeed]);
 
-  // Numeric bounds (min/max/step) for sliders
-  const [speedMin, setSpeedMin] = useState(0);
-  const [speedMax, setSpeedMax] = useState(5);
-  const [speedStep, setSpeedStep] = useState(0.01);
+  // Numeric bounds (min/max/step) for sliders - initialized from parameter context with fallbacks
+  const getParamRange = useCallback((paramId, fallbackMin, fallbackMax, fallbackStep) => {
+    const param = parameters?.find(p => p.id === paramId);
+    return {
+      min: Number.isFinite(param?.randomMin) ? param.randomMin : fallbackMin,
+      max: Number.isFinite(param?.randomMax) ? param.randomMax : fallbackMax,
+      step: Number.isFinite(param?.step) ? param.step : fallbackStep,
+    };
+  }, [parameters]);
 
-  const [opacityMin, setOpacityMin] = useState(0);
-  const [opacityMax, setOpacityMax] = useState(1);
-  const [opacityStep, setOpacityStep] = useState(0.01);
+  // Sync range changes to parameter context for persistence
+  const syncRangeToParam = useCallback((paramId, field, value) => {
+    if (updateParameter) {
+      updateParameter(paramId, field, value);
+    }
+  }, [updateParameter]);
 
-  const [layersMin, setLayersMin] = useState(1);
-  const [layersMax, setLayersMax] = useState(1000);
-  const [layersStep, setLayersStep] = useState(1);
+  // Initialize from parameter context
+  const speedRange = getParamRange('globalSpeedMultiplier', 0, 5, 0.01);
+  const [speedMin, setSpeedMinState] = useState(speedRange.min);
+  const [speedMax, setSpeedMaxState] = useState(speedRange.max);
+  const [speedStep, setSpeedStep] = useState(speedRange.step);
+
+  const opacityRange = getParamRange('globalOpacity', 0, 1, 0.01);
+  const [opacityMin, setOpacityMinState] = useState(opacityRange.min);
+  const [opacityMax, setOpacityMaxState] = useState(opacityRange.max);
+  const [opacityStep, setOpacityStep] = useState(opacityRange.step);
+
+  const layersRange = getParamRange('layersCount', 1, 1000, 1);
+  const [layersMin, setLayersMinState] = useState(layersRange.min);
+  const [layersMax, setLayersMaxState] = useState(layersRange.max);
+  const [layersStep, setLayersStep] = useState(layersRange.step);
   const [layerCountDraft, setLayerCountDraft] = useState(() => layers.length);
   const layerCountDraggingRef = useRef(false);
+
+  // Variation ranges
+  const varPosRange = getParamRange('variationPosition', 0, 3, 0.01);
+  const [variationPositionMin, setVariationPositionMinState] = useState(varPosRange.min);
+  const [variationPositionMax, setVariationPositionMaxState] = useState(varPosRange.max);
+  const [variationPositionStep, setVariationPositionStep] = useState(varPosRange.step);
+
+  const varShapeRange = getParamRange('variationShape', 0, 3, 0.01);
+  const [variationShapeMin, setVariationShapeMinState] = useState(varShapeRange.min);
+  const [variationShapeMax, setVariationShapeMaxState] = useState(varShapeRange.max);
+  const [variationShapeStep, setVariationShapeStep] = useState(varShapeRange.step);
+
+  const varAnimRange = getParamRange('variationAnim', 0, 3, 0.01);
+  const [variationAnimMin, setVariationAnimMinState] = useState(varAnimRange.min);
+  const [variationAnimMax, setVariationAnimMaxState] = useState(varAnimRange.max);
+  const [variationAnimStep, setVariationAnimStep] = useState(varAnimRange.step);
+
+  const varColorRange = getParamRange('variationColor', 0, 3, 0.01);
+  const [variationColorMin, setVariationColorMinState] = useState(varColorRange.min);
+  const [variationColorMax, setVariationColorMaxState] = useState(varColorRange.max);
+  const [variationColorStep, setVariationColorStep] = useState(varColorRange.step);
+
+  const varScaleRange = getParamRange('variationScale', -3, 3, 0.01);
+  const [variationScaleMin, setVariationScaleMinState] = useState(varScaleRange.min);
+  const [variationScaleMax, setVariationScaleMaxState] = useState(varScaleRange.max);
+  const [variationScaleStep, setVariationScaleStep] = useState(varScaleRange.step);
+
+  // Wrapper functions that update both local state and parameter context
+  const setSpeedMin = useCallback((v) => { setSpeedMinState(v); syncRangeToParam('globalSpeedMultiplier', 'randomMin', v); }, [syncRangeToParam]);
+  const setSpeedMax = useCallback((v) => { setSpeedMaxState(v); syncRangeToParam('globalSpeedMultiplier', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setOpacityMin = useCallback((v) => { setOpacityMinState(v); syncRangeToParam('globalOpacity', 'randomMin', v); }, [syncRangeToParam]);
+  const setOpacityMax = useCallback((v) => { setOpacityMaxState(v); syncRangeToParam('globalOpacity', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setLayersMin = useCallback((v) => { setLayersMinState(v); syncRangeToParam('layersCount', 'randomMin', v); }, [syncRangeToParam]);
+  const setLayersMax = useCallback((v) => { setLayersMaxState(v); syncRangeToParam('layersCount', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setVariationPositionMin = useCallback((v) => { setVariationPositionMinState(v); syncRangeToParam('variationPosition', 'randomMin', v); }, [syncRangeToParam]);
+  const setVariationPositionMax = useCallback((v) => { setVariationPositionMaxState(v); syncRangeToParam('variationPosition', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setVariationShapeMin = useCallback((v) => { setVariationShapeMinState(v); syncRangeToParam('variationShape', 'randomMin', v); }, [syncRangeToParam]);
+  const setVariationShapeMax = useCallback((v) => { setVariationShapeMaxState(v); syncRangeToParam('variationShape', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setVariationAnimMin = useCallback((v) => { setVariationAnimMinState(v); syncRangeToParam('variationAnim', 'randomMin', v); }, [syncRangeToParam]);
+  const setVariationAnimMax = useCallback((v) => { setVariationAnimMaxState(v); syncRangeToParam('variationAnim', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setVariationColorMin = useCallback((v) => { setVariationColorMinState(v); syncRangeToParam('variationColor', 'randomMin', v); }, [syncRangeToParam]);
+  const setVariationColorMax = useCallback((v) => { setVariationColorMaxState(v); syncRangeToParam('variationColor', 'randomMax', v); }, [syncRangeToParam]);
+
+  const setVariationScaleMin = useCallback((v) => { setVariationScaleMinState(v); syncRangeToParam('variationScale', 'randomMin', v); }, [syncRangeToParam]);
+  const setVariationScaleMax = useCallback((v) => { setVariationScaleMaxState(v); syncRangeToParam('variationScale', 'randomMax', v); }, [syncRangeToParam]);
 
   useEffect(() => {
     if (layerCountDraggingRef.current) return;
@@ -629,7 +713,7 @@ const GlobalControls = ({
     let target = Number(targetRaw);
     if (!Number.isFinite(target)) return;
     target = Math.round(target);
-    target = Math.max(layersMin, Math.min(layersMax, target));
+    target = Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, target));
     setLayers(prev => {
       let next = prev;
       if (target > prev.length) {
@@ -673,8 +757,6 @@ const GlobalControls = ({
     audioSpawnUseGlobalPalette,
     buildVariedLayerFrom,
     generateLayerSeed,
-    layersMax,
-    layersMin,
     paletteColorsForVariation,
     setLayers,
   ]);
@@ -683,23 +765,6 @@ const GlobalControls = ({
     setLayerCount(nextValue);
     setLayerCountDraft(nextValue);
   }, [setLayerCount]);
-
-  // Independent ranges for each Variation slider
-  const [variationPositionMin, setVariationPositionMin] = useState(0);
-  const [variationPositionMax, setVariationPositionMax] = useState(3);
-  const [variationPositionStep, setVariationPositionStep] = useState(0.01);
-  const [variationShapeMin, setVariationShapeMin] = useState(0);
-  const [variationShapeMax, setVariationShapeMax] = useState(3);
-  const [variationShapeStep, setVariationShapeStep] = useState(0.01);
-  const [variationAnimMin, setVariationAnimMin] = useState(0);
-  const [variationAnimMax, setVariationAnimMax] = useState(3);
-  const [variationAnimStep, setVariationAnimStep] = useState(0.01);
-  const [variationColorMin, setVariationColorMin] = useState(0);
-  const [variationColorMax, setVariationColorMax] = useState(3);
-  const [variationColorStep, setVariationColorStep] = useState(0.01);
-  const [variationScaleMin, setVariationScaleMin] = useState(-3);
-  const [variationScaleMax, setVariationScaleMax] = useState(3);
-  const [variationScaleStep, setVariationScaleStep] = useState(0.01);
 
   const applyVariationValue = useCallback((prop, rawValue) => {
     setLayers(prev => {
@@ -1350,7 +1415,7 @@ const GlobalControls = ({
           <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Seed: {seedValue}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Seed:</span><BufferedNumberInput value={seedValue} min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} precision={0} onCommit={(next) => handleSeedSliderChange({ target: { value: next } })} className="dc-value-input" inputMode="numeric" /></div>
               </div>
               <input className="dc-slider" type="range" min={GLOBAL_SEED_MIN} max={GLOBAL_SEED_MAX} step={1} value={seedValue} onChange={handleSeedSliderChange} />
             </div>
@@ -1389,12 +1454,12 @@ const GlobalControls = ({
           <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Global Speed: {globalSpeedMultiplier.toFixed(2)}{renderAutomationBadge('globalSpeedMultiplier')}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Speed:</span><BufferedNumberInput value={globalSpeedMultiplier} min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} precision={2} onCommit={(next) => setGlobalSpeedMultiplier(next)} className="dc-value-input" />{renderAutomationBadge('globalSpeedMultiplier')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
-              <input className="dc-slider" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
+              <RangeSlider className="dc-slider" min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} rangeMin={speedMin} rangeMax={speedMax} onRangeMinChange={setSpeedMin} onRangeMaxChange={setSpeedMax} />
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1406,20 +1471,22 @@ const GlobalControls = ({
                 <AudioControlRow paramId="globalSpeedMultiplier" />
                 <BPMControlRow paramId="globalSpeedMultiplier" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                  <label className="compact-label">Min</label>
+                  <label className="compact-label">Rand Min</label>
                   <BufferedNumberInput
                     value={speedMin}
                     step={0.01}
-                    min={0}
+                    min={SPEED_SLIDER_MIN}
+                    max={speedMax}
                     onCommit={setSpeedMin}
                     className="compact-number"
                     style={{ width: '5rem' }}
                   />
-                  <label className="compact-label">{`Max${getOperationalMaxHint('globalSpeedMultiplier')}`}</label>
+                  <label className="compact-label">{`Rand Max${getOperationalMaxHint('globalSpeedMultiplier')}`}</label>
                   <BufferedNumberInput
                     value={speedMax}
                     step={0.01}
-                    min={0}
+                    min={speedMin}
+                    max={SPEED_SLIDER_MAX}
                     onCommit={setSpeedMax}
                     className="compact-number"
                     style={{ width: '5rem' }}
@@ -1440,20 +1507,16 @@ const GlobalControls = ({
           </div>
           {/* Palette */}
           <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner">
-              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Palette{renderAutomationBadge('globalPaletteIndex')}</span></div>
-                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem' }}>⚙</button>
-                </div>
-              </div>
-              <select className="compact-select" value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
+            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Palette{renderAutomationBadge('globalPaletteIndex')}</span>
+              <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={selectedPaletteValue} onChange={(e) => { const val = e.target.value; if (val === 'custom') { setGlobalPaletteIndex?.('custom'); setGlobalPaletteRef?.(null); return; } if (val.startsWith('custom:')) { const id = val.slice('custom:'.length); if (!id) return; setGlobalPaletteRef?.(id); } else if (val.startsWith('builtin:')) { const idx = parseInt(val.slice('builtin:'.length), 10); if (!Number.isFinite(idx) || !palettes[idx]) return; setGlobalPaletteRef?.(null); setGlobalPaletteIndex?.(idx); } const src = paletteValueMap.get(val) || []; const nextColors = sampleColorsEven(src, Math.max(1, layers.length)); assignOneColorPerLayer(nextColors); }}>
                 <option value="custom">Custom</option>
                 {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
                 {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
               </select>
+              <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
               {showPaletteSettings && (
-                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div style={{ marginBottom: '0.5rem' }}>
                     <button type="button" className="btn-compact-secondary" onClick={() => { if (typeof onSaveCustomPalette !== 'function') return; const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : []; const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0); if (!safe.length) return; const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim(); if (!name) return; const created = onSaveCustomPalette({ name, colors: safe }); if (created?.id) setGlobalPaletteRef?.(created.id); }}>Save current colours as custom palette</button>
                   </div>
@@ -1471,18 +1534,14 @@ const GlobalControls = ({
           </div>
           {/* Style */}
           <div style={{ marginBottom: '0.4rem' }}>
-            <div className="dc-inner">
-              <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Style{renderAutomationBadge('globalBlendMode')}</span></div>
-                <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem' }}>⚙</button>
-                </div>
-              </div>
-              <select className="compact-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
+            <div className="dc-inner" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span style={{ whiteSpace: 'nowrap' }}>Style{renderAutomationBadge('globalBlendMode')}</span>
+              <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
                 {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
               </select>
+              <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
               {showBlendModeSettings && (
-                <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
                     <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
                     {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
@@ -1499,12 +1558,12 @@ const GlobalControls = ({
           <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Global Opacity: {(Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1).toFixed(2)}{renderAutomationBadge('globalOpacity')}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Opacity:</span><BufferedNumberInput value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} precision={2} onCommit={(next) => { const v = Math.max(0, Math.min(1, next)); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} className="dc-value-input" />{renderAutomationBadge('globalOpacity')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
-              <input className="dc-slider" type="range" min={opacityMin} max={opacityMax} step={opacityStep} value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} />
+              <RangeSlider className="dc-slider" min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} rangeMin={opacityMin} rangeMax={opacityMax} onRangeMinChange={setOpacityMin} onRangeMaxChange={setOpacityMax} />
               {showOpacitySettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1516,10 +1575,10 @@ const GlobalControls = ({
                   <AudioControlRow paramId="globalOpacity" />
                   <BPMControlRow paramId="globalOpacity" />
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                    <label className="compact-label">Min</label>
-                    <BufferedNumberInput value={opacityMin} step={0.01} min={0} max={1} onCommit={setOpacityMin} className="compact-number" style={{ width: '5rem' }} />
-                    <label className="compact-label">{`Max${getOperationalMaxHint('globalOpacity')}`}</label>
-                    <BufferedNumberInput value={opacityMax} step={0.01} min={0} max={1} onCommit={setOpacityMax} className="compact-number" style={{ width: '5rem' }} />
+                    <label className="compact-label">Rand Min</label>
+                    <BufferedNumberInput value={opacityMin} step={0.01} min={OPACITY_SLIDER_MIN} max={opacityMax} onCommit={setOpacityMin} className="compact-number" style={{ width: '5rem' }} />
+                    <label className="compact-label">{`Rand Max${getOperationalMaxHint('globalOpacity')}`}</label>
+                    <BufferedNumberInput value={opacityMax} step={0.01} min={opacityMin} max={OPACITY_SLIDER_MAX} onCommit={setOpacityMax} className="compact-number" style={{ width: '5rem' }} />
                     <label className="compact-label">Step</label>
                     <BufferedNumberInput value={opacityStep} step={0.001} min={0.001} onCommit={(next) => setOpacityStep(next || 0.01)} className="compact-number" style={{ width: '5rem' }} />
                   </div>
@@ -1531,12 +1590,12 @@ const GlobalControls = ({
           <div className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
             <div className="dc-inner">
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                <div><span>Layers: {layerCountDraft}{renderAutomationBadge('layersCount')}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Layers:</span><BufferedNumberInput value={layerCountDraft} min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} precision={0} onCommit={(next) => commitLayerCountDraft(Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(next))))} className="dc-value-input" inputMode="numeric" />{renderAutomationBadge('layersCount')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}>⚙</button>
                 </div>
               </div>
-              <input className="dc-slider" type="range" min={layersMin} max={layersMax} step={layersStep} value={layerCountDraft} onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }} onPointerDown={() => { layerCountDraggingRef.current = true; }} onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} />
+              <RangeSlider className="dc-slider" min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} value={layerCountDraft} onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }} onPointerDown={() => { layerCountDraggingRef.current = true; }} onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} rangeMin={layersMin} rangeMax={layersMax} onRangeMinChange={(v) => setLayersMin(Math.max(1, Math.round(v)))} onRangeMaxChange={(v) => setLayersMax(Math.max(1, Math.round(v)))} />
               {showLayersSettings && (
                 <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1548,10 +1607,10 @@ const GlobalControls = ({
                   <AudioControlRow paramId="layersCount" />
                   <BPMControlRow paramId="layersCount" />
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                    <label className="compact-label">Min</label>
-                    <BufferedNumberInput value={layersMin} step={1} min={1} onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
-                    <label className="compact-label">{`Max${getOperationalMaxHint('layersCount')}`}</label>
-                    <BufferedNumberInput value={layersMax} step={1} min={layersMin} onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
+                    <label className="compact-label">Rand Min</label>
+                    <BufferedNumberInput value={layersMin} step={1} min={LAYERS_SLIDER_MIN} max={layersMax} onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
+                    <label className="compact-label">{`Rand Max${getOperationalMaxHint('layersCount')}`}</label>
+                    <BufferedNumberInput value={layersMax} step={1} min={layersMin} max={LAYERS_SLIDER_MAX} onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
                     <label className="compact-label">Step</label>
                     <BufferedNumberInput value={layersStep} step={1} min={1} onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))} className="compact-number" style={{ width: '5rem' }} inputMode="numeric" />
                   </div>
@@ -1580,22 +1639,22 @@ const GlobalControls = ({
         </div>
         <div style={{ marginTop: '0.5rem' }}>
           {[
-            { key: 'variationPosition', label: 'Position', value: layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition, min: variationPositionMin, max: variationPositionMax, step: variationPositionStep, showSettings: showVariationPositionSettings, setShowSettings: setShowVariationPositionSettings, setMin: setVariationPositionMin, setMax: setVariationPositionMax, setStep: setVariationPositionStep },
-            { key: 'variationShape', label: 'Shape', value: layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape, min: variationShapeMin, max: variationShapeMax, step: variationShapeStep, showSettings: showVariationShapeSettings, setShowSettings: setShowVariationShapeSettings, setMin: setVariationShapeMin, setMax: setVariationShapeMax, setStep: setVariationShapeStep },
-            { key: 'variationAnim', label: 'Animation', value: layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim, min: variationAnimMin, max: variationAnimMax, step: variationAnimStep, showSettings: showVariationAnimSettings, setShowSettings: setShowVariationAnimSettings, setMin: setVariationAnimMin, setMax: setVariationAnimMax, setStep: setVariationAnimStep },
-            { key: 'variationColor', label: 'Colour', value: layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor, min: variationColorMin, max: variationColorMax, step: variationColorStep, showSettings: showVariationColorSettings, setShowSettings: setShowVariationColorSettings, setMin: setVariationColorMin, setMax: setVariationColorMax, setStep: setVariationColorStep },
-            { key: 'variationScale', label: 'Scale', value: layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0, min: variationScaleMin, max: variationScaleMax, step: variationScaleStep, showSettings: showVariationScaleSettings, setShowSettings: setShowVariationScaleSettings, setMin: setVariationScaleMin, setMax: setVariationScaleMax, setStep: setVariationScaleStep },
+            { key: 'variationPosition', label: 'Position', value: layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition, min: variationPositionMin, max: variationPositionMax, step: variationPositionStep, sliderMin: VARIATION_SLIDER_MIN, sliderMax: VARIATION_SLIDER_MAX, showSettings: showVariationPositionSettings, setShowSettings: setShowVariationPositionSettings, setMin: setVariationPositionMin, setMax: setVariationPositionMax, setStep: setVariationPositionStep },
+            { key: 'variationShape', label: 'Shape', value: layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape, min: variationShapeMin, max: variationShapeMax, step: variationShapeStep, sliderMin: VARIATION_SLIDER_MIN, sliderMax: VARIATION_SLIDER_MAX, showSettings: showVariationShapeSettings, setShowSettings: setShowVariationShapeSettings, setMin: setVariationShapeMin, setMax: setVariationShapeMax, setStep: setVariationShapeStep },
+            { key: 'variationAnim', label: 'Animation', value: layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim, min: variationAnimMin, max: variationAnimMax, step: variationAnimStep, sliderMin: VARIATION_SLIDER_MIN, sliderMax: VARIATION_SLIDER_MAX, showSettings: showVariationAnimSettings, setShowSettings: setShowVariationAnimSettings, setMin: setVariationAnimMin, setMax: setVariationAnimMax, setStep: setVariationAnimStep },
+            { key: 'variationColor', label: 'Colour', value: layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor, min: variationColorMin, max: variationColorMax, step: variationColorStep, sliderMin: VARIATION_SLIDER_MIN, sliderMax: VARIATION_SLIDER_MAX, showSettings: showVariationColorSettings, setShowSettings: setShowVariationColorSettings, setMin: setVariationColorMin, setMax: setVariationColorMax, setStep: setVariationColorStep },
+            { key: 'variationScale', label: 'Scale', value: layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0, min: variationScaleMin, max: variationScaleMax, step: variationScaleStep, sliderMin: VARIATION_SCALE_SLIDER_MIN, sliderMax: VARIATION_SCALE_SLIDER_MAX, showSettings: showVariationScaleSettings, setShowSettings: setShowVariationScaleSettings, setMin: setVariationScaleMin, setMax: setVariationScaleMax, setStep: setVariationScaleStep },
           ].map(v => (
             <div key={v.key} className="dc-wrap" style={{ marginBottom: '0.4rem' }}>
               <div className="dc-inner">
                 <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-                  <div><span>{v.label}: {Number(v.value).toFixed(2)}{renderAutomationBadge(v.key)}</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>{v.label}:</span><BufferedNumberInput value={Number(v.value)} min={v.sliderMin} max={v.sliderMax} step={v.step} precision={2} onCommit={(next) => applyVariationValue(v.key, next)} className="dc-value-input" />{renderAutomationBadge(v.key)}</div>
                   <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <label className="compact-label" title={`Include ${v.label} Variation in Randomize All`}><input type="checkbox" checked={!!getIsRnd(v.key)} onChange={(e) => setIsRnd(v.key, e.target.checked)} /> Incl</label>
                     <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }} title={`${v.label} settings`} style={{ padding: '0 0.4rem' }}>⚙</button>
                   </div>
                 </div>
-                <input className="dc-slider" type="range" min={v.min} max={v.max} step={v.step} value={Number(v.value)} onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))} />
+                <RangeSlider className="dc-slider" min={v.sliderMin} max={v.sliderMax} step={v.step} value={Number(v.value)} onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))} rangeMin={v.min} rangeMax={v.max} onRangeMinChange={v.setMin} onRangeMaxChange={v.setMax} />
                 {v.showSettings && (
                   <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                     <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1607,10 +1666,10 @@ const GlobalControls = ({
                     <AudioControlRow paramId={v.key} />
                     <BPMControlRow paramId={v.key} />
                     <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
-                      <label className="compact-label">Min</label>
-                      <BufferedNumberInput value={v.min} step={0.01} onCommit={v.setMin} className="compact-number" style={{ width: '5rem' }} />
-                      <label className="compact-label">{`Max${getOperationalMaxHint(v.key)}`}</label>
-                      <BufferedNumberInput value={v.max} step={0.01} onCommit={v.setMax} className="compact-number" style={{ width: '5rem' }} />
+                      <label className="compact-label">Rand Min</label>
+                      <BufferedNumberInput value={v.min} step={0.01} min={v.sliderMin} max={v.max} onCommit={v.setMin} className="compact-number" style={{ width: '5rem' }} />
+                      <label className="compact-label">{`Rand Max${getOperationalMaxHint(v.key)}`}</label>
+                      <BufferedNumberInput value={v.max} step={0.01} min={v.min} max={v.sliderMax} onCommit={v.setMax} className="compact-number" style={{ width: '5rem' }} />
                       <label className="compact-label">Step</label>
                       <BufferedNumberInput value={v.step} step={0.001} min={0.0001} onCommit={(next) => v.setStep(next || 0.01)} className="compact-number" style={{ width: '5rem' }} />
                     </div>
