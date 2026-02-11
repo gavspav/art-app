@@ -318,6 +318,18 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.colors = [...kf.colors];
     }
 
+    // Include base (un-varied) data if present for runtime energy blending
+    if (kf.base) {
+      result.base = {
+        nodes: categories.shape ? kf.base.nodes : null,
+        subpaths: categories.shape ? kf.base.subpaths : null,
+        position: kf.base.position ? { ...kf.base.position } : result.position,
+        shapeParams: kf.base.shapeParams ? { ...kf.base.shapeParams } : result.shapeParams,
+        animation: (categories.animation && kf.base.animation) ? { ...kf.base.animation } : result.animation,
+        colors: (categories.color && Array.isArray(kf.base.colors)) ? [...kf.base.colors] : result.colors,
+      };
+    }
+
     return result;
   };
 
@@ -428,8 +440,8 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     };
   }
 
-  // Interpolate animation parameters if enabled
-  if (categories.animation && (left.animation || right.animation)) {
+  // Interpolate animation parameters (always if data exists — category toggles control application, not storage)
+  if (left.animation || right.animation) {
     const animA = left.animation || {};
     const animB = right.animation || animA;
 
@@ -446,8 +458,8 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     };
   }
 
-  // Interpolate colors if enabled
-  if (categories.color) {
+  // Interpolate colors (always if data exists — category toggles control application, not storage)
+  {
     const hasColors = (kf) => Array.isArray(kf?.colors) && kf.colors.length > 0;
     const findPrevWithColors = (start) => {
       for (let i = start; i >= 0; i--) {
@@ -482,6 +494,80 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.colors = [...leftColorKf.colors];
     } else if (rightColorKf) {
       result.colors = [...rightColorKf.colors];
+    }
+  }
+
+  // Interpolate base (un-varied) data if present on both bracket keyframes
+  // This enables runtime energy blending: final = lerp(base, varied, energy * influence)
+  const leftBase = left.base;
+  const rightBase = right.base;
+  if (leftBase && rightBase) {
+    result.base = { nodes: null, subpaths: null };
+
+    // Interpolate base shape
+    if (categories.shape) {
+      if (leftBase.subpaths && rightBase.subpaths && lerpSubpaths) {
+        const interpolated = lerpSubpaths(leftBase.subpaths, rightBase.subpaths, clampedT);
+        if (interpolated) result.base.subpaths = interpolated;
+      }
+      if (!result.base.subpaths && leftBase.nodes && rightBase.nodes && lerpNodes) {
+        const interpolated = lerpNodes(leftBase.nodes, rightBase.nodes, clampedT);
+        if (interpolated) result.base.nodes = interpolated;
+      }
+      if (!result.base.nodes && !result.base.subpaths) {
+        result.base.nodes = leftBase.nodes;
+        result.base.subpaths = leftBase.subpaths;
+      }
+    }
+
+    // Interpolate base position
+    if (leftBase.position || rightBase.position) {
+      const bpA = leftBase.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
+      const bpB = rightBase.position || bpA;
+      result.base.position = {
+        x: lerp(bpA.x ?? 0.5, bpB.x ?? 0.5, easedT),
+        y: lerp(bpA.y ?? 0.5, bpB.y ?? 0.5, easedT),
+        scale: lerp(bpA.scale ?? 1, bpB.scale ?? 1, easedT),
+        xOffset: lerp(bpA.xOffset ?? 0, bpB.xOffset ?? 0, easedT),
+        yOffset: lerp(bpA.yOffset ?? 0, bpB.yOffset ?? 0, easedT),
+      };
+    }
+
+    // Interpolate base shape params
+    if (leftBase.shapeParams || rightBase.shapeParams) {
+      const bsA = leftBase.shapeParams || {};
+      const bsB = rightBase.shapeParams || bsA;
+      result.base.shapeParams = {
+        numSides: Math.round(lerp(bsA.numSides ?? 6, bsB.numSides ?? 6, easedT)),
+        curviness: lerp(bsA.curviness ?? 1.0, bsB.curviness ?? 1.0, easedT),
+        radiusFactor: lerp(bsA.radiusFactor ?? 0.125, bsB.radiusFactor ?? 0.125, easedT),
+        radiusFactorX: lerp(bsA.radiusFactorX ?? bsA.radiusFactor ?? 0.125, bsB.radiusFactorX ?? bsB.radiusFactor ?? 0.125, easedT),
+        radiusFactorY: lerp(bsA.radiusFactorY ?? bsA.radiusFactor ?? 0.125, bsB.radiusFactorY ?? bsB.radiusFactor ?? 0.125, easedT),
+        rotation: lerp(bsA.rotation ?? 0, bsB.rotation ?? 0, easedT),
+      };
+    }
+
+    // Interpolate base animation
+    if (categories.animation && (leftBase.animation || rightBase.animation)) {
+      const baA = leftBase.animation || {};
+      const baB = rightBase.animation || baA;
+      result.base.animation = {
+        movementStyle: baA.movementStyle ?? baB.movementStyle ?? 'bounce',
+        movementSpeed: lerp(baA.movementSpeed ?? 1, baB.movementSpeed ?? 1, easedT),
+        movementAngle: lerp(baA.movementAngle ?? 45, baB.movementAngle ?? 45, easedT),
+        scaleSpeed: lerp(baA.scaleSpeed ?? 0.05, baB.scaleSpeed ?? 0.05, easedT),
+        scaleMin: lerp(baA.scaleMin ?? 0, baB.scaleMin ?? 0, easedT),
+        scaleMax: lerp(baA.scaleMax ?? 1.5, baB.scaleMax ?? 1.5, easedT),
+        rotation: lerp(baA.rotation ?? 0, baB.rotation ?? 0, easedT),
+        radiusFactor: lerp(baA.radiusFactor ?? 0.125, baB.radiusFactor ?? 0.125, easedT),
+      };
+    }
+
+    // Interpolate base colors
+    if (categories.color && Array.isArray(leftBase.colors) && Array.isArray(rightBase.colors)) {
+      result.base.colors = lerpColorArrays(leftBase.colors, rightBase.colors, easedT);
+    } else if (leftBase.colors) {
+      result.base.colors = [...leftBase.colors];
     }
   }
 
@@ -606,14 +692,27 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
     if (!Array.isArray(kf.layers)) return null;
 
     return {
-      layers: kf.layers.map(layerData => ({
-        nodes: categories.shape ? layerData.nodes : null,
-        subpaths: categories.shape ? layerData.subpaths : null,
-        position: layerData.position ? { ...layerData.position } : null,
-        shapeParams: layerData.shapeParams ? { ...layerData.shapeParams } : null,
-        animation: categories.animation && layerData.animation ? { ...layerData.animation } : null,
-        colors: categories.color && Array.isArray(layerData.colors) ? [...layerData.colors] : null,
-      })),
+      layers: kf.layers.map(layerData => {
+        const result = {
+          nodes: categories.shape ? layerData.nodes : null,
+          subpaths: categories.shape ? layerData.subpaths : null,
+          position: layerData.position ? { ...layerData.position } : null,
+          shapeParams: layerData.shapeParams ? { ...layerData.shapeParams } : null,
+          animation: categories.animation && layerData.animation ? { ...layerData.animation } : null,
+          colors: categories.color && Array.isArray(layerData.colors) ? [...layerData.colors] : null,
+        };
+        if (layerData.base) {
+          result.base = {
+            nodes: categories.shape ? layerData.base.nodes : null,
+            subpaths: categories.shape ? layerData.base.subpaths : null,
+            position: layerData.base.position ? { ...layerData.base.position } : result.position,
+            shapeParams: layerData.base.shapeParams ? { ...layerData.base.shapeParams } : result.shapeParams,
+            animation: (categories.animation && layerData.base.animation) ? { ...layerData.base.animation } : result.animation,
+            colors: (categories.color && Array.isArray(layerData.base.colors)) ? [...layerData.base.colors] : result.colors,
+          };
+        }
+        return result;
+      }),
     };
   };
 
@@ -724,8 +823,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       };
     }
 
-    // Interpolate animation if enabled
-    if (categories.animation && (layerA.animation || layerB.animation)) {
+    // Interpolate animation (always if data exists — category toggles control application, not storage)
+    if (layerA.animation || layerB.animation) {
       const animA = layerA.animation || {};
       const animB = layerB.animation || animA;
 
@@ -739,8 +838,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       };
     }
 
-    // Interpolate colors if enabled
-    if (categories.color && (layerA.colors || layerB.colors)) {
+    // Interpolate colors (always if data exists)
+    if (layerA.colors || layerB.colors) {
       result.colors = lerpColorArrays(layerA.colors, layerB.colors, easedT);
     }
 

@@ -71,7 +71,7 @@ export function generateVariedLayer(baseLayer, options = {}) {
  * @param {object} categories - Which categories to include { shape: true, animation: false, color: false }
  * @returns {object} { nodes, subpaths, extras }
  */
-export function extractKeyframeData(layer, categories = { shape: true, animation: false, color: false }) {
+export function extractKeyframeData(layer, _categories = { shape: true, animation: false, color: false }) {
   // Deep clone nodes and subpaths
   const nodes = Array.isArray(layer.nodes) ? JSON.parse(JSON.stringify(layer.nodes)) : null;
   const subpaths = Array.isArray(layer.subpaths) ? JSON.parse(JSON.stringify(layer.subpaths)) : null;
@@ -98,17 +98,15 @@ export function extractKeyframeData(layer, categories = { shape: true, animation
     rotation: layer.rotation ?? 0,
   };
 
-  // Animation params (if enabled)
-  if (categories.animation) {
-    extras.animation = {
-      movementStyle: layer.movementStyle ?? 'bounce',
-      movementSpeed: layer.movementSpeed ?? 1,
-      movementAngle: layer.movementAngle ?? 45,
-      scaleSpeed: layer.scaleSpeed ?? 0.05,
-      scaleMin: layer.scaleMin ?? 0,
-      scaleMax: layer.scaleMax ?? 1.5,
-    };
-  }
+  // Animation params (always stored — category toggles control playback, not storage)
+  extras.animation = {
+    movementStyle: layer.movementStyle ?? 'bounce',
+    movementSpeed: layer.movementSpeed ?? 1,
+    movementAngle: layer.movementAngle ?? 45,
+    scaleSpeed: layer.scaleSpeed ?? 0.05,
+    scaleMin: layer.scaleMin ?? 0,
+    scaleMax: layer.scaleMax ?? 1.5,
+  };
 
   // Always capture colors so keyframes can later tween correctly when the track's
   // "Color" category is enabled (the toggle controls playback, not what is stored).

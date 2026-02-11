@@ -511,19 +511,14 @@ const BottomPanel = ({
     if (midiInputId) lastMidiInputIdRef.current = midiInputId;
   }, [midiInputId]);
 
-  // Auto-hide logic
+  // Auto-hide logic (disabled — panel stays expanded until manually minimised)
   const resetHideTimer = useCallback(() => {
     lastActivityRef.current = Date.now();
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
     }
-    
-    if (!isLocked && panelState === 'expanded') {
-      hideTimeoutRef.current = setTimeout(() => {
-        setPanelState('peek');
-      }, PANEL_HIDE_DELAY_MS);
-    }
-  }, [isLocked, panelState]);
+  }, []);
 
   // Show panel on hover near docked edge (top or bottom)
   useEffect(() => {

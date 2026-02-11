@@ -221,7 +221,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   if (includePosition && wPosition > 0 && isAllowed('position')) {
     const baseX = prev.position?.x ?? 0.5;
     const baseY = prev.position?.y ?? 0.5;
-    const jitter = 0.15 * wPosition;
+    const jitter = 0.35 * wPosition;
     const jx = (random01() * 2 - 1) * jitter;
     const jy = (random01() * 2 - 1) * jitter;
     const nx = clamp(baseX + jx, 0.0, 1.0);
@@ -435,7 +435,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
             }
           }
         }
-        const jitterAmt = 0.12 * wShape;
+        const jitterAmt = 0.28 * wShape;
         // Only jitter nodes if 'nodes' parameter is allowed
         if (isAllowed('nodes')) {
           varied.nodes = nodes.map(n => ({

@@ -7,6 +7,7 @@ import { DEFAULT_LAYER } from '../constants/defaults.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 
+
 const lerp = (a, b, t) => a + (b - a) * t;
 const toNumber = (value, fallback) => {
   const num = Number(value);
@@ -22,6 +23,81 @@ const lerpColor = (ca, cb, t) => {
     b: Math.round(lerp(ra.b, rb.b, t)),
   });
 };
+
+/**
+ * Temporal smoothing: lerp between previous and current shape updates.
+ * factor=0 → keep previous, factor=1 → jump to current.
+ * Typical per-frame factor ~0.35 at 60fps gives ~80ms settling.
+ */
+const smoothShapeUpdate = (prev, current, factor) => {
+  if (!prev || factor >= 1) return current;
+  if (factor <= 0) return prev;
+  const result = { ...current };
+
+  // Smooth nodes/subpaths
+  if (prev.subpaths && current.subpaths) {
+    const lerped = lerpSubpaths(prev.subpaths, current.subpaths, factor);
+    if (lerped) result.subpaths = lerped;
+  } else if (prev.nodes && current.nodes) {
+    const lerped = lerpNodes(prev.nodes, current.nodes, factor);
+    if (lerped) result.nodes = lerped;
+  }
+
+  // Smooth position
+  if (prev.position && current.position) {
+    result.position = {
+      x: lerp(prev.position.x ?? 0.5, current.position.x ?? 0.5, factor),
+      y: lerp(prev.position.y ?? 0.5, current.position.y ?? 0.5, factor),
+      scale: lerp(prev.position.scale ?? 1, current.position.scale ?? 1, factor),
+      xOffset: lerp(prev.position.xOffset ?? 0, current.position.xOffset ?? 0, factor),
+      yOffset: lerp(prev.position.yOffset ?? 0, current.position.yOffset ?? 0, factor),
+    };
+  }
+
+  // Smooth shape params
+  if (prev.shapeParams && current.shapeParams) {
+    const ps = prev.shapeParams;
+    const cs = current.shapeParams;
+    result.shapeParams = {
+      numSides: Math.round(lerp(ps.numSides ?? 6, cs.numSides ?? 6, factor)),
+      curviness: lerp(ps.curviness ?? 1, cs.curviness ?? 1, factor),
+      radiusFactor: lerp(ps.radiusFactor ?? 0.125, cs.radiusFactor ?? 0.125, factor),
+      radiusFactorX: lerp(ps.radiusFactorX ?? 0.125, cs.radiusFactorX ?? 0.125, factor),
+      radiusFactorY: lerp(ps.radiusFactorY ?? 0.125, cs.radiusFactorY ?? 0.125, factor),
+      rotation: lerp(ps.rotation ?? 0, cs.rotation ?? 0, factor),
+    };
+  }
+
+  // Smooth animation params
+  if (prev.animation && current.animation) {
+    const pa = prev.animation;
+    const ca = current.animation;
+    result.animation = {
+      movementStyle: ca.movementStyle,
+      movementSpeed: lerp(pa.movementSpeed ?? 1, ca.movementSpeed ?? 1, factor),
+      movementAngle: lerp(pa.movementAngle ?? 45, ca.movementAngle ?? 45, factor),
+      scaleSpeed: lerp(pa.scaleSpeed ?? 0.05, ca.scaleSpeed ?? 0.05, factor),
+      scaleMin: lerp(pa.scaleMin ?? 0, ca.scaleMin ?? 0, factor),
+      scaleMax: lerp(pa.scaleMax ?? 1.5, ca.scaleMax ?? 1.5, factor),
+    };
+  }
+
+  // Smooth colors
+  if (prev.colors && current.colors && Array.isArray(prev.colors) && Array.isArray(current.colors)) {
+    const maxLen = Math.max(prev.colors.length, current.colors.length);
+    result.colors = [];
+    for (let i = 0; i < maxLen; i++) {
+      const pc = prev.colors[i % prev.colors.length] || '#000000';
+      const cc = current.colors[i % current.colors.length] || '#000000';
+      result.colors.push(lerpColor(pc, cc, factor));
+    }
+  }
+
+  return result;
+};
+
+// Smoothing factor per frame at ~60fps. 0.35 = shapes reach ~88% of target in 5 frames (~83ms).
+const SHAPE_SMOOTH_FACTOR = 0.35;
 
 const stripMorphFields = (state) => {
   if (!state || typeof state !== 'object') return state;
@@ -72,7 +148,16 @@ export function useTimelineModulation({
   shapeTrackUpdatesRef,
 }) {
   const timeline = useTimeline();
-  const { isNodeEditMode, nodeEditContext, timelineMode } = useAppState() || {};
+  const appState = useAppState() || {};
+  const { isNodeEditMode, nodeEditContext, timelineMode } = appState;
+
+  // Energy data refs for runtime blending (read in RAF loop)
+  const energyMapRef = useRef(timeline?.energyMap || []);
+  const enableEnergyScalingRef = useRef(!!appState.enableEnergyScaling);
+  const energyInfluenceRef = useRef(appState.energyInfluence ?? 0.5);
+  useEffect(() => { energyMapRef.current = timeline?.energyMap || []; }, [timeline?.energyMap]);
+  useEffect(() => { enableEnergyScalingRef.current = !!appState.enableEnergyScaling; }, [appState.enableEnergyScaling]);
+  useEffect(() => { energyInfluenceRef.current = appState.energyInfluence ?? 0.5; }, [appState.energyInfluence]);
 
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
@@ -94,6 +179,9 @@ export function useTimelineModulation({
   useEffect(() => { getPresetSlotRef.current = getPresetSlot; }, [getPresetSlot]);
   useEffect(() => { morphRouteRef.current = Array.isArray(morphRoute) ? [...morphRoute] : []; }, [morphRoute]);
   useEffect(() => { morphNodesRef.current = !!morphNodes; }, [morphNodes]);
+
+  // Previous frame's shape updates for temporal smoothing (reduces jitter between keyframes)
+  const prevShapeUpdatesRef = useRef(new Map());
 
   // Layer pool for timeline layersCount modulation - preserves layer IDs when shrinking/growing
   // This prevents tracks from losing their targets when layer count changes during playback
@@ -698,21 +786,23 @@ export function useTimelineModulation({
     }
 
     if (shapeUpdates.length > 0) {
+      // Pass raw interpolated data through — energy and per-slider blending
+      // is now handled in useAnimation for both playback and scrub paths.
       const updateMap = new Map();
-      for (const update of shapeUpdates) {
+      for (const rawUpdate of shapeUpdates) {
         // Store by resolved ID (UUID)
-        updateMap.set(update.layerId, update);
+        updateMap.set(rawUpdate.layerId, rawUpdate);
         // Also store by original layer name from targetId
-        if (update.layerName && update.layerName !== update.layerId) {
-          updateMap.set(update.layerName, update);
+        if (rawUpdate.layerName && rawUpdate.layerName !== rawUpdate.layerId) {
+          updateMap.set(rawUpdate.layerName, rawUpdate);
         }
         // Also find and store by the layer's actual name property
         if (Array.isArray(layers)) {
           const matchingLayer = layers.find(l =>
-            l?.id === update.layerId || l?.name === update.layerName
+            l?.id === rawUpdate.layerId || l?.name === rawUpdate.layerName
           );
-          if (matchingLayer?.name && matchingLayer.name !== update.layerId && matchingLayer.name !== update.layerName) {
-            updateMap.set(matchingLayer.name, update);
+          if (matchingLayer?.name && matchingLayer.name !== rawUpdate.layerId && matchingLayer.name !== rawUpdate.layerName) {
+            updateMap.set(matchingLayer.name, rawUpdate);
           }
         }
       }
@@ -880,6 +970,7 @@ export function useTimelineModulation({
                     shapeParams: interpolatedData.shapeParams,
                     animation: interpolatedData.animation,
                     colors: interpolatedData.colors,
+                    base: interpolatedData.base, // For runtime energy blending
                     isGlobalShapeTrack: true, // Flag to identify source
                   };
 
@@ -906,6 +997,7 @@ export function useTimelineModulation({
                   shapeParams: shapeResult.shapeParams,
                   animation: shapeResult.animation,
                   colors: shapeResult.colors,
+                  base: shapeResult.base, // For runtime energy blending
                 };
                 // Store by resolved ID (UUID)
                 shapeUpdates.set(parsed.layerId, updateData);
@@ -959,9 +1051,18 @@ export function useTimelineModulation({
           // Global params are handled by the main effect since they need setters
         }
 
-        // Update shape track ref (consumed by animation loop)
+        // Pass raw interpolated data through — energy and per-slider blending
+        // is now handled in useAnimation for both playback and scrub paths.
         if (shapeTrackUpdatesRef) {
-          shapeTrackUpdatesRef.current = shapeUpdates;
+          // Temporal smoothing: lerp toward previous frame to reduce jitter
+          const prevMap = prevShapeUpdatesRef.current;
+          const smoothedMap = new Map();
+          for (const [key, update] of shapeUpdates) {
+            const prev = prevMap.get(key);
+            smoothedMap.set(key, prev ? smoothShapeUpdate(prev, update, SHAPE_SMOOTH_FACTOR) : update);
+          }
+          prevShapeUpdatesRef.current = smoothedMap;
+          shapeTrackUpdatesRef.current = smoothedMap;
         }
       }
 

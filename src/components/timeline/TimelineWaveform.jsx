@@ -17,6 +17,7 @@ const TimelineWaveform = ({
   height = 80,
   timelineWidth,
   transients = [],
+  energyMap = null,
 }) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -148,6 +149,30 @@ const TimelineWaveform = ({
       }
     }
 
+    // Draw energy line graph overlay
+    if (energyMap && energyMap.length > 1) {
+      ctx.save();
+      ctx.strokeStyle = '#4fc3f7';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < energyMap.length; i++) {
+        const ex = energyMap[i].time * pixelsPerSecond;
+        if (ex < 0) continue;
+        if (ex > renderWidth) break;
+        const ey = renderHeight - energyMap[i].normalized * (renderHeight - 4) - 2;
+        if (!started) {
+          ctx.moveTo(ex, ey);
+          started = true;
+        } else {
+          ctx.lineTo(ex, ey);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Draw playhead line
     const playheadX = positionSeconds * pixelsPerSecond;
     if (playheadX >= 0 && playheadX <= renderWidth) {
@@ -158,7 +183,7 @@ const TimelineWaveform = ({
       ctx.lineTo(playheadX, renderHeight);
       ctx.stroke();
     }
-  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth, transients]);
+  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth, transients, energyMap]);
 
   // Handle click/drag to seek
   const handleMouseDown = useCallback((e) => {

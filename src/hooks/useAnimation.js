@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { applyModulationsToLayer } from './useModulationStore.js';
 import { evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
+import { getEnergyAtTime } from '../utils/audioTransients.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 
 // Pure function to calculate new movement angle after boundary collision
@@ -289,7 +290,13 @@ export const useAnimation = (
     timelineContext = null,
 ) => {
     const animationFrameId = useRef(null);
-    const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext } = useAppState() || {};
+    const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext, enableEnergyScaling, energyInfluence } = useAppState() || {};
+
+    // Energy refs for RAF access
+    const enableEnergyScalingRef = useRef(enableEnergyScaling);
+    useEffect(() => { enableEnergyScalingRef.current = enableEnergyScaling; }, [enableEnergyScaling]);
+    const energyInfluenceRef = useRef(energyInfluence);
+    useEffect(() => { energyInfluenceRef.current = energyInfluence; }, [energyInfluence]);
 
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
@@ -648,14 +655,38 @@ export const useAnimation = (
 
                 // Helper for runtime blending
                 const lerp = (a, b, t) => a + (b - a) * t;
+
+                // Compute energy factor for this frame (energy * influence)
+                // When energy scaling is enabled, per-slider t = sliderValue * energyFactor
+                // When disabled, t = sliderValue directly (full variation at slider max)
+                const eEnabled = enableEnergyScalingRef.current;
+                const eInfluence = energyInfluenceRef.current ?? 0.5;
+                const tlCtxForEnergy = timelineContextRef.current;
+                let energyFactor = 1; // default: no energy scaling
+                if (eEnabled) {
+                    const eMap = tlCtxForEnergy?.energyMap || [];
+                    const playPos = tlCtxForEnergy?.getPositionSeconds?.() ?? tlCtxForEnergy?.positionSeconds ?? 0;
+                    if (eMap.length > 0 && eInfluence > 0) {
+                        const rawEnergy = getEnergyAtTime(eMap, playPos);
+                        energyFactor = Math.max(0, Math.min(2, rawEnergy * eInfluence));
+                    } else {
+                        energyFactor = eInfluence;
+                    }
+                }
+
                 const getT = (param) => {
                     const val = layer[param] ?? layer.variation ?? 0.2;
-                    return Math.max(0, Math.min(1, Number(val)));
+                    const sliderT = Math.max(0, Math.min(1, Number(val)));
+                    // With energy: slider controls ceiling, energy drives how much of that ceiling shows
+                    // Without energy: slider value is the blend directly
+                    return eEnabled
+                        ? Math.max(0, Math.min(1, sliderT * energyFactor))
+                        : sliderT;
                 };
 
                 // Runtime Blending Logic
                 // If shapeUpdate has 'base' data (unvaried state), we blend between base and varied
-                // using the current live slider values (t). This allows sliders to act as multipliers at playback.
+                // using the current live slider values (t) * energy. This allows sliders to act as multipliers at playback.
                 if (shapeUpdate.base) {
                     // 1. Geometry Blending
                     if (!shouldBlockGeometry) {

@@ -37,6 +37,7 @@ const TimelinePanel = ({
   onGenerateRandomKeyframes,
   onFillKeyframesBetween,
   onCaptureGlobalKeyframe,
+  panelGenerateRandomRef,
 }) => {
   const timeline = useTimeline();
   const {
@@ -91,7 +92,7 @@ const TimelinePanel = ({
     copyKeyframe,
     pasteKeyframe,
     pasteKeyframeToTrack,
-    setAudio,
+    loadAudioFile,
     clearAudio,
     setZoom,
     setScrollLeft,
@@ -748,10 +749,12 @@ const TimelinePanel = ({
 
   const handleGenerateRandomFromPanel = useCallback(() => {
     if (typeof onGenerateRandomKeyframes !== 'function') return;
-    const startTime = Number(genStartTime);
-    const endTime = Number(genEndTime);
+    const startStr = String(genStartTime).trim();
+    const endStr = String(genEndTime).trim();
+    const startTime = startStr !== '' ? Number(startStr) : NaN;
+    const endTime = endStr !== '' ? Number(endStr) : NaN;
     onGenerateRandomKeyframes({
-      count: Math.max(1, Math.floor(Number(randomCount) || 5)),
+      count: useTransientTimes ? undefined : Math.max(1, Math.floor(Number(randomCount) || 5)),
       startTime: Number.isFinite(startTime) ? startTime : undefined,
       endTime: Number.isFinite(endTime) ? endTime : undefined,
       useTransients: !!useTransientTimes,
@@ -772,6 +775,12 @@ const TimelinePanel = ({
     energyInfluence,
   ]);
 
+  // Expose panel handler via ref so keyboard shortcut (Shift+R) uses panel settings
+  useEffect(() => {
+    if (panelGenerateRandomRef) panelGenerateRandomRef.current = handleGenerateRandomFromPanel;
+    return () => { if (panelGenerateRandomRef) panelGenerateRandomRef.current = null; };
+  }, [panelGenerateRandomRef, handleGenerateRandomFromPanel]);
+
   const handleFillBetweenFromPanel = useCallback(() => {
     if (typeof onFillKeyframesBetween !== 'function') return;
     onFillKeyframesBetween({
@@ -790,56 +799,16 @@ const TimelinePanel = ({
     energyInfluence,
   ]);
 
-  // Handle audio file load
+  // Handle audio file load — delegates to context's loadAudioFile (which also persists to IndexedDB)
   const handleLoadAudio = useCallback(async (file) => {
-    if (!file) return;
+    if (!file || !loadAudioFile) return;
+    await loadAudioFile(file);
+  }, [loadAudioFile]);
 
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-      // Compute peaks for waveform display
-      const channelData = audioBuffer.getChannelData(0);
-      const duration = audioBuffer.duration;
-
-      // Downsample to ~2000 peaks
-      const peakCount = Math.min(2000, Math.floor(duration * 10));
-      const samplesPerPeak = Math.floor(channelData.length / peakCount);
-      const peaks = [];
-
-      for (let i = 0; i < peakCount; i++) {
-        const start = i * samplesPerPeak;
-        const end = Math.min(start + samplesPerPeak, channelData.length);
-        let max = 0;
-        for (let j = start; j < end; j++) {
-          const abs = Math.abs(channelData[j]);
-          if (abs > max) max = abs;
-        }
-        peaks.push(max);
-      }
-
-      setAudio({
-        src: URL.createObjectURL(file),
-        durationSeconds: duration,
-        peaks,
-        offsetSeconds: 0,
-        buffer: audioBuffer,
-        fileName: file.name,
-        fileType: file.type,
-      });
-
-      // Optionally adjust timeline length to match audio
-      if (setLengthSeconds && duration > lengthSeconds) {
-        setLengthSeconds(duration);
-      }
-
-      audioContext.close();
-    } catch (error) {
-      console.error('Failed to load audio file:', error);
-      alert('Failed to load audio file. Please try a different file.');
-    }
-  }, [setAudio, setLengthSeconds, lengthSeconds]);
+  // clearAudio in context now also clears IndexedDB
+  const handleClearAudio = useCallback(() => {
+    clearAudio?.();
+  }, [clearAudio]);
 
   const contentWidth = useMemo(() => {
     const base = lengthSeconds * pixelsPerSecond;
@@ -880,7 +849,7 @@ const TimelinePanel = ({
         onSetLength={setLengthSeconds}
         onSetLoop={setLoop}
         onLoadAudio={handleLoadAudio}
-        onClearAudio={clearAudio}
+        onClearAudio={handleClearAudio}
         hasAudio={!!audio}
         zoom={zoom}
         onZoomChange={setZoom}
@@ -1000,6 +969,7 @@ const TimelinePanel = ({
                   loop={loop}
                   height={WAVEFORM_HEIGHT}
                   transients={transientSettings?.enabled ? transients : []}
+                  energyMap={enableEnergyScaling ? energyMap : null}
                 />
               </div>
             </div>
@@ -1222,7 +1192,9 @@ const TimelinePanel = ({
                   color: 'rgba(255,255,255,0.8)',
                 }}
               >
-                <div style={{ fontWeight: 600, color: '#90caf9' }}>Generator</div>
+                <details>
+                  <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: '0.9em', opacity: 0.85, padding: '0.2rem 0', color: '#90caf9' }}>Generator</summary>
+                  <div style={{ marginTop: '0.4rem', display: 'grid', gap: 6 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                   <label style={{ display: 'grid', gap: 2 }}>
                     <span>Random N</span>
@@ -1354,6 +1326,8 @@ const TimelinePanel = ({
                     Global Cap
                   </button>
                 </div>
+                  </div>
+                </details>
               </div>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', padding: '0 10px', color: 'rgba(255,255,255,0.45)', fontSize: '0.68rem' }}>
                 Non-modal generation: configure options once, then iterate quickly with buttons or `Shift+R` / `Shift+F`.

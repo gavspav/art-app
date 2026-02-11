@@ -1581,6 +1581,10 @@ const MainApp = () => {
     console.warn('No shape track found for selected layer, and no global shape track found');
 }, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors]);
 
+  // Ref that TimelinePanel populates with its settings-aware random handler
+  // so the keyboard shortcut (Shift+R) uses the panel's Random N, transients, etc.
+  const panelGenerateRandomRef = useRef(null);
+
   // Generate random keyframes (option-driven, no modal prompts)
   // Supports both single-layer shape tracks and global shape tracks
   const handleGenerateRandomKeyframes = useCallback((options = {}) => {
@@ -1615,8 +1619,10 @@ const MainApp = () => {
       }
     }
 
-    const count = Math.max(1, Math.floor(Number(options.count) || 5));
-    if (!Number.isFinite(count) || count < 1) return;
+    const rawCount = Number(options.count);
+    const count = Number.isFinite(rawCount) && rawCount >= 1
+      ? Math.max(1, Math.floor(rawCount))
+      : (options.useTransients ? undefined : 5);
 
     const playheadSeconds = timelineContext?.getPositionSeconds?.()
       ?? timelineContext?.positionSeconds
@@ -1890,7 +1896,13 @@ const MainApp = () => {
 	    timelineIsPlaying: timelineContext?.isPlaying,
     // Variation keyframe generation
 	    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
-	    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
+	    onGenerateRandomKeyframes: () => {
+	      if (panelGenerateRandomRef.current) {
+	        panelGenerateRandomRef.current();
+	      } else {
+	        handleGenerateRandomKeyframes();
+	      }
+	    },
 	    onFillKeyframesBetween: handleFillKeyframesBetween,
       onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
 	  });
@@ -2323,6 +2335,7 @@ const MainApp = () => {
     onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
     onFillKeyframesBetween: handleFillKeyframesBetween,
     onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
+    panelGenerateRandomRef,
   };
 
   return (
