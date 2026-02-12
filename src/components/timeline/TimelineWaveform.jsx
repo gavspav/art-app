@@ -16,6 +16,7 @@ const TimelineWaveform = ({
   loop,
   height = 80,
   timelineWidth,
+  viewportWidth: viewportWidthProp,
   transients = [],
   energyMap = null,
 }) => {
@@ -32,11 +33,14 @@ const TimelineWaveform = ({
 
     const ctx = canvas.getContext('2d');
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const canvasWidth = timelineWidth || container?.clientWidth || 800;
-    const renderWidth = Math.max(1, canvasWidth);
+    // Render only the visible viewport to avoid exceeding browser canvas size limits at high zoom
+    // Use explicit viewportWidth prop when available (container.clientWidth = full timeline width)
+    const viewportWidth = viewportWidthProp || container?.clientWidth || 800;
+    const renderWidth = Math.max(1, Math.min(viewportWidth, 4096));
     const renderHeight = height;
+    const offset = scrollLeft || 0;
 
-    // Size the backing buffer using DPR for crisp rendering
+    // Size the backing buffer to viewport only (not full timeline width)
     canvas.width = renderWidth * dpr;
     canvas.height = renderHeight * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -50,11 +54,13 @@ const TimelineWaveform = ({
     ctx.fillStyle = 'rgba(20, 20, 30, 1)';
     ctx.fillRect(0, 0, renderWidth, renderHeight);
 
-    // Draw grid lines (every second) - aligned with ruler
+    // Draw grid lines (every second) - aligned with ruler, offset by scroll
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.lineWidth = 1;
-    for (let t = 0; t <= lengthSeconds; t++) {
-      const x = t * pixelsPerSecond;
+    const firstGridSec = Math.max(0, Math.floor(offset / pixelsPerSecond));
+    const lastGridSec = Math.min(lengthSeconds, Math.ceil((offset + renderWidth) / pixelsPerSecond));
+    for (let t = firstGridSec; t <= lastGridSec; t++) {
+      const x = t * pixelsPerSecond - offset;
       if (x >= 0 && x <= renderWidth) {
         ctx.beginPath();
         ctx.moveTo(x, 0);
@@ -63,10 +69,10 @@ const TimelineWaveform = ({
       }
     }
 
-    // Draw loop region if enabled
+    // Draw loop region if enabled (offset by scroll)
     if (loop?.enabled) {
-      const loopStartX = loop.startSeconds * pixelsPerSecond;
-      const loopEndX = loop.endSeconds * pixelsPerSecond;
+      const loopStartX = loop.startSeconds * pixelsPerSecond - offset;
+      const loopEndX = loop.endSeconds * pixelsPerSecond - offset;
       ctx.fillStyle = 'rgba(79, 195, 247, 0.1)';
       ctx.fillRect(loopStartX, 0, loopEndX - loopStartX, renderHeight);
       
@@ -83,46 +89,57 @@ const TimelineWaveform = ({
       ctx.stroke();
     }
 
-    // Draw waveform - from x=0 to x=audioWidthPx
+    // Draw waveform - only the visible viewport portion (offset by scroll)
     const centerY = renderHeight / 2;
-    const waveformEndX = Math.min(audioWidthPx, renderWidth);
+    // Visible range in absolute timeline pixels
+    const visStartPx = offset;
+    const visEndPx = offset + renderWidth;
+    // Clamp to audio extent
+    const drawStartPx = Math.max(0, visStartPx);
+    const drawEndPx = Math.min(audioWidthPx, visEndPx);
 
-    ctx.fillStyle = 'rgba(79, 195, 247, 0.6)';
-    ctx.beginPath();
-    ctx.moveTo(0, centerY);
+    if (drawEndPx > drawStartPx) {
+      ctx.fillStyle = 'rgba(79, 195, 247, 0.6)';
+      ctx.beginPath();
+      const startLocal = drawStartPx - offset;
+      const endLocal = drawEndPx - offset;
+      ctx.moveTo(startLocal, centerY);
 
-    // Top half of waveform (going right)
-    for (let x = 0; x <= waveformEndX; x++) {
-      // Convert pixel position to time, then to peak index
-      const time = x / pixelsPerSecond;
-      const peakIndex = Math.floor((time / audioDuration) * peaks.length);
-      const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
-      const y = centerY - peak * (renderHeight / 2 - 4);
-      ctx.lineTo(x, y);
+      // Top half of waveform (going right)
+      for (let lx = startLocal; lx <= endLocal; lx++) {
+        const absX = lx + offset;
+        const time = absX / pixelsPerSecond;
+        const peakIndex = Math.floor((time / audioDuration) * peaks.length);
+        const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
+        const y = centerY - peak * (renderHeight / 2 - 4);
+        ctx.lineTo(lx, y);
+      }
+
+      // Bottom half of waveform (going left - mirror)
+      for (let lx = endLocal; lx >= startLocal; lx--) {
+        const absX = lx + offset;
+        const time = absX / pixelsPerSecond;
+        const peakIndex = Math.floor((time / audioDuration) * peaks.length);
+        const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
+        const y = centerY + peak * (renderHeight / 2 - 4);
+        ctx.lineTo(lx, y);
+      }
+
+      ctx.closePath();
+      ctx.fill();
     }
-
-    // Bottom half of waveform (going left - mirror)
-    for (let x = waveformEndX; x >= 0; x--) {
-      const time = x / pixelsPerSecond;
-      const peakIndex = Math.floor((time / audioDuration) * peaks.length);
-      const peak = peaks[Math.min(peakIndex, peaks.length - 1)] || 0;
-      const y = centerY + peak * (renderHeight / 2 - 4);
-      ctx.lineTo(x, y);
-    }
-
-    ctx.closePath();
-    ctx.fill();
 
     // Draw center line
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, centerY);
-    ctx.lineTo(waveformEndX, centerY);
+    const clStartLocal = Math.max(0, drawStartPx - offset);
+    const clEndLocal = Math.min(renderWidth, drawEndPx - offset);
+    ctx.moveTo(clStartLocal, centerY);
+    ctx.lineTo(clEndLocal, centerY);
     ctx.stroke();
 
-    // Draw transient markers
-    // These are aligned with the waveform (x=0 is time=0)
+    // Draw transient markers (offset by scroll)
     if (transients && transients.length > 0) {
       ctx.strokeStyle = '#ff9800';
       ctx.lineWidth = 1;
@@ -134,7 +151,7 @@ const TimelineWaveform = ({
       }
       
       for (const transient of transients) {
-        const x = transient.time * pixelsPerSecond;
+        const x = transient.time * pixelsPerSecond - offset;
         if (x >= 0 && x <= renderWidth) {
           // Vary opacity based on strength (0.3 to 1.0)
           const normalizedStrength = maxStrength > 0 ? transient.strength / maxStrength : 1;
@@ -149,7 +166,7 @@ const TimelineWaveform = ({
       }
     }
 
-    // Draw energy line graph overlay
+    // Draw energy line graph overlay (offset by scroll)
     if (energyMap && energyMap.length > 1) {
       ctx.save();
       ctx.strokeStyle = '#4fc3f7';
@@ -158,9 +175,9 @@ const TimelineWaveform = ({
       ctx.beginPath();
       let started = false;
       for (let i = 0; i < energyMap.length; i++) {
-        const ex = energyMap[i].time * pixelsPerSecond;
-        if (ex < 0) continue;
-        if (ex > renderWidth) break;
+        const ex = energyMap[i].time * pixelsPerSecond - offset;
+        if (ex < -1) continue;
+        if (ex > renderWidth + 1) break;
         const ey = renderHeight - energyMap[i].normalized * (renderHeight - 4) - 2;
         if (!started) {
           ctx.moveTo(ex, ey);
@@ -173,8 +190,8 @@ const TimelineWaveform = ({
       ctx.restore();
     }
 
-    // Draw playhead line
-    const playheadX = positionSeconds * pixelsPerSecond;
+    // Draw playhead line (offset by scroll)
+    const playheadX = positionSeconds * pixelsPerSecond - offset;
     if (playheadX >= 0 && playheadX <= renderWidth) {
       ctx.strokeStyle = '#ff5722';
       ctx.lineWidth = 2;
@@ -183,7 +200,7 @@ const TimelineWaveform = ({
       ctx.lineTo(playheadX, renderHeight);
       ctx.stroke();
     }
-  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, loop, height, timelineWidth, transients, energyMap]);
+  }, [audio, lengthSeconds, positionSeconds, pixelsPerSecond, scrollLeft, loop, height, timelineWidth, viewportWidthProp, transients, energyMap]);
 
   // Handle click/drag to seek
   const handleMouseDown = useCallback((e) => {
@@ -263,8 +280,11 @@ const TimelineWaveform = ({
         aria-valuenow={Math.max(0, Math.min(lengthSeconds, Number(positionSeconds) || 0))}
         style={{
           display: 'block',
-          width: timelineWidth ? `${timelineWidth}px` : '100%',
+          width: viewportWidthProp ? `${viewportWidthProp}px` : '100%',
           height: '100%',
+          position: 'absolute',
+          left: scrollLeft || 0,
+          top: 0,
         }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}

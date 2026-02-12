@@ -283,6 +283,8 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
   const layerTimelineMods = timelineMods[layer.id] || {};
   
   // Merge: Timeline > BPM > Audio precedence
+  // Timeline mods are additive (deltas from range midpoint, added to base layer value)
+  // BPM/Audio mods are absolute (override layer value)
   const mods = { ...layerAudioMods, ...layerBpmMods, ...layerTimelineMods };
   
   if (Object.keys(mods).length === 0) return layer;
@@ -316,24 +318,44 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
       continue;
     }
     
+    // Timeline mods are additive (delta added to base layer value)
+    // BPM/Audio mods are absolute (replace layer value)
+    const isTimelineMod = paramId in layerTimelineMods;
+    
     if (paramId === 'scale') {
-      modifiedLayer = {
-        ...modifiedLayer,
-        position: { ...(modifiedLayer.position || {}), scale: value },
-      };
+      if (isTimelineMod) {
+        const baseScale = layer.position?.scale ?? 1;
+        modifiedLayer = {
+          ...modifiedLayer,
+          position: { ...(modifiedLayer.position || {}), scale: baseScale + value },
+        };
+      } else {
+        modifiedLayer = {
+          ...modifiedLayer,
+          position: { ...(modifiedLayer.position || {}), scale: value },
+        };
+      }
     } else if (paramId === 'numSides') {
-      const v = Number(value);
-      // Keep polygon sides discrete + sane; fractional sides can cause visual "no change"
-      // and excessive churn from tiny per-frame updates.
-      const nextSides = Number.isFinite(v)
-        ? Math.max(3, Math.min(256, Math.round(v)))
-        : modifiedLayer.numSides;
-      modifiedLayer = {
-        ...modifiedLayer,
-        numSides: nextSides,
-      };
+      if (isTimelineMod) {
+        const baseSides = layer.numSides ?? 6;
+        modifiedLayer = {
+          ...modifiedLayer,
+          numSides: Math.max(3, Math.min(256, Math.round(baseSides + value))),
+        };
+      } else {
+        const v = Number(value);
+        // Keep polygon sides discrete + sane; fractional sides can cause visual "no change"
+        // and excessive churn from tiny per-frame updates.
+        const nextSides = Number.isFinite(v)
+          ? Math.max(3, Math.min(256, Math.round(v)))
+          : modifiedLayer.numSides;
+        modifiedLayer = {
+          ...modifiedLayer,
+          numSides: nextSides,
+        };
+      }
     } else if (paramId === 'movementStyle') {
-      // Map numeric value to discrete movement style string
+      // Map numeric value to discrete movement style string (always absolute)
       const styles = Array.isArray(MOVEMENT_STYLES) && MOVEMENT_STYLES.length
         ? MOVEMENT_STYLES
         : ['bounce', 'drift', 'still', 'orbit', 'spin'];
@@ -355,15 +377,25 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
         movementStyle: styles[clampedIndex],
       };
     } else if (paramId === 'colors' && Array.isArray(value)) {
+      // Colors are always absolute
       modifiedLayer = {
         ...modifiedLayer,
         colors: [...value],
       };
     } else {
-      modifiedLayer = {
-        ...modifiedLayer,
-        [paramId]: value,
-      };
+      if (isTimelineMod) {
+        // Additive: add delta to layer's base value
+        const baseValue = layer[paramId] ?? 0;
+        modifiedLayer = {
+          ...modifiedLayer,
+          [paramId]: baseValue + value,
+        };
+      } else {
+        modifiedLayer = {
+          ...modifiedLayer,
+          [paramId]: value,
+        };
+      }
     }
   }
   

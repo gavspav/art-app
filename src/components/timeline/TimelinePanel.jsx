@@ -109,7 +109,7 @@ const TimelinePanel = ({
   const [fillCount, setFillCount] = useState(3);
   const [genStartTime, setGenStartTime] = useState('');
   const [genEndTime, setGenEndTime] = useState('');
-  const [useTransientTimes, setUseTransientTimes] = useState(false);
+  const [useTransientTimes, setUseTransientTimes] = useState(true);
   const [useNodeMod, setUseNodeMod] = useState(false);
   const [nodeModAmount, setNodeModAmount] = useState(0.15);
   const [nodeModCycles, setNodeModCycles] = useState(1);
@@ -945,10 +945,10 @@ const TimelinePanel = ({
                       max="2"
                       step="0.01"
                       value={Number.isFinite(energyInfluence) ? energyInfluence : 0.5}
-                      disabled={!energyMap?.length || !enableEnergyScaling}
+                      disabled={!energyMap?.total?.length || !enableEnergyScaling}
                       onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
                       aria-label="Energy influence"
-                      style={{ flex: 1, height: 12, cursor: (!energyMap?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
+                      style={{ flex: 1, height: 12, cursor: (!energyMap?.total?.length || !enableEnergyScaling) ? 'not-allowed' : 'pointer' }}
                       title={`Energy influence: ${(Number.isFinite(energyInfluence) ? energyInfluence : 0.5).toFixed(2)}\n\nThis scales keyframe variation by audio energy:\n• 0 = Energy has no effect\n• 0.5 = Moderate effect (default)\n• 1.0 = Strong effect (0.05x at quiet, 2x at loud)\n• 2.0 = Extreme effect (nearly 0x at quiet, 4x at loud)`}
                     />
                     <span style={{ color: enableEnergyScaling ? '#4fc3f7' : 'rgba(255,255,255,0.5)', minWidth: 24, textAlign: 'right' }}>
@@ -963,13 +963,14 @@ const TimelinePanel = ({
                   lengthSeconds={lengthSeconds}
                   positionSeconds={positionSeconds}
                   pixelsPerSecond={pixelsPerSecond}
-                  scrollLeft={0}
+                  scrollLeft={scrollLeft || 0}
                   timelineWidth={contentWidth}
+                  viewportWidth={containerWidth - 200}
                   onSeek={seekTo}
                   loop={loop}
                   height={WAVEFORM_HEIGHT}
                   transients={transientSettings?.enabled ? transients : []}
-                  energyMap={enableEnergyScaling ? energyMap : null}
+                  energyMap={enableEnergyScaling ? (energyMap?.total || null) : null}
                 />
               </div>
             </div>
@@ -1109,15 +1110,15 @@ const TimelinePanel = ({
                     title="Energy Scaling: When enabled, generated keyframes (Shift+R, Shift+F) will have their variation scaled by audio energy.\n\n• Quiet moments → subtle variation\n• Loud moments → dramatic variation\n\nAdjust the Energy slider to control the effect strength."
                   >
                     <label
-                      style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: energyMap?.length ? 'pointer' : 'not-allowed', color: energyMap?.length && enableEnergyScaling ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: '0.65rem', cursor: energyMap?.total?.length ? 'pointer' : 'not-allowed', color: energyMap?.total?.length && enableEnergyScaling ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)' }}
                     >
                       <input
                         type="checkbox"
                         checked={!!enableEnergyScaling}
-                        disabled={!energyMap?.length}
+                        disabled={!energyMap?.total?.length}
                         onChange={(e) => setEnableEnergyScaling?.(!!e.target.checked)}
                         aria-label="Enable energy scaling"
-                        style={{ margin: 0, cursor: energyMap?.length ? 'pointer' : 'not-allowed' }}
+                        style={{ margin: 0, cursor: energyMap?.total?.length ? 'pointer' : 'not-allowed' }}
                       />
                       <span>Energy</span>
                     </label>

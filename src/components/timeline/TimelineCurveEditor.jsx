@@ -238,6 +238,19 @@ const TimelineCurveEditor = ({
     }
   }, [svgToKeyframe, onAddKeyframe, isColorTrack]);
 
+  // Handle click on background to seek playhead
+  const handleBackgroundClick = useCallback((e) => {
+    if (!onSeek) return;
+    // Ignore if a drag just finished (mousedown was on a keyframe)
+    if (draggingKeyframe) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const svgX = e.clientX - rect.left;
+    const clickTime = Math.max(0, Math.min(lengthSeconds, (svgX - padding.left + scrollLeft) / pixelsPerSecond));
+    onSeek(clickTime);
+  }, [onSeek, draggingKeyframe, lengthSeconds, padding.left, scrollLeft, pixelsPerSecond]);
+
   // Handle keyframe double-click to delete
   const handleKeyframeDoubleClick = useCallback((e, kf) => {
     e.preventDefault();
@@ -433,6 +446,27 @@ const TimelineCurveEditor = ({
     setEditingKeyframe(null);
   }, [editingKeyframe, onRemoveKeyframe]);
 
+  // Delete all keyframes on this track
+  const handleDeleteAllKeyframes = useCallback(() => {
+    if (!onRemoveKeyframe || keyframes.length === 0) return;
+    // For numeric tracks, keep first and last (range anchors); for shape/color, remove all
+    if (isNumericTrack && keyframes.length > 2) {
+      const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+      // Remove everything except first and last
+      for (let i = 1; i < sorted.length - 1; i++) {
+        onRemoveKeyframe(sorted[i].id);
+      }
+    } else {
+      // Shape/color/globalShape: remove all
+      for (const kf of keyframes) {
+        onRemoveKeyframe(kf.id);
+      }
+    }
+    setShowCurveMenu(false);
+    setCurveMenuKeyframeId(null);
+    setSelectedKeyframe(null);
+  }, [keyframes, isNumericTrack, onRemoveKeyframe]);
+
   // Seek to keyframe
   const handleSeekToKeyframe = useCallback((kfId) => {
     const kf = keyframes.find(k => k.id === kfId);
@@ -608,6 +642,7 @@ const TimelineCurveEditor = ({
           display: 'block',
           cursor: draggingKeyframe ? 'grabbing' : 'crosshair',
         }}
+        onClick={handleBackgroundClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleBackgroundContextMenu}
         onKeyDown={handleSvgKeyDown}
@@ -1044,6 +1079,27 @@ const TimelineCurveEditor = ({
               >
                 🗑️ Delete Keyframe
               </button>
+
+              {/* Delete all keyframes */}
+              {keyframes.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAllKeyframes}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#f44336',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🗑️ Delete All Keyframes ({keyframes.length})
+                </button>
+              )}
               
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', margin: '4px 0' }} />
             </>
@@ -1119,6 +1175,27 @@ const TimelineCurveEditor = ({
             </button>
           )}
           
+          {/* Delete all keyframes (always shown when track has keyframes) */}
+          {!curveMenuKeyframeId && keyframes.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDeleteAllKeyframes}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '6px 12px',
+                background: 'transparent',
+                border: 'none',
+                color: '#f44336',
+                fontSize: '0.7rem',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
+              🗑️ Delete All Keyframes ({keyframes.length})
+            </button>
+          )}
+
           {/* Curve type section (for all non-color tracks when there are keyframes) */}
           {!isColorTrack && keyframes.length > 0 && (
             <>

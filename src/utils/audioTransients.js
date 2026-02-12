@@ -269,6 +269,170 @@ export function buildEnergyMap(
 }
 
 /**
+ * In-place radix-2 Cooley-Tukey FFT.
+ * @param {Float32Array} re - Real part (modified in place)
+ * @param {Float32Array} im - Imaginary part (modified in place)
+ * @param {number} N - FFT size (must be power of 2)
+ */
+function fftInPlace(re, im, N) {
+  // Bit-reversal permutation
+  for (let i = 1, j = 0; i < N; i++) {
+    let bit = N >> 1;
+    for (; j & bit; bit >>= 1) {
+      j ^= bit;
+    }
+    j ^= bit;
+    if (i < j) {
+      let tmp = re[i]; re[i] = re[j]; re[j] = tmp;
+      tmp = im[i]; im[i] = im[j]; im[j] = tmp;
+    }
+  }
+  // Butterfly stages
+  for (let len = 2; len <= N; len <<= 1) {
+    const half = len >> 1;
+    const angle = -2 * Math.PI / len;
+    const wRe = Math.cos(angle);
+    const wIm = Math.sin(angle);
+    for (let i = 0; i < N; i += len) {
+      let tRe = 1, tIm = 0;
+      for (let j = 0; j < half; j++) {
+        const uRe = re[i + j];
+        const uIm = im[i + j];
+        const vRe = re[i + j + half] * tRe - im[i + j + half] * tIm;
+        const vIm = re[i + j + half] * tIm + im[i + j + half] * tRe;
+        re[i + j] = uRe + vRe;
+        im[i + j] = uIm + vIm;
+        re[i + j + half] = uRe - vRe;
+        im[i + j + half] = uIm - vIm;
+        const newTRe = tRe * wRe - tIm * wIm;
+        tIm = tRe * wIm + tIm * wRe;
+        tRe = newTRe;
+      }
+    }
+  }
+}
+
+/**
+ * Normalize an array of raw energy frames using dB-scale + percentile clipping.
+ * Reusable helper for both buildEnergyMap and buildMultiBandEnergyMap.
+ *
+ * @param {Array<{ time: number, energy: number }>} raw
+ * @param {object} opts
+ * @returns {Array<{ time: number, energy: number, normalized: number }>}
+ */
+function normalizeEnergyFrames(raw, { smoothWindow = 3, dbFloor = -60, clipLowPct = 2, clipHighPct = 98 } = {}) {
+  if (raw.length === 0) return [];
+
+  const dbValues = new Float32Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    const rms = raw[i].energy;
+    dbValues[i] = rms > 0 ? Math.max(dbFloor, 20 * Math.log10(rms)) : dbFloor;
+  }
+
+  const smoothed = new Float32Array(raw.length);
+  const half = Math.floor(smoothWindow / 2);
+  for (let i = 0; i < raw.length; i++) {
+    let sum = 0, count = 0;
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(raw.length - 1, i + half);
+    for (let j = lo; j <= hi; j++) { sum += dbValues[j]; count++; }
+    smoothed[i] = sum / count;
+  }
+
+  const sorted = Float32Array.from(smoothed).sort();
+  const loIdx = Math.floor((clipLowPct / 100) * sorted.length);
+  const hiIdx = Math.min(sorted.length - 1, Math.ceil((clipHighPct / 100) * sorted.length));
+  const dbMin = sorted[loIdx];
+  const dbMax = sorted[hiIdx];
+  const dbRange = dbMax - dbMin || 1;
+
+  return raw.map((pt, i) => ({
+    time: pt.time,
+    energy: pt.energy,
+    normalized: Math.max(0, Math.min(1, (smoothed[i] - dbMin) / dbRange)),
+  }));
+}
+
+/**
+ * Build multi-band energy maps from mono PCM samples using FFT spectral analysis.
+ * Returns an object with 4 bands: total, low, mid, high.
+ * Each band is an array of { time, energy, normalized }.
+ *
+ * Frequency bands (at 44100 Hz):
+ *   low:  20–250 Hz   (bass, kick drums)
+ *   mid:  250–4000 Hz (vocals, instruments)
+ *   high: 4000–20000 Hz (hi-hats, cymbals)
+ *   total: all frequencies
+ *
+ * @param {Float32Array} monoSamples
+ * @param {number} sampleRate
+ * @param {object} options
+ * @returns {{ total: Array, low: Array, mid: Array, high: Array }}
+ */
+export function buildMultiBandEnergyMap(
+  monoSamples,
+  sampleRate,
+  {
+    fftSize = 2048,
+    hopSizeSec = 0.02,
+    smoothWindow = 3,
+    dbFloor = -60,
+    clipLowPct = 2,
+    clipHighPct = 98,
+    lowCutoff = 250,
+    highCutoff = 4000,
+  } = {}
+) {
+  const hopSize = Math.round(hopSizeSec * sampleRate);
+  const freqRes = sampleRate / fftSize;
+  const lowBinEnd = Math.round(lowCutoff / freqRes);
+  const highBinStart = Math.round(highCutoff / freqRes);
+  const nyquist = fftSize / 2;
+
+  // Pre-compute Hann window
+  const hann = new Float32Array(fftSize);
+  for (let i = 0; i < fftSize; i++) {
+    hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
+  }
+
+  const rawTotal = [], rawLow = [], rawMid = [], rawHigh = [];
+  const re = new Float32Array(fftSize);
+  const im = new Float32Array(fftSize);
+
+  for (let start = 0; start + fftSize <= monoSamples.length; start += hopSize) {
+    for (let i = 0; i < fftSize; i++) {
+      re[i] = monoSamples[start + i] * hann[i];
+      im[i] = 0;
+    }
+
+    fftInPlace(re, im, fftSize);
+
+    let eTotal = 0, eLow = 0, eMid = 0, eHigh = 0;
+    for (let k = 1; k < nyquist; k++) {
+      const mag2 = re[k] * re[k] + im[k] * im[k];
+      eTotal += mag2;
+      if (k <= lowBinEnd) eLow += mag2;
+      else if (k >= highBinStart) eHigh += mag2;
+      else eMid += mag2;
+    }
+
+    const time = (start + fftSize / 2) / sampleRate;
+    rawTotal.push({ time, energy: Math.sqrt(eTotal / nyquist) });
+    rawLow.push({ time, energy: Math.sqrt(eLow / Math.max(1, lowBinEnd)) });
+    rawMid.push({ time, energy: Math.sqrt(eMid / Math.max(1, highBinStart - lowBinEnd)) });
+    rawHigh.push({ time, energy: Math.sqrt(eHigh / Math.max(1, nyquist - highBinStart)) });
+  }
+
+  const normOpts = { smoothWindow, dbFloor, clipLowPct, clipHighPct };
+  return {
+    total: normalizeEnergyFrames(rawTotal, normOpts),
+    low: normalizeEnergyFrames(rawLow, normOpts),
+    mid: normalizeEnergyFrames(rawMid, normOpts),
+    high: normalizeEnergyFrames(rawHigh, normOpts),
+  };
+}
+
+/**
  * Look up the normalized energy at a specific time from an energy map.
  * Uses linear interpolation between adjacent points.
  *

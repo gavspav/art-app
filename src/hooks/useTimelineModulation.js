@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
+import { getEnergyAtTime } from '../utils/audioTransients.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
@@ -152,10 +153,11 @@ export function useTimelineModulation({
   const { isNodeEditMode, nodeEditContext, timelineMode } = appState;
 
   // Energy data refs for runtime blending (read in RAF loop)
-  const energyMapRef = useRef(timeline?.energyMap || []);
+  // energyMap is now { total: [], low: [], mid: [], high: [] }
+  const energyMapRef = useRef(timeline?.energyMap || { total: [], low: [], mid: [], high: [] });
   const enableEnergyScalingRef = useRef(!!appState.enableEnergyScaling);
   const energyInfluenceRef = useRef(appState.energyInfluence ?? 0.5);
-  useEffect(() => { energyMapRef.current = timeline?.energyMap || []; }, [timeline?.energyMap]);
+  useEffect(() => { energyMapRef.current = timeline?.energyMap || { total: [], low: [], mid: [], high: [] }; }, [timeline?.energyMap]);
   useEffect(() => { enableEnergyScalingRef.current = !!appState.enableEnergyScaling; }, [appState.enableEnergyScaling]);
   useEffect(() => { energyInfluenceRef.current = appState.energyInfluence ?? 0.5; }, [appState.energyInfluence]);
 
@@ -314,7 +316,7 @@ export function useTimelineModulation({
           if (globalResult && Array.isArray(globalResult.layers)) {
             // Add each layer's interpolated data to shapeUpdates
             globalResult.layers.forEach((interpolatedData, index) => {
-              const layer = layers[index];
+              const layer = layersRef.current[index];
               if (!layer || !interpolatedData) return;
 
               const updateData = {
@@ -356,6 +358,7 @@ export function useTimelineModulation({
               animation: shapeResult.animation,     // Extended: interpolated animation params
               colors: shapeResult.colors,           // Extended: interpolated colors
               base: shapeResult.base,               // Pass base for runtime blending
+              energyBand: track.energyBand || 'total', // Per-track frequency band for energy scaling
             });
           }
         }
@@ -387,9 +390,14 @@ export function useTimelineModulation({
 
       if (parsed.type === 'layer') {
         // Apply to modulation store for layer parameter
+        // Timeline mods are additive: compute delta from range midpoint
+        // value01=0.5 → delta=0 (no change), value01=0 → negative, value01=1 → positive
         // During playback, RAF loop handles this for smoother updates
         if (!isPlaying) {
-          store.setMod('timeline', parsed.layerId, parsed.paramId, value);
+          const { outputMin = 0, outputMax = 1 } = track.range || {};
+          const midpoint = (outputMin + outputMax) / 2;
+          const delta = value - midpoint;
+          store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
         }
       } else if (parsed.type === 'global') {
         // Apply to global setter directly
@@ -785,6 +793,80 @@ export function useTimelineModulation({
       }
     }
 
+    // Evaluate stored paramKeyframes for all enabled tracks
+    // These are keyframes for parameters the user previously configured on this track
+    // but then switched to a different parameter. They still affect playback.
+    for (const track of tracks) {
+      if (!track.enabled || !track.paramKeyframes) continue;
+      for (const [storedTargetId, stored] of Object.entries(track.paramKeyframes)) {
+        // Skip the currently active parameter (already evaluated above)
+        if (storedTargetId === track.targetId) continue;
+        if (!stored?.keyframes?.length) continue;
+
+        // Build a virtual track for evaluation
+        const virtualTrack = {
+          ...track,
+          targetId: storedTargetId,
+          keyframes: stored.keyframes,
+          range: stored.range,
+          type: stored.type || 'numeric',
+        };
+
+        // Handle by type
+        if (virtualTrack.type === 'color') {
+          const colorResult = evaluateColorTrackAtTime(virtualTrack, positionSeconds);
+          if (colorResult) {
+            const parsed = parseTargetId(storedTargetId);
+            if (parsed?.type === 'layer' && parsed.paramId === 'color') {
+              store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+            }
+          }
+          continue;
+        }
+
+        if (virtualTrack.type === 'shape') {
+          if (!isPlaying) {
+            const shapeResult = evaluateShapeTrackAtTime(virtualTrack, positionSeconds, lerpNodes, lerpSubpaths);
+            if (shapeResult) {
+              const parsed = parseTargetId(storedTargetId);
+              if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+                const parts = storedTargetId.split(':');
+                const originalLayerName = parts.length >= 2 ? parts[1] : parsed.layerId;
+                shapeUpdates.push({
+                  layerId: parsed.layerId,
+                  layerName: originalLayerName,
+                  nodes: shapeResult.nodes,
+                  subpaths: shapeResult.subpaths,
+                  position: shapeResult.position,
+                  shapeParams: shapeResult.shapeParams,
+                  animation: shapeResult.animation,
+                  colors: shapeResult.colors,
+                  base: shapeResult.base,
+                });
+              }
+            }
+          }
+          continue;
+        }
+
+        // Numeric track
+        const value = evaluateTrackAtTime(virtualTrack, positionSeconds);
+        if (value === null) continue;
+
+        const parsed = parseTargetId(storedTargetId);
+        if (!parsed) continue;
+
+        if (parsed.type === 'layer') {
+          if (!isPlaying) {
+            const { outputMin = 0, outputMax = 1 } = virtualTrack.range || {};
+            const midpoint = (outputMin + outputMax) / 2;
+            const delta = value - midpoint;
+            store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
+          }
+        }
+      }
+    }
+
     if (shapeUpdates.length > 0) {
       // Pass raw interpolated data through — energy and per-slider blending
       // is now handled in useAnimation for both playback and scrub paths.
@@ -797,8 +879,8 @@ export function useTimelineModulation({
           updateMap.set(rawUpdate.layerName, rawUpdate);
         }
         // Also find and store by the layer's actual name property
-        if (Array.isArray(layers)) {
-          const matchingLayer = layers.find(l =>
+        if (Array.isArray(layersRef.current)) {
+          const matchingLayer = layersRef.current.find(l =>
             l?.id === rawUpdate.layerId || l?.name === rawUpdate.layerName
           );
           if (matchingLayer?.name && matchingLayer.name !== rawUpdate.layerId && matchingLayer.name !== rawUpdate.layerName) {
@@ -907,7 +989,6 @@ export function useTimelineModulation({
     }
   }, [
     blendModes,
-    layers,
     palettes,
     sampleColorsEven,
     setBackgroundColor,
@@ -998,6 +1079,7 @@ export function useTimelineModulation({
                   animation: shapeResult.animation,
                   colors: shapeResult.colors,
                   base: shapeResult.base, // For runtime energy blending
+                  energyBand: track.energyBand || 'total', // Per-track frequency band
                 };
                 // Store by resolved ID (UUID)
                 shapeUpdates.set(parsed.layerId, updateData);
@@ -1046,9 +1128,101 @@ export function useTimelineModulation({
           if (!parsed) continue;
 
           if (parsed.type === 'layer') {
-            store.setMod('timeline', parsed.layerId, parsed.paramId, value);
+            // Timeline mods are additive: compute delta from range midpoint
+            const { outputMin = 0, outputMax = 1 } = track.range || {};
+            const midpoint = (outputMin + outputMax) / 2;
+            let delta = value - midpoint;
+            // Apply energy scaling if enabled: delta is modulated by audio energy
+            if (enableEnergyScalingRef.current && delta !== 0) {
+              const eInfluence = energyInfluenceRef.current ?? 0.5;
+              const bands = energyMapRef.current || {};
+              const bandMap = bands[track.energyBand || 'total'] || bands.total || [];
+              if (bandMap.length > 0 && eInfluence > 0) {
+                const rawEnergy = getEnergyAtTime(bandMap, pos);
+                const eFactor = Math.max(0, Math.min(2, rawEnergy * eInfluence));
+                delta *= eFactor;
+              }
+            }
+            store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
           }
           // Global params are handled by the main effect since they need setters
+        }
+
+        // Evaluate stored paramKeyframes for all enabled tracks (playing path)
+        for (const track of tracks) {
+          if (!track.paramKeyframes) continue;
+          for (const [storedTargetId, stored] of Object.entries(track.paramKeyframes)) {
+            if (storedTargetId === track.targetId) continue;
+            if (!stored?.keyframes?.length) continue;
+
+            const virtualTrack = {
+              ...track,
+              targetId: storedTargetId,
+              keyframes: stored.keyframes,
+              range: stored.range,
+              type: stored.type || 'numeric',
+            };
+
+            if (virtualTrack.type === 'color') {
+              const colorResult = evaluateColorTrackAtTime(virtualTrack, pos);
+              if (colorResult) {
+                const parsed = parseTargetId(storedTargetId);
+                if (parsed?.type === 'layer' && parsed.paramId === 'color') {
+                  store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+                }
+              }
+              continue;
+            }
+
+            if (virtualTrack.type === 'shape') {
+              const shapeResult = evaluateShapeTrackAtTime(virtualTrack, pos, lerpNodes, lerpSubpaths);
+              if (shapeResult) {
+                const parsed = parseTargetId(storedTargetId);
+                if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+                  const updateData = {
+                    layerId: parsed.layerId,
+                    nodes: shapeResult.nodes,
+                    subpaths: shapeResult.subpaths,
+                    position: shapeResult.position,
+                    shapeParams: shapeResult.shapeParams,
+                    animation: shapeResult.animation,
+                    colors: shapeResult.colors,
+                    base: shapeResult.base,
+                  };
+                  shapeUpdates.set(parsed.layerId, updateData);
+                  const parts = storedTargetId.split(':');
+                  const originalName = parts.length >= 2 ? parts[1] : null;
+                  if (originalName && originalName !== parsed.layerId) {
+                    shapeUpdates.set(originalName, updateData);
+                  }
+                }
+              }
+              continue;
+            }
+
+            // Numeric
+            const value = evaluateTrackAtTime(virtualTrack, pos);
+            if (value === null) continue;
+            const parsed = parseTargetId(storedTargetId);
+            if (!parsed) continue;
+            if (parsed.type === 'layer') {
+              const { outputMin = 0, outputMax = 1 } = virtualTrack.range || {};
+              const midpoint = (outputMin + outputMax) / 2;
+              let delta = value - midpoint;
+              // Apply energy scaling using parent track's energyBand
+              if (enableEnergyScalingRef.current && delta !== 0) {
+                const eInfluence = energyInfluenceRef.current ?? 0.5;
+                const bands = energyMapRef.current || {};
+                const bandMap = bands[track.energyBand || 'total'] || bands.total || [];
+                if (bandMap.length > 0 && eInfluence > 0) {
+                  const rawEnergy = getEnergyAtTime(bandMap, pos);
+                  const eFactor = Math.max(0, Math.min(2, rawEnergy * eInfluence));
+                  delta *= eFactor;
+                }
+              }
+              store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
+            }
+          }
         }
 
         // Pass raw interpolated data through — energy and per-slider blending

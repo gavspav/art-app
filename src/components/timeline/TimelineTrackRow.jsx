@@ -43,6 +43,14 @@ const TimelineTrackRow = ({
   const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
   const isGlobalShapeTrack = track?.type === 'globalShape';
 
+  // Count stored parameters with keyframes (excluding the currently active one)
+  const storedParamCount = useMemo(() => {
+    if (!track.paramKeyframes) return 0;
+    return Object.entries(track.paramKeyframes).filter(
+      ([tid, stored]) => tid !== track.targetId && stored?.keyframes?.length > 0
+    ).length;
+  }, [track.paramKeyframes, track.targetId]);
+
   // Parse current target to get layer and parameter
   // Note: layerId here is actually the layer NAME (for stable targeting across layer recreation)
   const { targetType, layerId, paramId } = useMemo(() => {
@@ -61,51 +69,84 @@ const TimelineTrackRow = ({
 
   // Handle layer selection - uses layer NAME for stable targeting
   const handleLayerChange = useCallback((newLayerName) => {
+    // Save current keyframes before switching
+    const currentTargetId = track.targetId;
+    const savedParamKeyframes = { ...(track.paramKeyframes || {}) };
+    if (currentTargetId && track.keyframes?.length > 0) {
+      savedParamKeyframes[currentTargetId] = {
+        keyframes: [...track.keyframes],
+        range: track.range ? { ...track.range } : null,
+        type: track.type,
+      };
+    }
+
     if (newLayerName === 'global') {
-      // Switch to global - pick first global param
       const firstGlobal = globalParameters[0];
+      const newTargetId = firstGlobal ? `global:${firstGlobal.id}` : '';
+      const stored = savedParamKeyframes[newTargetId];
       onUpdateTrack?.({
-        targetId: firstGlobal ? `global:${firstGlobal.id}` : '',
-        range: firstGlobal?.range || { outputMin: 0, outputMax: 1 },
+        targetId: newTargetId,
+        range: stored?.range || firstGlobal?.range || { outputMin: 0, outputMax: 1 },
+        keyframes: stored?.keyframes || [],
+        type: stored?.type || (firstGlobal?.type || 'numeric'),
+        paramKeyframes: savedParamKeyframes,
       });
     } else {
-      // Switch to layer - use layer NAME (not ID) for stable targeting
-      // This ensures the track still works when layers are recreated with new IDs
       const currentParam = layerParameters.find(p => p.id === paramId);
       const param = currentParam || layerParameters[0];
+      const newTargetId = param ? `layer:${newLayerName}:${param.id}` : '';
+      const stored = savedParamKeyframes[newTargetId];
       onUpdateTrack?.({
-        targetId: param ? `layer:${newLayerName}:${param.id}` : '',
-        range: param?.range || { outputMin: 0, outputMax: 1 },
+        targetId: newTargetId,
+        range: stored?.range || param?.range || { outputMin: 0, outputMax: 1 },
+        keyframes: stored?.keyframes || [],
+        type: stored?.type || (param?.type || 'numeric'),
+        paramKeyframes: savedParamKeyframes,
       });
     }
-  }, [globalParameters, layerParameters, paramId, onUpdateTrack]);
+  }, [globalParameters, layerParameters, paramId, onUpdateTrack, track.targetId, track.keyframes, track.range, track.type, track.paramKeyframes]);
 
   // Handle parameter selection
+  // Saves current keyframes to paramKeyframes and restores stored keyframes for the new parameter
   const handleParamChange = useCallback((newParamId) => {
+    // Save current keyframes before switching
+    const currentTargetId = track.targetId;
+    const savedParamKeyframes = { ...(track.paramKeyframes || {}) };
+    if (currentTargetId && track.keyframes?.length > 0) {
+      savedParamKeyframes[currentTargetId] = {
+        keyframes: [...track.keyframes],
+        range: track.range ? { ...track.range } : null,
+        type: track.type,
+      };
+    }
+
     if (targetType === 'global') {
       const param = globalParameters.find(p => p.id === newParamId);
       const isColor = param?.type === 'color';
+      const newTargetId = `global:${newParamId}`;
+      const stored = savedParamKeyframes[newTargetId];
       onUpdateTrack?.({
-        targetId: `global:${newParamId}`,
-        range: isColor ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
-        type: isColor ? 'color' : (param?.type || 'numeric'),
-        // Clear keyframes when changing parameter type to avoid incompatible data
-        keyframes: [],
+        targetId: newTargetId,
+        range: stored?.range ?? (isColor ? null : (param?.range || { outputMin: 0, outputMax: 1 })),
+        type: stored?.type || (isColor ? 'color' : (param?.type || 'numeric')),
+        keyframes: stored?.keyframes || [],
+        paramKeyframes: savedParamKeyframes,
       });
     } else if (targetType === 'layer' && layerId) {
-      // layerId is actually the layer name for stable targeting
       const param = layerParameters.find(p => p.id === newParamId);
       const isShape = param?.type === 'shape' || newParamId === 'shape';
       const isColor = param?.type === 'color' || newParamId === 'color';
+      const newTargetId = `layer:${layerId}:${newParamId}`;
+      const stored = savedParamKeyframes[newTargetId];
       onUpdateTrack?.({
-        targetId: `layer:${layerId}:${newParamId}`, // layerId is the layer name
-        range: (isShape || isColor) ? null : (param?.range || { outputMin: 0, outputMax: 1 }),
-        type: isShape ? 'shape' : (isColor ? 'color' : 'numeric'),
-        // Always clear keyframes when changing parameter to avoid incompatible data
-        keyframes: [],
+        targetId: newTargetId,
+        range: stored?.range ?? ((isShape || isColor) ? null : (param?.range || { outputMin: 0, outputMax: 1 })),
+        type: stored?.type || (isShape ? 'shape' : (isColor ? 'color' : 'numeric')),
+        keyframes: stored?.keyframes || [],
+        paramKeyframes: savedParamKeyframes,
       });
     }
-  }, [targetType, layerId, globalParameters, layerParameters, onUpdateTrack]);
+  }, [targetType, layerId, globalParameters, layerParameters, onUpdateTrack, track.targetId, track.keyframes, track.range, track.type, track.paramKeyframes]);
 
   // Handle name change
   const handleNameChange = useCallback((e) => {
@@ -278,28 +319,51 @@ const TimelineTrackRow = ({
 
         {/* Parameter selector */}
         {isExpanded && (targetType === 'global' || layerId) && (
-          <select
-            value={paramId || ''}
-            onChange={(e) => handleParamChange(e.target.value)}
-            aria-label="Track parameter"
-            style={{
-              width: '100%',
-              background: 'rgba(0, 0, 0, 0.3)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: 3,
-              padding: '3px 4px',
-              color: 'white',
-              fontSize: '0.65rem',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="">Select parameter...</option>
-            {(targetType === 'global' ? globalParameters : layerParameters).map((param) => (
-              <option key={param.id} value={param.id}>
-                {param.label}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <select
+              value={paramId || ''}
+              onChange={(e) => handleParamChange(e.target.value)}
+              aria-label="Track parameter"
+              style={{
+                flex: 1,
+                background: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 3,
+                padding: '3px 4px',
+                color: 'white',
+                fontSize: '0.65rem',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">Select parameter...</option>
+              {(targetType === 'global' ? globalParameters : layerParameters).map((param) => {
+                const paramTargetId = targetType === 'global'
+                  ? `global:${param.id}`
+                  : `layer:${layerId}:${param.id}`;
+                const hasStored = track.paramKeyframes?.[paramTargetId]?.keyframes?.length > 0;
+                return (
+                  <option key={param.id} value={param.id}>
+                    {hasStored ? '\u2022 ' : ''}{param.label}
+                  </option>
+                );
+              })}
+            </select>
+            {storedParamCount > 0 && (
+              <span
+                title={`${storedParamCount} other param${storedParamCount > 1 ? 's' : ''} with keyframes`}
+                style={{
+                  fontSize: '0.55rem',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  background: 'rgba(79, 195, 247, 0.25)',
+                  borderRadius: 6,
+                  padding: '1px 5px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                +{storedParamCount}
+              </span>
+            )}
+          </div>
         )}
 
         {/* Range controls (hidden for shape tracks) */}
@@ -341,6 +405,32 @@ const TimelineTrackRow = ({
             />
           </div>
         )}
+        {/* Energy band selector */}
+        {isExpanded && track.targetId && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem' }}>
+            <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>Energy:</span>
+            <select
+              value={track.energyBand || 'total'}
+              onChange={(e) => onUpdateTrack?.({ energyBand: e.target.value })}
+              aria-label="Energy band"
+              style={{
+                flex: 1,
+                background: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 3,
+                padding: '2px 4px',
+                color: 'white',
+                fontSize: '0.6rem',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="total">Total</option>
+              <option value="low">Low (bass)</option>
+              <option value="mid">Mid (vocals)</option>
+              <option value="high">High (cymbals)</option>
+            </select>
+          </div>
+        )}
         {/* Shape track info and capture button */}
         {isExpanded && isShapeTrack && !isGlobalShapeTrack && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -363,8 +453,33 @@ const TimelineTrackRow = ({
                 ⬡ Capture
               </button>
               <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
-                {track.keyframes?.length || 0} keyframe{(track.keyframes?.length || 0) !== 1 ? 's' : ''}
+                {track.keyframes?.length || 0} kf
               </span>
+              {track.keyframes?.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (track.keyframes && onRemoveKeyframe) {
+                      for (const kf of track.keyframes) {
+                        onRemoveKeyframe(kf.id);
+                      }
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(244, 67, 54, 0.15)',
+                    border: '1px solid rgba(244, 67, 54, 0.35)',
+                    borderRadius: 3,
+                    padding: '2px 5px',
+                    color: '#ef9a9a',
+                    fontSize: '0.55rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Delete all keyframes on this track"
+                >
+                  Clear All
+                </button>
+              )}
             </div>
             {/* Category toggles for shape tracks */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.55rem' }}>
@@ -434,6 +549,31 @@ const TimelineTrackRow = ({
               <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic', fontSize: '0.55rem' }}>
                 {track.keyframes?.length || 0} kf · {layers.length} layers
               </span>
+              {track.keyframes?.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (track.keyframes && onRemoveKeyframe) {
+                      for (const kf of track.keyframes) {
+                        onRemoveKeyframe(kf.id);
+                      }
+                    }
+                  }}
+                  style={{
+                    background: 'rgba(244, 67, 54, 0.15)',
+                    border: '1px solid rgba(244, 67, 54, 0.35)',
+                    borderRadius: 3,
+                    padding: '2px 5px',
+                    color: '#ef9a9a',
+                    fontSize: '0.55rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Delete all keyframes on this track"
+                >
+                  Clear All
+                </button>
+              )}
             </div>
             {/* Category toggles for global shape tracks */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.55rem' }}>

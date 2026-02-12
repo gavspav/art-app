@@ -1603,7 +1603,55 @@ const MainApp = () => {
     if (!isGlobal) {
       if (!layer) return;
       if (!shapeTrack) {
-        console.warn('No shape track found for selected layer');
+        // No shape track — look for numeric/color tracks targeting this layer
+        const layerName = layer.name || `Layer ${selectedLayerIndex + 1}`;
+        const layerId = layer.id;
+        const numericTracks = (timelineContext.tracks || []).filter(t => {
+          if (t.type === 'shape' || t.type === 'globalShape') return false;
+          const tid = String(t.targetId || '');
+          if (!tid.startsWith('layer:')) return false;
+          const parts = tid.split(':');
+          return parts[1] === layerName || parts[1] === layerId;
+        });
+
+        if (numericTracks.length > 0) {
+          // Compute timing
+          const rawCount = Number(options.count);
+          const count = Number.isFinite(rawCount) && rawCount >= 1
+            ? Math.max(1, Math.floor(rawCount))
+            : (options.useTransients ? undefined : 5);
+
+          const playheadSec = timelineContext?.getPositionSeconds?.()
+            ?? timelineContext?.positionSeconds
+            ?? timelinePositionSeconds
+            ?? 0;
+          const defStart = Number.isFinite(playheadSec) ? Math.max(0, playheadSec) : 0;
+          const tlEnd = timelineContext?.audio?.durationSeconds ?? timelineContext?.lengthSeconds ?? 0;
+
+          const startTime = Number.isFinite(Number(options.startTime)) ? Number(options.startTime) : defStart;
+          const endTime = Number.isFinite(Number(options.endTime)) ? Number(options.endTime) : (Number.isFinite(tlEnd) ? tlEnd : 0);
+
+          if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
+            console.warn('Invalid time range for random keyframe generation');
+            return;
+          }
+
+          let totalAdded = 0;
+          for (const nt of numericTracks) {
+            const added = timelineContext.generateRandomNumericKeyframes?.(nt.id, count, {
+              useTransients: !!options.useTransients && (timelineContext.transients?.length > 0),
+              startTime,
+              endTime,
+            });
+            totalAdded += (added || 0);
+          }
+          if (totalAdded > 0) {
+            console.log('Generated', totalAdded, 'random numeric keyframes across', numericTracks.length, 'track(s)');
+          }
+          return;
+        }
+
+        console.warn('No shape or numeric track found for selected layer');
         return;
       }
     }
@@ -1684,7 +1732,7 @@ const MainApp = () => {
     let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
       ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
       : 0;
-    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
       energyInfluenceValue = Number.isFinite(energyInfluence)
         ? Math.max(0, Math.min(2, energyInfluence))
         : 0.5;
@@ -1808,7 +1856,7 @@ const MainApp = () => {
     let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
       ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
       : 0;
-    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
       energyInfluenceValue = Number.isFinite(energyInfluence)
         ? Math.max(0, Math.min(2, energyInfluence))
         : 0.5;

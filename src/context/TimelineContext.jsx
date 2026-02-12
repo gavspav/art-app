@@ -4,7 +4,7 @@ import {
   computeEnergyFlux,
   detectTransientsFromFlux,
   sensitivityToThreshold,
-  buildEnergyMap,
+  buildMultiBandEnergyMap,
 } from '../utils/audioTransients.js';
 import {
   generateVariedLayer,
@@ -189,6 +189,14 @@ const createTrack = (name, targetId, color, lengthSeconds, type = 'numeric') => 
       createKeyframe(0, 0),
       createKeyframe(lengthSeconds, 1),
     ],
+    // Stored keyframes for other parameters on this track.
+    // When the user switches parameter, the current keyframes are saved here
+    // keyed by targetId, and restored when that parameter is reselected.
+    // Format: { [targetId]: { keyframes, range, type } }
+    paramKeyframes: {},
+    // Which frequency band drives energy scaling for this track
+    // Options: 'total', 'low', 'mid', 'high'
+    energyBand: 'total',
     // Shape track category toggles (which parameters to interpolate)
     // Only used when type === 'shape'
     categories: isShape ? {
@@ -271,7 +279,7 @@ export const TimelineProvider = ({ children }) => {
   const [transientSettings, setTransientSettings] = useState(DEFAULT_TRANSIENT_SETTINGS);
   const [transients, setTransients] = useState([]); // Array of { time, strength }
   const audioFluxRef = useRef(null); // Cached flux data for re-detection on threshold change
-  const [energyMap, setEnergyMap] = useState([]); // Array of { time, energy, normalized }
+  const [energyMap, setEnergyMap] = useState({ total: [], low: [], mid: [], high: [] }); // Multi-band: { total, low, mid, high } each Array<{ time, energy, normalized }>
 
   // Refs for RAF loop
   const lastUpdateTimeRef = useRef(null);
@@ -579,17 +587,23 @@ export const TimelineProvider = ({ children }) => {
   // --- Track CRUD ---
 
   const addTrack = useCallback((name, targetId, color, lengthSeconds, type = 'numeric') => {
+    // Pre-generate ID so we can return it synchronously
+    const preId = generateId();
     setSession(prev => {
       const colorIndex = prev.tracks.length % TRACK_COLORS.length;
-      const newTrack = createTrack(
-        name || `Track ${prev.tracks.length + 1}`,
-        targetId || '',
-        color || TRACK_COLORS[colorIndex],
-        Number.isFinite(lengthSeconds) ? lengthSeconds : prev.lengthSeconds,
-        type
-      );
+      const newTrack = {
+        ...createTrack(
+          name || `Track ${prev.tracks.length + 1}`,
+          targetId || '',
+          color || TRACK_COLORS[colorIndex],
+          Number.isFinite(lengthSeconds) ? lengthSeconds : prev.lengthSeconds,
+          type
+        ),
+        id: preId, // override with pre-generated ID
+      };
       return { ...prev, tracks: [...prev.tracks, newTrack] };
     });
+    return preId;
   }, []);
 
   const updateTrack = useCallback((trackId, updates) => {
@@ -970,7 +984,7 @@ export const TimelineProvider = ({ children }) => {
     // Clear transient and energy data when audio is removed
     audioFluxRef.current = null;
     setTransients([]);
-    setEnergyMap([]);
+    setEnergyMap({ total: [], low: [], mid: [], high: [] });
     clearTimelineAudio();
   }, []);
 
@@ -1035,7 +1049,7 @@ export const TimelineProvider = ({ children }) => {
     if (!audioBuffer) {
       audioFluxRef.current = null;
       setTransients([]);
-      setEnergyMap([]);
+      setEnergyMap({ total: [], low: [], mid: [], high: [] });
       return;
     }
 
@@ -1048,9 +1062,9 @@ export const TimelineProvider = ({ children }) => {
         const { flux, hopSize, frameSize } = computeEnergyFlux(mono, sampleRate);
         audioFluxRef.current = { flux, hopSize, frameSize, sampleRate };
 
-        // Also compute energy map (only once per audio file)
-        // Uses dB-scale normalization with percentile clipping for perceptual accuracy
-        const energy = buildEnergyMap(mono, sampleRate);
+        // Compute multi-band energy map (only once per audio file)
+        // Uses FFT spectral analysis with dB-scale normalization
+        const energy = buildMultiBandEnergyMap(mono, sampleRate);
         setEnergyMap(energy);
       }
 
@@ -1071,7 +1085,7 @@ export const TimelineProvider = ({ children }) => {
     } catch (error) {
       console.warn('Failed to compute transients:', error);
       setTransients([]);
-      setEnergyMap([]);
+      setEnergyMap({ total: [], low: [], mid: [], high: [] });
     }
   }, [transientSettings.maxMarkers]);
 
@@ -1386,6 +1400,60 @@ export const TimelineProvider = ({ children }) => {
       evaluateAtTime: false, // Use base layer for all
     });
   }, [session.lengthSeconds, transients, generateVariationKeyframesAtTimes]);
+
+  /**
+   * Generate random numeric keyframes on a numeric/color track at random or transient times.
+   * @param {string} trackId - The track ID
+   * @param {number} count - Number of keyframes (ignored when useTransients without count)
+   * @param {object} options - { useTransients, startTime, endTime, curve, tension }
+   * @returns {number} Number of keyframes added
+   */
+  const generateRandomNumericKeyframes = useCallback((trackId, count, options = {}) => {
+    const track = sessionRef.current.tracks.find(t => t.id === trackId);
+    if (!track) return 0;
+
+    const startTime = options.startTime ?? 0;
+    const endTime = options.endTime ?? sessionRef.current.lengthSeconds;
+    const curve = options.curve || 'easeInOut';
+    const tension = options.tension ?? 0.5;
+    const isColor = track.type === 'color';
+
+    let times;
+    if (options.useTransients && transients.length > 0) {
+      if (count == null) {
+        times = transients
+          .filter(t => t.time >= startTime && t.time <= endTime)
+          .map(t => t.time)
+          .sort((a, b) => a - b);
+      } else {
+        times = selectTopTransientTimes(transients, count, startTime, endTime);
+      }
+    } else {
+      times = generateRandomTimes(startTime, endTime, count || 5, Date.now());
+    }
+
+    if (times.length === 0) return 0;
+
+    setSession(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(t => {
+        if (t.id !== trackId) return t;
+        const newKeyframes = times.map(time => {
+          if (isColor) {
+            // Random hue, full saturation, medium lightness
+            const hue = Math.floor(Math.random() * 360);
+            const color = `hsl(${hue}, 70%, 55%)`;
+            return { ...createKeyframe(time, 0.5, curve, tension), color };
+          }
+          return createKeyframe(time, Math.random(), curve, tension);
+        });
+        const merged = [...(t.keyframes || []), ...newKeyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        return { ...t, keyframes: merged };
+      }),
+    }));
+
+    return times.length;
+  }, [transients]);
 
   /**
    * Reroll a variation keyframe with a new seed.
@@ -2107,6 +2175,7 @@ export const TimelineProvider = ({ children }) => {
     generateVariationKeyframesAtTimes,
     generateKeyframesBetween,
     generateRandomKeyframes,
+    generateRandomNumericKeyframes,
     rerollVariationKeyframe,
 
     // Global shape track keyframe generation
@@ -2181,6 +2250,7 @@ export const TimelineProvider = ({ children }) => {
     generateVariationKeyframesAtTimes,
     generateKeyframesBetween,
     generateRandomKeyframes,
+    generateRandomNumericKeyframes,
     rerollVariationKeyframe,
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,

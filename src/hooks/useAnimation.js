@@ -664,7 +664,10 @@ export const useAnimation = (
                 const tlCtxForEnergy = timelineContextRef.current;
                 let energyFactor = 1; // default: no energy scaling
                 if (eEnabled) {
-                    const eMap = tlCtxForEnergy?.energyMap || [];
+                    // Use per-track energy band (total/low/mid/high)
+                    const energyBands = tlCtxForEnergy?.energyMap || {};
+                    const bandKey = shapeUpdate.energyBand || 'total';
+                    const eMap = energyBands[bandKey] || energyBands.total || [];
                     const playPos = tlCtxForEnergy?.getPositionSeconds?.() ?? tlCtxForEnergy?.positionSeconds ?? 0;
                     if (eMap.length > 0 && eInfluence > 0) {
                         const rawEnergy = getEnergyAtTime(eMap, playPos);
