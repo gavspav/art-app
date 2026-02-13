@@ -22,6 +22,7 @@ import {
   generateKeyframePhase,
   DEFAULT_NODE_MOD_CONFIG,
 } from '../utils/nodeModulation.js';
+import { hslToHex } from '../utils/colorUtils.js';
 
 /**
  * TimelineContext - Global timeline automation state provider
@@ -432,6 +433,7 @@ export const TimelineProvider = ({ children }) => {
 
   const stop = useCallback(() => {
     pause();
+    positionRef.current = 0;
     setPositionSeconds(0);
   }, [pause]);
 
@@ -685,9 +687,9 @@ export const TimelineProvider = ({ children }) => {
       tracks: prev.tracks.map(track => {
         if (track.id !== trackId) return track;
 
-        // Don't allow removing if only 2 keyframes left (for numeric tracks)
-        // Shape and globalShape tracks can have any number of keyframes (including 0)
-        if (track.type !== 'shape' && track.type !== 'globalShape' && track.keyframes.length <= 2) return track;
+        // Don't allow removing if only 2 keyframes left (for numeric tracks).
+        // Shape/globalShape/color tracks can have any number of keyframes (including 0).
+        if (track.type !== 'shape' && track.type !== 'globalShape' && track.type !== 'color' && track.keyframes.length <= 2) return track;
 
         return {
           ...track,
@@ -1440,10 +1442,10 @@ export const TimelineProvider = ({ children }) => {
         if (t.id !== trackId) return t;
         const newKeyframes = times.map(time => {
           if (isColor) {
-            // Random hue, full saturation, medium lightness
+            // Random hue, full saturation, medium lightness (stored as hex for interpolation).
             const hue = Math.floor(Math.random() * 360);
-            const color = `hsl(${hue}, 70%, 55%)`;
-            return { ...createKeyframe(time, 0.5, curve, tension), color };
+            const color = hslToHex(hue, 70, 55);
+            return createColorKeyframe(time, color);
           }
           return createKeyframe(time, Math.random(), curve, tension);
         });

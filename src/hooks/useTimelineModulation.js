@@ -184,6 +184,8 @@ export function useTimelineModulation({
 
   // Previous frame's shape updates for temporal smoothing (reduces jitter between keyframes)
   const prevShapeUpdatesRef = useRef(new Map());
+  // Guard: last position + tracks ref that triggered shape scrubbing setLayers (avoids redundant calls)
+  const lastScrubAppliedRef = useRef({ pos: null, tracksRef: null });
 
   // Layer pool for timeline layersCount modulation - preserves layer IDs when shrinking/growing
   // This prevents tracks from losing their targets when layer count changes during playback
@@ -277,7 +279,9 @@ export function useTimelineModulation({
   // Apply timeline values to modulation store on each frame
   // Note: During playback, the RAF loop below handles layer parameter updates for smoother animation
   useEffect(() => {
-    if (!timeline) return;
+    const isPlaying = timeline?.isPlaying;
+    const positionSeconds = timeline?.positionSeconds;
+    const tracks = timeline?.tracks;
     if (!timelineMode) {
       const store = modulationStoreRef.current;
       if (store) {
@@ -289,7 +293,6 @@ export function useTimelineModulation({
       return;
     }
 
-    const { isPlaying, positionSeconds, tracks } = timeline;
     const store = modulationStoreRef.current;
 
     if (!store || !Array.isArray(tracks)) return;
@@ -340,26 +343,29 @@ export function useTimelineModulation({
       }
 
       // Handle shape tracks separately (now includes position, animation, colors)
+      // During playback, useAnimation evaluates shape tracks directly — skip here.
       if (track.type === 'shape') {
-        const shapeResult = evaluateShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
-        if (shapeResult) {
-          const parsed = parseTargetId(track.targetId);
-          if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
-            // Extract original layer name from targetId for reliable lookup
-            const parts = track.targetId.split(':');
-            const originalLayerName = parts.length >= 2 ? parts[1] : parsed.layerId;
-            shapeUpdates.push({
-              layerId: parsed.layerId,
-              layerName: originalLayerName, // Store original name for lookup
-              nodes: shapeResult.nodes,
-              subpaths: shapeResult.subpaths,
-              position: shapeResult.position,       // Extended: interpolated position
-              shapeParams: shapeResult.shapeParams, // Extended: Layer Shape Tab params (Sides, Curviness, Size, etc.)
-              animation: shapeResult.animation,     // Extended: interpolated animation params
-              colors: shapeResult.colors,           // Extended: interpolated colors
-              base: shapeResult.base,               // Pass base for runtime blending
-              energyBand: track.energyBand || 'total', // Per-track frequency band for energy scaling
-            });
+        if (!isPlaying) {
+          const shapeResult = evaluateShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
+          if (shapeResult) {
+            const parsed = parseTargetId(track.targetId);
+            if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
+              // Extract original layer name from targetId for reliable lookup
+              const parts = track.targetId.split(':');
+              const originalLayerName = parts.length >= 2 ? parts[1] : parsed.layerId;
+              shapeUpdates.push({
+                layerId: parsed.layerId,
+                layerName: originalLayerName, // Store original name for lookup
+                nodes: shapeResult.nodes,
+                subpaths: shapeResult.subpaths,
+                position: shapeResult.position,       // Extended: interpolated position
+                shapeParams: shapeResult.shapeParams, // Extended: Layer Shape Tab params (Sides, Curviness, Size, etc.)
+                animation: shapeResult.animation,     // Extended: interpolated animation params
+                colors: shapeResult.colors,           // Extended: interpolated colors
+                base: shapeResult.base,               // Pass base for runtime blending
+                energyBand: track.energyBand || 'total', // Per-track frequency band for energy scaling
+              });
+            }
           }
         }
         continue;
@@ -425,8 +431,9 @@ export function useTimelineModulation({
               break;
             }
 
-            const v = Math.max(0, Math.min(1, Number(value) || 0));
-            const index = Math.floor(v * palettes.length);
+            const raw = Number(value);
+            const normalized = Number.isFinite(raw) && raw >= 0 && raw <= 1;
+            const index = normalized ? Math.floor(raw * palettes.length) : Math.floor(raw || 0);
             const clampedIndex = Math.max(0, Math.min(palettes.length - 1, index));
             const pick = palettes[clampedIndex];
             const src = Array.isArray(pick) ? pick : (pick && Array.isArray(pick.colors) ? pick.colors : []);
@@ -440,20 +447,27 @@ export function useTimelineModulation({
               ? (sampleColorsEven(src, Math.max(1, layerCount)) || src.slice(0, layerCount))
               : src.slice(0, layerCount);
 
-            setLayers(prev => {
-              if (!Array.isArray(prev) || !prev.length) return prev;
-              const n = Math.max(1, paletteColors.length);
-              return prev.map((layer, i) => {
-                const c = paletteColors[i % n];
-                if (!c) return layer;
-                return {
-                  ...layer,
-                  colors: [c],
-                  numColors: 1,
-                  selectedColor: 0,
-                };
-              });
+            // Guard: skip if colours already match to avoid redundant setLayers
+            const alreadyMatch = layersRef.current.every((layer, i) => {
+              const c = paletteColors[i % Math.max(1, paletteColors.length)];
+              return Array.isArray(layer?.colors) && layer.colors.length === 1 && layer.colors[0] === c;
             });
+            if (!alreadyMatch) {
+              setLayers(prev => {
+                if (!Array.isArray(prev) || !prev.length) return prev;
+                const n = Math.max(1, paletteColors.length);
+                return prev.map((layer, i) => {
+                  const c = paletteColors[i % n];
+                  if (!c) return layer;
+                  return {
+                    ...layer,
+                    colors: [c],
+                    numColors: 1,
+                    selectedColor: 0,
+                  };
+                });
+              });
+            }
             break;
           }
           case 'layersCount': {
@@ -526,11 +540,13 @@ export function useTimelineModulation({
             break;
           }
           case 'globalOpacity':
-            // Apply opacity to all layers via modulation store
+            // Apply absolute opacity to all layers via additive timeline deltas.
             if (Array.isArray(layersRef.current)) {
               layersRef.current.forEach(layer => {
                 if (layer?.id) {
-                  store.setMod('timeline', layer.id, 'opacity', value);
+                  const baseOpacity = Number(layer.opacity);
+                  const safeBaseOpacity = Number.isFinite(baseOpacity) ? baseOpacity : 1;
+                  store.setMod('timeline', layer.id, 'opacity', value - safeBaseOpacity);
                 }
               });
             }
@@ -819,6 +835,8 @@ export function useTimelineModulation({
             const parsed = parseTargetId(storedTargetId);
             if (parsed?.type === 'layer' && parsed.paramId === 'color') {
               store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+            } else if (parsed?.type === 'global' && parsed.paramId === 'backgroundColor') {
+              if (typeof setBackgroundColor === 'function') setBackgroundColor(colorResult);
             }
           }
           continue;
@@ -842,6 +860,7 @@ export function useTimelineModulation({
                   animation: shapeResult.animation,
                   colors: shapeResult.colors,
                   base: shapeResult.base,
+                  energyBand: track.energyBand || 'total',
                 });
               }
             }
@@ -862,6 +881,66 @@ export function useTimelineModulation({
             const midpoint = (outputMin + outputMax) / 2;
             const delta = value - midpoint;
             store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
+          }
+        } else if (parsed.type === 'global') {
+          switch (parsed.paramId) {
+            case 'globalSpeedMultiplier':
+              if (setGlobalSpeedMultiplier) setGlobalSpeedMultiplier(value);
+              break;
+            case 'globalBlendMode': {
+              if (Array.isArray(blendModes) && blendModes.length && typeof setGlobalBlendMode === 'function') {
+                const raw = Number(value);
+                const normalized = Number.isFinite(raw) && raw >= 0 && raw <= 1;
+                const index = normalized ? Math.floor(raw * blendModes.length) : Math.floor(raw || 0);
+                const clampedIndex = Math.max(0, Math.min(blendModes.length - 1, index));
+                setGlobalBlendMode(blendModes[clampedIndex]);
+              }
+              break;
+            }
+            case 'globalPaletteIndex': {
+              if (!Array.isArray(palettes) || !palettes.length || typeof setLayers !== 'function') break;
+              const raw = Number(value);
+              const normalized = Number.isFinite(raw) && raw >= 0 && raw <= 1;
+              const index = normalized ? Math.floor(raw * palettes.length) : Math.floor(raw || 0);
+              const clampedIndex = Math.max(0, Math.min(palettes.length - 1, index));
+              const pick = palettes[clampedIndex];
+              const src = Array.isArray(pick) ? pick : (pick && Array.isArray(pick.colors) ? pick.colors : []);
+              if (!src.length) break;
+              const layerCount = Array.isArray(layersRef.current) ? layersRef.current.length : 0;
+              if (!layerCount) break;
+              const paletteColors = sampleColorsEven
+                ? (sampleColorsEven(src, Math.max(1, layerCount)) || src.slice(0, layerCount))
+                : src.slice(0, layerCount);
+              // Guard: skip if colours already match
+              const match = layersRef.current.every((layer, i) => {
+                const c = paletteColors[i % Math.max(1, paletteColors.length)];
+                return Array.isArray(layer?.colors) && layer.colors.length === 1 && layer.colors[0] === c;
+              });
+              if (!match) {
+                setLayers(prev => {
+                  if (!Array.isArray(prev) || !prev.length) return prev;
+                  const n = Math.max(1, paletteColors.length);
+                  return prev.map((layer, i) => {
+                    const c = paletteColors[i % n];
+                    if (!c) return layer;
+                    return { ...layer, colors: [c], numColors: 1, selectedColor: 0 };
+                  });
+                });
+              }
+              break;
+            }
+            case 'globalOpacity':
+              if (Array.isArray(layersRef.current)) {
+                layersRef.current.forEach(layer => {
+                  if (!layer?.id) return;
+                  const baseOpacity = Number(layer.opacity);
+                  const safeBaseOpacity = Number.isFinite(baseOpacity) ? baseOpacity : 1;
+                  store.setMod('timeline', layer.id, 'opacity', value - safeBaseOpacity);
+                });
+              }
+              break;
+            default:
+              break;
           }
         }
       }
@@ -892,7 +971,11 @@ export function useTimelineModulation({
 
       // When paused, apply shape updates directly to layers (scrubbing preview)
       // During playback, the animation loop handles this
-      if (!isPlaying && typeof setLayers === 'function') {
+      // Guard: skip if position and tracks haven't changed (avoids redundant setLayers)
+      const scrubChanged = positionSeconds !== lastScrubAppliedRef.current.pos
+        || tracks !== lastScrubAppliedRef.current.tracksRef;
+      if (!isPlaying && typeof setLayers === 'function' && scrubChanged) {
+        lastScrubAppliedRef.current = { pos: positionSeconds, tracksRef: tracks };
         setLayers(prev => {
           if (!Array.isArray(prev)) return prev;
 
@@ -996,7 +1079,6 @@ export function useTimelineModulation({
     timeline?.isPlaying,
     timeline?.positionSeconds,
     timeline?.tracks,
-    timeline,
     parseTargetId,
     setGlobalSpeedMultiplier,
     setLayers,
@@ -1032,78 +1114,10 @@ export function useTimelineModulation({
         for (const track of tracks) {
           if (!track.enabled || !track.targetId) continue;
 
-          // Handle global shape tracks - affects ALL layers at once
-          if (track.type === 'globalShape') {
-            const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
-            if (globalResult && Array.isArray(globalResult.layers)) {
-              const currentLayers = layersRef.current;
-              if (Array.isArray(currentLayers)) {
-                // Store update for each layer by index, using layer id/name as key
-                globalResult.layers.forEach((interpolatedData, index) => {
-                  const layer = currentLayers[index];
-                  if (!layer || !interpolatedData) return;
-
-                  const updateData = {
-                    layerId: layer.id,
-                    nodes: interpolatedData.nodes,
-                    subpaths: interpolatedData.subpaths,
-                    position: interpolatedData.position,
-                    shapeParams: interpolatedData.shapeParams,
-                    animation: interpolatedData.animation,
-                    colors: interpolatedData.colors,
-                    base: interpolatedData.base, // For runtime energy blending
-                    isGlobalShapeTrack: true, // Flag to identify source
-                  };
-
-                  // Store by layer id and name
-                  if (layer.id) shapeUpdates.set(layer.id, updateData);
-                  if (layer.name) shapeUpdates.set(layer.name, updateData);
-                });
-              }
-            }
-            continue;
-          }
-
-          // Handle shape tracks - evaluate and store in ref for animation loop
-          if (track.type === 'shape') {
-            const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
-            if (shapeResult) {
-              const parsed = parseTargetId(track.targetId);
-              if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
-                const updateData = {
-                  layerId: parsed.layerId,
-                  nodes: shapeResult.nodes,
-                  subpaths: shapeResult.subpaths,
-                  position: shapeResult.position,
-                  shapeParams: shapeResult.shapeParams,
-                  animation: shapeResult.animation,
-                  colors: shapeResult.colors,
-                  base: shapeResult.base, // For runtime energy blending
-                  energyBand: track.energyBand || 'total', // Per-track frequency band
-                };
-                // Store by resolved ID (UUID)
-                shapeUpdates.set(parsed.layerId, updateData);
-
-                // Also store by original layer name from targetId
-                const parts = track.targetId.split(':');
-                const originalName = parts.length >= 2 ? parts[1] : null;
-                if (originalName && originalName !== parsed.layerId) {
-                  shapeUpdates.set(originalName, updateData);
-                }
-
-                // Also find and store by the layer's actual name property
-                // This handles cases where layer.name differs from targetId name
-                const currentLayers = layersRef.current;
-                if (Array.isArray(currentLayers)) {
-                  const matchingLayer = currentLayers.find(l =>
-                    l?.id === parsed.layerId || l?.name === originalName
-                  );
-                  if (matchingLayer?.name && matchingLayer.name !== parsed.layerId && matchingLayer.name !== originalName) {
-                    shapeUpdates.set(matchingLayer.name, updateData);
-                  }
-                }
-              }
-            }
+          // Skip shape/globalShape tracks during playback — useAnimation.js evaluates
+          // these directly from timelineContext for frame-accurate interpolation.
+          // This eliminates redundant lerpNodes/lerpSubpaths work every frame.
+          if (track.type === 'globalShape' || track.type === 'shape') {
             continue;
           }
 
@@ -1169,34 +1183,16 @@ export function useTimelineModulation({
                 const parsed = parseTargetId(storedTargetId);
                 if (parsed?.type === 'layer' && parsed.paramId === 'color') {
                   store.setMod('timeline', parsed.layerId, 'colors', [colorResult]);
+                } else if (parsed?.type === 'global' && parsed.paramId === 'backgroundColor') {
+                  if (typeof setBackgroundColor === 'function') setBackgroundColor(colorResult);
                 }
               }
               continue;
             }
 
+            // Skip stored shape paramKeyframes during playback — useAnimation handles
+            // shape track evaluation directly.
             if (virtualTrack.type === 'shape') {
-              const shapeResult = evaluateShapeTrackAtTime(virtualTrack, pos, lerpNodes, lerpSubpaths);
-              if (shapeResult) {
-                const parsed = parseTargetId(storedTargetId);
-                if (parsed?.type === 'layer' && parsed.paramId === 'shape') {
-                  const updateData = {
-                    layerId: parsed.layerId,
-                    nodes: shapeResult.nodes,
-                    subpaths: shapeResult.subpaths,
-                    position: shapeResult.position,
-                    shapeParams: shapeResult.shapeParams,
-                    animation: shapeResult.animation,
-                    colors: shapeResult.colors,
-                    base: shapeResult.base,
-                  };
-                  shapeUpdates.set(parsed.layerId, updateData);
-                  const parts = storedTargetId.split(':');
-                  const originalName = parts.length >= 2 ? parts[1] : null;
-                  if (originalName && originalName !== parsed.layerId) {
-                    shapeUpdates.set(originalName, updateData);
-                  }
-                }
-              }
               continue;
             }
 

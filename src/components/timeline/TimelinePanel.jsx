@@ -153,12 +153,18 @@ const TimelinePanel = ({
     const animatedLayer = Array.isArray(animatedLayers) && layerIndex >= 0 ? animatedLayers[layerIndex] : null;
 
     const targetLayerName = editedLayer?.name || layerName || null;
-    if (!targetLayerName) return;
+    const targetLayerId = editedLayer?.id || layerId || null;
+    if (!targetLayerName && !targetLayerId) return;
 
     const shapeTracks = tracks.filter((t) => {
       if (!t || t.type !== 'shape' || !t.targetId) return false;
       const parts = String(t.targetId).split(':');
-      return parts.length >= 3 && parts[0] === 'layer' && parts[1] === targetLayerName && parts[2] === 'shape';
+      if (parts.length < 3 || parts[0] !== 'layer' || parts[2] !== 'shape') return false;
+      const targetLayer = parts[1];
+      return (
+        (targetLayerName && targetLayer === targetLayerName) ||
+        (targetLayerId && targetLayer === targetLayerId)
+      );
     });
     if (shapeTracks.length === 0) return;
 
@@ -474,6 +480,25 @@ const TimelinePanel = ({
     }
   }, [addTrack, tracks?.length]);
 
+  // Handle adding a layer shape track for the currently selected layer
+  const handleAddLayerShapeTrack = useCallback(() => {
+    if (!addTrack) return;
+    const appState = getCurrentAppState?.();
+    const selectedIndex = appState?.selectedLayerIndex ?? 0;
+    const layer = layers?.[selectedIndex];
+    if (!layer) return;
+    const layerName = layer.name || `Layer ${selectedIndex + 1}`;
+    // Check if a shape track already exists for this layer
+    const existing = (tracks || []).find(t =>
+      t?.type === 'shape' && String(t.targetId || '').split(':')[1] === layerName
+    );
+    if (existing) {
+      console.log(`Shape track already exists for ${layerName}`);
+      return;
+    }
+    addTrack(`${layerName} Shape`, `layer:${layerName}:shape`, null, null, 'shape');
+  }, [addTrack, layers, tracks, getCurrentAppState]);
+
   // Handle adding a global shape track
   const handleAddGlobalShapeTrack = useCallback(() => {
     if (addTrack) {
@@ -654,8 +679,9 @@ const TimelinePanel = ({
     if (!visible) return;
 
     const handleKeyDown = (e) => {
+      const key = String(e.key || '').toLowerCase();
       // Only plain 'c' (no modifiers) to avoid conflicts with copy, etc.
-      if (e.key !== 'c' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (key !== 'c' || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
 
       const target = e.target;
       const isEditableTarget =
@@ -680,14 +706,17 @@ const TimelinePanel = ({
       if (!activeLayer) return;
 
       const layerName = activeLayer.name || `Layer ${selectedIndex + 1}`;
+      const layerId = activeLayer.id || null;
 
       // Find any shape tracks targeting this layer
       const shapeTracks = tracks.filter((track) => {
         if (!track.enabled || !track.targetId) return false;
         const isShape = track.type === 'shape' || track.targetId.endsWith(':shape');
         if (!isShape) return false;
-        // targetId is of form 'layer:<Layer Name>:shape'
-        return track.targetId.startsWith(`layer:${layerName}:`);
+        const parts = String(track.targetId).split(':');
+        if (parts.length < 3 || parts[0] !== 'layer' || parts[2] !== 'shape') return false;
+        const targetLayer = parts[1];
+        return targetLayer === layerName || (layerId && targetLayer === layerId);
       });
 
       if (!shapeTracks.length) return;
@@ -695,7 +724,7 @@ const TimelinePanel = ({
       // Capture for each matching shape track at current playhead time
       shapeTracks.forEach((track) => {
         // Reuse the existing capture helper so extras (position, shapeParams, etc.) are included
-        handleCaptureShapeKeyframe(track.id, layerName);
+        handleCaptureShapeKeyframe(track.id, layerId || layerName);
       });
     };
 
@@ -1380,8 +1409,10 @@ const TimelinePanel = ({
                         ? getCurrentAppState().backgroundColor
                         : '#000000';
                     } else if (targetType === 'layer' && targetParam === 'color') {
-                      const layerName = parts.length >= 2 ? parts[1] : null;
-                      const layer = Array.isArray(layers) ? layers.find(l => l?.name === layerName) : null;
+                      const layerIdOrName = parts.length >= 2 ? parts[1] : null;
+                      const layer = Array.isArray(layers)
+                        ? layers.find(l => l?.name === layerIdOrName || l?.id === layerIdOrName)
+                        : null;
                       const layerColor = Array.isArray(layer?.colors) && layer.colors.length ? layer.colors[0] : null;
                       if (typeof layerColor === 'string') defaultColor = layerColor;
                     }
@@ -1447,6 +1478,23 @@ const TimelinePanel = ({
                   }}
                 >
                   + Track
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddLayerShapeTrack}
+                  style={{
+                    background: 'rgba(76, 175, 80, 0.2)',
+                    border: '1px dashed rgba(76, 175, 80, 0.5)',
+                    borderRadius: 4,
+                    padding: '6px 8px',
+                    color: '#a5d6a7',
+                    fontSize: '0.65rem',
+                    cursor: 'pointer',
+                    flex: 1,
+                  }}
+                  title="Add a Shape track for the currently selected layer"
+                >
+                  + Layer Shape
                 </button>
                 <button
                   type="button"

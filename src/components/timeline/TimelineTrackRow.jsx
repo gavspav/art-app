@@ -27,7 +27,7 @@ const TimelineTrackRow = ({
   onCaptureShapeKeyframe,
   onCaptureGlobalShapeKeyframe,
   onGenerateGlobalVariationKeyframe,
-  onRerollGlobalShapeKeyframe: _onRerollGlobalShapeKeyframe,
+  onRerollGlobalShapeKeyframe,
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,
@@ -42,6 +42,8 @@ const TimelineTrackRow = ({
   const [isExpanded, setIsExpanded] = useState(true);
   const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
   const isGlobalShapeTrack = track?.type === 'globalShape';
+  const isColorTrack = track?.type === 'color';
+  const isNumericTrack = !isShapeTrack && !isColorTrack && !isGlobalShapeTrack;
 
   // Count stored parameters with keyframes (excluding the currently active one)
   const storedParamCount = useMemo(() => {
@@ -367,7 +369,7 @@ const TimelineTrackRow = ({
         )}
 
         {/* Range controls (hidden for shape tracks) */}
-        {isExpanded && track.targetId && !isShapeTrack && (
+        {isExpanded && track.targetId && isNumericTrack && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem' }}>
             <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>Range:</span>
             <input
@@ -628,7 +630,13 @@ const TimelineTrackRow = ({
           onCopyKeyframe={onCopyKeyframe}
           onPasteKeyframe={onPasteKeyframe}
           onPasteKeyframeToTrack={onPasteKeyframeToTrack}
-          onRerollVariation={onRerollVariation}
+          onRerollVariation={(keyframeId) => {
+            if (isGlobalShapeTrack) {
+              onRerollGlobalShapeKeyframe?.(track.id, keyframeId);
+            } else {
+              onRerollVariation?.(keyframeId);
+            }
+          }}
           hasClipboard={hasClipboard}
           clipboardTrackType={clipboardTrackType}
           clipboardSourceTargetId={clipboardSourceTargetId}

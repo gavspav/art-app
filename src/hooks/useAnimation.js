@@ -605,6 +605,7 @@ export const useAnimation = (
                                 animation: shapeResult.animation,
                                 colors: shapeResult.colors,
                                 base: shapeResult.base,
+                                energyBand: track.energyBand || 'total',
                             };
                             shapeUpdatesMap.set(layerName, updateData);
 
@@ -616,6 +617,45 @@ export const useAnimation = (
                         }
                     }
                     continue;
+                }
+
+                // Evaluate stored shape paramKeyframes (shape keyframes saved when
+                // the track's active parameter was switched away from 'shape')
+                if (track.paramKeyframes) {
+                    for (const [storedTargetId, stored] of Object.entries(track.paramKeyframes)) {
+                        if (storedTargetId === track.targetId) continue;
+                        if (!stored?.keyframes?.length || stored.type !== 'shape') continue;
+
+                        const virtualTrack = {
+                            ...track,
+                            targetId: storedTargetId,
+                            keyframes: stored.keyframes,
+                            type: 'shape',
+                        };
+                        const shapeResult = evaluateShapeTrackAtTime(virtualTrack, pos, lerpNodes, lerpSubpaths);
+                        if (shapeResult) {
+                            const parts = storedTargetId.split(':');
+                            const layerName = parts.length >= 2 ? parts[1] : null;
+                            if (layerName) {
+                                const updateData = {
+                                    layerId: layerName,
+                                    nodes: shapeResult.nodes,
+                                    subpaths: shapeResult.subpaths,
+                                    position: shapeResult.position,
+                                    shapeParams: shapeResult.shapeParams,
+                                    animation: shapeResult.animation,
+                                    colors: shapeResult.colors,
+                                    base: shapeResult.base,
+                                    energyBand: track.energyBand || 'total',
+                                };
+                                shapeUpdatesMap.set(layerName, updateData);
+                                const matchingLayer = currentLayers.find(l => l?.name === layerName);
+                                if (matchingLayer?.id && matchingLayer.id !== layerName) {
+                                    shapeUpdatesMap.set(matchingLayer.id, updateData);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } else {

@@ -133,6 +133,11 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     ? JSON.parse(JSON.stringify(prev || DEFAULT_LAYER))
     : { ...(prev || DEFAULT_LAYER) };
 
+  // A varied layer is a new layer snapshot and must not inherit identity.
+  if (Object.prototype.hasOwnProperty.call(varied, 'id')) {
+    delete varied.id;
+  }
+
   varied.name = `Layer ${nameIndex}`;
   if (!lockShape) {
     if (preserveSeeds) {

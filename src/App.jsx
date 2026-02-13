@@ -1506,13 +1506,22 @@ const MainApp = () => {
     if (!layer || !timelineContext?.tracks) return null;
     const layerName = layer.name;
     const layerId = layer.id;
-    return timelineContext.tracks.find((t) => {
+    const shapeTracks = timelineContext.tracks.filter((t) => {
       if (t?.type !== 'shape') return false;
       const parts = String(t.targetId || '').split(':');
-      if (parts.length < 3 || parts[0] !== 'layer' || parts[2] !== 'shape') return false;
-      const targetLayer = parts[1];
-      return targetLayer === layerName || targetLayer === layerId;
-    }) || null;
+      return parts.length >= 3 && parts[0] === 'layer' && parts[2] === 'shape';
+    });
+    if (!shapeTracks.length) return null;
+
+    // Prefer name-targeted tracks first; IDs can be stale if duplicates were normalized.
+    if (layerName) {
+      const byName = shapeTracks.find((t) => String(t.targetId || '').split(':')[1] === layerName);
+      if (byName) return byName;
+    }
+    if (layerId) {
+      return shapeTracks.find((t) => String(t.targetId || '').split(':')[1] === layerId) || null;
+    }
+    return null;
   }, [timelineContext?.tracks]);
 
   // --- Variation Keyframe Generation Handlers ---
@@ -1523,7 +1532,24 @@ const MainApp = () => {
     if (!timelineContext?.visible) return;
 
     const layer = layers[selectedLayerIndex];
-    const shapeTrack = findShapeTrackForLayer(layer);
+    let shapeTrack = findShapeTrackForLayer(layer);
+
+    // Auto-create a shape track for the selected layer if none exists
+    if (!shapeTrack && layer && timelineContext.addTrack) {
+      const layerName = layer.name || `Layer ${selectedLayerIndex + 1}`;
+      const newTrackId = timelineContext.addTrack(
+        `${layerName} Shape`,
+        `layer:${layerName}:shape`,
+        null, null, 'shape'
+      );
+      if (newTrackId) {
+        // Build a minimal track object so generateVariationKeyframe can find it
+        // (the real track is in React state which updates async, but addTrack returns the ID)
+        shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
+        console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
+      }
+    }
+
     if (shapeTrack && layer) {
       const baseKey = layer.id || layer.name;
       let baseLayer = variationBaseRef.current.get(baseKey);
@@ -1651,8 +1677,25 @@ const MainApp = () => {
           return;
         }
 
-        console.warn('No shape or numeric track found for selected layer');
-        return;
+        // Auto-create a shape track for the selected layer
+        if (timelineContext.addTrack) {
+          const newTrackId = timelineContext.addTrack(
+            `${layerName} Shape`,
+            `layer:${layerName}:shape`,
+            null, null, 'shape'
+          );
+          if (newTrackId) {
+            shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
+            console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
+            // Fall through to the shape track generation path below
+          } else {
+            console.warn('No shape or numeric track found for selected layer');
+            return;
+          }
+        } else {
+          console.warn('No shape or numeric track found for selected layer');
+          return;
+        }
       }
     }
 

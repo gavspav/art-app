@@ -677,7 +677,7 @@ const TimelineCurveEditor = ({
         ))}
 
         {/* Filled area under curve (numeric tracks only) */}
-        {!isShapeTrack && pathD && (
+        {isNumericTrack && pathD && (
           <path
             d={`${pathD} L ${keyframes.length > 0 ? keyframeToSvg(keyframes[keyframes.length - 1]).x : padding.left} ${padding.top + innerHeight} L ${keyframes.length > 0 ? keyframeToSvg(keyframes[0]).x : padding.left} ${padding.top + innerHeight} Z`}
             fill={trackColor}
@@ -890,7 +890,7 @@ const TimelineCurveEditor = ({
         )}
 
         {/* Current value dot on playhead (numeric tracks only) */}
-        {!isShapeTrack && playheadX >= 0 && playheadX <= containerWidth && currentValue !== null && (
+        {isNumericTrack && playheadX >= 0 && playheadX <= containerWidth && currentValue !== null && (
           <circle
             cx={playheadX}
             cy={valueToY(currentValue)}
@@ -902,7 +902,7 @@ const TimelineCurveEditor = ({
         )}
 
         {/* Value labels (numeric tracks only) */}
-        {!isShapeTrack && (
+        {isNumericTrack && (
           <>
             <text x={padding.left + 2} y={padding.top + 10} fill="rgba(255,255,255,0.3)" fontSize="8">
               {track?.range?.outputMax?.toFixed(1) ?? '1'}
@@ -1029,7 +1029,7 @@ const TimelineCurveEditor = ({
               </button>
               
               {/* Reroll variation (only for keyframes with variation metadata) */}
-              {isShapeTrack && selectedMenuKeyframe?.variation && (
+              {isShapeTrack && selectedMenuKeyframe?.variation && onRerollVariation && (
                 <button
                   type="button"
                   onClick={() => {

@@ -101,4 +101,22 @@ describe('buildVariedLayerFrom', () => {
       expect(allowed.has(String(c).toLowerCase())).toBe(true);
     });
   });
+
+  it('does not inherit the source layer id', () => {
+    const baseLayer = {
+      ...DEFAULT_LAYER,
+      id: 'layer-source-id',
+      name: 'Layer 1',
+      position: { ...DEFAULT_LAYER.position },
+    };
+
+    const result = buildVariedLayerFrom(
+      baseLayer,
+      2,
+      { shape: 1, anim: 1, color: 1, position: 1 },
+      { DEFAULT_LAYER },
+    );
+
+    expect(result.id).toBeUndefined();
+  });
 });
