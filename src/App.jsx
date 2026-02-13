@@ -1533,6 +1533,7 @@ const MainApp = () => {
 
     const layer = layers[selectedLayerIndex];
     let shapeTrack = findShapeTrackForLayer(layer);
+    let autoCreatedShapeTrackId = null;
 
     // Auto-create a shape track for the selected layer if none exists
     if (!shapeTrack && layer && timelineContext.addTrack) {
@@ -1546,6 +1547,7 @@ const MainApp = () => {
         // Build a minimal track object so generateVariationKeyframe can find it
         // (the real track is in React state which updates async, but addTrack returns the ID)
         shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
+        autoCreatedShapeTrackId = newTrackId;
         console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
       }
     }
@@ -1566,12 +1568,30 @@ const MainApp = () => {
         scale: layer.variationScale ?? 0,
       };
 
-      const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, {
+      const variationOptions = {
         variationWeights,
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
-      });
+      };
+
+      // Newly auto-created tracks are added via async React state update.
+      // Defer generation one frame so TimelineContext can find the track.
+      if (autoCreatedShapeTrackId) {
+        requestAnimationFrame(() => {
+          const deferredKeyframeId = timelineContext.generateVariationKeyframe?.(
+            autoCreatedShapeTrackId,
+            baseLayer,
+            variationOptions,
+          );
+          if (deferredKeyframeId) {
+            console.log('Generated variation keyframe:', deferredKeyframeId);
+          }
+        });
+        return;
+      }
+
+      const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, variationOptions);
       if (keyframeId) {
         console.log('Generated variation keyframe:', keyframeId);
       }
@@ -1625,6 +1645,7 @@ const MainApp = () => {
     
     // For single-layer mode, get the selected layer's track
     let shapeTrack = isGlobal ? globalShapeTrack : selectedShapeTrack;
+    let autoCreatedShapeTrackId = null;
     
     if (!isGlobal) {
       if (!layer) return;
@@ -1686,6 +1707,7 @@ const MainApp = () => {
           );
           if (newTrackId) {
             shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
+            autoCreatedShapeTrackId = newTrackId;
             console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
             // Fall through to the shape track generation path below
           } else {
@@ -1795,8 +1817,7 @@ const MainApp = () => {
         paletteColors: generationPaletteColors,
       });
     } else {
-      // Single-layer shape track
-      keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, baseLayer, count, {
+      const shapeRandomOptions = {
         useTransients,
         startTime,
         endTime,
@@ -1806,7 +1827,29 @@ const MainApp = () => {
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
-      });
+      };
+
+      // Newly auto-created tracks are added via async React state update.
+      // Defer generation one frame so TimelineContext can see the new track.
+      if (autoCreatedShapeTrackId) {
+        requestAnimationFrame(() => {
+          const deferredKeyframeIds = timelineContext.generateRandomKeyframes?.(
+            autoCreatedShapeTrackId,
+            baseLayer,
+            count,
+            shapeRandomOptions,
+          );
+          if (deferredKeyframeIds?.length) {
+            console.log('Generated', deferredKeyframeIds.length, 'random keyframes',
+              nodeMod ? 'with node modulation' : '',
+              energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
+          }
+        });
+        return;
+      }
+
+      // Single-layer shape track
+      keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, baseLayer, count, shapeRandomOptions);
     }
 
     if (keyframeIds?.length) {

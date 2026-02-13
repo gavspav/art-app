@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 /**
@@ -34,19 +34,28 @@ export function useAudioHandlers({
   // Selection
   clampedSelectedIndex,
 }) {
+  const blendModeStateRef = useRef({ index: -1, lastChangeMs: 0 });
+  const paletteStateRef = useRef({ index: -1, lastChangeMs: 0 });
+  const randomizeStateRef = useRef({ lastTriggerMs: 0 });
+
   // Randomize All (rising-edge trigger)
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('randomizeAll', ({ value01 }) => {
       const prev = rndAllPrevRef?.current || 0;
       const cur = Math.max(0, Math.min(1, value01));
-      if (prev < 0.5 && cur >= 0.5) {
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const minIntervalMs = 1000;
+      if (prev < 0.5 && cur >= 0.5 && (now - (randomizeStateRef.current.lastTriggerMs || 0)) >= minIntervalMs) {
+        randomizeStateRef.current.lastTriggerMs = now;
         handleRandomizeAll?.();
       }
       if (rndAllPrevRef) rndAllPrevRef.current = cur;
     });
     return unregister;
-  }, [registerAudioHandler, handleRandomizeAll, rndAllPrevRef]);
+  }, [registerAudioHandler, handleRandomizeAll, rndAllPrevRef, randomizeStateRef]);
 
   // Global Speed - value01 is already mapped to output range (e.g., 0.5 → 3.0)
   useEffect(() => {
@@ -127,15 +136,30 @@ export function useAudioHandlers({
   // Global Blend Mode (dropdown over blendModes) - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalBlendMode', ({ raw }) => {
+    const unregister = registerAudioHandler('globalBlendMode', ({ value01, raw }) => {
       const opts = Array.isArray(blendModes) ? blendModes : [];
       if (!opts.length) return;
-      // Use raw 0-1 value for index-based selection
-      const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(raw * opts.length)));
+
+      const normalized = Math.max(0, Math.min(
+        1,
+        Number.isFinite(value01) ? value01 : (Number.isFinite(raw) ? raw : 0)
+      ));
+      const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(normalized * opts.length)));
+      const state = blendModeStateRef.current;
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const minSwitchMs = 260;
+
+      if (idx === state.index) return;
+      if ((now - state.lastChangeMs) < minSwitchMs) return;
+
+      state.index = idx;
+      state.lastChangeMs = now;
       setGlobalBlendMode?.(opts[idx]);
     });
     return unregister;
-  }, [registerAudioHandler, setGlobalBlendMode, blendModes]);
+  }, [registerAudioHandler, setGlobalBlendMode, blendModes, blendModeStateRef]);
 
   // Layers Count - value01 is already mapped to output range
   useEffect(() => {
@@ -198,11 +222,26 @@ export function useAudioHandlers({
   // Global Palette Preset -> applies to currently selected layer - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalPaletteIndex', ({ raw }) => {
+    const unregister = registerAudioHandler('globalPaletteIndex', ({ value01, raw }) => {
       const list = palettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
-      // Use raw 0-1 value for index-based selection
-      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(raw * list.length)));
+
+      const normalized = Math.max(0, Math.min(
+        1,
+        Number.isFinite(value01) ? value01 : (Number.isFinite(raw) ? raw : 0)
+      ));
+      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(normalized * list.length)));
+      const state = paletteStateRef.current;
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const minSwitchMs = 320;
+
+      if (idx === state.index) return;
+      if ((now - state.lastChangeMs) < minSwitchMs) return;
+
+      state.index = idx;
+      state.lastChangeMs = now;
       const pick = list[idx];
       const src = Array.isArray(pick) ? pick : (pick?.colors || []);
       setLayers?.(prev => {
@@ -216,7 +255,7 @@ export function useAudioHandlers({
       });
     });
     return unregister;
-  }, [registerAudioHandler, clampedSelectedIndex, setLayers, palettes, sampleColorsEven]);
+  }, [registerAudioHandler, clampedSelectedIndex, setLayers, palettes, sampleColorsEven, paletteStateRef]);
 
   // Per-layer position handlers (X, Y, Z/scale) - use raw 0-1 for position mapping
   useEffect(() => {

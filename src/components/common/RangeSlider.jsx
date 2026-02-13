@@ -38,6 +38,7 @@ export default function RangeSlider({
 }) {
   const wrapRef = useRef(null);
   const draggingRef = useRef(null); // 'rangeMin' | 'rangeMax' | null
+  const [isMainDragging, setIsMainDragging] = useState(false);
   const [, forceUpdate] = useState(0);
 
   const lo = Number.isFinite(min) ? min : 0;
@@ -46,6 +47,18 @@ export default function RangeSlider({
 
   const effectiveRangeMin = Number.isFinite(rangeMin) ? rangeMin : lo;
   const effectiveRangeMax = Number.isFinite(rangeMax) ? rangeMax : hi;
+
+  const formatValue = useCallback((v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '0';
+    const stepNum = Number(step);
+    if (Number.isFinite(stepNum) && stepNum > 0) {
+      const stepText = String(stepNum);
+      const decimals = stepText.includes('.') ? stepText.split('.')[1].length : 0;
+      return n.toFixed(Math.min(4, Math.max(0, decimals)));
+    }
+    return n.toFixed(2);
+  }, [step]);
 
   // Convert a value to a percentage position on the track (0–100)
   const toPercent = useCallback((v) => {
@@ -71,6 +84,7 @@ export default function RangeSlider({
   const onPointerDown = useCallback((which) => (e) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsMainDragging(false);
     draggingRef.current = which;
     document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
@@ -95,6 +109,7 @@ export default function RangeSlider({
       }
     };
     const onUp = () => {
+      setIsMainDragging(false);
       if (!draggingRef.current) return;
       draggingRef.current = null;
       document.body.style.cursor = '';
@@ -113,9 +128,21 @@ export default function RangeSlider({
 
   const minPct = toPercent(effectiveRangeMin);
   const maxPct = toPercent(effectiveRangeMax);
+  const valuePct = toPercent(Number(value));
 
   // Show the highlighted band when the range is narrower than the full slider range
   const rangeIsCustom = effectiveRangeMin > lo + span * 0.001 || effectiveRangeMax < hi - span * 0.001;
+  const activeDragType = draggingRef.current || (isMainDragging ? 'value' : null);
+  const activeValue = activeDragType === 'rangeMin'
+    ? effectiveRangeMin
+    : activeDragType === 'rangeMax'
+      ? effectiveRangeMax
+      : Number(value);
+  const activePct = activeDragType === 'rangeMin'
+    ? minPct
+    : activeDragType === 'rangeMax'
+      ? maxPct
+      : valuePct;
 
   return (
     <div className="range-slider-wrap" ref={wrapRef}>
@@ -127,10 +154,20 @@ export default function RangeSlider({
         step={step}
         value={value}
         onChange={onChange}
+        onPointerDown={() => setIsMainDragging(true)}
         className={className}
         style={style}
         {...rest}
       />
+      {activeDragType && (
+        <div
+          className="range-slider-value-pop"
+          style={{ left: `calc(${activePct}% + ${9 - activePct * 0.18}px)` }}
+        >
+          {activeDragType === 'rangeMin' ? 'Min: ' : activeDragType === 'rangeMax' ? 'Max: ' : ''}
+          {formatValue(activeValue)}
+        </div>
+      )}
       {/* Highlighted range band */}
       {rangeIsCustom && (
         <div

@@ -37,6 +37,9 @@ const modeProcessor = new AudioModeProcessor();
 const DEFAULT_AUDIO_SETTINGS = {
   enabled: false,
   sensitivity: 1.0,
+  bassSensitivity: 1.0,
+  midsSensitivity: 1.0,
+  highsSensitivity: 1.0,
   smoothing: 0.7, // Increased for slower, more flowing response
   release: 0.85, // Falloff factor: values decay slower (0=instant, 1=never)
   deviceId: null, // null = default device
@@ -124,6 +127,9 @@ export const AudioProvider = ({ children }) => {
   } = useAudio({
     enabled: settings.enabled,
     sensitivity: settings.sensitivity,
+    bassSensitivity: settings.bassSensitivity,
+    midsSensitivity: settings.midsSensitivity,
+    highsSensitivity: settings.highsSensitivity,
     smoothing: settings.smoothing,
     release: settings.release,
     deviceId: settings.deviceId,
@@ -352,6 +358,22 @@ export const AudioProvider = ({ children }) => {
     setSettings(prev => ({ ...prev, sensitivity: v }));
   }, []);
 
+  // Set per-band sensitivities (0..3)
+  const setBassSensitivity = useCallback((value) => {
+    const v = Math.max(0, Math.min(3, Number(value) || 1));
+    setSettings(prev => ({ ...prev, bassSensitivity: v }));
+  }, []);
+
+  const setMidsSensitivity = useCallback((value) => {
+    const v = Math.max(0, Math.min(3, Number(value) || 1));
+    setSettings(prev => ({ ...prev, midsSensitivity: v }));
+  }, []);
+
+  const setHighsSensitivity = useCallback((value) => {
+    const v = Math.max(0, Math.min(3, Number(value) || 1));
+    setSettings(prev => ({ ...prev, highsSensitivity: v }));
+  }, []);
+
   // Set smoothing (0..1)
   const setSmoothing = useCallback((value) => {
     const v = Math.max(0, Math.min(1, Number(value) || 0.7));
@@ -383,6 +405,9 @@ export const AudioProvider = ({ children }) => {
     settings: {
       // Don't include 'enabled' - that's runtime state, not config
       sensitivity: settings.sensitivity,
+      bassSensitivity: settings.bassSensitivity,
+      midsSensitivity: settings.midsSensitivity,
+      highsSensitivity: settings.highsSensitivity,
       smoothing: settings.smoothing,
       release: settings.release,
       // Don't include deviceId - that's machine-specific
@@ -399,6 +424,9 @@ export const AudioProvider = ({ children }) => {
       setSettings(prev => ({
         ...prev,
         sensitivity: snapshot.settings.sensitivity ?? prev.sensitivity,
+        bassSensitivity: snapshot.settings.bassSensitivity ?? prev.bassSensitivity,
+        midsSensitivity: snapshot.settings.midsSensitivity ?? prev.midsSensitivity,
+        highsSensitivity: snapshot.settings.highsSensitivity ?? prev.highsSensitivity,
         smoothing: snapshot.settings.smoothing ?? prev.smoothing,
         release: snapshot.settings.release ?? prev.release,
       }));
@@ -430,6 +458,9 @@ export const AudioProvider = ({ children }) => {
     toggleAudio,
     setAudioEnabled,
     setSensitivity,
+    setBassSensitivity,
+    setMidsSensitivity,
+    setHighsSensitivity,
     setSmoothing,
     setRelease,
     setDeviceId,
@@ -481,6 +512,9 @@ export const AudioProvider = ({ children }) => {
     toggleAudio,
     setAudioEnabled,
     setSensitivity,
+    setBassSensitivity,
+    setMidsSensitivity,
+    setHighsSensitivity,
     setSmoothing,
     setRelease,
     setDeviceId,

@@ -1532,43 +1532,46 @@ export const TimelineProvider = ({ children }) => {
       }
     }
 
-    // Extract data from each layer
-    const layersData = layers.map(layer => {
-      const data = {
-        nodes: Array.isArray(layer.nodes) ? JSON.parse(JSON.stringify(layer.nodes)) : null,
-        subpaths: Array.isArray(layer.subpaths) ? JSON.parse(JSON.stringify(layer.subpaths)) : null,
-        position: {
-          x: layer.position?.x ?? 0.5,
-          y: layer.position?.y ?? 0.5,
-          scale: layer.position?.scale ?? 1,
-          xOffset: layer.xOffset ?? 0,
-          yOffset: layer.yOffset ?? 0,
-        },
-        shapeParams: {
-          numSides: layer.numSides ?? 6,
-          curviness: layer.curviness ?? 1.0,
-          radiusFactor: layer.radiusFactor ?? 0.125,
-          radiusFactorX: layer.radiusFactorX ?? layer.radiusFactor ?? 0.125,
-          radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
-          rotation: layer.rotation ?? 0,
-        },
-      };
-
+    const extractData = (layer) => ({
+      nodes: Array.isArray(layer.nodes) ? JSON.parse(JSON.stringify(layer.nodes)) : null,
+      subpaths: Array.isArray(layer.subpaths) ? JSON.parse(JSON.stringify(layer.subpaths)) : null,
+      position: {
+        x: layer.position?.x ?? 0.5,
+        y: layer.position?.y ?? 0.5,
+        scale: layer.position?.scale ?? 1,
+        xOffset: layer.xOffset ?? 0,
+        yOffset: layer.yOffset ?? 0,
+      },
+      shapeParams: {
+        numSides: layer.numSides ?? 6,
+        curviness: layer.curviness ?? 1.0,
+        radiusFactor: layer.radiusFactor ?? 0.125,
+        radiusFactorX: layer.radiusFactorX ?? layer.radiusFactor ?? 0.125,
+        radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
+        rotation: layer.rotation ?? 0,
+      },
       // Always store animation — category toggles control playback, not storage
-      data.animation = {
+      animation: {
         movementStyle: layer.movementStyle ?? 'bounce',
         movementSpeed: layer.movementSpeed ?? 1,
         movementAngle: layer.movementAngle ?? 45,
         scaleSpeed: layer.scaleSpeed ?? 0.05,
         scaleMin: layer.scaleMin ?? 0,
         scaleMax: layer.scaleMax ?? 1.5,
-      };
-
+      },
       // Always store colors so keyframes can later tween correctly when the track's
       // "Color" category is enabled (the toggle controls playback, not what is stored).
-      data.colors = Array.isArray(layer.colors) ? [...layer.colors] : ['#0000FF'];
+      colors: Array.isArray(layer.colors) ? [...layer.colors] : ['#0000FF'],
+    });
 
-      return data;
+    // Store base data explicitly so runtime variation sliders can consistently blend
+    // between base and varied states for global shape tracks.
+    const layersData = layers.map(layer => {
+      const snapshot = extractData(layer);
+      return {
+        ...snapshot,
+        base: extractData(layer),
+      };
     });
 
     addGlobalShapeKeyframe(trackId, time, layersData, options.label || '', {
@@ -1614,7 +1617,7 @@ export const TimelineProvider = ({ children }) => {
       scale: firstLayer.variationScale ?? 0,
     };
 
-    const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position'];
+    const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'];
 
     // Generate varied version of each layer
     const layersData = baseLayers.map((layer, index) => {
@@ -1630,39 +1633,43 @@ export const TimelineProvider = ({ children }) => {
         paletteColors: options.paletteColors,
       });
 
-      const data = {
-        nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
-        subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+      const extractData = (l) => ({
+        nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
+        subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
         position: {
-          x: variedLayer.position?.x ?? 0.5,
-          y: variedLayer.position?.y ?? 0.5,
-          scale: variedLayer.position?.scale ?? 1,
-          xOffset: variedLayer.xOffset ?? 0,
-          yOffset: variedLayer.yOffset ?? 0,
+          x: l.position?.x ?? 0.5,
+          y: l.position?.y ?? 0.5,
+          scale: l.position?.scale ?? 1,
+          xOffset: l.xOffset ?? 0,
+          yOffset: l.yOffset ?? 0,
         },
         shapeParams: {
-          numSides: variedLayer.numSides ?? 6,
-          curviness: variedLayer.curviness ?? 1.0,
-          radiusFactor: variedLayer.radiusFactor ?? 0.125,
-          radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
-          radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
-          rotation: variedLayer.rotation ?? 0,
+          numSides: l.numSides ?? 6,
+          curviness: l.curviness ?? 1.0,
+          radiusFactor: l.radiusFactor ?? 0.125,
+          radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
+          radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
+          rotation: l.rotation ?? 0,
         },
+        // Always store animation — category toggles control playback, not storage
+        animation: {
+          movementStyle: l.movementStyle ?? 'bounce',
+          movementSpeed: l.movementSpeed ?? 1,
+          movementAngle: l.movementAngle ?? 45,
+          scaleSpeed: l.scaleSpeed ?? 0.05,
+          scaleMin: l.scaleMin ?? 0,
+          scaleMax: l.scaleMax ?? 1.5,
+        },
+        colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
+      });
+
+      const variedData = extractData(variedLayer);
+      const baseData = extractData(layer);
+
+      return {
+        ...variedData,
+        base: baseData,
       };
-
-      // Always store animation — category toggles control playback, not storage
-      data.animation = {
-        movementStyle: variedLayer.movementStyle ?? 'bounce',
-        movementSpeed: variedLayer.movementSpeed ?? 1,
-        movementAngle: variedLayer.movementAngle ?? 45,
-        scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
-        scaleMin: variedLayer.scaleMin ?? 0,
-        scaleMax: variedLayer.scaleMax ?? 1.5,
-      };
-
-      data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-
-      return data;
     });
 
     // Add keyframe with variation metadata for reroll support
@@ -1714,39 +1721,43 @@ export const TimelineProvider = ({ children }) => {
         paletteColors: variationMeta.paletteColors,
       });
 
-      const data = {
-        nodes: Array.isArray(variedLayer.nodes) ? JSON.parse(JSON.stringify(variedLayer.nodes)) : null,
-        subpaths: Array.isArray(variedLayer.subpaths) ? JSON.parse(JSON.stringify(variedLayer.subpaths)) : null,
+      const extractData = (l) => ({
+        nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
+        subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
         position: {
-          x: variedLayer.position?.x ?? 0.5,
-          y: variedLayer.position?.y ?? 0.5,
-          scale: variedLayer.position?.scale ?? 1,
-          xOffset: variedLayer.xOffset ?? 0,
-          yOffset: variedLayer.yOffset ?? 0,
+          x: l.position?.x ?? 0.5,
+          y: l.position?.y ?? 0.5,
+          scale: l.position?.scale ?? 1,
+          xOffset: l.xOffset ?? 0,
+          yOffset: l.yOffset ?? 0,
         },
         shapeParams: {
-          numSides: variedLayer.numSides ?? 6,
-          curviness: variedLayer.curviness ?? 1.0,
-          radiusFactor: variedLayer.radiusFactor ?? 0.125,
-          radiusFactorX: variedLayer.radiusFactorX ?? variedLayer.radiusFactor ?? 0.125,
-          radiusFactorY: variedLayer.radiusFactorY ?? variedLayer.radiusFactor ?? 0.125,
-          rotation: variedLayer.rotation ?? 0,
+          numSides: l.numSides ?? 6,
+          curviness: l.curviness ?? 1.0,
+          radiusFactor: l.radiusFactor ?? 0.125,
+          radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
+          radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
+          rotation: l.rotation ?? 0,
         },
+        // Always store animation — category toggles control playback, not storage
+        animation: {
+          movementStyle: l.movementStyle ?? 'bounce',
+          movementSpeed: l.movementSpeed ?? 1,
+          movementAngle: l.movementAngle ?? 45,
+          scaleSpeed: l.scaleSpeed ?? 0.05,
+          scaleMin: l.scaleMin ?? 0,
+          scaleMax: l.scaleMax ?? 1.5,
+        },
+        colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
+      });
+
+      const variedData = extractData(variedLayer);
+      const baseData = extractData(layer);
+
+      return {
+        ...variedData,
+        base: baseData,
       };
-
-      // Always store animation — category toggles control playback, not storage
-      data.animation = {
-        movementStyle: variedLayer.movementStyle ?? 'bounce',
-        movementSpeed: variedLayer.movementSpeed ?? 1,
-        movementAngle: variedLayer.movementAngle ?? 45,
-        scaleSpeed: variedLayer.scaleSpeed ?? 0.05,
-        scaleMin: variedLayer.scaleMin ?? 0,
-        scaleMax: variedLayer.scaleMax ?? 1.5,
-      };
-
-      data.colors = Array.isArray(variedLayer.colors) ? [...variedLayer.colors] : ['#0000FF'];
-
-      return data;
     });
 
     // Update the keyframe

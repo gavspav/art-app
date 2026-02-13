@@ -36,6 +36,7 @@ const TimelineWorkspace = ({
   return (
     <>
       <div
+        className="timeline-workspace-top"
         style={{
           position: 'fixed',
           top: `${topBarHeight}px`,
@@ -49,12 +50,14 @@ const TimelineWorkspace = ({
         }}
       >
         <div
+          className="timeline-workspace-controls"
           style={{
             width: `${leftPanelRatio * 100}%`,
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            position: 'relative',
             background: 'rgba(20, 20, 30, 0.95)',
             borderRight: '1px solid rgba(255, 255, 255, 0.1)',
           }}
@@ -64,9 +67,7 @@ const TimelineWorkspace = ({
               height: '100%',
               flex: 1,
               minHeight: 0,
-              overflowY: 'auto',
-              padding: '0 12px 0 12px',
-              boxSizing: 'border-box',
+              position: 'relative',
             }}
           >
             <BottomPanel {...bottomPanelProps} />

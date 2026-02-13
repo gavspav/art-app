@@ -2,6 +2,9 @@ import { useRef, useCallback, useMemo } from 'react';
 import { MOVEMENT_STYLES } from './movementStyles.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
+// Rate-limit movement style switching to avoid rapid audio-driven visual popping.
+const movementStyleSwitchState = new Map(); // layerId -> { style, changedAtMs }
+
 /**
  * useModulationStore - Centralized store for Audio/BPM/Timeline modulations
  * 
@@ -372,9 +375,34 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
         index = 0;
       }
       const clampedIndex = Math.max(0, Math.min(styles.length - 1, index));
+      const nextStyle = styles[clampedIndex];
+      const nowMs = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const minSwitchMs = 280;
+      const state = movementStyleSwitchState.get(layer.id) || {
+        style: layer.movementStyle || styles[0],
+        changedAtMs: 0,
+      };
+
+      if (state.style !== nextStyle && (nowMs - state.changedAtMs) < minSwitchMs) {
+        // Keep current style until cooldown passes.
+        modifiedLayer = {
+          ...modifiedLayer,
+          movementStyle: state.style,
+        };
+        continue;
+      }
+
+      const styleToApply = (state.style === nextStyle) ? state.style : nextStyle;
+      if (state.style !== styleToApply) {
+        movementStyleSwitchState.set(layer.id, { style: styleToApply, changedAtMs: nowMs });
+      } else if (!movementStyleSwitchState.has(layer.id)) {
+        movementStyleSwitchState.set(layer.id, { style: styleToApply, changedAtMs: nowMs });
+      }
       modifiedLayer = {
         ...modifiedLayer,
-        movementStyle: styles[clampedIndex],
+        movementStyle: styleToApply,
       };
     } else if (paramId === 'colors' && Array.isArray(value)) {
       // Colors are always absolute

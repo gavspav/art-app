@@ -16,6 +16,7 @@ import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/s
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 import RangeSlider from '../common/RangeSlider.jsx';
+import AudioModulationPresetsSection from './sections/AudioModulationPresetsSection.jsx';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -35,7 +36,7 @@ const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
 
-import { AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
+import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
 // Legacy (unused directly here; retained in module export for reference):
 // import { RangeMappingEditor } from './sections/GlobalAutomationSections.jsx';
 
@@ -1716,6 +1717,35 @@ const GlobalControls = ({
               </div>
             </div>
             <AudioReactiveSection isActiveTab={isActiveTab} />
+            <AudioModulationPresetsSection
+              timelineMode={timelineMode}
+              layers={layers}
+              setEnergyInfluence={setEnergyInfluence}
+              setAudioSpawnEnabled={setAudioSpawnEnabled}
+              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+              setParameterTargetMode={_setParameterTargetMode}
+              setLayers={setLayers}
+              DEFAULT_LAYER={DEFAULT_LAYER}
+              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+              setGlobalBlendMode={setGlobalBlendMode}
+              setGlobalPaletteIndex={setGlobalPaletteIndex}
+              setGlobalPaletteRef={setGlobalPaletteRef}
+            />
+            <AudioDemoPresetsSection
+              timelineMode={timelineMode}
+              setEnergyInfluence={setEnergyInfluence}
+              setAudioSpawnEnabled={setAudioSpawnEnabled}
+              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+              setAudioSpawnBand={setAudioSpawnBand}
+              setAudioSpawnThreshold={setAudioSpawnThreshold}
+              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+            />
             <AudioSpawnSection
               isActiveTab={isActiveTab}
               timelineMode={timelineMode}
@@ -1741,6 +1771,8 @@ const GlobalControls = ({
               setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
               audioSpawnMaxLayers={audioSpawnMaxLayers}
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
             />
             <BPMSection />
           </div>

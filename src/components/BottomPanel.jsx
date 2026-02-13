@@ -8,7 +8,8 @@ import Controls from './Controls.jsx';
 import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
-import { AudioReactiveSection, AudioSpawnSection, BPMSection } from './global/sections/GlobalAutomationSections.jsx';
+import AudioModulationPresetsSection from './global/sections/AudioModulationPresetsSection.jsx';
+import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection } from './global/sections/GlobalAutomationSections.jsx';
 import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 
@@ -1037,6 +1038,36 @@ const BottomPanel = ({
                 )}
               </div>
               <AudioReactiveSection isActiveTab={activeTab === 'audio'} />
+              <AudioModulationPresetsSection
+                timelineMode={timelineMode}
+                layers={layers}
+                setEnergyInfluence={setEnergyInfluence}
+                setAudioSpawnEnabled={setAudioSpawnEnabled}
+                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+                setParameterTargetMode={setParameterTargetMode}
+                setLayers={setLayers}
+                DEFAULT_LAYER={DEFAULT_LAYER}
+                setSelectedLayerIndex={setSelectedLayerIndex}
+                setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+                setGlobalBlendMode={setGlobalBlendMode}
+                setGlobalPaletteIndex={setGlobalPaletteIndex}
+                setGlobalPaletteRef={setGlobalPaletteRef}
+              />
+              <AudioDemoPresetsSection
+                timelineMode={timelineMode}
+                setEnergyInfluence={setEnergyInfluence}
+                setAudioSpawnEnabled={setAudioSpawnEnabled}
+                setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+                setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+                setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+                setAudioSpawnBand={setAudioSpawnBand}
+                setAudioSpawnThreshold={setAudioSpawnThreshold}
+                setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+                setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+                setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+                setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+              />
               <AudioSpawnSection
                 isActiveTab={activeTab === 'audio'}
                 timelineMode={timelineMode}
@@ -1062,6 +1093,8 @@ const BottomPanel = ({
                 setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
                 audioSpawnMaxLayers={audioSpawnMaxLayers}
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
               />
               <BPMSection />
             </div>

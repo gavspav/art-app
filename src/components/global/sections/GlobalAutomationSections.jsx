@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useMidi } from '../../../context/MidiContext.jsx';
 import { useAudioReactive } from '../../../context/AudioContext.jsx';
 import { useBPM } from '../../../context/BPMContext.jsx';
@@ -81,23 +81,557 @@ const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange })
   );
 };
 
+const createMapping = (band, outputMin, outputMax, mode = 'direct', modeSettings = null) => {
+  const mapping = {
+    band,
+    range: { outputMin, outputMax },
+  };
+  if (mode && mode !== 'direct') mapping.mode = mode;
+  if (modeSettings && typeof modeSettings === 'object') mapping.modeSettings = modeSettings;
+  return mapping;
+};
+
+const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const quantile = (values, q) => {
+  if (!Array.isArray(values) || values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = clampValue((sorted.length - 1) * q, 0, sorted.length - 1);
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const lower = sorted[base];
+  const upper = sorted[Math.min(base + 1, sorted.length - 1)];
+  return lower + (upper - lower) * rest;
+};
+
+const AUDIO_DEMO_PRESETS = [
+  {
+    id: 'ambient-bloom',
+    name: 'Ambient Bloom',
+    summary: 'Slow cinematic growth with long-memory motion and gentle colour drift.',
+    recommendedInput: 'Ambient music, pads, drones, soft voice.',
+    audioSettings: { sensitivity: 1.1, smoothing: 0.86, release: 0.93 },
+    energyInfluence: 0.75,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.1,
+      band: 'mids',
+      threshold: 0.38,
+      cooldownMs: 900,
+      halfLifeMs: 4200,
+      halfLifeEnergyFactor: 1.8,
+      maxLayers: 18,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.55, 1.4, 'runningAvg', { windowSeconds: 7 }),
+      globalOpacity: createMapping('rms', 0.45, 0.95, 'runningAvg', { windowSeconds: 4 }),
+      variationShape: createMapping('mids', 0.1, 1.8, 'runningAvg', { windowSeconds: 6 }),
+      variationColor: createMapping('highs', 0.2, 2.4, 'leaky', { rate: 0.03, decay: 0.997, restValue: 0.35 }),
+      layersCount: createMapping('rms', 3, 12, 'runningAvg', { windowSeconds: 8 }),
+    },
+  },
+  {
+    id: 'percussive-geometry',
+    name: 'Percussive Geometry',
+    summary: 'Tight rhythmic response for drums and transient-heavy tracks.',
+    recommendedInput: 'Drums, breakbeats, percussive loops.',
+    audioSettings: { sensitivity: 1.45, smoothing: 0.65, release: 0.72 },
+    energyInfluence: 1.35,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.08,
+      band: 'bass',
+      threshold: 0.24,
+      cooldownMs: 140,
+      halfLifeMs: 1700,
+      halfLifeEnergyFactor: 1.4,
+      maxLayers: 26,
+      useGlobalPalette: false,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('mids', 0.8, 2.8),
+      variationShape: createMapping('bass', 0.6, 3),
+      variationAnim: createMapping('highs', 0.2, 3, 'onsetDrift', { threshold: 1.4, minLevel: 0.12, driftSpeed: 0.09 }),
+      variationScale: createMapping('bass', -0.4, 3),
+      globalBlendMode: createMapping('highs', 0, 1, 'runningAvg', { windowSeconds: 5.5 }),
+    },
+  },
+  {
+    id: 'bass-reactor',
+    name: 'Bass Reactor',
+    summary: 'Low-end energy drives scale, speed, density, and heavy pulse behavior.',
+    recommendedInput: 'Bass-heavy electronic, hip-hop, sub-focused tracks.',
+    audioSettings: { sensitivity: 1.35, smoothing: 0.75, release: 0.88 },
+    energyInfluence: 1.2,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.12,
+      band: 'bass',
+      threshold: 0.46,
+      cooldownMs: 220,
+      halfLifeMs: 2400,
+      halfLifeEnergyFactor: 2,
+      maxLayers: 22,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('bass', 0.5, 2.2, 'leaky', { rate: 0.06, decay: 0.992, restValue: 0.3 }),
+      globalOpacity: createMapping('bass', 0.35, 1),
+      variationScale: createMapping('bass', -0.5, 3),
+      variationAnim: createMapping('mids', 0.2, 2.4, 'leaky', { rate: 0.04, decay: 0.996, restValue: 0.25 }),
+      layersCount: createMapping('bass', 2, 15, 'runningAvg', { windowSeconds: 3.5 }),
+    },
+  },
+  {
+    id: 'band-weave',
+    name: 'Band Weave',
+    summary: 'Cross-band interactions create woven motion and evolving spectral texture.',
+    recommendedInput: 'Layered synths, busy mid/high content, textured sound design.',
+    audioSettings: { sensitivity: 1.2, smoothing: 0.8, release: 0.86 },
+    energyInfluence: 1,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.09,
+      band: 'highs',
+      threshold: 0.34,
+      cooldownMs: 320,
+      halfLifeMs: 2100,
+      halfLifeEnergyFactor: 1.1,
+      maxLayers: 16,
+      useGlobalPalette: false,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.6, 2, 'runningAvg', { windowSeconds: 4 }),
+      variationPosition: createMapping('mids', 0.2, 3, 'bandRatio', { numerator: 'mids', denominator: 'highs', scale: 2.2 }),
+      variationColor: createMapping('highs', 0, 3, 'accumulate', { rate: 0.035, wrap: true }),
+      variationAnim: createMapping('mids', 0.4, 2.8, 'leaky', { rate: 0.05, decay: 0.996, restValue: 0.4 }),
+      globalPaletteIndex: createMapping('highs', 0, 1, 'runningAvg', { windowSeconds: 5 }),
+    },
+  },
+  {
+    id: 'vocal-nebula',
+    name: 'Vocal Nebula',
+    summary: 'Voice-responsive clouds with articulation-driven colour and animation drift.',
+    recommendedInput: 'Microphone speech, vocals, spoken word.',
+    audioSettings: { sensitivity: 1.7, smoothing: 0.72, release: 0.9 },
+    energyInfluence: 1.45,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.06,
+      band: 'highs',
+      threshold: 0.18,
+      cooldownMs: 180,
+      halfLifeMs: 1800,
+      halfLifeEnergyFactor: 1.3,
+      maxLayers: 24,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.6, 1.8, 'runningAvg', { windowSeconds: 2 }),
+      globalOpacity: createMapping('rms', 0.4, 1, 'hysteresis', {
+        quietToMed: 0.18,
+        medToLoud: 0.45,
+        loudToMed: 0.3,
+        medToQuiet: 0.1,
+        lerpSpeed: 0.02,
+        quietValue: 0.45,
+        medValue: 0.75,
+        loudValue: 1,
+      }),
+      variationShape: createMapping('mids', 0.1, 2.6, 'onsetDrift', { threshold: 1.35, minLevel: 0.09, driftSpeed: 0.06 }),
+      variationColor: createMapping('highs', 0.5, 3, 'leaky', { rate: 0.045, decay: 0.995, restValue: 0.25 }),
+      layersCount: createMapping('rms', 2, 14, 'runningAvg', { windowSeconds: 3 }),
+    },
+  },
+  {
+    id: 'clap-trigger-fx',
+    name: 'Clap Trigger FX',
+    summary: 'Transient gating with occasional scene jolts for live performance moments.',
+    recommendedInput: 'Claps, snaps, taps, staccato vocal sounds.',
+    audioSettings: { sensitivity: 2.2, smoothing: 0.55, release: 0.6 },
+    energyInfluence: 1.6,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.06,
+      band: 'highs',
+      threshold: 0.12,
+      cooldownMs: 420,
+      halfLifeMs: 1400,
+      halfLifeEnergyFactor: 1.6,
+      maxLayers: 28,
+      useGlobalPalette: false,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.7, 2.4),
+      variationAnim: createMapping('bass', 0, 3),
+      variationColor: createMapping('highs', 0.2, 3),
+      globalBlendMode: createMapping('highs', 0, 1, 'runningAvg', { windowSeconds: 5.5 }),
+      randomizeAll: createMapping('highs', 0, 1, 'hysteresis', {
+        quietToMed: 0.32,
+        medToLoud: 0.62,
+        loudToMed: 0.48,
+        medToQuiet: 0.2,
+        lerpSpeed: 0.08,
+        quietValue: 0,
+        medValue: 0.35,
+        loudValue: 1,
+      }),
+    },
+  },
+  {
+    id: 'whisper-to-storm',
+    name: 'Whisper to Storm',
+    summary: 'Quiet passages stay sparse, loud passages rapidly build visual complexity.',
+    recommendedInput: 'Dynamic songs, distance-to-mic demos, whispers/shouts.',
+    audioSettings: { sensitivity: 1.8, smoothing: 0.68, release: 0.93 },
+    energyInfluence: 1.8,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.05,
+      band: 'rms',
+      threshold: 0.26,
+      cooldownMs: 180,
+      halfLifeMs: 1500,
+      halfLifeEnergyFactor: 1.8,
+      maxLayers: 30,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.5, 3.2, 'leaky', { rate: 0.04, decay: 0.996, restValue: 0.25 }),
+      globalOpacity: createMapping('rms', 0.25, 1),
+      layersCount: createMapping('rms', 2, 20, 'hysteresis', {
+        quietToMed: 0.12,
+        medToLoud: 0.35,
+        loudToMed: 0.25,
+        medToQuiet: 0.08,
+        lerpSpeed: 0.02,
+        quietValue: 0.05,
+        medValue: 0.45,
+        loudValue: 1,
+      }),
+      variationScale: createMapping('rms', -0.4, 3),
+      variationColor: createMapping('highs', 0.2, 3),
+    },
+  },
+  {
+    id: 'echo-memory-trails',
+    name: 'Echo Memory Trails',
+    summary: 'Long-window averaging creates delayed echoes and layered temporal memory.',
+    recommendedInput: 'Slowly changing tracks, evolving textures, cinematic passages.',
+    audioSettings: { sensitivity: 1.25, smoothing: 0.78, release: 0.95 },
+    energyInfluence: 0.9,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.1,
+      band: 'mids',
+      threshold: 0.3,
+      cooldownMs: 650,
+      halfLifeMs: 5200,
+      halfLifeEnergyFactor: 2.4,
+      maxLayers: 34,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.45, 1.35, 'runningAvg', { windowSeconds: 10 }),
+      globalOpacity: createMapping('rms', 0.3, 0.95, 'leaky', { rate: 0.02, decay: 0.999, restValue: 0.45 }),
+      variationPosition: createMapping('mids', 0.2, 3, 'runningAvg', { windowSeconds: 8 }),
+      variationAnim: createMapping('highs', 0.3, 2.8, 'runningAvg', { windowSeconds: 6 }),
+      variationColor: createMapping('highs', 0.2, 2.6, 'leaky', { rate: 0.02, decay: 0.9985, restValue: 0.3 }),
+    },
+  },
+  {
+    id: 'harmonic-rings',
+    name: 'Harmonic Rings',
+    summary: 'Spectral-ratio motion that feels tonal and ring-like without pitch tracking.',
+    recommendedInput: 'Melodic material, chords, sustained harmonics.',
+    audioSettings: { sensitivity: 1.4, smoothing: 0.82, release: 0.9 },
+    energyInfluence: 1.1,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.08,
+      band: 'mids',
+      threshold: 0.22,
+      cooldownMs: 260,
+      halfLifeMs: 2200,
+      halfLifeEnergyFactor: 1.2,
+      maxLayers: 18,
+      useGlobalPalette: false,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.7, 2, 'runningAvg', { windowSeconds: 3 }),
+      variationShape: createMapping('bass', 0.2, 3, 'bandRatio', { numerator: 'bass', denominator: 'mids', scale: 2.8 }),
+      variationPosition: createMapping('highs', 0.2, 3, 'bandRatio', { numerator: 'highs', denominator: 'bass', scale: 2.6 }),
+      variationColor: createMapping('highs', 0.3, 3, 'onsetDrift', { threshold: 1.25, minLevel: 0.08, driftSpeed: 0.045 }),
+      layersCount: createMapping('mids', 3, 14, 'runningAvg', { windowSeconds: 4 }),
+    },
+  },
+  {
+    id: 'silence-rebirth',
+    name: 'Silence Rebirth',
+    summary: 'Calm idle behavior with gradual regrowth, then stronger re-entry on new onsets.',
+    recommendedInput: 'Installations, speech pauses, tracks with clear breaks.',
+    audioSettings: { sensitivity: 1.1, smoothing: 0.9, release: 0.97 },
+    energyInfluence: 0.45,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.14,
+      band: 'rms',
+      threshold: 0.35,
+      cooldownMs: 900,
+      halfLifeMs: 6500,
+      halfLifeEnergyFactor: 0.8,
+      maxLayers: 12,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.35, 1.8, 'hysteresis', {
+        quietToMed: 0.16,
+        medToLoud: 0.4,
+        loudToMed: 0.28,
+        medToQuiet: 0.1,
+        lerpSpeed: 0.012,
+        quietValue: 0.08,
+        medValue: 0.45,
+        loudValue: 0.9,
+      }),
+      globalOpacity: createMapping('rms', 0.35, 1, 'hysteresis', {
+        quietToMed: 0.15,
+        medToLoud: 0.38,
+        loudToMed: 0.27,
+        medToQuiet: 0.1,
+        lerpSpeed: 0.012,
+        quietValue: 1,
+        medValue: 0.7,
+        loudValue: 0.45,
+      }),
+      variationAnim: createMapping('mids', 0.1, 2.2, 'leaky', { rate: 0.025, decay: 0.999, restValue: 0.2 }),
+      variationColor: createMapping('highs', 0.1, 2.2, 'runningAvg', { windowSeconds: 9 }),
+      layersCount: createMapping('rms', 2, 10, 'runningAvg', { windowSeconds: 8 }),
+    },
+  },
+];
+
+const DEFAULT_DEMO_PRESET_ID = AUDIO_DEMO_PRESETS?.[0]?.id || '';
+
+const AudioDemoPresetsSection = ({
+  timelineMode = false,
+  setEnergyInfluence = null,
+  setAudioSpawnEnabled = null,
+  setAudioSpawnTriggerMode = null,
+  setAudioSpawnRepeatWhileAbove = null,
+  setAudioSpawnHysteresis = null,
+  setAudioSpawnBand = null,
+  setAudioSpawnThreshold = null,
+  setAudioSpawnCooldownMs = null,
+  setAudioSpawnHalfLifeMs = null,
+  setAudioSpawnHalfLifeEnergyFactor = null,
+  setAudioSpawnMaxLayers = null,
+  setAudioSpawnUseGlobalPalette = null,
+} = {}) => {
+  const audio = useAudioReactive();
+  const [selectedPresetId, setSelectedPresetId] = useState(DEFAULT_DEMO_PRESET_ID);
+  const [replaceMappings, setReplaceMappings] = useState(true);
+  const [enableAudioOnApply, setEnableAudioOnApply] = useState(true);
+  const [lastAppliedPresetId, setLastAppliedPresetId] = useState(null);
+
+  const selectedPreset = useMemo(() => (
+    AUDIO_DEMO_PRESETS.find(preset => preset.id === selectedPresetId) || AUDIO_DEMO_PRESETS[0] || null
+  ), [selectedPresetId]);
+
+  const lastAppliedPreset = useMemo(() => (
+    AUDIO_DEMO_PRESETS.find(preset => preset.id === lastAppliedPresetId) || null
+  ), [lastAppliedPresetId]);
+
+  const applyPreset = useCallback(() => {
+    if (!audio || !selectedPreset) return;
+
+    const {
+      setAudioEnabled = null,
+      setSensitivity = null,
+      setSmoothing = null,
+      setRelease = null,
+      setMapping = null,
+      clearAllMappings = null,
+    } = audio;
+
+    if (enableAudioOnApply) {
+      setAudioEnabled?.(true);
+    }
+
+    const audioSettings = selectedPreset.audioSettings || {};
+    if (Number.isFinite(audioSettings.sensitivity)) setSensitivity?.(audioSettings.sensitivity);
+    if (Number.isFinite(audioSettings.smoothing)) setSmoothing?.(audioSettings.smoothing);
+    if (Number.isFinite(audioSettings.release)) setRelease?.(audioSettings.release);
+
+    if (replaceMappings) {
+      clearAllMappings?.();
+    }
+
+    const mappings = selectedPreset.mappings || {};
+    Object.entries(mappings).forEach(([paramId, mapping]) => {
+      setMapping?.(paramId, mapping);
+    });
+
+    const spawn = selectedPreset.spawn || {};
+    setAudioSpawnEnabled?.(typeof spawn.enabled === 'boolean' ? spawn.enabled : true);
+    setAudioSpawnTriggerMode?.(spawn.triggerMode || 'level');
+    setAudioSpawnRepeatWhileAbove?.(typeof spawn.repeatWhileAbove === 'boolean' ? spawn.repeatWhileAbove : true);
+    setAudioSpawnHysteresis?.(Number.isFinite(spawn.hysteresis) ? spawn.hysteresis : 0.08);
+    setAudioSpawnBand?.(spawn.band || 'rms');
+    setAudioSpawnThreshold?.(Number.isFinite(spawn.threshold) ? spawn.threshold : 0.6);
+    setAudioSpawnCooldownMs?.(Number.isFinite(spawn.cooldownMs) ? spawn.cooldownMs : 250);
+    setAudioSpawnHalfLifeMs?.(Number.isFinite(spawn.halfLifeMs) ? spawn.halfLifeMs : 1500);
+    setAudioSpawnHalfLifeEnergyFactor?.(Number.isFinite(spawn.halfLifeEnergyFactor) ? spawn.halfLifeEnergyFactor : 1);
+    setAudioSpawnMaxLayers?.(Number.isFinite(spawn.maxLayers) ? spawn.maxLayers : 12);
+    if (typeof spawn.useGlobalPalette === 'boolean') {
+      setAudioSpawnUseGlobalPalette?.(spawn.useGlobalPalette);
+    }
+
+    if (Number.isFinite(selectedPreset.energyInfluence)) {
+      setEnergyInfluence?.(selectedPreset.energyInfluence);
+    }
+
+    setLastAppliedPresetId(selectedPreset.id);
+  }, [
+    audio,
+    enableAudioOnApply,
+    replaceMappings,
+    selectedPreset,
+    setEnergyInfluence,
+    setAudioSpawnEnabled,
+    setAudioSpawnTriggerMode,
+    setAudioSpawnRepeatWhileAbove,
+    setAudioSpawnHysteresis,
+    setAudioSpawnBand,
+    setAudioSpawnThreshold,
+    setAudioSpawnCooldownMs,
+    setAudioSpawnHalfLifeMs,
+    setAudioSpawnHalfLifeEnergyFactor,
+    setAudioSpawnMaxLayers,
+    setAudioSpawnUseGlobalPalette,
+  ]);
+
+  if (!audio) return null;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>✨ Spawn Demo Presets</span>
+        <button
+          type="button"
+          className="btn-compact-secondary"
+          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+          onClick={applyPreset}
+          disabled={!selectedPreset}
+          title="Apply demo mappings + audio spawn behavior"
+        >
+          Apply
+        </button>
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <select
+          className="compact-select"
+          style={{ width: '100%' }}
+          value={selectedPresetId}
+          onChange={(e) => setSelectedPresetId(e.target.value)}
+        >
+          {AUDIO_DEMO_PRESETS.map((preset, index) => (
+            <option key={preset.id} value={preset.id}>
+              {`${index + 1}. ${preset.name}`}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedPreset && (
+        <div style={{ marginTop: '0.35rem' }}>
+          <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>{selectedPreset.summary}</div>
+          <div style={{ fontSize: '0.68rem', opacity: 0.65, marginTop: '0.2rem' }}>
+            Best with: {selectedPreset.recommendedInput}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem 1rem', marginTop: '0.45rem' }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Clear existing audio mappings before loading this demo">
+          <input
+            type="checkbox"
+            checked={replaceMappings}
+            onChange={(e) => setReplaceMappings(!!e.target.checked)}
+          />
+          Replace mappings
+        </label>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Automatically enable Audio Input when applying a preset">
+          <input
+            type="checkbox"
+            checked={enableAudioOnApply}
+            onChange={(e) => setEnableAudioOnApply(!!e.target.checked)}
+          />
+          Enable audio
+        </label>
+      </div>
+
+      {lastAppliedPreset && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: '#6bcb77' }}>
+          Applied: {lastAppliedPreset.name}
+        </div>
+      )}
+
+      {timelineMode && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.65 }}>
+          Timeline mode mutes live Audio + BPM automation; preset values are still saved and will run after leaving Timeline mode.
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Audio Reactive Section Component - Global audio settings only
 // Per-parameter audio mappings are shown alongside MIDI controls on each parameter
 const AudioReactiveSection = ({ isActiveTab = true }) => {
   const audio = useAudioReactive();
   const [showSettings, setShowSettings] = useState(false);
   const [features, setFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [calibrationProgress, setCalibrationProgress] = useState(0);
+  const [calibrationNote, setCalibrationNote] = useState('');
+  const calibrationTimersRef = useRef({ intervalId: null, timeoutId: null });
 
   // Destructure with defaults to avoid conditional hook issues
   const {
     isActive = false,
     error = null,
     getFeatures = null,
-    settings = { enabled: false, sensitivity: 1, smoothing: 0.7, release: 0.85 },
+    settings = { enabled: false, sensitivity: 1, bassSensitivity: 1, midsSensitivity: 1, highsSensitivity: 1, smoothing: 0.7, release: 0.85 },
     availableDevices = [],
     currentDeviceId = null,
     toggleAudio = null,
     setSensitivity = null,
+    setBassSensitivity = null,
+    setMidsSensitivity = null,
+    setHighsSensitivity = null,
     setSmoothing = null,
     setRelease = null,
     setDeviceId = null,
@@ -112,6 +646,13 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
     seekFile = null,
     stopFilePlayback = null,
   } = audio || {};
+
+  const clearCalibrationTimers = useCallback(() => {
+    const timers = calibrationTimersRef.current;
+    if (timers.intervalId) clearInterval(timers.intervalId);
+    if (timers.timeoutId) clearTimeout(timers.timeoutId);
+    calibrationTimersRef.current = { intervalId: null, timeoutId: null };
+  }, []);
   
   // File input ref
   const fileInputRef = useRef(null);
@@ -152,6 +693,129 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isActiveTab, isActive, getFeatures]);
+
+  useEffect(() => (
+    () => { clearCalibrationTimers(); }
+  ), [clearCalibrationTimers]);
+
+  const runAutoCalibration = useCallback(() => {
+    if (isCalibrating) {
+      clearCalibrationTimers();
+      setIsCalibrating(false);
+      setCalibrationProgress(0);
+      setCalibrationNote('Calibration stopped.');
+      return;
+    }
+
+    if (!settings.enabled || !isActive || typeof getFeatures !== 'function') {
+      setCalibrationNote('Enable audio and make sure input is active, then run calibration.');
+      return;
+    }
+
+    const durationMs = 8000;
+    const intervalMs = 50;
+    const startTime = performance.now();
+    const rmsSamples = [];
+    const bassSamples = [];
+    const midsSamples = [];
+    const highsSamples = [];
+
+    setIsCalibrating(true);
+    setCalibrationProgress(0);
+    setCalibrationNote('Calibrating... play representative audio now.');
+
+    calibrationTimersRef.current.intervalId = setInterval(() => {
+      const current = getFeatures() || {};
+      const rms = Number.isFinite(current.rms) ? current.rms : 0;
+      const bass = Number.isFinite(current.bass) ? current.bass : 0;
+      const mids = Number.isFinite(current.mids) ? current.mids : 0;
+      const highs = Number.isFinite(current.highs) ? current.highs : 0;
+      rmsSamples.push(clampValue(rms, 0, 1));
+      bassSamples.push(clampValue(bass, 0, 1));
+      midsSamples.push(clampValue(mids, 0, 1));
+      highsSamples.push(clampValue(highs, 0, 1));
+      const elapsed = performance.now() - startTime;
+      setCalibrationProgress(clampValue(elapsed / durationMs, 0, 1));
+    }, intervalMs);
+
+    calibrationTimersRef.current.timeoutId = setTimeout(() => {
+      clearCalibrationTimers();
+      setIsCalibrating(false);
+      setCalibrationProgress(1);
+
+      if (rmsSamples.length < 20) {
+        setCalibrationNote('Calibration failed: not enough audio samples.');
+        return;
+      }
+
+      const p90 = quantile(rmsSamples, 0.9);
+      const p50 = quantile(rmsSamples, 0.5);
+      const p10 = quantile(rmsSamples, 0.1);
+      const bassP90 = quantile(bassSamples, 0.9);
+      const midsP90 = quantile(midsSamples, 0.9);
+      const highsP90 = quantile(highsSamples, 0.9);
+      const dynamicRange = Math.max(0, p90 - p10);
+
+      if (!Number.isFinite(p90) || p90 < 0.03) {
+        setCalibrationNote('Calibration found very low signal. Raise volume or mic gain and try again.');
+        return;
+      }
+
+      const targetP90 = 0.72;
+      const sensitivityMultiplier = targetP90 / Math.max(0.05, p90);
+      const nextSensitivity = clampValue((settings.sensitivity || 1) * sensitivityMultiplier, 0.2, 3);
+      const masterRatio = nextSensitivity / Math.max(0.05, settings.sensitivity || 1);
+      const targetBandP90 = 0.62;
+      const nextBassSensitivity = clampValue(
+        (settings.bassSensitivity || 1) * (targetBandP90 / Math.max(0.05, bassP90 * masterRatio)),
+        0.2,
+        3
+      );
+      const nextMidsSensitivity = clampValue(
+        (settings.midsSensitivity || 1) * (targetBandP90 / Math.max(0.05, midsP90 * masterRatio)),
+        0.2,
+        3
+      );
+      const nextHighsSensitivity = clampValue(
+        (settings.highsSensitivity || 1) * (targetBandP90 / Math.max(0.05, highsP90 * masterRatio)),
+        0.2,
+        3
+      );
+
+      // More transient material gets faster attack/release; sustained gets smoother/longer.
+      const transientness = clampValue(dynamicRange, 0, 1);
+      const nextSmoothing = clampValue(0.88 - transientness * 0.3, 0.05, 1);
+      const nextRelease = clampValue(0.94 - transientness * 0.22, 0.05, 0.98);
+
+      setSensitivity?.(nextSensitivity);
+      setBassSensitivity?.(nextBassSensitivity);
+      setMidsSensitivity?.(nextMidsSensitivity);
+      setHighsSensitivity?.(nextHighsSensitivity);
+      setSmoothing?.(nextSmoothing);
+      setRelease?.(nextRelease);
+
+      const profileLabel = transientness > 0.22 ? 'punchy' : 'smooth';
+      setCalibrationNote(
+        `Calibrated (${profileLabel}): master ${nextSensitivity.toFixed(2)}, bass ${nextBassSensitivity.toFixed(2)}, mids ${nextMidsSensitivity.toFixed(2)}, highs ${nextHighsSensitivity.toFixed(2)}, attack ${nextSmoothing.toFixed(2)}, release ${nextRelease.toFixed(2)} (RMS p50=${p50.toFixed(2)}, p90=${p90.toFixed(2)}).`
+      );
+    }, durationMs);
+  }, [
+    isCalibrating,
+    clearCalibrationTimers,
+    settings.enabled,
+    settings.sensitivity,
+    settings.bassSensitivity,
+    settings.midsSensitivity,
+    settings.highsSensitivity,
+    isActive,
+    getFeatures,
+    setSensitivity,
+    setBassSensitivity,
+    setMidsSensitivity,
+    setHighsSensitivity,
+    setSmoothing,
+    setRelease,
+  ]);
 
   if (!audio) {
     return null;
@@ -312,6 +976,58 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
             />
           </div>
 
+          <div style={{ marginBottom: '0.5rem', padding: '0.4rem', borderRadius: 6, background: 'rgba(255,255,255,0.04)' }}>
+            <div style={{ fontSize: '0.72rem', opacity: 0.8, marginBottom: '0.3rem' }}>Band Sensitivity</div>
+
+            <div style={{ marginBottom: '0.35rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                <span className="compact-label">Bass</span>
+                <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.bassSensitivity ?? 1).toFixed(2)}</span>
+              </div>
+              <input
+                className="compact-range"
+                type="range"
+                min={0}
+                max={3}
+                step={0.05}
+                value={Number.isFinite(settings.bassSensitivity) ? settings.bassSensitivity : 1}
+                onChange={(e) => setBassSensitivity?.(parseFloat(e.target.value))}
+              />
+            </div>
+
+            <div style={{ marginBottom: '0.35rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                <span className="compact-label">Mids</span>
+                <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.midsSensitivity ?? 1).toFixed(2)}</span>
+              </div>
+              <input
+                className="compact-range"
+                type="range"
+                min={0}
+                max={3}
+                step={0.05}
+                value={Number.isFinite(settings.midsSensitivity) ? settings.midsSensitivity : 1}
+                onChange={(e) => setMidsSensitivity?.(parseFloat(e.target.value))}
+              />
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                <span className="compact-label">Highs</span>
+                <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.highsSensitivity ?? 1).toFixed(2)}</span>
+              </div>
+              <input
+                className="compact-range"
+                type="range"
+                min={0}
+                max={3}
+                step={0.05}
+                value={Number.isFinite(settings.highsSensitivity) ? settings.highsSensitivity : 1}
+                onChange={(e) => setHighsSensitivity?.(parseFloat(e.target.value))}
+              />
+            </div>
+          </div>
+
           {/* Smoothing slider */}
           <div style={{ marginBottom: '0.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
@@ -344,6 +1060,40 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
               value={settings.release}
               onChange={(e) => setRelease(parseFloat(e.target.value))}
             />
+          </div>
+
+          <div style={{ marginTop: '0.55rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                style={{ fontSize: '0.74rem', flex: 1 }}
+                onClick={runAutoCalibration}
+              >
+                {isCalibrating ? 'Stop Calibration' : 'Auto Calibrate (8s)'}
+              </button>
+            </div>
+
+            {isCalibrating && (
+              <div style={{ marginTop: '0.35rem' }}>
+                <div style={{ height: 5, background: 'rgba(255,255,255,0.12)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${(calibrationProgress * 100).toFixed(1)}%`,
+                      background: '#4fc3f7',
+                      transition: 'width 0.08s linear',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {calibrationNote && (
+              <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.75 }}>
+                {calibrationNote}
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
@@ -380,6 +1130,8 @@ const AudioSpawnSection = ({
   setAudioSpawnHalfLifeEnergyFactor = null,
   audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
+  audioSpawnUseGlobalPalette = false,
+  setAudioSpawnUseGlobalPalette = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [bandValue, setBandValue] = useState(0);
@@ -524,6 +1276,18 @@ const AudioSpawnSection = ({
           </div>
         </div>
       )}
+
+      <div style={{ marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Constrain spawned layer colours to the active global palette">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnUseGlobalPalette}
+            disabled={!setAudioSpawnUseGlobalPalette || disabledByTimeline}
+            onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
+          />
+          Use Global Palette
+        </label>
+      </div>
 
       <div style={{ marginTop: '0.35rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1212,4 +1976,13 @@ const BPMControlRow = React.memo(({ paramId }) => {
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 
-export { RangeMappingEditor, AudioReactiveSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow, AudioModeSettings };
+export {
+  RangeMappingEditor,
+  AudioReactiveSection,
+  AudioDemoPresetsSection,
+  AudioSpawnSection,
+  BPMSection,
+  AudioControlRow,
+  BPMControlRow,
+  AudioModeSettings,
+};

@@ -133,6 +133,9 @@ const clearFileFromIDB = async () => {
 export const useAudio = ({
   enabled = false,
   sensitivity = 1.0,
+  bassSensitivity = 1.0,
+  midsSensitivity = 1.0,
+  highsSensitivity = 1.0,
   smoothing = DEFAULT_SMOOTHING,
   release = DEFAULT_RELEASE,
   deviceId = null, // null = default device
@@ -170,9 +173,15 @@ export const useAudio = ({
   const smoothingRef = useRef(smoothing);
   const releaseRef = useRef(release);
   const sensitivityRef = useRef(sensitivity);
+  const bassSensitivityRef = useRef(bassSensitivity);
+  const midsSensitivityRef = useRef(midsSensitivity);
+  const highsSensitivityRef = useRef(highsSensitivity);
   smoothingRef.current = smoothing;
   releaseRef.current = release;
   sensitivityRef.current = sensitivity;
+  bassSensitivityRef.current = bassSensitivity;
+  midsSensitivityRef.current = midsSensitivity;
+  highsSensitivityRef.current = highsSensitivity;
 
   // Extract audio features from analyser
   const getAudioFeatures = useCallback(() => {
@@ -227,6 +236,9 @@ export const useAudio = ({
     const currentSmoothing = smoothingRef.current;
     const currentRelease = releaseRef.current;
     const currentSensitivity = sensitivityRef.current;
+    const currentBassSensitivity = bassSensitivityRef.current;
+    const currentMidsSensitivity = midsSensitivityRef.current;
+    const currentHighsSensitivity = highsSensitivityRef.current;
 
     // Asymmetric smoothing: fast attack, slow release
     // Use smoothing for attack (raw > smooth), release for decay (raw < smooth)
@@ -248,9 +260,9 @@ export const useAudio = ({
     // Apply sensitivity scaling
     const scaled = {
       rms: Math.min(1, smooth.rms * currentSensitivity),
-      bass: Math.min(1, smooth.bass * currentSensitivity),
-      mids: Math.min(1, smooth.mids * currentSensitivity),
-      highs: Math.min(1, smooth.highs * currentSensitivity),
+      bass: Math.min(1, smooth.bass * currentSensitivity * currentBassSensitivity),
+      mids: Math.min(1, smooth.mids * currentSensitivity * currentMidsSensitivity),
+      highs: Math.min(1, smooth.highs * currentSensitivity * currentHighsSensitivity),
     };
 
     // Mutate in place to avoid allocations; consumers read via getFeatures().

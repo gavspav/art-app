@@ -73,6 +73,7 @@ export function useAudioLayerHandlers({
       'noiseAmount',
       'noiseScale',
       'movementSpeed',
+      'movementStyle',
       'movementAngle',
       'scaleSpeed',
       'scaleMin',

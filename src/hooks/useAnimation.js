@@ -4,6 +4,7 @@ import { applyModulationsToLayer } from './useModulationStore.js';
 import { evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
 import { getEnergyAtTime } from '../utils/audioTransients.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
+import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Pure function to calculate new movement angle after boundary collision
 const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
@@ -23,6 +24,78 @@ const calculateBounceAngle = (currentAngle, hitVertical, hitHorizontal) => {
     while (newAngle >= 360) newAngle -= 360;
 
     return newAngle;
+};
+
+// Runtime shape multiplier blending needs extrapolation (t > 1), unlike keyframe
+// interpolation where values should stay clamped between endpoints.
+const lerpNodesUnclamped = (nodesA, nodesB, t) => {
+    if (!Array.isArray(nodesA) || !Array.isArray(nodesB)) return null;
+    if (nodesA.length !== nodesB.length) return null;
+    if (nodesA.length === 0) return [];
+
+    return nodesA.map((a, i) => {
+        const b = nodesB[i];
+
+        const lerpProp = (prop, defaultVal = 0) => {
+            const valA = Number.isFinite(a?.[prop]) ? a[prop] : defaultVal;
+            const valB = Number.isFinite(b?.[prop]) ? b[prop] : defaultVal;
+            return valA + (valB - valA) * t;
+        };
+
+        const result = {
+            x: lerpProp('x'),
+            y: lerpProp('y'),
+        };
+
+        if (a?.cp1x !== undefined || b?.cp1x !== undefined) result.cp1x = lerpProp('cp1x');
+        if (a?.cp1y !== undefined || b?.cp1y !== undefined) result.cp1y = lerpProp('cp1y');
+        if (a?.cp2x !== undefined || b?.cp2x !== undefined) result.cp2x = lerpProp('cp2x');
+        if (a?.cp2y !== undefined || b?.cp2y !== undefined) result.cp2y = lerpProp('cp2y');
+        if (a?.isCurve !== undefined) result.isCurve = a.isCurve;
+
+        return result;
+    });
+};
+
+const lerpSubpathsUnclamped = (subpathsA, subpathsB, t) => {
+    if (!Array.isArray(subpathsA) || !Array.isArray(subpathsB)) return null;
+    if (subpathsA.length !== subpathsB.length) return null;
+
+    const result = [];
+    for (let i = 0; i < subpathsA.length; i += 1) {
+        const interpolated = lerpNodesUnclamped(subpathsA[i], subpathsB[i], t);
+        if (interpolated === null) return null;
+        result.push(interpolated);
+    }
+    return result;
+};
+
+const lerpColorUnclamped = (a, b, t) => {
+    const cA = hexToRgb(a);
+    const cB = hexToRgb(b);
+    return rgbToHex({
+        r: cA.r + (cB.r - cA.r) * t,
+        g: cA.g + (cB.g - cA.g) * t,
+        b: cA.b + (cB.b - cA.b) * t,
+    });
+};
+
+const lerpColorArraysUnclamped = (colorsA, colorsB, t) => {
+    const left = Array.isArray(colorsA) && colorsA.length > 0 ? colorsA : null;
+    const right = Array.isArray(colorsB) && colorsB.length > 0 ? colorsB : null;
+    if (!left && !right) return null;
+    if (!left) return [...right];
+    if (!right) return [...left];
+
+    const len = Math.max(left.length, right.length);
+    const lastA = left[left.length - 1] || '#000000';
+    const lastB = right[right.length - 1] || '#000000';
+
+    return Array.from({ length: len }, (_, i) => {
+        const cA = left[i] || lastA;
+        const cB = right[i] || lastB;
+        return lerpColorUnclamped(cA, cB, t);
+    });
 };
 
 // Pure function to update layer animation state
@@ -717,14 +790,21 @@ export const useAnimation = (
                     }
                 }
 
+                const MAX_VARIATION_MULTIPLIER = 5;
+                const clampVariationMultiplier = (n) => {
+                    const parsed = Number(n);
+                    if (!Number.isFinite(parsed)) return 0;
+                    return Math.max(0, Math.min(MAX_VARIATION_MULTIPLIER, parsed));
+                };
+
                 const getT = (param) => {
                     const val = layer[param] ?? layer.variation ?? 0.2;
-                    const sliderT = Math.max(0, Math.min(1, Number(val)));
-                    // With energy: slider controls ceiling, energy drives how much of that ceiling shows
-                    // Without energy: slider value is the blend directly
-                    return eEnabled
-                        ? Math.max(0, Math.min(1, sliderT * energyFactor))
-                        : sliderT;
+                    const sliderT = clampVariationMultiplier(val);
+                    // With energy: slider controls max multiplier, energy drives how much of that multiplier shows.
+                    // Without energy: slider value is the blend multiplier directly.
+                    if (!eEnabled) return sliderT;
+                    const energyT = Math.max(0, Math.min(1, energyFactor));
+                    return clampVariationMultiplier(sliderT * energyT);
                 };
 
                 // Runtime Blending Logic
@@ -738,7 +818,7 @@ export const useAnimation = (
 
                         // Try subpaths
                         if (shapeUpdate.subpaths && shapeUpdate.base.subpaths && lerpSubpaths) {
-                            const blended = lerpSubpaths(shapeUpdate.base.subpaths, shapeUpdate.subpaths, tShape);
+                            const blended = lerpSubpathsUnclamped(shapeUpdate.base.subpaths, shapeUpdate.subpaths, tShape);
                             if (blended) {
                                 updatedLayer.subpaths = blended;
                                 updatedLayer.nodes = undefined;
@@ -747,7 +827,7 @@ export const useAnimation = (
                         }
                         // Try nodes
                         else if (updatedLayer.subpaths === undefined && shapeUpdate.nodes && shapeUpdate.base.nodes && lerpNodes) {
-                            const blended = lerpNodes(shapeUpdate.base.nodes, shapeUpdate.nodes, tShape);
+                            const blended = lerpNodesUnclamped(shapeUpdate.base.nodes, shapeUpdate.nodes, tShape);
                             if (blended) {
                                 updatedLayer.nodes = blended;
                                 updatedLayer.subpaths = undefined;
@@ -829,11 +909,14 @@ export const useAnimation = (
                         updatedLayer.movementStyle = aVar.movementStyle; // Style not blended
                     }
 
-                    // Colors are tricky to interpolate cheaply here, fallback to Varied state for now
-                    // or implement lerpColor array if critical. Given complexity, using Varied state is safer.
-                    if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors)) {
-                        updatedLayer.colors = shapeUpdate.colors;
-                        updatedLayer.numColors = shapeUpdate.colors.length;
+                    // 5. Color Blending
+                    if (shapeUpdate.base?.colors || shapeUpdate.colors) {
+                        const tColor = getT('variationColor');
+                        const blendedColors = lerpColorArraysUnclamped(shapeUpdate.base?.colors, shapeUpdate.colors, tColor);
+                        if (blendedColors && blendedColors.length > 0) {
+                            updatedLayer.colors = blendedColors;
+                            updatedLayer.numColors = blendedColors.length;
+                        }
                     }
 
                 } else {
@@ -888,8 +971,16 @@ export const useAnimation = (
 
                     // Apply colors (legacy)
                     if (shapeUpdate.colors && Array.isArray(shapeUpdate.colors) && shapeUpdate.colors.length > 0) {
-                        updatedLayer.colors = shapeUpdate.colors;
-                        updatedLayer.numColors = shapeUpdate.colors.length;
+                        const tColor = getT('variationColor');
+                        const baseColors = (Array.isArray(updatedLayer.colors) && updatedLayer.colors.length > 0)
+                            ? updatedLayer.colors
+                            : null;
+                        const blendedColors = lerpColorArraysUnclamped(baseColors, shapeUpdate.colors, tColor);
+                        const nextColors = (Array.isArray(blendedColors) && blendedColors.length > 0)
+                            ? blendedColors
+                            : [...shapeUpdate.colors];
+                        updatedLayer.colors = nextColors;
+                        updatedLayer.numColors = nextColors.length;
                     }
                 }
             }

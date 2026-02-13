@@ -855,20 +855,31 @@ input[type="checkbox"] {
 .range-slider-handle {
   position: absolute;
   top: 50%;
-  width: 4px;
-  height: 16px;
+  width: 8px;
+  height: 22px;
   transform: translate(-50%, -50%);
   background: rgba(255, 165, 0, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 2px;
+  border-radius: 4px;
   cursor: ew-resize;
   z-index: 2 !important;
-  transition: background 0.1s ease, transform 0.1s ease;
+  transition: background 0.1s ease, transform 0.1s ease, box-shadow 0.1s ease;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.range-slider-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 24px;
+  height: 30px;
+  transform: translate(-50%, -50%);
 }
 .range-slider-handle:hover,
 .range-slider-handle.active {
   background: rgba(255, 165, 0, 1);
-  transform: translate(-50%, -50%) scaleY(1.2);
+  transform: translate(-50%, -50%) scale(1.06, 1.12);
+  box-shadow: 0 0 0 2px rgba(255, 165, 0, 0.25), 0 4px 10px rgba(0, 0, 0, 0.25);
 }
 .range-slider-handle--min {
   border-left: 2px solid rgba(255, 165, 0, 1);
@@ -877,11 +888,28 @@ input[type="checkbox"] {
   border-right: 2px solid rgba(255, 165, 0, 1);
 }
 .range-slider-handle.at-edge {
-  opacity: 0.4;
+  opacity: 0.65;
 }
 .range-slider-handle.at-edge:hover,
 .range-slider-handle.at-edge.active {
   opacity: 1;
+}
+
+.range-slider-value-pop {
+  position: absolute;
+  top: -1.65rem;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: #f7fbff;
+  background: rgba(8, 18, 28, 0.9);
+  border: 1px solid rgba(79, 195, 247, 0.45);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 4;
 }
 
 /* Button variants used in Controls */

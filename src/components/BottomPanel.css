@@ -10,6 +10,46 @@
   pointer-events: none; /* allow canvas interaction outside the visible panel UI */
 }
 
+/* Timeline workspace mode: anchor controls inside the left top panel area so
+   the panel bottom aligns with the timeline split and never extends behind it. */
+.timeline-workspace-controls .bottom-panel {
+  position: absolute;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-workspace-controls .bottom-panel,
+.timeline-workspace-controls .bottom-panel.hidden,
+.timeline-workspace-controls .bottom-panel.peek,
+.timeline-workspace-controls .bottom-panel.expanded,
+.timeline-workspace-controls .bottom-panel.locked {
+  transform: translateY(0) !important;
+}
+
+.timeline-workspace-controls .bottom-panel .panel-peek-bar {
+  display: none !important;
+}
+
+.timeline-workspace-controls .bottom-panel .panel-content {
+  width: 100% !important;
+  min-width: 0;
+  height: 100% !important;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.timeline-workspace-controls .bottom-panel .tab-content-area {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 20px;
+}
+
 /* Dock: vertical */
 .bottom-panel.dock-top { top: 0; bottom: auto; }
 .bottom-panel.dock-bottom { bottom: 0; top: auto; }
