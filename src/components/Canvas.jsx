@@ -1586,12 +1586,14 @@ const Canvas = forwardRef(({
         ctx.fillStyle = backgroundColor;
         ctx.fillRect(0, 0, width, height);
 
-        // Redraw on selection/mode toggles too; stable frozen time keeps appearance identical while frozen
-        const needsFullRender = modeChanged || countChanged ||
-            Array.from(layerChanges.values()).some(change => change.hasChanged) ||
-            layerHashesRef.current.size === 0;
+	        // Redraw on selection/mode toggles too; stable frozen time keeps appearance identical while frozen
+	        const needsFullRender = modeChanged || countChanged ||
+	            Array.from(layerChanges.values()).some(change => change.hasChanged) ||
+	            layerHashesRef.current.size === 0;
+            const hasActiveOverlayLayers = !!(renderOverlayLayers && overlayLayersRef?.current?.length);
+            const shouldHideSourceLayer = hasActiveOverlayLayers && (hideLayerId || hideLayerIndex >= 0);
 
-        if (!needsFullRender) {
+	        if (!needsFullRender) {
             // Safety: after clearing the canvas, ensure content is drawn at least once
             // Advance accumulator only when not frozen
             const nowWall = Date.now() * 0.001;
@@ -1654,12 +1656,12 @@ const Canvas = forwardRef(({
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : timeNow;
-            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
-                if (!layer || !layer.position || !layer.visible) return;
-                if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
-                    renderedPointsRef.current.delete(index);
-                    return;
-                }
+	            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
+	                if (!layer || !layer.position || !layer.visible) return;
+	                if (shouldHideSourceLayer && ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex))) {
+	                    renderedPointsRef.current.delete(index);
+	                    return;
+	                }
                 if (!isLayerVisible(layer)) {
                     renderedPointsRef.current.delete(index);
                     return;
@@ -1679,10 +1681,10 @@ const Canvas = forwardRef(({
                 }
             });
             // Ephemeral overlay layers (non-interactive / non-selectable)
-            if (renderOverlayLayers && overlayLayersRef?.current?.length) {
-                const overlayList = overlayLayersRef.current;
-                overlayList.forEach((layer) => {
-                    if (!layer || !layer.position || !layer.visible) return;
+	            if (hasActiveOverlayLayers) {
+	                const overlayList = overlayLayersRef.current;
+	                overlayList.forEach((layer) => {
+	                    if (!layer || !layer.position || !layer.visible) return;
                     if (layer.image && layer.image.src) {
                         drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                     } else {
@@ -1774,16 +1776,16 @@ const Canvas = forwardRef(({
         const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
             ? (Date.now() * 0.001 + colorWallOffsetRef.current)
             : nowSec;
-        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
-            if (!layer || !layer.position) {
-                console.error('Skipping render for malformed layer:', layer);
-                return;
-            }
-            if (!layer.visible) return;
-            if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
-                renderedPointsRef.current.delete(index);
-                return;
-            }
+	        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
+	            if (!layer || !layer.position) {
+	                console.error('Skipping render for malformed layer:', layer);
+	                return;
+	            }
+	            if (!layer.visible) return;
+	            if (shouldHideSourceLayer && ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex))) {
+	                renderedPointsRef.current.delete(index);
+	                return;
+	            }
             if (!isLayerVisible(layer)) {
                 renderedPointsRef.current.delete(index);
                 return;
@@ -1810,10 +1812,10 @@ const Canvas = forwardRef(({
         });
 
         // Ephemeral overlay layers (non-interactive / non-selectable)
-        if (renderOverlayLayers && overlayLayersRef?.current?.length) {
-            const overlayList = overlayLayersRef.current;
-            overlayList.forEach((layer) => {
-                if (!layer || !layer.position || !layer.visible) return;
+	        if (hasActiveOverlayLayers) {
+	            const overlayList = overlayLayersRef.current;
+	            overlayList.forEach((layer) => {
+	                if (!layer || !layer.position || !layer.visible) return;
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                 } else {

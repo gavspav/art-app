@@ -37,6 +37,17 @@ export function useAudioHandlers({
   const blendModeStateRef = useRef({ index: -1, lastChangeMs: 0 });
   const paletteStateRef = useRef({ index: -1, lastChangeMs: 0 });
   const randomizeStateRef = useRef({ lastTriggerMs: 0 });
+  const layersCountStateRef = useRef({ count: null, lastChangeMs: 0 });
+  const latestLayerCountRef = useRef(Array.isArray(layers) ? layers.length : 1);
+
+  useEffect(() => {
+    const currentCount = Math.max(1, Math.min(20, Number.isFinite(layers?.length) ? layers.length : 1));
+    latestLayerCountRef.current = currentCount;
+    const state = layersCountStateRef.current;
+    if (!Number.isFinite(state.count)) {
+      state.count = currentCount;
+    }
+  }, [layers?.length]);
 
   // Randomize All (rising-edge trigger)
   useEffect(() => {
@@ -166,11 +177,24 @@ export function useAudioHandlers({
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('layersCount', ({ value01 }) => {
       const target = Math.max(1, Math.min(20, Math.round(value01)));
+      const state = layersCountStateRef.current;
+      const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      const minStepMs = 220;
+      const current = Number.isFinite(state.count) ? state.count : latestLayerCountRef.current;
+      if (target === current) return;
+      if ((now - state.lastChangeMs) < minStepMs) return;
+      const step = target > current ? 1 : -1;
+      const nextCount = Math.max(1, Math.min(20, current + step));
+      state.count = nextCount;
+      state.lastChangeMs = now;
+
       setLayers?.(prev => {
         let next = prev;
-        if (target > prev.length) {
+        if (nextCount > prev.length) {
           // Adding layers
-          const addCount = target - prev.length;
+          const addCount = nextCount - prev.length;
           const baseVar = {
             shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
             anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
@@ -187,15 +211,16 @@ export function useAudioHandlers({
             return nl;
           });
           next = [...prev, ...additions];
-        } else if (target < prev.length) {
-          next = prev.slice(0, target);
+        } else if (nextCount < prev.length) {
+          next = prev.slice(0, nextCount);
         }
         return next.map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
       });
-      setSelectedLayerIndex?.(Math.max(0, target - 1));
+      const selected = Number.isFinite(clampedSelectedIndex) ? clampedSelectedIndex : 0;
+      setSelectedLayerIndex?.(Math.max(0, Math.min(selected, nextCount - 1)));
     });
     return unregister;
-  }, [DEFAULT_LAYER, buildVariedLayerFrom, registerAudioHandler, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, buildVariedLayerFrom, clampedSelectedIndex, registerAudioHandler, setLayers, setSelectedLayerIndex]);
 
   // Background Color (RGB) - use raw 0-1 for color channel mapping
   useEffect(() => {

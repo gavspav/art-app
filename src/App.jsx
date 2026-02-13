@@ -1535,6 +1535,7 @@ const MainApp = () => {
     let shapeTrack = findShapeTrackForLayer(layer);
     let autoCreatedShapeTrackId = null;
 
+
     // Auto-create a shape track for the selected layer if none exists
     if (!shapeTrack && layer && timelineContext.addTrack) {
       const layerName = layer.name || `Layer ${selectedLayerIndex + 1}`;
