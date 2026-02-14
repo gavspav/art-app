@@ -44,9 +44,7 @@ export function useAudioHandlers({
     const currentCount = Math.max(1, Math.min(20, Number.isFinite(layers?.length) ? layers.length : 1));
     latestLayerCountRef.current = currentCount;
     const state = layersCountStateRef.current;
-    if (!Number.isFinite(state.count)) {
-      state.count = currentCount;
-    }
+    state.count = currentCount;
   }, [layers?.length]);
 
   // Randomize All (rising-edge trigger)

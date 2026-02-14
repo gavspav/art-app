@@ -1733,17 +1733,31 @@ const GlobalControls = ({
             />
             <AudioDemoPresetsSection
               timelineMode={timelineMode}
+              parameterTargetMode={_parameterTargetMode}
+              setParameterTargetMode={_setParameterTargetMode}
+              energyInfluence={energyInfluence}
               setEnergyInfluence={setEnergyInfluence}
+              audioSpawnEnabled={audioSpawnEnabled}
               setAudioSpawnEnabled={setAudioSpawnEnabled}
+              audioSpawnTriggerMode={audioSpawnTriggerMode}
               setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
               setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+              audioSpawnHysteresis={audioSpawnHysteresis}
               setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+              audioSpawnBand={audioSpawnBand}
               setAudioSpawnBand={setAudioSpawnBand}
+              audioSpawnThreshold={audioSpawnThreshold}
               setAudioSpawnThreshold={setAudioSpawnThreshold}
+              audioSpawnCooldownMs={audioSpawnCooldownMs}
               setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
               setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
               setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+              audioSpawnMaxLayers={audioSpawnMaxLayers}
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
               setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
             />
             <AudioSpawnSection
@@ -1896,6 +1910,7 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return diff('audioSpawnHalfLifeMs');
   if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return diff('audioSpawnHalfLifeEnergyFactor');
   if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return diff('audioSpawnMaxLayers');
+  if (prev.parameterTargetMode !== next.parameterTargetMode) return diff('parameterTargetMode');
   if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
 
   return true;

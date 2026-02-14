@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, forwardRef, useMemo, useState, useImperativeHandle, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
 import { createSeededRandom } from '../utils/random';
-import { calculateCompactVisualHash } from '../utils/layerHash';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
@@ -1186,7 +1185,6 @@ const Canvas = forwardRef(({
     const frozenTimeRef = useRef(0);
     // Align wall-time colour fade with accumulated animation time to avoid jumps when freezing/unfreezing
     const colorWallOffsetRef = useRef(0);
-    const layerHashesRef = useRef(new Map());
     const backgroundHashRef = useRef('');
     const draggingNodeIndexRef = useRef(null);
     const draggingMidIndexRef = useRef(null);
@@ -1422,32 +1420,19 @@ const Canvas = forwardRef(({
         };
     }, []);
 
-    // Memoize layer change detection
-    const layerChanges = useMemo(() => {
+    // Lightweight layer sanity map (avoid expensive per-layer JSON hashing every frame)
+    const { layerChanges, hasMalformedLayers } = useMemo(() => {
         const changes = new Map();
-        const currentHashes = new Map();
+        let malformed = false;
         layers.forEach((layer, index) => {
-            if (!layer || !layer.position) {
-                changes.set(index, { hasChanged: true, reason: 'malformed' });
-                return;
-            }
-
-            const currentHash = calculateCompactVisualHash(layer);
-            const previousHash = layerHashesRef.current.get(index);
-            const hasChanged = currentHash !== previousHash;
-
-            currentHashes.set(index, currentHash);
+            const isMalformed = !layer || !layer.position;
+            if (isMalformed) malformed = true;
             changes.set(index, {
-                hasChanged,
-                reason: hasChanged ? 'visual-change' : 'no-change',
-                currentHash,
-                previousHash
+                hasChanged: isMalformed,
+                reason: isMalformed ? 'malformed' : 'no-change',
             });
         });
-
-        layerHashesRef.current = currentHashes;
-
-        return changes;
+        return { layerChanges: changes, hasMalformedLayers: malformed };
     }, [layers]);
 
     // Check if background has changed
@@ -1574,22 +1559,24 @@ const Canvas = forwardRef(({
         ctx.save();
         ctx.setTransform(canvasPixelRatio, 0, 0, canvasPixelRatio, 0, 0);
 
-        try {
-            const renderStart = performance.now();
+	        try {
+	            const renderStart = performance.now();
 
             // Force a render when node edit mode toggles or selected layer changes
             const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
 
-        const countChanged = prevLayersCountRef.current !== (layersForRender?.length || 0);
-        // Always repaint the background so color changes show immediately (even when frozen)
-        ctx.clearRect(0, 0, width, height);
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, width, height);
+	        const countChanged = prevLayersCountRef.current !== (layersForRender?.length || 0);
+            const nodeEditSelectedIndex = isNodeEditMode
+                ? Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, (layersForRender?.length || 1) - 1)))
+                : -1;
+	        // Always repaint the background so color changes show immediately (even when frozen)
+	        ctx.clearRect(0, 0, width, height);
+	        ctx.fillStyle = backgroundColor;
+	        ctx.fillRect(0, 0, width, height);
 
 	        // Redraw on selection/mode toggles too; stable frozen time keeps appearance identical while frozen
 	        const needsFullRender = modeChanged || countChanged ||
-	            Array.from(layerChanges.values()).some(change => change.hasChanged) ||
-	            layerHashesRef.current.size === 0;
+	            hasMalformedLayers;
             const hasActiveOverlayLayers = !!(renderOverlayLayers && overlayLayersRef?.current?.length);
             const shouldHideSourceLayer = hasActiveOverlayLayers && (hideLayerId || hideLayerIndex >= 0);
 
@@ -1666,11 +1653,14 @@ const Canvas = forwardRef(({
                     renderedPointsRef.current.delete(index);
                     return;
                 }
-                let renderedPoints = null;
-                if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
-                    renderedPointsRef.current.set(index, renderedPoints);
-                } else {
+	                const shouldComputeRenderedPoints = Array.isArray(layer.nodes)
+                        && layer.nodes.length >= 3
+                        && (layer?.movementStyle === 'drift' || (isNodeEditMode && index === nodeEditSelectedIndex));
+                    let renderedPoints = null;
+	                if (shouldComputeRenderedPoints) {
+	                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
+	                    renderedPointsRef.current.set(index, renderedPoints);
+	                } else {
                     renderedPointsRef.current.delete(index);
                 }
                 if (layer.image && layer.image.src) {
@@ -1695,16 +1685,10 @@ const Canvas = forwardRef(({
             // Do not return; continue to draw overlays (debug grid, node handles)
         }
 
-        const _changedLayers = Array.from(layerChanges.entries())
-            .filter(([/*_index*/ _unused, change]) => change.hasChanged)
-            .map(([index, change]) => ({ index, reason: change.reason }));
-
-        // Avoid spamming console per frame; enable if needed for debugging
-
-        if (backgroundChanged || layerHashesRef.current.size === 0 || modeChanged || countChanged) {
-            ctx.clearRect(0, 0, width, height);
-            ctx.fillStyle = backgroundColor;
-            ctx.fillRect(0, 0, width, height);
+	        if (backgroundChanged || modeChanged || countChanged) {
+	            ctx.clearRect(0, 0, width, height);
+	            ctx.fillStyle = backgroundColor;
+	            ctx.fillRect(0, 0, width, height);
             // Background image rendering is handled by dedicated function if provided via global state through window variable
             // This is a lightweight hook-in: Main app can set window.__artapp_bgimg to { src, opacity, fit, enabled }
             const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
@@ -1769,12 +1753,12 @@ const Canvas = forwardRef(({
             lastTimeStampRef.current = nowWall;
             animationTimeRef.current += dt;
         }
-        const nowSec = animationTimeRef.current;
-        const forceFullPass = backgroundChanged || modeChanged || countChanged ||
-            (layerHashesRef.current.size === 0) || (isFrozen && colorFadeWhileFrozen) ||
-            needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
-        const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
-            ? (Date.now() * 0.001 + colorWallOffsetRef.current)
+	        const nowSec = animationTimeRef.current;
+	        const forceFullPass = backgroundChanged || modeChanged || countChanged ||
+	            (isFrozen && colorFadeWhileFrozen) ||
+	            needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
+	        const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
+	            ? (Date.now() * 0.001 + colorWallOffsetRef.current)
             : nowSec;
 	        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
 	            if (!layer || !layer.position) {
@@ -1794,16 +1778,19 @@ const Canvas = forwardRef(({
             const layerChange = layerChanges.get(index);
 
             if (forceFullPass || layerChange?.hasChanged) {
-                let renderedPoints = null;
-                if (layer.image && layer.image.src) {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
-                } else {
-                    // Use stable frozen time when frozen; live time otherwise
-                    const time = nowSec;
-                    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
-                        renderedPointsRef.current.set(index, renderedPoints);
-                    } else {
+	                const shouldComputeRenderedPoints = Array.isArray(layer.nodes)
+                        && layer.nodes.length >= 3
+                        && (layer?.movementStyle === 'drift' || (isNodeEditMode && index === nodeEditSelectedIndex));
+                    let renderedPoints = null;
+	                if (layer.image && layer.image.src) {
+	                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
+	                } else {
+	                    // Use stable frozen time when frozen; live time otherwise
+	                    const time = nowSec;
+	                    if (shouldComputeRenderedPoints) {
+	                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+	                        renderedPointsRef.current.set(index, renderedPoints);
+	                    } else {
                         renderedPointsRef.current.delete(index);
                     }
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints });
@@ -2039,6 +2026,7 @@ const Canvas = forwardRef(({
 
     }, [
         layerChanges,
+        hasMalformedLayers,
         backgroundChanged,
         hideLayerIndex,
         hideLayerId,

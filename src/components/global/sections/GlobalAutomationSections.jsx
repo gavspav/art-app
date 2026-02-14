@@ -106,6 +106,42 @@ const quantile = (values, q) => {
 
 const AUDIO_DEMO_PRESETS = [
   {
+    id: 'cinematic-slow-bloom',
+    name: 'Cinematic Slow Bloom',
+    summary: 'Very slow, overlap-friendly evolution with soft long-memory response and minimal jitter.',
+    recommendedInput: 'Ambient, drones, neo-classical, cinematic underscoring.',
+    audioSettings: {
+      sensitivity: 1.05,
+      bassSensitivity: 0.95,
+      midsSensitivity: 1.0,
+      highsSensitivity: 0.6,
+      smoothing: 0.9,
+      release: 0.97,
+    },
+    energyInfluence: 0.55,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.16,
+      band: 'rms',
+      threshold: 0.5,
+      cooldownMs: 1200,
+      halfLifeMs: 8200,
+      halfLifeEnergyFactor: 0.7,
+      maxLayers: 22,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.45, 1.05, 'runningAvg', { windowSeconds: 12 }),
+      variationShape: createMapping('mids', 0.05, 1.4, 'runningAvg', { windowSeconds: 9 }),
+      variationColor: createMapping('highs', 0.08, 1.2, 'runningAvg', { windowSeconds: 11 }),
+      variationAnim: createMapping('mids', 0.08, 1.1, 'leaky', { rate: 0.01, decay: 0.999, restValue: 0.2 }),
+      variationScale: createMapping('bass', -0.05, 0.6, 'runningAvg', { windowSeconds: 9 }),
+      layersCount: createMapping('rms', 4, 11, 'runningAvg', { windowSeconds: 10 }),
+    },
+  },
+  {
     id: 'ambient-bloom',
     name: 'Ambient Bloom',
     summary: 'Slow cinematic growth with long-memory motion and gentle colour drift.',
@@ -433,20 +469,87 @@ const AUDIO_DEMO_PRESETS = [
 ];
 
 const DEFAULT_DEMO_PRESET_ID = AUDIO_DEMO_PRESETS?.[0]?.id || '';
+const AUDIO_PRESET_SLOTS_KEY = 'artapp-audio-preset-slots-v1';
+const AUDIO_PRESET_SLOT_COUNT = 10;
+const AUDIO_PRESET_VERSION = '1.0';
+
+const buildDefaultAudioPresetSlots = () => (
+  Array.from({ length: AUDIO_PRESET_SLOT_COUNT }, (_, index) => ({
+    id: index + 1,
+    name: `A${index + 1}`,
+    savedAt: null,
+    payload: null,
+    version: AUDIO_PRESET_VERSION,
+  }))
+);
+
+const normalizeAudioPresetSlot = (rawSlot, index) => {
+  const fallback = {
+    id: index + 1,
+    name: `A${index + 1}`,
+    savedAt: null,
+    payload: null,
+    version: AUDIO_PRESET_VERSION,
+  };
+  if (!rawSlot || typeof rawSlot !== 'object') return fallback;
+  const payload = (rawSlot.payload && typeof rawSlot.payload === 'object') ? rawSlot.payload : null;
+  const maybeSavedAt = (
+    typeof rawSlot.savedAt === 'string' && rawSlot.savedAt.length > 0
+      ? rawSlot.savedAt
+      : (typeof payload?.savedAt === 'string' ? payload.savedAt : null)
+  );
+  return {
+    id: fallback.id,
+    name: (typeof rawSlot.name === 'string' && rawSlot.name.trim().length > 0)
+      ? rawSlot.name.trim().slice(0, 18)
+      : fallback.name,
+    savedAt: payload ? maybeSavedAt : null,
+    payload,
+    version: typeof rawSlot.version === 'string' ? rawSlot.version : AUDIO_PRESET_VERSION,
+  };
+};
+
+const loadAudioPresetSlots = () => {
+  const defaults = buildDefaultAudioPresetSlots();
+  if (typeof window === 'undefined' || !window.localStorage) return defaults;
+  try {
+    const raw = window.localStorage.getItem(AUDIO_PRESET_SLOTS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return defaults;
+    return defaults.map((slot, index) => normalizeAudioPresetSlot(parsed[index] || slot, index));
+  } catch {
+    return defaults;
+  }
+};
 
 const AudioDemoPresetsSection = ({
   timelineMode = false,
+  parameterTargetMode = 'individual',
+  setParameterTargetMode = null,
+  energyInfluence = 0.5,
   setEnergyInfluence = null,
+  audioSpawnEnabled = false,
   setAudioSpawnEnabled = null,
+  audioSpawnTriggerMode = 'level',
   setAudioSpawnTriggerMode = null,
+  audioSpawnRepeatWhileAbove = true,
   setAudioSpawnRepeatWhileAbove = null,
+  audioSpawnHysteresis = 0.08,
   setAudioSpawnHysteresis = null,
+  audioSpawnBand = 'rms',
   setAudioSpawnBand = null,
+  audioSpawnThreshold = 0.6,
   setAudioSpawnThreshold = null,
+  audioSpawnCooldownMs = 250,
   setAudioSpawnCooldownMs = null,
+  audioSpawnHalfLifeMs = 1500,
   setAudioSpawnHalfLifeMs = null,
+  audioSpawnHalfLifeEnergyFactor = 1.0,
   setAudioSpawnHalfLifeEnergyFactor = null,
+  audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
+  audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
 } = {}) => {
   const audio = useAudioReactive();
@@ -469,6 +572,9 @@ const AudioDemoPresetsSection = ({
     const {
       setAudioEnabled = null,
       setSensitivity = null,
+      setBassSensitivity = null,
+      setMidsSensitivity = null,
+      setHighsSensitivity = null,
       setSmoothing = null,
       setRelease = null,
       setMapping = null,
@@ -481,6 +587,9 @@ const AudioDemoPresetsSection = ({
 
     const audioSettings = selectedPreset.audioSettings || {};
     if (Number.isFinite(audioSettings.sensitivity)) setSensitivity?.(audioSettings.sensitivity);
+    if (Number.isFinite(audioSettings.bassSensitivity)) setBassSensitivity?.(audioSettings.bassSensitivity);
+    if (Number.isFinite(audioSettings.midsSensitivity)) setMidsSensitivity?.(audioSettings.midsSensitivity);
+    if (Number.isFinite(audioSettings.highsSensitivity)) setHighsSensitivity?.(audioSettings.highsSensitivity);
     if (Number.isFinite(audioSettings.smoothing)) setSmoothing?.(audioSettings.smoothing);
     if (Number.isFinite(audioSettings.release)) setRelease?.(audioSettings.release);
 
@@ -599,9 +708,367 @@ const AudioDemoPresetsSection = ({
         </div>
       )}
 
+      <AudioPresetSlotsSection
+        timelineMode={timelineMode}
+        parameterTargetMode={parameterTargetMode}
+        setParameterTargetMode={setParameterTargetMode}
+        energyInfluence={energyInfluence}
+        setEnergyInfluence={setEnergyInfluence}
+        audioSpawnEnabled={audioSpawnEnabled}
+        setAudioSpawnEnabled={setAudioSpawnEnabled}
+        audioSpawnTriggerMode={audioSpawnTriggerMode}
+        setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+        audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+        setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+        audioSpawnHysteresis={audioSpawnHysteresis}
+        setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+        audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+        setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+        audioSpawnBand={audioSpawnBand}
+        setAudioSpawnBand={setAudioSpawnBand}
+        audioSpawnThreshold={audioSpawnThreshold}
+        setAudioSpawnThreshold={setAudioSpawnThreshold}
+        audioSpawnCooldownMs={audioSpawnCooldownMs}
+        setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+        audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+        setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+        audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+        setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+        audioSpawnMaxLayers={audioSpawnMaxLayers}
+        setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+      />
+
       {timelineMode && (
         <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.65 }}>
           Timeline mode mutes live Audio + BPM automation; preset values are still saved and will run after leaving Timeline mode.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AudioPresetSlotsSection = ({
+  timelineMode = false,
+  parameterTargetMode = 'individual',
+  setParameterTargetMode = null,
+  energyInfluence = 0.5,
+  setEnergyInfluence = null,
+  audioSpawnEnabled = false,
+  setAudioSpawnEnabled = null,
+  audioSpawnTriggerMode = 'level',
+  setAudioSpawnTriggerMode = null,
+  audioSpawnRepeatWhileAbove = true,
+  setAudioSpawnRepeatWhileAbove = null,
+  audioSpawnHysteresis = 0.08,
+  setAudioSpawnHysteresis = null,
+  audioSpawnUseGlobalPalette = false,
+  setAudioSpawnUseGlobalPalette = null,
+  audioSpawnBand = 'rms',
+  setAudioSpawnBand = null,
+  audioSpawnThreshold = 0.6,
+  setAudioSpawnThreshold = null,
+  audioSpawnCooldownMs = 250,
+  setAudioSpawnCooldownMs = null,
+  audioSpawnHalfLifeMs = 1500,
+  setAudioSpawnHalfLifeMs = null,
+  audioSpawnHalfLifeEnergyFactor = 1.0,
+  setAudioSpawnHalfLifeEnergyFactor = null,
+  audioSpawnMaxLayers = 12,
+  setAudioSpawnMaxLayers = null,
+} = {}) => {
+  const audio = useAudioReactive();
+  const [slots, setSlots] = useState(() => loadAudioPresetSlots());
+  const [selectedSlotId, setSelectedSlotId] = useState(1);
+  const [enableAudioOnLoad, setEnableAudioOnLoad] = useState(true);
+  const [status, setStatus] = useState({ text: '', error: false });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      window.localStorage.setItem(AUDIO_PRESET_SLOTS_KEY, JSON.stringify(slots));
+    } catch (error) {
+      console.warn('[Audio Presets] Failed to persist audio preset slots', error);
+    }
+  }, [slots]);
+
+  const updateSlot = useCallback((slotId, updater) => {
+    setSlots(prev => prev.map(slot => {
+      if (slot.id !== slotId) return slot;
+      if (typeof updater === 'function') return updater(slot);
+      return { ...slot, ...updater };
+    }));
+  }, []);
+
+  const selectedSlot = useMemo(() => (
+    slots.find(slot => slot.id === selectedSlotId) || slots[0] || null
+  ), [slots, selectedSlotId]);
+
+  const normalizedAppState = useMemo(() => ({
+    parameterTargetMode: (typeof parameterTargetMode === 'string' && parameterTargetMode.length > 0)
+      ? parameterTargetMode
+      : 'individual',
+    energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0.5,
+    audioSpawnEnabled: !!audioSpawnEnabled,
+    audioSpawnTriggerMode: (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level',
+    audioSpawnRepeatWhileAbove: !!audioSpawnRepeatWhileAbove,
+    audioSpawnHysteresis: Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08,
+    audioSpawnUseGlobalPalette: !!audioSpawnUseGlobalPalette,
+    audioSpawnBand: (typeof audioSpawnBand === 'string' && audioSpawnBand.length > 0) ? audioSpawnBand : 'rms',
+    audioSpawnThreshold: Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6,
+    audioSpawnCooldownMs: Number.isFinite(audioSpawnCooldownMs) ? audioSpawnCooldownMs : 250,
+    audioSpawnHalfLifeMs: Number.isFinite(audioSpawnHalfLifeMs) ? audioSpawnHalfLifeMs : 1500,
+    audioSpawnHalfLifeEnergyFactor: Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0,
+    audioSpawnMaxLayers: Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12,
+  }), [
+    parameterTargetMode,
+    energyInfluence,
+    audioSpawnEnabled,
+    audioSpawnTriggerMode,
+    audioSpawnRepeatWhileAbove,
+    audioSpawnHysteresis,
+    audioSpawnUseGlobalPalette,
+    audioSpawnBand,
+    audioSpawnThreshold,
+    audioSpawnCooldownMs,
+    audioSpawnHalfLifeMs,
+    audioSpawnHalfLifeEnergyFactor,
+    audioSpawnMaxLayers,
+  ]);
+
+  const applyPayload = useCallback((payload) => {
+    if (!payload || typeof payload !== 'object') return false;
+    const audioConfig = (
+      payload.audioConfig && typeof payload.audioConfig === 'object'
+        ? payload.audioConfig
+        : ((payload.settings && payload.mappings) ? payload : null)
+    );
+    if (audioConfig && typeof audio?.applyAudioSnapshot === 'function') {
+      audio.applyAudioSnapshot(audioConfig);
+    }
+
+    const state = (payload.appState && typeof payload.appState === 'object')
+      ? payload.appState
+      : {};
+    if (typeof state.parameterTargetMode === 'string' && state.parameterTargetMode.length > 0) {
+      setParameterTargetMode?.(state.parameterTargetMode);
+    }
+    if (Number.isFinite(state.energyInfluence)) setEnergyInfluence?.(state.energyInfluence);
+    if (typeof state.audioSpawnEnabled === 'boolean') setAudioSpawnEnabled?.(state.audioSpawnEnabled);
+    if (typeof state.audioSpawnTriggerMode === 'string') setAudioSpawnTriggerMode?.(state.audioSpawnTriggerMode);
+    if (typeof state.audioSpawnRepeatWhileAbove === 'boolean') setAudioSpawnRepeatWhileAbove?.(state.audioSpawnRepeatWhileAbove);
+    if (Number.isFinite(state.audioSpawnHysteresis)) setAudioSpawnHysteresis?.(state.audioSpawnHysteresis);
+    if (typeof state.audioSpawnUseGlobalPalette === 'boolean') setAudioSpawnUseGlobalPalette?.(state.audioSpawnUseGlobalPalette);
+    if (typeof state.audioSpawnBand === 'string') setAudioSpawnBand?.(state.audioSpawnBand);
+    if (Number.isFinite(state.audioSpawnThreshold)) setAudioSpawnThreshold?.(state.audioSpawnThreshold);
+    if (Number.isFinite(state.audioSpawnCooldownMs)) setAudioSpawnCooldownMs?.(state.audioSpawnCooldownMs);
+    if (Number.isFinite(state.audioSpawnHalfLifeMs)) setAudioSpawnHalfLifeMs?.(state.audioSpawnHalfLifeMs);
+    if (Number.isFinite(state.audioSpawnHalfLifeEnergyFactor)) setAudioSpawnHalfLifeEnergyFactor?.(state.audioSpawnHalfLifeEnergyFactor);
+    if (Number.isFinite(state.audioSpawnMaxLayers)) setAudioSpawnMaxLayers?.(state.audioSpawnMaxLayers);
+
+    if (enableAudioOnLoad) {
+      audio?.setAudioEnabled?.(true);
+    }
+
+    return !!audioConfig || Object.keys(state).length > 0;
+  }, [
+    audio,
+    enableAudioOnLoad,
+    setParameterTargetMode,
+    setEnergyInfluence,
+    setAudioSpawnEnabled,
+    setAudioSpawnTriggerMode,
+    setAudioSpawnRepeatWhileAbove,
+    setAudioSpawnHysteresis,
+    setAudioSpawnUseGlobalPalette,
+    setAudioSpawnBand,
+    setAudioSpawnThreshold,
+    setAudioSpawnCooldownMs,
+    setAudioSpawnHalfLifeMs,
+    setAudioSpawnHalfLifeEnergyFactor,
+    setAudioSpawnMaxLayers,
+  ]);
+
+  const saveSelectedSlot = useCallback(() => {
+    if (!selectedSlot) return;
+    const getAudioSnapshot = audio?.getAudioSnapshot;
+    if (typeof getAudioSnapshot !== 'function') {
+      setStatus({ text: 'Audio engine unavailable.', error: true });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const payload = {
+      version: AUDIO_PRESET_VERSION,
+      savedAt: now,
+      audioConfig: getAudioSnapshot() || null,
+      appState: { ...normalizedAppState },
+    };
+    updateSlot(selectedSlot.id, prev => ({ ...prev, payload, savedAt: now }));
+    setStatus({ text: `Saved ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
+  }, [audio, normalizedAppState, selectedSlot, updateSlot]);
+
+  const loadSelectedSlot = useCallback(() => {
+    if (!selectedSlot) return;
+    if (!selectedSlot.payload) {
+      setStatus({ text: 'Selected slot is empty.', error: true });
+      return;
+    }
+    const applied = applyPayload(selectedSlot.payload);
+    if (!applied) {
+      setStatus({ text: `Could not load ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: true });
+      return;
+    }
+    setStatus({ text: `Loaded ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
+  }, [applyPayload, selectedSlot]);
+
+  const clearSelectedSlot = useCallback(() => {
+    if (!selectedSlot) return;
+    updateSlot(selectedSlot.id, prev => ({ ...prev, payload: null, savedAt: null }));
+    setStatus({ text: `Cleared ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
+  }, [selectedSlot, updateSlot]);
+
+  const updateSelectedSlotName = useCallback((rawName, finalize = false) => {
+    if (!selectedSlot) return;
+    const truncated = String(rawName || '').slice(0, 18);
+    const nextName = finalize
+      ? (truncated.trim().length > 0 ? truncated.trim() : `A${selectedSlot.id}`)
+      : truncated;
+    updateSlot(selectedSlot.id, { name: nextName });
+  }, [selectedSlot, updateSlot]);
+
+  if (!audio) return null;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>💾 Audio Preset Slots</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+            onClick={saveSelectedSlot}
+            title="Save current audio + spawn setup into selected slot"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+            onClick={loadSelectedSlot}
+            disabled={!selectedSlot?.payload}
+            title="Load selected audio preset slot"
+          >
+            Load
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.4rem', marginTop: '0.4rem' }}>
+        <select
+          className="compact-select"
+          value={selectedSlot?.id || 1}
+          onChange={(e) => setSelectedSlotId(Number(e.target.value))}
+        >
+          {slots.map(slot => (
+            <option key={slot.id} value={slot.id}>
+              {`Slot ${slot.id}: ${slot.name || `A${slot.id}`}${slot.payload ? ' (saved)' : ''}`}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="btn-compact-secondary"
+          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+          onClick={clearSelectedSlot}
+          disabled={!selectedSlot?.payload}
+          title="Clear selected slot"
+        >
+          Clear
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.35rem' }}>
+        <span className="compact-label" style={{ minWidth: 40 }}>Name</span>
+        <input
+          type="text"
+          value={selectedSlot?.name || ''}
+          maxLength={18}
+          onChange={(e) => updateSelectedSlotName(e.target.value, false)}
+          onBlur={(e) => updateSelectedSlotName(e.target.value, true)}
+          style={{
+            flex: 1,
+            fontSize: '0.72rem',
+            padding: '2px 6px',
+            borderRadius: 4,
+            border: '1px solid rgba(255,255,255,0.2)',
+            background: 'rgba(255,255,255,0.08)',
+            color: '#fff',
+          }}
+        />
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Automatically enable audio input when loading a slot">
+          <input
+            type="checkbox"
+            checked={enableAudioOnLoad}
+            onChange={(e) => setEnableAudioOnLoad(!!e.target.checked)}
+          />
+          Enable audio on load
+        </label>
+      </div>
+
+      <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.72 }}>
+        Saves sensitivity/band sensitivity, smoothing/release, mappings + modes, spawn settings, energy influence, and parameter target mode.
+      </div>
+
+      {selectedSlot?.savedAt ? (
+        <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', opacity: 0.68 }}>
+          Saved: {new Date(selectedSlot.savedAt).toLocaleString()}
+        </div>
+      ) : (
+        <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', opacity: 0.58 }}>
+          Slot is empty.
+        </div>
+      )}
+
+      {status.text && (
+        <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: status.error ? '#ff8a80' : '#6bcb77' }}>
+          {status.text}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '0.25rem', marginTop: '0.45rem' }}>
+        {slots.map(slot => {
+          const isSelected = slot.id === selectedSlotId;
+          const hasPayload = !!slot.payload;
+          return (
+            <button
+              key={slot.id}
+              type="button"
+              className="btn-compact-secondary"
+              onClick={() => setSelectedSlotId(slot.id)}
+              title={`${slot.name || `A${slot.id}`}${hasPayload ? ' • saved' : ' • empty'}`}
+              style={{
+                fontSize: '0.66rem',
+                padding: '2px 4px',
+                borderColor: hasPayload ? 'rgba(79,195,247,0.6)' : 'rgba(255,255,255,0.2)',
+                background: isSelected
+                  ? (hasPayload ? 'rgba(79,195,247,0.25)' : 'rgba(255,255,255,0.12)')
+                  : undefined,
+              }}
+            >
+              {slot.name || `A${slot.id}`}
+            </button>
+          );
+        })}
+      </div>
+
+      {timelineMode && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.65 }}>
+          Timeline mode mutes live Audio + BPM automation; slot values are still saved and will run after leaving Timeline mode.
         </div>
       )}
     </div>
@@ -1980,6 +2447,7 @@ export {
   RangeMappingEditor,
   AudioReactiveSection,
   AudioDemoPresetsSection,
+  AudioPresetSlotsSection,
   AudioSpawnSection,
   BPMSection,
   AudioControlRow,

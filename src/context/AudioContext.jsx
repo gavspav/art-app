@@ -99,6 +99,8 @@ export const AudioProvider = ({ children }) => {
   
   // Cache of last dispatched values per param (used for change detection)
   const lastValuesRef = useRef({});
+  // Latest per-parameter debug snapshot for "Audio Explain" UI
+  const mappingDebugRef = useRef({});
   
   // Track last dispatch timestamp for dt calculation
   const lastDispatchTimeRef = useRef(performance.now());
@@ -204,6 +206,7 @@ export const AudioProvider = ({ children }) => {
         // Disable mapping - preserve the range for when re-enabled
         const existingRange = prev[paramId]?.range || mapping?.range || DEFAULT_RANGE;
         next[paramId] = { band: 'none', range: existingRange };
+        delete mappingDebugRef.current[paramId];
       } else if (mapping && typeof mapping === 'object') {
         // Validate and store - simplified range (just output min/max)
         const range = mapping.range || DEFAULT_RANGE;
@@ -226,6 +229,8 @@ export const AudioProvider = ({ children }) => {
           modeProcessor.clearParam(paramId);
         }
         next[paramId] = entry;
+        // Reset debug snapshot whenever the mapping definition changes.
+        delete mappingDebugRef.current[paramId];
       }
       return next;
     });
@@ -239,12 +244,21 @@ export const AudioProvider = ({ children }) => {
       delete next[paramId];
       return next;
     });
+    delete mappingDebugRef.current[paramId];
   }, [persistMappings]);
 
   // Set mappings from external source (e.g., JSON import)
   const setMappingsFromExternal = useCallback((obj) => {
     if (obj && typeof obj === 'object') {
       persistMappings({ ...obj });
+      // Drop stale debug snapshots when replacing mapping map wholesale.
+      const nextDebug = {};
+      Object.entries(obj).forEach(([paramId, mapping]) => {
+        if (mapping && typeof mapping === 'object' && mapping.band && mapping.band !== 'none') {
+          nextDebug[paramId] = mappingDebugRef.current[paramId];
+        }
+      });
+      mappingDebugRef.current = nextDebug;
     }
   }, [persistMappings]);
 
@@ -317,6 +331,17 @@ export const AudioProvider = ({ children }) => {
         
         // Map the processed 0-1 value through the output range
         const mappedValue = mapRange(processedValue, mapping.range);
+
+        mappingDebugRef.current[paramId] = {
+          paramId,
+          band: mapping.band,
+          mode,
+          range: mapping.range || DEFAULT_RANGE,
+          raw: bandValue,
+          processed: processedValue,
+          mapped: mappedValue,
+          updatedAt: Date.now(),
+        };
 
         // Skip dispatch if value hasn't changed significantly
         const lastValue = lastValuesRef.current[paramId];
@@ -400,6 +425,14 @@ export const AudioProvider = ({ children }) => {
     return features?.[band] || 0;
   }, [getFeatures]);
 
+  const getMappingDebugValue = useCallback((paramId) => (
+    mappingDebugRef.current[paramId] || null
+  ), []);
+
+  const getAllMappingDebug = useCallback(() => {
+    return { ...mappingDebugRef.current };
+  }, []);
+
   // Get a snapshot of audio settings and mappings for export/preset save
   const getAudioSnapshot = useCallback(() => ({
     settings: {
@@ -469,6 +502,8 @@ export const AudioProvider = ({ children }) => {
     setMappingsFromExternal,
     getMapping,
     getBandValue,
+    getMappingDebugValue,
+    getAllMappingDebug,
     refreshDevices,
     registerAudioHandler,
     beginLearn,
@@ -523,6 +558,8 @@ export const AudioProvider = ({ children }) => {
     setMappingsFromExternal,
     getMapping,
     getBandValue,
+    getMappingDebugValue,
+    getAllMappingDebug,
     refreshDevices,
     registerAudioHandler,
     beginLearn,
