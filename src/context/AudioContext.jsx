@@ -30,6 +30,43 @@ const DEFAULT_RANGE = {
   outputMax: 1,
 };
 
+export const AUDIO_TRIGGER_SOURCES = ['processed', 'raw'];
+export const AUDIO_TRIGGER_MODES = ['crossUp', 'crossDown', 'both', 'whileAbove'];
+export const DEFAULT_TRIGGER = {
+  enabled: false,
+  source: 'processed',
+  mode: 'crossUp',
+  riseThreshold: 0.65,
+  fallThreshold: 0.55,
+  cooldownMs: 250,
+  reverseOnFall: false,
+};
+
+const normalizeTriggerConfig = (trigger) => {
+  if (!trigger || typeof trigger !== 'object') {
+    return { ...DEFAULT_TRIGGER };
+  }
+  const rise = Math.max(0, Math.min(1, Number.isFinite(Number(trigger.riseThreshold)) ? Number(trigger.riseThreshold) : DEFAULT_TRIGGER.riseThreshold));
+  const fallCandidate = Number.isFinite(Number(trigger.fallThreshold)) ? Number(trigger.fallThreshold) : DEFAULT_TRIGGER.fallThreshold;
+  const fall = Math.max(0, Math.min(rise, fallCandidate));
+  return {
+    enabled: !!trigger.enabled,
+    source: AUDIO_TRIGGER_SOURCES.includes(trigger.source) ? trigger.source : DEFAULT_TRIGGER.source,
+    mode: AUDIO_TRIGGER_MODES.includes(trigger.mode) ? trigger.mode : DEFAULT_TRIGGER.mode,
+    riseThreshold: rise,
+    fallThreshold: fall,
+    cooldownMs: Math.max(0, Number.isFinite(Number(trigger.cooldownMs)) ? Number(trigger.cooldownMs) : DEFAULT_TRIGGER.cooldownMs),
+    reverseOnFall: !!trigger.reverseOnFall,
+  };
+};
+
+const resolveTriggerSourceValue = (source, raw, processed) => {
+  if (source === 'raw') {
+    return Math.max(0, Math.min(1, Number.isFinite(raw) ? raw : 0));
+  }
+  return Math.max(0, Math.min(1, Number.isFinite(processed) ? processed : 0));
+};
+
 // Singleton mode processor instance (persists across re-renders)
 const modeProcessor = new AudioModeProcessor();
 
@@ -101,6 +138,8 @@ export const AudioProvider = ({ children }) => {
   const lastValuesRef = useRef({});
   // Latest per-parameter debug snapshot for "Audio Explain" UI
   const mappingDebugRef = useRef({});
+  // Threshold trigger runtime state per parameter
+  const triggerStateRef = useRef({});
   
   // Track last dispatch timestamp for dt calculation
   const lastDispatchTimeRef = useRef(performance.now());
@@ -199,13 +238,21 @@ export const AudioProvider = ({ children }) => {
     // Clear the cached last value so the next dispatch will always fire
     // This fixes the issue where toggling None → Level wouldn't trigger updates
     delete lastValuesRef.current[paramId];
+    delete triggerStateRef.current[paramId];
     
     persistMappings((prev) => {
       const next = { ...prev };
       if (mapping === null || (mapping && mapping.band === 'none')) {
         // Disable mapping - preserve the range for when re-enabled
         const existingRange = prev[paramId]?.range || mapping?.range || DEFAULT_RANGE;
-        next[paramId] = { band: 'none', range: existingRange };
+        const existingTrigger = prev[paramId]?.trigger;
+        next[paramId] = {
+          band: 'none',
+          range: existingRange,
+          ...(existingTrigger && typeof existingTrigger === 'object'
+            ? { trigger: normalizeTriggerConfig(existingTrigger) }
+            : {}),
+        };
         delete mappingDebugRef.current[paramId];
       } else if (mapping && typeof mapping === 'object') {
         // Validate and store - simplified range (just output min/max)
@@ -228,6 +275,13 @@ export const AudioProvider = ({ children }) => {
           // Clear processor state when settings change
           modeProcessor.clearParam(paramId);
         }
+        if (mapping.trigger !== undefined) {
+          if (mapping.trigger && typeof mapping.trigger === 'object') {
+            entry.trigger = normalizeTriggerConfig(mapping.trigger);
+          }
+        } else if (prev[paramId]?.trigger && typeof prev[paramId].trigger === 'object') {
+          entry.trigger = normalizeTriggerConfig(prev[paramId].trigger);
+        }
         next[paramId] = entry;
         // Reset debug snapshot whenever the mapping definition changes.
         delete mappingDebugRef.current[paramId];
@@ -245,20 +299,18 @@ export const AudioProvider = ({ children }) => {
       return next;
     });
     delete mappingDebugRef.current[paramId];
+    delete triggerStateRef.current[paramId];
   }, [persistMappings]);
 
   // Set mappings from external source (e.g., JSON import)
   const setMappingsFromExternal = useCallback((obj) => {
     if (obj && typeof obj === 'object') {
+      // Ensure fresh dispatch after a wholesale mapping swap.
+      lastValuesRef.current = {};
+      modeProcessor.clearAll();
       persistMappings({ ...obj });
-      // Drop stale debug snapshots when replacing mapping map wholesale.
-      const nextDebug = {};
-      Object.entries(obj).forEach(([paramId, mapping]) => {
-        if (mapping && typeof mapping === 'object' && mapping.band && mapping.band !== 'none') {
-          nextDebug[paramId] = mappingDebugRef.current[paramId];
-        }
-      });
-      mappingDebugRef.current = nextDebug;
+      mappingDebugRef.current = {};
+      triggerStateRef.current = {};
     }
   }, [persistMappings]);
 
@@ -328,9 +380,58 @@ export const AudioProvider = ({ children }) => {
         const processedValue = modeProcessor.process(
           paramId, bandValue, currentFeatures, mode, modeSettings, dt
         );
+        if (!Number.isFinite(processedValue)) return;
         
         // Map the processed 0-1 value through the output range
         const mappedValue = mapRange(processedValue, mapping.range);
+        if (!Number.isFinite(mappedValue)) return;
+
+        const triggerCfg = normalizeTriggerConfig(mapping.trigger);
+        const triggerEnabled = !!triggerCfg.enabled;
+        let triggered = false;
+        let triggerDirection = null;
+        let triggerActive = false;
+        let triggerSourceValue = resolveTriggerSourceValue(triggerCfg.source, bandValue, processedValue);
+
+        if (triggerEnabled) {
+          const prior = triggerStateRef.current[paramId] || {
+            above: false,
+            lastTriggerMs: -Infinity,
+            lastSource: 0,
+          };
+
+          let above = !!prior.above;
+          let crossedUp = false;
+          let crossedDown = false;
+
+          if (above) {
+            if (triggerSourceValue <= triggerCfg.fallThreshold) {
+              above = false;
+              crossedDown = true;
+            }
+          } else if (triggerSourceValue >= triggerCfg.riseThreshold) {
+            above = true;
+            crossedUp = true;
+          }
+
+          const canTrigger = (now - (prior.lastTriggerMs || -Infinity)) >= triggerCfg.cooldownMs;
+          if (crossedUp && canTrigger) {
+            triggered = true;
+            triggerDirection = 'up';
+            prior.lastTriggerMs = now;
+          } else if (crossedDown && canTrigger) {
+            triggered = true;
+            triggerDirection = 'down';
+            prior.lastTriggerMs = now;
+          }
+
+          prior.above = above;
+          prior.lastSource = triggerSourceValue;
+          triggerStateRef.current[paramId] = prior;
+          triggerActive = above;
+        } else {
+          delete triggerStateRef.current[paramId];
+        }
 
         mappingDebugRef.current[paramId] = {
           paramId,
@@ -340,19 +441,66 @@ export const AudioProvider = ({ children }) => {
           raw: bandValue,
           processed: processedValue,
           mapped: mappedValue,
+          trigger: triggerEnabled
+            ? {
+                source: triggerCfg.source,
+                mode: triggerCfg.mode,
+                riseThreshold: triggerCfg.riseThreshold,
+                fallThreshold: triggerCfg.fallThreshold,
+                reverseOnFall: !!triggerCfg.reverseOnFall,
+                sourceValue: triggerSourceValue,
+                active: triggerActive,
+                triggered,
+                direction: triggerDirection,
+              }
+            : null,
           updatedAt: Date.now(),
         };
+
+        let shouldDispatch = true;
+        if (triggerEnabled) {
+          switch (triggerCfg.mode) {
+            case 'crossUp':
+              shouldDispatch = triggered && triggerDirection === 'up';
+              break;
+            case 'crossDown':
+              shouldDispatch = triggered && triggerDirection === 'down';
+              break;
+            case 'both':
+              shouldDispatch = triggered;
+              break;
+            case 'whileAbove':
+              shouldDispatch = triggerActive || (triggered && triggerDirection === 'down' && triggerCfg.reverseOnFall);
+              break;
+            default:
+              shouldDispatch = true;
+              break;
+          }
+        }
+        if (!shouldDispatch) return;
 
         // Skip dispatch if value hasn't changed significantly
         const lastValue = lastValuesRef.current[paramId];
         const threshold = 0.005; // 0.5% change threshold
-        if (lastValue !== undefined && Math.abs(mappedValue - lastValue) < threshold) return;
+        const bypassChangeThreshold = triggerEnabled && triggered;
+        if (!bypassChangeThreshold && lastValue !== undefined && Math.abs(mappedValue - lastValue) < threshold) return;
         lastValuesRef.current[paramId] = mappedValue;
 
         // Send the mapped value, raw audio level, and processed value
         handlerSet.forEach(fn => {
           try {
-            fn({ value01: mappedValue, band: mapping.band, raw: bandValue, processed: processedValue });
+            fn({
+              value01: mappedValue,
+              band: mapping.band,
+              raw: bandValue,
+              processed: processedValue,
+              triggered,
+              triggerDirection,
+              triggerActive,
+              triggerSourceValue,
+              triggerMode: triggerEnabled ? triggerCfg.mode : null,
+              triggerReverseOnFall: triggerEnabled ? !!triggerCfg.reverseOnFall : false,
+            });
           } catch { /* noop */ }
         });
       });
@@ -535,6 +683,9 @@ export const AudioProvider = ({ children }) => {
     AUDIO_BANDS,
     DEFAULT_RANGE,
     DEFAULT_MODE_SETTINGS,
+    AUDIO_TRIGGER_SOURCES,
+    AUDIO_TRIGGER_MODES,
+    DEFAULT_TRIGGER,
   }), [
     isActive,
     error,

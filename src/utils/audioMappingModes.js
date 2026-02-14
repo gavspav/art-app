@@ -62,6 +62,13 @@ export const DEFAULT_MODE_SETTINGS = {
   },
 };
 
+const toFinite = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const clamp01 = (value) => Math.max(0, Math.min(1, toFinite(value, 0)));
+
 /**
  * AudioModeProcessor - Maintains per-parameter state and processes audio values
  * through the selected temporal mode.
@@ -126,28 +133,42 @@ export class AudioModeProcessor {
    * @returns {number} Processed value (0-1)
    */
   process(paramId, rawValue, features, mode, modeSettings, dt) {
+    const safeRaw = clamp01(rawValue);
+    const safeDt = Math.max(0.0001, toFinite(dt, 0.05));
     if (!mode || mode === 'direct') {
-      return rawValue;
+      return safeRaw;
     }
 
-    const s = modeSettings || DEFAULT_MODE_SETTINGS[mode] || {};
+    const s = (modeSettings && typeof modeSettings === 'object')
+      ? modeSettings
+      : (DEFAULT_MODE_SETTINGS[mode] || {});
 
+    let output = safeRaw;
     switch (mode) {
       case 'accumulate':
-        return this._accumulate(paramId, rawValue, s, dt);
+        output = this._accumulate(paramId, safeRaw, s, safeDt);
+        break;
       case 'leaky':
-        return this._leaky(paramId, rawValue, s, dt);
+        output = this._leaky(paramId, safeRaw, s, safeDt);
+        break;
       case 'bandRatio':
-        return this._bandRatio(paramId, features, s, dt);
+        output = this._bandRatio(paramId, features, s, safeDt);
+        break;
       case 'runningAvg':
-        return this._runningAvg(paramId, rawValue, s, dt);
+        output = this._runningAvg(paramId, safeRaw, s, safeDt);
+        break;
       case 'onsetDrift':
-        return this._onsetDrift(paramId, rawValue, s, dt);
+        output = this._onsetDrift(paramId, safeRaw, s, safeDt);
+        break;
       case 'hysteresis':
-        return this._hysteresis(paramId, rawValue, s, dt);
+        output = this._hysteresis(paramId, safeRaw, s, safeDt);
+        break;
       default:
-        return rawValue;
+        output = safeRaw;
+        break;
     }
+
+    return clamp01(output);
   }
 
   // ─── Mode implementations ───
@@ -158,22 +179,22 @@ export class AudioModeProcessor {
    */
   _accumulate(paramId, raw, settings, dt) {
     const st = this._getState(paramId, 'accumulate');
-    const rate = settings.rate ?? 0.02;
+    const rate = Math.max(0, toFinite(settings.rate, 0.02));
     const wrap = settings.wrap ?? true;
 
     // Scale rate by dt to be framerate-independent (normalize to 20fps baseline)
     const scaledRate = rate * (dt / 0.05);
-    st.value += raw * scaledRate;
+    st.value = toFinite(st.value, 0) + raw * scaledRate;
 
     if (wrap) {
       // Wrap around 0-1
       st.value = st.value % 1;
       if (st.value < 0) st.value += 1;
     } else {
-      st.value = Math.max(0, Math.min(1, st.value));
+      st.value = clamp01(st.value);
     }
 
-    return st.value;
+    return clamp01(st.value);
   }
 
   /**
@@ -182,14 +203,14 @@ export class AudioModeProcessor {
    */
   _leaky(paramId, raw, settings, dt) {
     const st = this._getState(paramId, 'leaky');
-    const rate = settings.rate ?? 0.03;
-    const decay = settings.decay ?? 0.998;
-    const restValue = settings.restValue ?? 0.5;
+    const rate = Math.max(0, toFinite(settings.rate, 0.03));
+    const decay = Math.max(0, Math.min(0.999999, toFinite(settings.decay, 0.998)));
+    const restValue = clamp01(settings.restValue ?? 0.5);
 
     const scaledRate = rate * (dt / 0.05);
 
     // Accumulate audio energy
-    st.value += raw * scaledRate;
+    st.value = toFinite(st.value, restValue) + raw * scaledRate;
 
     // Decay toward rest value
     // decay^(dt/0.05) for framerate independence
@@ -197,9 +218,9 @@ export class AudioModeProcessor {
     st.value = restValue + (st.value - restValue) * effectiveDecay;
 
     // Clamp to 0-1
-    st.value = Math.max(0, Math.min(1, st.value));
+    st.value = clamp01(st.value);
 
-    return st.value;
+    return clamp01(st.value);
   }
 
   /**
@@ -210,10 +231,11 @@ export class AudioModeProcessor {
     const st = this._getState(paramId, 'bandRatio');
     const num = settings.numerator ?? 'bass';
     const den = settings.denominator ?? 'highs';
-    const scale = settings.scale ?? 3.0;
+    const scale = Math.max(0.0001, toFinite(settings.scale, 3.0));
+    const featureMap = (features && typeof features === 'object') ? features : {};
 
-    const numVal = features?.[num] ?? 0;
-    const denVal = features?.[den] ?? 0;
+    const numVal = clamp01(featureMap[num]);
+    const denVal = clamp01(featureMap[den]);
 
     // Compute ratio, normalize to 0-1
     const ratio = numVal / (denVal + 0.01);
@@ -221,21 +243,23 @@ export class AudioModeProcessor {
 
     // Smooth the ratio value
     const smoothFactor = Math.pow(0.92, dt / 0.05);
-    st.smoothed = st.smoothed * smoothFactor + normalized * (1 - smoothFactor);
+    st.smoothed = toFinite(st.smoothed, 0) * smoothFactor + normalized * (1 - smoothFactor);
 
-    return Math.max(0, Math.min(1, st.smoothed));
+    return clamp01(st.smoothed);
   }
 
   /**
    * Running average: averages audio energy over a long window (3-10s).
    * Follows song structure (verse vs chorus) rather than individual beats.
    */
-  _runningAvg(paramId, raw, settings, dt) {
+  _runningAvg(paramId, raw, settings, _dt) {
     const st = this._getState(paramId, 'runningAvg');
-    const windowSec = settings.windowSeconds ?? 5.0;
+    const windowSec = Math.max(0.1, toFinite(settings.windowSeconds, 5.0));
+
+    if (!Array.isArray(st.buffer)) st.buffer = [];
 
     // Push sample at ~20fps (every ~50ms)
-    st.buffer.push(raw);
+    st.buffer.push(clamp01(raw));
 
     // Calculate max buffer size based on window and assumed ~20fps dispatch rate
     const fps = 20;
@@ -250,9 +274,9 @@ export class AudioModeProcessor {
     if (st.buffer.length === 0) return 0;
     let sum = 0;
     for (let i = 0; i < st.buffer.length; i++) {
-      sum += st.buffer[i];
+      sum += clamp01(st.buffer[i]);
     }
-    return sum / st.buffer.length;
+    return clamp01(sum / st.buffer.length);
   }
 
   /**
@@ -261,28 +285,31 @@ export class AudioModeProcessor {
    */
   _onsetDrift(paramId, raw, settings, dt) {
     const st = this._getState(paramId, 'onsetDrift');
-    const threshold = settings.threshold ?? 1.5;
-    const minLevel = settings.minLevel ?? 0.15;
-    const driftSpeed = settings.driftSpeed ?? 0.01;
+    const threshold = Math.max(1, toFinite(settings.threshold, 1.5));
+    const minLevel = clamp01(settings.minLevel ?? 0.15);
+    const driftSpeed = Math.max(0, toFinite(settings.driftSpeed, 0.01));
+    const level = clamp01(raw);
 
     // Detect onset: current level significantly higher than previous
-    const isOnset = raw > st.prevLevel * threshold && raw > minLevel;
-    st.prevLevel = raw;
+    st.prevLevel = clamp01(st.prevLevel);
+    const isOnset = level > st.prevLevel * threshold && level > minLevel;
+    st.prevLevel = level;
 
     if (isOnset) {
       // Pick a new random target, weighted by energy
       // Use a seeded-ish approach: mix current value with random
       st.target = Math.random();
       // Scale drift speed by onset energy
-      st.currentDriftSpeed = driftSpeed * (1 + raw * 3);
+      st.currentDriftSpeed = driftSpeed * (1 + level * 3);
     }
 
     // Smoothly approach target
-    const scaledSpeed = (st.currentDriftSpeed || driftSpeed) * (dt / 0.05);
-    st.value += (st.target - st.value) * scaledSpeed;
-    st.value = Math.max(0, Math.min(1, st.value));
+    const currentSpeed = Math.max(0, toFinite(st.currentDriftSpeed, driftSpeed));
+    const scaledSpeed = currentSpeed * (dt / 0.05);
+    st.value = toFinite(st.value, 0.5) + (toFinite(st.target, 0.5) - toFinite(st.value, 0.5)) * scaledSpeed;
+    st.value = clamp01(st.value);
 
-    return st.value;
+    return clamp01(st.value);
   }
 
   /**
@@ -293,19 +320,19 @@ export class AudioModeProcessor {
   _hysteresis(paramId, raw, settings, dt) {
     const st = this._getState(paramId, 'hysteresis');
 
-    const quietToMed = settings.quietToMed ?? 0.25;
-    const medToLoud = settings.medToLoud ?? 0.55;
-    const loudToMed = settings.loudToMed ?? 0.40;
-    const medToQuiet = settings.medToQuiet ?? 0.12;
-    const lerpSpeed = settings.lerpSpeed ?? 0.005;
-    const quietValue = settings.quietValue ?? 0.0;
-    const medValue = settings.medValue ?? 0.5;
-    const loudValue = settings.loudValue ?? 1.0;
+    const quietToMed = clamp01(settings.quietToMed ?? 0.25);
+    const medToLoud = clamp01(settings.medToLoud ?? 0.55);
+    const loudToMed = clamp01(settings.loudToMed ?? 0.40);
+    const medToQuiet = clamp01(settings.medToQuiet ?? 0.12);
+    const lerpSpeed = Math.max(0, toFinite(settings.lerpSpeed, 0.005));
+    const quietValue = clamp01(settings.quietValue ?? 0.0);
+    const medValue = clamp01(settings.medValue ?? 0.5);
+    const loudValue = clamp01(settings.loudValue ?? 1.0);
 
     // Smooth the raw input to avoid jitter in zone detection
     const smoothFactor = Math.pow(0.9, dt / 0.05);
-    st.avgLevel = st.avgLevel * smoothFactor + raw * (1 - smoothFactor);
-    const level = st.avgLevel;
+    st.avgLevel = clamp01(toFinite(st.avgLevel, 0) * smoothFactor + clamp01(raw) * (1 - smoothFactor));
+    const level = clamp01(st.avgLevel);
 
     // Zone transitions with hysteresis
     if (st.zone === 'quiet') {
@@ -327,9 +354,9 @@ export class AudioModeProcessor {
 
     // Slowly lerp toward target
     const scaledLerp = lerpSpeed * (dt / 0.05);
-    st.value += (target - st.value) * scaledLerp;
-    st.value = Math.max(0, Math.min(1, st.value));
+    const currentValue = toFinite(st.value, quietValue);
+    st.value = clamp01(currentValue + (target - currentValue) * scaledLerp);
 
-    return st.value;
+    return clamp01(st.value);
   }
 }

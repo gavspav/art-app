@@ -2,6 +2,13 @@ import React from 'react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 
+const buildLayerParamIds = (layer, paramId) => {
+  const layerNameKey = (layer?.name || 'Layer').toString();
+  const stableLayerKey = String(layer?.id ?? layerNameKey);
+  const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
+  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+};
+
 export default function LayerColorSection({
   currentLayer,
   editTarget,
@@ -209,8 +216,9 @@ export default function LayerColorSection({
                 />
               </div>
               {(() => {
-                const layerKey = (currentLayer?.name || 'Layer').toString();
-                const paramId = `layer:${layerKey}:paletteIndex`;
+                const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex');
+                const paramId = paramIds[0] || null;
+                const mappedMidiId = paramIds.find(id => midiMappings?.[id]) || null;
                 return (
                   <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: '0.4rem' }}>
@@ -218,16 +226,27 @@ export default function LayerColorSection({
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                        <span style={{ opacity: 0.7 }}>MIDI:</span> {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                        {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+                        <span style={{ opacity: 0.7 }}>MIDI:</span> {midiSupported ? (mappedMidiId ? (mappingLabel ? mappingLabel(midiMappings[mappedMidiId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                        {paramIds.includes(learnParamId) && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
                       </div>
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
                         <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
-                        <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+                        <button
+                          type="button"
+                          className="btn-compact-secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!clearMapping) return;
+                            paramIds.forEach((id) => clearMapping(id));
+                          }}
+                          disabled={!midiSupported || !mappedMidiId}
+                        >
+                          Clear
+                        </button>
                       </div>
                     </div>
-                    <AudioRotationStatus paramId={paramId} min={0} max={1} />
-                    <BPMRotationStatus paramId={paramId} min={0} max={1} />
+                    <AudioRotationStatus paramId={paramId} paramAliases={paramIds} min={0} max={1} />
+                    <BPMRotationStatus paramId={paramId} paramAliases={paramIds} min={0} max={1} />
                   </div>
                 );
               })()}
@@ -294,12 +313,12 @@ export default function LayerColorSection({
                 </div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
                 {(() => {
-                  const layerKey = (currentLayer?.name || 'Layer').toString();
-                  const paramId = `layer:${layerKey}:colorFadeSpeed`;
+                  const paramIds = buildLayerParamIds(currentLayer, 'colorFadeSpeed');
+                  const paramId = paramIds[0] || null;
                   return (
                     <>
-                      <AudioRotationStatus paramId={paramId} min={0} max={4} />
-                      <BPMRotationStatus paramId={paramId} min={0} max={4} />
+                      <AudioRotationStatus paramId={paramId} paramAliases={paramIds} min={0} max={4} />
+                      <BPMRotationStatus paramId={paramId} paramAliases={paramIds} min={0} max={4} />
                     </>
                   );
                 })()}

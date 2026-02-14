@@ -108,30 +108,38 @@ export function useBPMLayerHandlers({
     };
 
     layerEntries.forEach(({ id: layerId, name: layerName }) => {
-      // Scale handler
-      const scaleId = `layer:${layerName}:scale`;
-      unsubs.push(registerBPMHandler(scaleId, ({ value01 }) => {
-        applyToTargets(layerId, 'scale', value01);
-      }));
+      const layerKeys = Array.from(new Set([
+        String(layerId || ''),
+        String(layerName || ''),
+      ].filter(Boolean)));
 
-      // Palette index handler - cycles through palettes based on BPM
-      const paletteId = `layer:${layerName}:paletteIndex`;
-      unsubs.push(registerBPMHandler(paletteId, ({ value01 }) => {
-        const list = palettes || [];
-        if (!Array.isArray(list) || list.length === 0) return;
-        const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
-        const palette = list[idx];
-        const src = Array.isArray(palette) ? palette : palette?.colors;
-        const nextColors = sampleColors(src || [], 5); // Default to 5 colors
-        applyToTargets(layerId, 'colors', nextColors);
-      }));
-
-      // Numeric params
-      numericParams.forEach(param => {
-        const paramId = `layer:${layerName}:${param}`;
-        unsubs.push(registerBPMHandler(paramId, ({ value01 }) => {
-          applyToTargets(layerId, param, value01);
+      layerKeys.forEach((layerKey) => {
+        // Scale handler
+        const scaleId = `layer:${layerKey}:scale`;
+        unsubs.push(registerBPMHandler(scaleId, ({ value01 }) => {
+          applyToTargets(layerId, 'scale', value01);
         }));
+
+        // Palette index handler - cycles through palettes based on BPM
+        const paletteId = `layer:${layerKey}:paletteIndex`;
+        unsubs.push(registerBPMHandler(paletteId, ({ value01 }) => {
+          const list = palettes || [];
+          if (!Array.isArray(list) || list.length === 0) return;
+          const normalized = Math.max(0, Math.min(1, value01));
+          const idx = Math.max(0, Math.min(list.length - 1, Math.floor(normalized * list.length)));
+          const palette = list[idx];
+          const src = Array.isArray(palette) ? palette : palette?.colors;
+          const nextColors = sampleColors(src || [], 5); // Default to 5 colors
+          applyToTargets(layerId, 'colors', nextColors);
+        }));
+
+        // Numeric params
+        numericParams.forEach(param => {
+          const paramId = `layer:${layerKey}:${param}`;
+          unsubs.push(registerBPMHandler(paramId, ({ value01 }) => {
+            applyToTargets(layerId, param, value01);
+          }));
+        });
       });
     });
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useAudioReactive } from '../context/AudioContext.jsx';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { clamp } from '../utils/mathUtils.js';
@@ -79,10 +79,20 @@ export function useAudioSpawnLayers({
   const lastSpawnMsRef = useRef(-Infinity);
   const counterRef = useRef(0);
   const armedRef = useRef(true);
+  const manualSpawnQueueRef = useRef(0);
+  const manualDespawnQueueRef = useRef(0);
   // Transient detection state
   const energyHistoryRef = useRef([]);
   const prevEnergyRef = useRef(0);
   const prevEnabledRef = useRef(false);
+
+  const triggerAudioSpawn = useCallback((action = 'spawn') => {
+    if (action === 'despawn') {
+      manualDespawnQueueRef.current += 1;
+      return;
+    }
+    manualSpawnQueueRef.current += 1;
+  }, []);
 
   useEffect(() => {
     const stop = () => {
@@ -91,6 +101,8 @@ export function useAudioSpawnLayers({
       energyHistoryRef.current = [];
       prevEnergyRef.current = 0;
       armedRef.current = true;
+      manualSpawnQueueRef.current = 0;
+      manualDespawnQueueRef.current = 0;
     };
 
     const clear = () => {
@@ -105,6 +117,8 @@ export function useAudioSpawnLayers({
         // but don't keep old ephemeral layers around if the feature is off/paused.
         if (!cfg.enabled || cfg.paused) {
           clear();
+          manualSpawnQueueRef.current = 0;
+          manualDespawnQueueRef.current = 0;
         }
         rafRef.current = requestAnimationFrame(tick);
         return;
@@ -197,6 +211,16 @@ export function useAudioSpawnLayers({
       }
       list.length = writeIndex;
 
+      const manualDespawnCount = Math.max(0, Math.floor(manualDespawnQueueRef.current || 0));
+      if (manualDespawnCount > 0) {
+        manualDespawnQueueRef.current = 0;
+        if (manualDespawnCount >= list.length) {
+          list.length = 0;
+        } else {
+          list.length = Math.max(0, list.length - manualDespawnCount);
+        }
+      }
+
       const canSpawn = (t - lastSpawnMsRef.current) >= cfg.cooldownMs;
       let shouldSpawn = false;
 
@@ -233,7 +257,13 @@ export function useAudioSpawnLayers({
         }
       }
 
-      if (shouldSpawn) {
+      const manualSpawnCount = Math.max(0, Math.floor(manualSpawnQueueRef.current || 0));
+      if (manualSpawnCount > 0) {
+        manualSpawnQueueRef.current = 0;
+      }
+      const totalSpawns = (shouldSpawn ? 1 : 0) + manualSpawnCount;
+
+      if (totalSpawns > 0) {
         const sourceLayers = cfg.layers;
         const srcIndex = clamp(cfg.selectedLayerIndex, 0, Math.max(0, sourceLayers.length - 1));
         const base = sourceLayers[srcIndex];
@@ -243,22 +273,6 @@ export function useAudioSpawnLayers({
           const includeVarAnim = cfg.getIsRnd ? !!cfg.getIsRnd('variationAnim') : true;
           const includeVarColor = cfg.getIsRnd ? !!cfg.getIsRnd('variationColor') : true;
           const includeVarScale = cfg.getIsRnd ? !!cfg.getIsRnd('variationScale') : true;
-
-          counterRef.current += 1;
-          const spawnIndex = counterRef.current;
-          // Energy scales variance: at energyInfluence=2 and energy=1, varianceScale = 3
-          // buildVariedLayerFrom expects values 0-3 for full effect (divides by 3 internally)
-          const varianceScale = 1 + (energy * cfg.energyInfluence);
-          const baseVar = {
-            shape: includeVarShape ? clamp((Number(base?.variationShape ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
-            anim: includeVarAnim ? clamp((Number(base?.variationAnim ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
-            color: includeVarColor ? clamp((Number(base?.variationColor ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
-            position: includeVarPosition ? clamp((Number(base?.variationPosition ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
-            scale: includeVarScale ? clamp((Number(base?.variationScale) || 0) * varianceScale, 0, 3) : 0,
-          };
-
-          const hl = cfg.halfLifeMs * (1 + cfg.halfLifeEnergyFactor * energy);
-          const baseOpacity = Number.isFinite(base?.opacity) ? clamp(base.opacity, 0, 1) : 0.8;
 
           const affectCategories = cfg.getIsRnd
             ? [
@@ -270,33 +284,50 @@ export function useAudioSpawnLayers({
             ].filter(Boolean)
             : null;
 
-          const varied = buildVariedLayerFrom(base, spawnIndex, baseVar, {
-            randomSeed: (Number.isFinite(base?.seed) ? base.seed : 1) + Math.floor(t) + (spawnIndex * 1013),
-            affectCategories,
-            constrainColorsToPalette: !!cfg.useGlobalPalette,
-            paletteColors: cfg.paletteColors,
-          });
+          for (let spawnCount = 0; spawnCount < totalSpawns; spawnCount += 1) {
+            counterRef.current += 1;
+            const spawnIndex = counterRef.current;
+            // Energy scales variance: at energyInfluence=2 and energy=1, varianceScale = 3
+            // buildVariedLayerFrom expects values 0-3 for full effect (divides by 3 internally)
+            const varianceScale = 1 + (energy * cfg.energyInfluence);
+            const baseVar = {
+              shape: includeVarShape ? clamp((Number(base?.variationShape ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+              anim: includeVarAnim ? clamp((Number(base?.variationAnim ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+              color: includeVarColor ? clamp((Number(base?.variationColor ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+              position: includeVarPosition ? clamp((Number(base?.variationPosition ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
+              scale: includeVarScale ? clamp((Number(base?.variationScale) || 0) * varianceScale, 0, 3) : 0,
+            };
 
-          varied.id = uniqueId('audio-spawn');
-          varied.name = `Audio ${spawnIndex}`;
-          varied.visible = true;
-          varied.opacity = baseOpacity;
-          varied.__audioSpawn = {
-            createdAtMs: t,
-            halfLifeMs: Math.max(50, hl),
-            baseOpacity,
-            band: cfg.band,
-            threshold: cfg.threshold,
-            energyAtSpawn: energy,
-          };
+            const hl = cfg.halfLifeMs * (1 + cfg.halfLifeEnergyFactor * energy);
+            const baseOpacity = Number.isFinite(base?.opacity) ? clamp(base.opacity, 0, 1) : 0.8;
+            const varied = buildVariedLayerFrom(base, spawnIndex, baseVar, {
+              randomSeed: (Number.isFinite(base?.seed) ? base.seed : 1) + Math.floor(t) + (spawnIndex * 1013),
+              affectCategories,
+              constrainColorsToPalette: !!cfg.useGlobalPalette,
+              paletteColors: cfg.paletteColors,
+            });
 
-          list.push(varied);
-          lastSpawnMsRef.current = t;
+            varied.id = uniqueId('audio-spawn');
+            varied.name = `Audio ${spawnIndex}`;
+            varied.visible = true;
+            varied.opacity = baseOpacity;
+            varied.__audioSpawn = {
+              createdAtMs: t,
+              halfLifeMs: Math.max(50, hl),
+              baseOpacity,
+              band: cfg.band,
+              threshold: cfg.threshold,
+              energyAtSpawn: energy,
+            };
 
-          if (cfg.maxLayers === 0) {
-            list.length = 0;
-          } else if (cfg.maxLayers > 0 && list.length > cfg.maxLayers) {
-            list.splice(0, list.length - cfg.maxLayers);
+            list.push(varied);
+            lastSpawnMsRef.current = t;
+
+            if (cfg.maxLayers === 0) {
+              list.length = 0;
+            } else if (cfg.maxLayers > 0 && list.length > cfg.maxLayers) {
+              list.splice(0, list.length - cfg.maxLayers);
+            }
           }
         }
       }
@@ -312,5 +343,5 @@ export function useAudioSpawnLayers({
     };
   }, [audio]);
 
-  return { overlayLayersRef };
+  return { overlayLayersRef, triggerAudioSpawn };
 }

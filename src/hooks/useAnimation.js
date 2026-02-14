@@ -223,11 +223,15 @@ const _applyBPMModulations = (layer, bpmContext) => {
     const clockState = getClockState();
     const { currentBeat, beatPhase } = clockState;
 
-    const layerKey = layer.name || 'Layer';
+    const layerNameKey = (layer?.name || 'Layer').toString();
+    const stableLayerKey = String(layer?.id ?? layerNameKey);
+    const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
 
     // Quick check: are there any mappings for this layer?
-    const prefix = `layer:${layerKey}:`;
-    const enabledMappings = Object.keys(mappings).filter(k => k.startsWith(prefix) && mappings[k]?.enabled);
+    const prefixes = layerKeys.map((key) => `layer:${key}:`);
+    const enabledMappings = Object.keys(mappings).filter(
+      (k) => prefixes.some(prefix => k.startsWith(prefix)) && mappings[k]?.enabled
+    );
     if (enabledMappings.length === 0) return layer;
 
     // Debug: log when we have enabled mappings (uncomment to debug)
@@ -235,10 +239,18 @@ const _applyBPMModulations = (layer, bpmContext) => {
 
     let modifiedLayer = { ...layer };
 
+    const resolveLayerMapping = (paramId) => {
+      for (let i = 0; i < layerKeys.length; i += 1) {
+        const key = `layer:${layerKeys[i]}:${paramId}`;
+        const mapping = mappings[key];
+        if (mapping) return mapping;
+      }
+      return null;
+    };
+
     // Helper to calculate BPM value for a parameter
     const getBPMValue = (paramId) => {
-        const fullKey = `layer:${layerKey}:${paramId}`;
-        const mapping = mappings[fullKey];
+        const mapping = resolveLayerMapping(paramId);
         if (!mapping || !mapping.enabled) return null;
 
         const { speed, loopMode, range } = mapping;
@@ -288,12 +300,23 @@ const _applyAudioModulations = (layer, audioContext) => {
     // Get current features from ref (doesn't trigger re-renders)
     const features = getFeatures();
 
-    const layerKey = layer.name || 'Layer';
+    const layerNameKey = (layer?.name || 'Layer').toString();
+    const stableLayerKey = String(layer?.id ?? layerNameKey);
+    const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
     let modifiedLayer = { ...layer };
+
+    const resolveLayerMapping = (paramId) => {
+        for (let i = 0; i < layerKeys.length; i += 1) {
+            const key = `layer:${layerKeys[i]}:${paramId}`;
+            const mapping = mappings[key];
+            if (mapping) return mapping;
+        }
+        return null;
+    };
 
     // Helper to get audio value for a parameter
     const getAudioValue = (paramId) => {
-        const mapping = mappings[`layer:${layerKey}:${paramId}`];
+        const mapping = resolveLayerMapping(paramId);
         if (!mapping || mapping.band === 'none') return null;
 
         const { band, range } = mapping;

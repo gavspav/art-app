@@ -1732,6 +1732,7 @@ const GlobalControls = ({
               setGlobalPaletteRef={setGlobalPaletteRef}
             />
             <AudioDemoPresetsSection
+              isActiveTab={isActiveTab}
               timelineMode={timelineMode}
               parameterTargetMode={_parameterTargetMode}
               setParameterTargetMode={_setParameterTargetMode}

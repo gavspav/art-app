@@ -668,7 +668,17 @@ const AudioModulationPresetsSection = ({
   if (!audio) return null;
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>🎛 Modulation Demo Modes (No Spawn)</span>
         <button

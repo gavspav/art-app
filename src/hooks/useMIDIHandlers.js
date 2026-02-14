@@ -174,47 +174,52 @@ export function useMIDIHandlers({
     const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
     layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idX = `layer:${layerKey}:posX`;
-      const idY = `layer:${layerKey}:posY`;
-      const idZ = `layer:${layerKey}:posZ`;
+      const legacyKey = (layer?.name || `Layer ${index + 1}`).toString();
+      const stableKey = String(layer?.id ?? legacyKey);
+      const layerKeys = Array.from(new Set([stableKey, legacyKey].filter(Boolean)));
 
-      // X
-      unsubs.push(registerParamHandler(idX, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const r = layer?.midiPosRangeX || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
-        )));
-      }));
+      layerKeys.forEach((layerKey) => {
+        const idX = `layer:${layerKey}:posX`;
+        const idY = `layer:${layerKey}:posY`;
+        const idZ = `layer:${layerKey}:posZ`;
 
-      // Y
-      unsubs.push(registerParamHandler(idY, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const r = layer?.midiPosRangeY || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
-        )));
-      }));
+        // X
+        unsubs.push(registerParamHandler(idX, ({ value01 }) => {
+          if (!layer?.manualMidiPositionEnabled) return;
+          const r = layer?.midiPosRangeX || { min: 0, max: 1 };
+          const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
+          const v = clamp01(mapped);
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
+          )));
+        }));
 
-      // Z (scale)
-      unsubs.push(registerParamHandler(idZ, ({ value01 }) => {
-        if (!layer?.manualMidiPositionEnabled) return;
-        const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
-        const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
-        const r = layer?.midiPosRangeZ || { min: scaleMin, max: scaleMax };
-        const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
-        const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
-        const mapped = outMin + value01 * (outMax - outMin);
-        const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
-        )));
-      }));
+        // Y
+        unsubs.push(registerParamHandler(idY, ({ value01 }) => {
+          if (!layer?.manualMidiPositionEnabled) return;
+          const r = layer?.midiPosRangeY || { min: 0, max: 1 };
+          const mapped = (r.min ?? 0) + value01 * ((r.max ?? 1) - (r.min ?? 0));
+          const v = clamp01(mapped);
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
+          )));
+        }));
+
+        // Z (scale)
+        unsubs.push(registerParamHandler(idZ, ({ value01 }) => {
+          if (!layer?.manualMidiPositionEnabled) return;
+          const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
+          const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
+          const r = layer?.midiPosRangeZ || { min: scaleMin, max: scaleMax };
+          const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
+          const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
+          const mapped = outMin + value01 * (outMax - outMin);
+          const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
+          )));
+        }));
+      });
     });
 
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
@@ -248,11 +253,9 @@ export function useMIDIHandlers({
     const unsubs = [];
 
     layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idR = `layer:${layerKey}:colorR`;
-      const idG = `layer:${layerKey}:colorG`;
-      const idB = `layer:${layerKey}:colorB`;
-      const idA = `layer:${layerKey}:colorA`;
+      const legacyKey = (layer?.name || `Layer ${index + 1}`).toString();
+      const stableKey = String(layer?.id ?? legacyKey);
+      const layerKeys = Array.from(new Set([stableKey, legacyKey].filter(Boolean)));
 
       const updateChannel = (channel, value01) => {
         if (!layer?.manualMidiColorEnabled) return;
@@ -272,24 +275,31 @@ export function useMIDIHandlers({
         }));
       };
 
-      // R
-      unsubs.push(registerParamHandler(idR, ({ value01 }) => {
-        updateChannel('r', value01);
-      }));
-      // G
-      unsubs.push(registerParamHandler(idG, ({ value01 }) => {
-        updateChannel('g', value01);
-      }));
-      // B
-      unsubs.push(registerParamHandler(idB, ({ value01 }) => {
-        updateChannel('b', value01);
-      }));
-      // A (opacity)
-      unsubs.push(registerParamHandler(idA, ({ value01 }) => {
-        if (!layer?.manualMidiColorEnabled) return;
-        const v = Math.max(0, Math.min(1, value01));
-        setLayers?.(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
-      }));
+      layerKeys.forEach((layerKey) => {
+        const idR = `layer:${layerKey}:colorR`;
+        const idG = `layer:${layerKey}:colorG`;
+        const idB = `layer:${layerKey}:colorB`;
+        const idA = `layer:${layerKey}:colorA`;
+
+        // R
+        unsubs.push(registerParamHandler(idR, ({ value01 }) => {
+          updateChannel('r', value01);
+        }));
+        // G
+        unsubs.push(registerParamHandler(idG, ({ value01 }) => {
+          updateChannel('g', value01);
+        }));
+        // B
+        unsubs.push(registerParamHandler(idB, ({ value01 }) => {
+          updateChannel('b', value01);
+        }));
+        // A (opacity)
+        unsubs.push(registerParamHandler(idA, ({ value01 }) => {
+          if (!layer?.manualMidiColorEnabled) return;
+          const v = Math.max(0, Math.min(1, value01));
+          setLayers?.(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
+        }));
+      });
     });
 
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };

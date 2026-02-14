@@ -611,7 +611,10 @@ const MainApp = () => {
   }, [layers, layersRef, globalPaletteIndex, globalPaletteRef, customPalettes]);
 
 
-	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
+	  const {
+	    overlayLayersRef: audioSpawnOverlayLayersRef,
+	    triggerAudioSpawn,
+	  } = useAudioSpawnLayers({
 	    enabled: !!audioSpawnEnabled && !timelineMode,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
       zIgnore: !!zIgnore,
@@ -2088,6 +2091,9 @@ const MainApp = () => {
     rndAllPrevRef: audioRndAllPrevRef,
     handleRandomizeAll,
     clampedSelectedIndex: selectedIdxForMidi,
+    globalPaletteIndex,
+    setGlobalPaletteIndex,
+    triggerAudioSpawn,
   });
 
   // Register Audio handlers for individual layer parameters

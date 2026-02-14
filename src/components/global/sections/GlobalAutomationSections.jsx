@@ -93,6 +93,53 @@ const createMapping = (band, outputMin, outputMax, mode = 'direct', modeSettings
 
 const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
 
+const DEFAULT_MATRIX_TRIGGER = {
+  enabled: false,
+  source: 'processed',
+  mode: 'crossUp',
+  riseThreshold: 0.65,
+  fallThreshold: 0.55,
+  cooldownMs: 250,
+  reverseOnFall: false,
+};
+
+const normalizeMatrixTrigger = (trigger, defaults = DEFAULT_MATRIX_TRIGGER) => {
+  const base = {
+    ...DEFAULT_MATRIX_TRIGGER,
+    ...(defaults && typeof defaults === 'object' ? defaults : {}),
+  };
+  if (!trigger || typeof trigger !== 'object') return base;
+  const rise = clampValue(Number.isFinite(Number(trigger.riseThreshold)) ? Number(trigger.riseThreshold) : base.riseThreshold, 0, 1);
+  const fallCandidate = Number.isFinite(Number(trigger.fallThreshold)) ? Number(trigger.fallThreshold) : base.fallThreshold;
+  return {
+    enabled: !!trigger.enabled,
+    source: (trigger.source === 'raw' || trigger.source === 'processed') ? trigger.source : base.source,
+    mode: ['crossUp', 'crossDown', 'both', 'whileAbove'].includes(trigger.mode) ? trigger.mode : base.mode,
+    riseThreshold: rise,
+    fallThreshold: clampValue(fallCandidate, 0, rise),
+    cooldownMs: Math.max(0, Number.isFinite(Number(trigger.cooldownMs)) ? Number(trigger.cooldownMs) : base.cooldownMs),
+    reverseOnFall: !!trigger.reverseOnFall,
+  };
+};
+
+const createTriggerConfig = (overrides = {}) => normalizeMatrixTrigger({
+  ...DEFAULT_MATRIX_TRIGGER,
+  enabled: true,
+  ...(overrides && typeof overrides === 'object' ? overrides : {}),
+});
+
+const createTriggerMapping = (
+  band,
+  outputMin,
+  outputMax,
+  trigger,
+  mode = 'direct',
+  modeSettings = null,
+) => ({
+  ...createMapping(band, outputMin, outputMax, mode, modeSettings),
+  trigger: createTriggerConfig(trigger),
+});
+
 const quantile = (values, q) => {
   if (!Array.isArray(values) || values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -466,6 +513,191 @@ const AUDIO_DEMO_PRESETS = [
       layersCount: createMapping('rms', 2, 10, 'runningAvg', { windowSeconds: 8 }),
     },
   },
+  {
+    id: 'threshold-palette-pulse',
+    name: 'Threshold Palette Pulse',
+    summary: 'High crossings step palettes, spawn bursts, and hit movement pulses with reversible releases.',
+    recommendedInput: 'Drums, claps, bright percussion, fast transient material.',
+    audioSettings: {
+      sensitivity: 1.9,
+      bassSensitivity: 1.2,
+      midsSensitivity: 1.35,
+      highsSensitivity: 2.0,
+      smoothing: 0.64,
+      release: 0.76,
+    },
+    energyInfluence: 1.55,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.06,
+      band: 'highs',
+      threshold: 0.16,
+      cooldownMs: 150,
+      halfLifeMs: 1700,
+      halfLifeEnergyFactor: 1.55,
+      maxLayers: 28,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.72, 2.55, 'runningAvg', { windowSeconds: 2.1 }),
+      variationAnim: createMapping('mids', 0.24, 2.7, 'onsetDrift', { threshold: 1.28, minLevel: 0.09, driftSpeed: 0.09 }),
+      variationColor: createMapping('highs', 0.35, 3),
+      triggerPaletteStep: createTriggerMapping('highs', 0, 1, {
+        source: 'raw',
+        mode: 'both',
+        riseThreshold: 0.7,
+        fallThreshold: 0.54,
+        cooldownMs: 190,
+        reverseOnFall: false,
+      }),
+      triggerSpawnLayer: createTriggerMapping('highs', 0, 1, {
+        source: 'raw',
+        mode: 'both',
+        riseThreshold: 0.72,
+        fallThreshold: 0.52,
+        cooldownMs: 150,
+        reverseOnFall: true,
+      }),
+      triggerMovementPulse: createTriggerMapping(
+        'bass',
+        0.95,
+        3.2,
+        {
+          source: 'processed',
+          mode: 'both',
+          riseThreshold: 0.58,
+          fallThreshold: 0.4,
+          cooldownMs: 180,
+          reverseOnFall: true,
+        },
+        'runningAvg',
+        { windowSeconds: 0.9 },
+      ),
+    },
+  },
+  {
+    id: 'bass-rebound-driver',
+    name: 'Bass Rebound Driver',
+    summary: 'Kick peaks drive hard movement pulses and spawn; down-crossings rewind palette and restore speed.',
+    recommendedInput: 'Bass-heavy club tracks, hip-hop, halftime drums.',
+    audioSettings: {
+      sensitivity: 1.55,
+      bassSensitivity: 1.5,
+      midsSensitivity: 1.15,
+      highsSensitivity: 1.0,
+      smoothing: 0.7,
+      release: 0.82,
+    },
+    energyInfluence: 1.4,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.1,
+      band: 'bass',
+      threshold: 0.44,
+      cooldownMs: 210,
+      halfLifeMs: 2400,
+      halfLifeEnergyFactor: 1.65,
+      maxLayers: 24,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('bass', 0.62, 2.85, 'leaky', { rate: 0.06, decay: 0.992, restValue: 0.24 }),
+      globalOpacity: createMapping('rms', 0.34, 1),
+      variationScale: createMapping('bass', -0.3, 3),
+      triggerMovementPulse: createTriggerMapping('bass', 1.08, 3.8, {
+        source: 'processed',
+        mode: 'both',
+        riseThreshold: 0.62,
+        fallThreshold: 0.44,
+        cooldownMs: 220,
+        reverseOnFall: true,
+      }),
+      triggerSpawnLayer: createTriggerMapping('bass', 0, 1, {
+        source: 'raw',
+        mode: 'both',
+        riseThreshold: 0.66,
+        fallThreshold: 0.46,
+        cooldownMs: 220,
+        reverseOnFall: true,
+      }),
+      triggerPaletteStep: createTriggerMapping('mids', 0, 1, {
+        source: 'processed',
+        mode: 'crossDown',
+        riseThreshold: 0.56,
+        fallThreshold: 0.42,
+        cooldownMs: 300,
+        reverseOnFall: false,
+      }),
+    },
+  },
+  {
+    id: 'vocal-threshold-choreography',
+    name: 'Vocal Threshold Choreography',
+    summary: 'Voice articulation triggers palette choreography and expressive movement pulses with controlled reversals.',
+    recommendedInput: 'Live mic vocals, spoken word, call-and-response performance.',
+    audioSettings: {
+      sensitivity: 1.85,
+      bassSensitivity: 1.05,
+      midsSensitivity: 1.65,
+      highsSensitivity: 1.5,
+      smoothing: 0.72,
+      release: 0.88,
+    },
+    energyInfluence: 1.3,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.08,
+      band: 'mids',
+      threshold: 0.2,
+      cooldownMs: 180,
+      halfLifeMs: 2100,
+      halfLifeEnergyFactor: 1.3,
+      maxLayers: 20,
+      useGlobalPalette: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.58, 2.05, 'runningAvg', { windowSeconds: 2.6 }),
+      variationShape: createMapping('mids', 0.2, 2.8, 'onsetDrift', { threshold: 1.3, minLevel: 0.08, driftSpeed: 0.08 }),
+      variationColor: createMapping('highs', 0.2, 2.8, 'leaky', { rate: 0.04, decay: 0.996, restValue: 0.2 }),
+      triggerPaletteStep: createTriggerMapping('mids', 0, 1, {
+        source: 'processed',
+        mode: 'both',
+        riseThreshold: 0.63,
+        fallThreshold: 0.5,
+        cooldownMs: 220,
+        reverseOnFall: false,
+      }),
+      triggerSpawnLayer: createTriggerMapping('mids', 0, 1, {
+        source: 'raw',
+        mode: 'crossUp',
+        riseThreshold: 0.68,
+        fallThreshold: 0.48,
+        cooldownMs: 190,
+        reverseOnFall: false,
+      }),
+      triggerMovementPulse: createTriggerMapping(
+        'mids',
+        0.92,
+        2.9,
+        {
+          source: 'processed',
+          mode: 'both',
+          riseThreshold: 0.6,
+          fallThreshold: 0.46,
+          cooldownMs: 200,
+          reverseOnFall: true,
+        },
+        'runningAvg',
+        { windowSeconds: 0.7 },
+      ),
+    },
+  },
 ];
 
 const DEFAULT_DEMO_PRESET_ID = AUDIO_DEMO_PRESETS?.[0]?.id || '';
@@ -523,7 +755,81 @@ const loadAudioPresetSlots = () => {
   }
 };
 
+const PATCH_MATRIX_PARAM_CATALOG = [
+  { id: 'globalSpeedMultiplier', label: 'Global Speed' },
+  { id: 'layersCount', label: 'Layers Count' },
+  { id: 'variationShape', label: 'Variation Shape' },
+  { id: 'variationAnim', label: 'Variation Anim' },
+  { id: 'variationColor', label: 'Variation Color' },
+  { id: 'variationScale', label: 'Variation Scale' },
+  { id: 'variationPosition', label: 'Variation Position' },
+  { id: 'globalBlendMode', label: 'Blend Mode' },
+  { id: 'globalPaletteIndex', label: 'Palette Index' },
+  { id: 'globalOpacity', label: 'Global Opacity' },
+  { id: 'randomizeAll', label: 'Randomize Trigger' },
+  { id: 'triggerPaletteStep', label: 'Trigger · Palette Step' },
+  { id: 'triggerSpawnLayer', label: 'Trigger · Spawn Layer (Half-Life)' },
+  { id: 'triggerMovementPulse', label: 'Trigger · Movement Pulse' },
+];
+
+const PATCH_MATRIX_BANDS = [
+  { id: 'none', label: 'Off' },
+  { id: 'rms', label: 'Level' },
+  { id: 'bass', label: 'Bass' },
+  { id: 'mids', label: 'Mids' },
+  { id: 'highs', label: 'Highs' },
+];
+
+const PATCH_MATRIX_TRIGGER_MODE_OPTIONS = [
+  { id: 'crossUp', label: 'Cross Up' },
+  { id: 'crossDown', label: 'Cross Down' },
+  { id: 'both', label: 'Both Directions' },
+  { id: 'whileAbove', label: 'While Above' },
+];
+
+const defaultRangeForParam = (paramId = '') => {
+  switch (paramId) {
+    case 'globalSpeedMultiplier':
+      return { outputMin: 0.5, outputMax: 1.4 };
+    case 'globalOpacity':
+      return { outputMin: 0.4, outputMax: 1 };
+    case 'layersCount':
+      return { outputMin: 3, outputMax: 14 };
+    case 'variationScale':
+      return { outputMin: -0.4, outputMax: 1.2 };
+    case 'variationShape':
+    case 'variationAnim':
+    case 'variationColor':
+    case 'variationPosition':
+      return { outputMin: 0.1, outputMax: 2.2 };
+    case 'randomizeAll':
+    case 'triggerPaletteStep':
+    case 'triggerSpawnLayer':
+      return { outputMin: 0, outputMax: 1 };
+    case 'triggerMovementPulse':
+      return { outputMin: 0.9, outputMax: 2.2 };
+    default:
+      return { outputMin: 0, outputMax: 1 };
+  }
+};
+
+const prettyParamLabel = (paramId = '') => {
+  if (!paramId) return 'Unknown';
+  const catalogHit = PATCH_MATRIX_PARAM_CATALOG.find(item => item.id === paramId);
+  if (catalogHit) return catalogHit.label;
+  if (paramId.startsWith('layer:')) {
+    const parts = paramId.split(':');
+    if (parts.length >= 3) {
+      return `${parts[1]} · ${parts.slice(2).join(':')}`;
+    }
+  }
+  return paramId
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/^./, (char) => char.toUpperCase());
+};
+
 const AudioDemoPresetsSection = ({
+  isActiveTab = true,
   timelineMode = false,
   parameterTargetMode = 'individual',
   setParameterTargetMode = null,
@@ -644,7 +950,17 @@ const AudioDemoPresetsSection = ({
   if (!audio) return null;
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>✨ Spawn Demo Presets</span>
         <button
@@ -707,6 +1023,11 @@ const AudioDemoPresetsSection = ({
           Applied: {lastAppliedPreset.name}
         </div>
       )}
+
+      <AudioPatchMatrixSection
+        isActiveTab={isActiveTab}
+        timelineMode={timelineMode}
+      />
 
       <AudioPresetSlotsSection
         timelineMode={timelineMode}
@@ -939,7 +1260,17 @@ const AudioPresetSlotsSection = ({
   if (!audio) return null;
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>💾 Audio Preset Slots</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -1289,7 +1620,17 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
   }
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>🎵 Audio Input</span>
         <button
@@ -1572,6 +1913,559 @@ const AudioReactiveSection = ({ isActiveTab = true }) => {
   );
 };
 
+const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false } = {}) => {
+  const audio = useAudioReactive();
+  const [showExplain, setShowExplain] = useState(true);
+  const [selectedParamId, setSelectedParamId] = useState(PATCH_MATRIX_PARAM_CATALOG?.[0]?.id || 'globalSpeedMultiplier');
+  const [liveFeatures, setLiveFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
+  const [debugValues, setDebugValues] = useState({});
+  const [showModeSettings, setShowModeSettings] = useState(false);
+  const containerRef = useRef(null);
+  const [isNarrow, setIsNarrow] = useState(false);
+
+  const rawMappings = audio?.mappings;
+  const mappings = useMemo(() => (
+    rawMappings && typeof rawMappings === 'object' ? rawMappings : {}
+  ), [rawMappings]);
+  const setMapping = audio?.setMapping;
+  const getFeatures = audio?.getFeatures;
+  const getAllMappingDebug = audio?.getAllMappingDebug;
+  const enabled = !!audio?.settings?.enabled;
+  const disabledByTimeline = !!timelineMode;
+  const triggerSourceOptions = audio?.AUDIO_TRIGGER_SOURCES || ['processed', 'raw'];
+  const triggerDefaults = useMemo(
+    () => normalizeMatrixTrigger(audio?.DEFAULT_TRIGGER || DEFAULT_MATRIX_TRIGGER),
+    [audio?.DEFAULT_TRIGGER],
+  );
+
+  const rowParamIds = useMemo(() => {
+    const ids = PATCH_MATRIX_PARAM_CATALOG.map(item => item.id);
+    Object.entries(mappings).forEach(([paramId, mapping]) => {
+      if (mapping && mapping.band && mapping.band !== 'none' && !ids.includes(paramId)) {
+        ids.push(paramId);
+      }
+    });
+    return ids;
+  }, [mappings]);
+
+  useEffect(() => {
+    if (!rowParamIds.includes(selectedParamId)) {
+      setSelectedParamId(rowParamIds[0] || (PATCH_MATRIX_PARAM_CATALOG?.[0]?.id || 'globalSpeedMultiplier'));
+    }
+  }, [rowParamIds, selectedParamId]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const update = (width) => {
+      setIsNarrow(width < 940);
+    };
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries?.[0];
+      const width = Number(entry?.contentRect?.width || el.clientWidth || 0);
+      update(width);
+    });
+    observer.observe(el);
+    update(el.clientWidth || 0);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isActiveTab) return undefined;
+    const tick = () => {
+      const features = (typeof getFeatures === 'function' ? getFeatures() : {}) || {};
+      setLiveFeatures({
+        rms: Number.isFinite(features.rms) ? features.rms : 0,
+        bass: Number.isFinite(features.bass) ? features.bass : 0,
+        mids: Number.isFinite(features.mids) ? features.mids : 0,
+        highs: Number.isFinite(features.highs) ? features.highs : 0,
+      });
+      const debug = (typeof getAllMappingDebug === 'function' ? getAllMappingDebug() : {}) || {};
+      setDebugValues((debug && typeof debug === 'object') ? debug : {});
+    };
+    tick();
+    const intervalId = setInterval(tick, 100);
+    return () => clearInterval(intervalId);
+  }, [isActiveTab, getFeatures, getAllMappingDebug]);
+
+  const applyBand = useCallback((paramId, band) => {
+    if (!paramId || typeof setMapping !== 'function') return;
+    const existing = mappings?.[paramId] || {};
+    const existingRange = existing.range || defaultRangeForParam(paramId);
+    const nextMode = existing.mode || 'direct';
+    const nextModeSettings = existing.modeSettings || DEFAULT_MODE_SETTINGS[nextMode] || {};
+    const nextTrigger = normalizeMatrixTrigger(existing.trigger, triggerDefaults);
+    setMapping(paramId, {
+      band,
+      range: {
+        outputMin: Number.isFinite(Number(existingRange.outputMin)) ? Number(existingRange.outputMin) : 0,
+        outputMax: Number.isFinite(Number(existingRange.outputMax)) ? Number(existingRange.outputMax) : 1,
+      },
+      mode: nextMode,
+      modeSettings: nextModeSettings,
+      trigger: nextTrigger,
+    });
+  }, [setMapping, mappings, triggerDefaults]);
+
+  const mappedCount = useMemo(() => (
+    Object.values(mappings).filter(mapping => mapping && mapping.band && mapping.band !== 'none').length
+  ), [mappings]);
+
+  const selectedMapping = mappings?.[selectedParamId] || null;
+  const selectedBand = selectedMapping?.band || 'none';
+  const selectedRange = selectedMapping?.range || defaultRangeForParam(selectedParamId);
+  const selectedMode = selectedMapping?.mode || 'direct';
+  const selectedModeSettings = useMemo(() => (
+    (selectedMapping?.modeSettings && typeof selectedMapping.modeSettings === 'object')
+      ? selectedMapping.modeSettings
+      : (DEFAULT_MODE_SETTINGS[selectedMode] || {})
+  ), [selectedMapping, selectedMode]);
+  const selectedTrigger = useMemo(() => (
+    normalizeMatrixTrigger(selectedMapping?.trigger, triggerDefaults)
+  ), [selectedMapping, triggerDefaults]);
+
+  const setSelectedRange = useCallback((patch) => {
+    if (!selectedParamId || typeof setMapping !== 'function') return;
+    const nextRange = {
+      outputMin: Number.isFinite(Number(patch.outputMin)) ? Number(patch.outputMin) : Number(selectedRange.outputMin) || 0,
+      outputMax: Number.isFinite(Number(patch.outputMax)) ? Number(patch.outputMax) : Number(selectedRange.outputMax) || 1,
+    };
+    setMapping(selectedParamId, {
+      band: selectedBand,
+      range: nextRange,
+      mode: selectedMode,
+      modeSettings: selectedModeSettings,
+      trigger: selectedTrigger,
+    });
+  }, [selectedBand, selectedMode, selectedModeSettings, selectedParamId, selectedRange, selectedTrigger, setMapping]);
+
+  const setSelectedMode = useCallback((nextMode) => {
+    if (!selectedParamId || typeof setMapping !== 'function') return;
+    const fallbackSettings = DEFAULT_MODE_SETTINGS[nextMode] || {};
+    setMapping(selectedParamId, {
+      band: selectedBand,
+      range: selectedRange,
+      mode: nextMode,
+      modeSettings: fallbackSettings,
+      trigger: selectedTrigger,
+    });
+    if (nextMode !== 'direct') setShowModeSettings(true);
+  }, [selectedBand, selectedParamId, selectedRange, selectedTrigger, setMapping]);
+
+  const setSelectedModeSettings = useCallback((nextSettings) => {
+    if (!selectedParamId || typeof setMapping !== 'function') return;
+    setMapping(selectedParamId, {
+      band: selectedBand,
+      range: selectedRange,
+      mode: selectedMode,
+      modeSettings: nextSettings,
+      trigger: selectedTrigger,
+    });
+  }, [selectedBand, selectedMode, selectedParamId, selectedRange, selectedTrigger, setMapping]);
+
+  const setSelectedTrigger = useCallback((patch) => {
+    if (!selectedParamId || typeof setMapping !== 'function') return;
+    const merged = normalizeMatrixTrigger({ ...selectedTrigger, ...(patch || {}) }, triggerDefaults);
+    setMapping(selectedParamId, {
+      band: selectedBand,
+      range: selectedRange,
+      mode: selectedMode,
+      modeSettings: selectedModeSettings,
+      trigger: merged,
+    });
+  }, [selectedBand, selectedMode, selectedModeSettings, selectedParamId, selectedRange, selectedTrigger, setMapping, triggerDefaults]);
+
+  const explainRows = useMemo(() => (
+    Object.entries(mappings)
+      .filter(([, mapping]) => mapping && mapping.band && mapping.band !== 'none')
+      .map(([paramId, mapping]) => {
+        const debug = debugValues?.[paramId] || null;
+        const fallbackInput = Number.isFinite(liveFeatures[mapping.band]) ? liveFeatures[mapping.band] : 0;
+        const input = Number.isFinite(debug?.raw) ? debug.raw : fallbackInput;
+        const processed = Number.isFinite(debug?.processed) ? debug.processed : input;
+        const output = Number.isFinite(debug?.mapped) ? debug.mapped : null;
+        return {
+          paramId,
+          label: prettyParamLabel(paramId),
+          band: mapping.band,
+          mode: mapping.mode || 'direct',
+          input,
+          processed,
+          output,
+          trigger: debug?.trigger || null,
+          ageMs: Number.isFinite(debug?.updatedAt) ? Math.max(0, Date.now() - debug.updatedAt) : null,
+        };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label))
+  ), [mappings, debugValues, liveFeatures]);
+
+  if (!audio) {
+    return (
+      <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+        <div style={{ fontSize: '0.72rem', opacity: 0.75 }}>Audio patch matrix unavailable (audio context not found).</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+        overflowX: 'hidden',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>🧩 Audio Patch Matrix</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <span className="compact-label" style={{ opacity: 0.75 }}>{mappedCount} mapped</span>
+          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <input
+              type="checkbox"
+              checked={showExplain}
+              onChange={(e) => setShowExplain(!!e.target.checked)}
+            />
+            Explain
+          </label>
+        </div>
+      </div>
+
+      <div style={{ marginTop: '0.3rem', display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: '0.35rem' }}>
+        {['rms', 'bass', 'mids', 'highs'].map((band) => (
+          <div key={band} style={{ fontSize: '0.66rem', opacity: 0.8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>{band === 'rms' ? 'Level' : band.charAt(0).toUpperCase() + band.slice(1)}</span>
+              <span>{(liveFeatures[band] || 0).toFixed(2)}</span>
+            </div>
+            <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.12)', overflow: 'hidden', marginTop: '0.1rem' }}>
+              <div style={{ height: '100%', width: `${clampValue((liveFeatures[band] || 0) * 100, 0, 100)}%`, background: '#4fc3f7' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: '0.45rem', borderRadius: 6, border: '1px solid rgba(255,255,255,0.12)', overflow: 'hidden' }}>
+        {!isNarrow && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(7rem, 1fr) repeat(5, minmax(2.6rem, auto))', gap: '0.25rem', padding: '0.35rem 0.4rem', background: 'rgba(255,255,255,0.04)', fontSize: '0.66rem', opacity: 0.8 }}>
+            <span>Parameter</span>
+            {PATCH_MATRIX_BANDS.map(band => <span key={band.id} style={{ textAlign: 'center' }}>{band.label}</span>)}
+          </div>
+        )}
+        <div style={{ maxHeight: 220, overflowY: 'auto', overflowX: isNarrow ? 'hidden' : 'auto' }}>
+          {rowParamIds.map((paramId) => {
+            const mapping = mappings?.[paramId];
+            const currentBand = mapping?.band || 'none';
+
+            if (isNarrow) {
+              return (
+                <div
+                  key={paramId}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1fr) minmax(5.2rem, auto)',
+                    gap: '0.35rem',
+                    padding: '0.28rem 0.4rem',
+                    borderTop: '1px solid rgba(255,255,255,0.08)',
+                    alignItems: 'center',
+                    background: selectedParamId === paramId ? 'rgba(79,195,247,0.1)' : undefined,
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn-compact-secondary"
+                    onClick={() => setSelectedParamId(paramId)}
+                    style={{
+                      fontSize: '0.66rem',
+                      padding: '2px 6px',
+                      minWidth: 0,
+                      textAlign: 'left',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      borderColor: 'rgba(255,255,255,0.18)',
+                    }}
+                    title={paramId}
+                  >
+                    {prettyParamLabel(paramId)}
+                  </button>
+                  <select
+                    className="compact-select"
+                    value={currentBand}
+                    disabled={disabledByTimeline}
+                    onChange={(e) => applyBand(paramId, e.target.value)}
+                    style={{ minWidth: 0, fontSize: '0.66rem', height: 26 }}
+                    title="Select source band"
+                  >
+                    {PATCH_MATRIX_BANDS.map((band) => (
+                      <option key={`${paramId}-${band.id}`} value={band.id}>{band.label}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={paramId}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(7rem, 1fr) repeat(5, minmax(2.6rem, auto))',
+                  gap: '0.25rem',
+                  padding: '0.25rem 0.4rem',
+                  borderTop: '1px solid rgba(255,255,255,0.08)',
+                  background: selectedParamId === paramId ? 'rgba(79,195,247,0.1)' : undefined,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn-compact-secondary"
+                  onClick={() => setSelectedParamId(paramId)}
+                  style={{
+                    fontSize: '0.66rem',
+                    padding: '2px 4px',
+                    justifySelf: 'stretch',
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    borderColor: 'rgba(255,255,255,0.18)',
+                    minWidth: 0,
+                  }}
+                  title={paramId}
+                >
+                  {prettyParamLabel(paramId)}
+                </button>
+                {PATCH_MATRIX_BANDS.map((band) => {
+                  const active = currentBand === band.id;
+                  return (
+                    <button
+                      key={`${paramId}-${band.id}`}
+                      type="button"
+                      className="btn-compact-secondary"
+                      disabled={disabledByTimeline}
+                      onClick={() => applyBand(paramId, band.id)}
+                      style={{
+                        fontSize: '0.62rem',
+                        padding: '2px 6px',
+                        minWidth: 36,
+                        borderColor: active ? '#4fc3f7' : 'rgba(255,255,255,0.2)',
+                        background: active ? 'rgba(79,195,247,0.25)' : undefined,
+                      }}
+                    >
+                      {band.label}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginTop: '0.45rem', padding: '0.4rem', borderRadius: 6, background: 'rgba(255,255,255,0.04)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'minmax(8rem, 1fr) minmax(6rem, auto) auto auto auto', gap: '0.35rem', alignItems: 'center' }}>
+          <select
+            className="compact-select"
+            value={selectedParamId}
+            onChange={(e) => setSelectedParamId(e.target.value)}
+            style={{ minWidth: 0 }}
+          >
+            {rowParamIds.map(id => (
+              <option key={id} value={id}>{prettyParamLabel(id)}</option>
+            ))}
+          </select>
+          <select
+            className="compact-select"
+            value={selectedMode}
+            disabled={selectedBand === 'none' || disabledByTimeline}
+            onChange={(e) => setSelectedMode(e.target.value)}
+            style={{ minWidth: 0 }}
+          >
+            {AUDIO_MAPPING_MODES.map(mode => (
+              <option key={mode.value} value={mode.value}>{mode.label}</option>
+            ))}
+          </select>
+          <BufferedNumberInput
+            value={Number.isFinite(selectedRange?.outputMin) ? selectedRange.outputMin : 0}
+            step={0.05}
+            onCommit={(next) => setSelectedRange({ outputMin: next })}
+            className="compact-number"
+            style={{ width: '5.2rem' }}
+            disabled={disabledByTimeline}
+          />
+          <span style={{ fontSize: '0.7rem', opacity: 0.7, display: isNarrow ? 'none' : 'inline' }}>→</span>
+          <BufferedNumberInput
+            value={Number.isFinite(selectedRange?.outputMax) ? selectedRange.outputMax : 1}
+            step={0.05}
+            onCommit={(next) => setSelectedRange({ outputMax: next })}
+            className="compact-number"
+            style={{ width: '5.2rem' }}
+            disabled={disabledByTimeline}
+          />
+        </div>
+        {selectedBand !== 'none' && selectedMode !== 'direct' && (
+          <div style={{ marginTop: '0.35rem' }}>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.66rem', padding: '2px 6px' }}
+              onClick={() => setShowModeSettings(v => !v)}
+            >
+              {showModeSettings ? 'Hide Mode Settings' : 'Show Mode Settings'}
+            </button>
+            {showModeSettings && (
+              <div style={{ marginTop: '0.3rem', padding: '0.3rem', borderRadius: 4, background: 'rgba(167, 139, 250, 0.08)' }}>
+                <AudioModeSettings
+                  mode={selectedMode}
+                  modeSettings={selectedModeSettings}
+                  onSettingsChange={setSelectedModeSettings}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedBand !== 'none' && (
+          <div style={{ marginTop: '0.4rem', padding: '0.35rem', borderRadius: 4, background: 'rgba(79,195,247,0.08)' }}>
+            <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.7rem' }}>
+              <input
+                type="checkbox"
+                checked={!!selectedTrigger.enabled}
+                disabled={disabledByTimeline}
+                onChange={(e) => setSelectedTrigger({ enabled: !!e.target.checked })}
+              />
+              Threshold trigger
+            </label>
+
+            {selectedTrigger.enabled && (
+              <div style={{ marginTop: '0.35rem', display: 'grid', gridTemplateColumns: isNarrow ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: '0.35rem' }}>
+                <select
+                  className="compact-select"
+                  value={selectedTrigger.mode}
+                  disabled={disabledByTimeline}
+                  onChange={(e) => setSelectedTrigger({ mode: e.target.value })}
+                  title="When to fire"
+                >
+                  {PATCH_MATRIX_TRIGGER_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
+                  ))}
+                </select>
+
+                <select
+                  className="compact-select"
+                  value={selectedTrigger.source}
+                  disabled={disabledByTimeline}
+                  onChange={(e) => setSelectedTrigger({ source: e.target.value })}
+                  title="Signal source"
+                >
+                  {triggerSourceOptions.map((source) => (
+                    <option key={source} value={source}>{source === 'raw' ? 'Raw' : 'Processed'}</option>
+                  ))}
+                </select>
+
+                <BufferedNumberInput
+                  value={Number.isFinite(selectedTrigger.cooldownMs) ? selectedTrigger.cooldownMs : 250}
+                  step={10}
+                  onCommit={(next) => setSelectedTrigger({ cooldownMs: Math.max(0, next) })}
+                  className="compact-number"
+                  style={{ width: '100%' }}
+                  disabled={disabledByTimeline}
+                />
+
+                <BufferedNumberInput
+                  value={Number.isFinite(selectedTrigger.riseThreshold) ? selectedTrigger.riseThreshold : 0.65}
+                  step={0.01}
+                  onCommit={(next) => setSelectedTrigger({ riseThreshold: clampValue(next, 0, 1) })}
+                  className="compact-number"
+                  style={{ width: '100%' }}
+                  disabled={disabledByTimeline}
+                />
+
+                <BufferedNumberInput
+                  value={Number.isFinite(selectedTrigger.fallThreshold) ? selectedTrigger.fallThreshold : 0.55}
+                  step={0.01}
+                  onCommit={(next) => setSelectedTrigger({ fallThreshold: clampValue(next, 0, selectedTrigger.riseThreshold) })}
+                  className="compact-number"
+                  style={{ width: '100%' }}
+                  disabled={disabledByTimeline}
+                />
+
+                <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.68rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!selectedTrigger.reverseOnFall}
+                    disabled={disabledByTimeline}
+                    onChange={(e) => setSelectedTrigger({ reverseOnFall: !!e.target.checked })}
+                  />
+                  Reverse on down-cross
+                </label>
+              </div>
+            )}
+
+            <div style={{ marginTop: '0.2rem', fontSize: '0.64rem', opacity: 0.72 }}>
+              Fields order: mode, source, cooldown(ms), rise threshold, fall threshold.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showExplain && (
+        <div style={{ marginTop: '0.45rem' }}>
+          <div style={{ fontSize: '0.7rem', opacity: 0.75, marginBottom: '0.2rem' }}>
+            Live Explain: source input {'->'} processed signal {'->'} final output value.
+          </div>
+          {explainRows.length === 0 ? (
+            <div style={{ fontSize: '0.7rem', opacity: 0.65 }}>No active audio mappings yet.</div>
+          ) : (
+            <div style={{ display: 'grid', gap: '0.25rem' }}>
+              {explainRows.map((row) => (
+                <div key={row.paramId} style={{ padding: '0.3rem 0.4rem', borderRadius: 4, background: 'rgba(255,255,255,0.04)', fontSize: '0.68rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ opacity: 0.9 }}>{row.label}</span>
+                    <span style={{ opacity: 0.72 }}>{row.band} / {row.mode}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.12rem', opacity: 0.8 }}>
+                    <span>In {row.input.toFixed(2)}</span>
+                    <span>Proc {row.processed.toFixed(2)}</span>
+                    <span>Out {Number.isFinite(row.output) ? row.output.toFixed(2) : '—'}</span>
+                    {row.trigger && (
+                      <span>
+                        Trig {Number.isFinite(row.trigger.sourceValue) ? row.trigger.sourceValue.toFixed(2) : '—'}
+                        {row.trigger.active ? ' ▲' : ''}
+                        {row.trigger.triggered ? ` ${row.trigger.direction === 'down' ? '↓' : '↑'}` : ''}
+                      </span>
+                    )}
+                    {Number.isFinite(row.ageMs) && row.ageMs > 700 && (
+                      <span style={{ color: '#ffcc80' }}>stale</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!enabled && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.7 }}>
+          Enable Audio Input above to audition patch connections.
+        </div>
+      )}
+      {disabledByTimeline && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.7 }}>
+          Editing is disabled while Timeline mode is active.
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AudioSpawnSection = ({
   isActiveTab = true,
   timelineMode = false,
@@ -1631,7 +2525,17 @@ const AudioSpawnSection = ({
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>⚡ Audio Spawn (Live)</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -1857,7 +2761,17 @@ const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
   } = bpm;
 
   return (
-    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+    <div
+      className="compact-field"
+      style={{
+        borderTop: '1px solid rgba(255,255,255,0.1)',
+        paddingTop: '0.5rem',
+        marginTop: '0.5rem',
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span className="compact-label" style={{ fontWeight: 600 }}>♪ BPM / Beat Sync</span>
       </div>
@@ -1926,7 +2840,10 @@ const ModeSettingInput = ({ label, value, onChange, step = 0.01, min, max, title
       min={min}
       max={max}
       value={Number.isFinite(value) ? value : 0}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
+      onChange={(e) => {
+        const next = Number(e.target.value);
+        if (Number.isFinite(next)) onChange(next);
+      }}
       style={{ width: '3.5rem', fontSize: '0.6rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
     />
   </div>
@@ -2446,6 +3363,7 @@ const BPMControlRow = React.memo(({ paramId }) => {
 export {
   RangeMappingEditor,
   AudioReactiveSection,
+  AudioPatchMatrixSection,
   AudioDemoPresetsSection,
   AudioPresetSlotsSection,
   AudioSpawnSection,

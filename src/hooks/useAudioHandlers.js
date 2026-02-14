@@ -1,11 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 /**
  * useAudioHandlers - Consolidates all audio registerAudioHandler effects
  * 
  * Mirrors the pattern from useMIDIHandlers.js but for audio input.
- * Each handler receives { value01, band, raw } when audio is active.
+ * Each handler receives { value01, band, raw, processed } when audio is active,
+ * plus trigger metadata for threshold-driven mappings.
  * 
  * IMPORTANT: value01 is ALREADY mapped through the range (outputMin → outputMax),
  * so handlers should use it directly without additional scaling.
@@ -33,12 +34,50 @@ export function useAudioHandlers({
   handleRandomizeAll,
   // Selection
   clampedSelectedIndex,
+  // Optional palette sync
+  globalPaletteIndex,
+  setGlobalPaletteIndex,
+  // Optional spawn trigger hook
+  triggerAudioSpawn,
 }) {
   const blendModeStateRef = useRef({ index: -1, lastChangeMs: 0 });
   const paletteStateRef = useRef({ index: -1, lastChangeMs: 0 });
+  const triggerPaletteStateRef = useRef({ index: -1 });
   const randomizeStateRef = useRef({ lastTriggerMs: 0 });
   const layersCountStateRef = useRef({ count: null, lastChangeMs: 0 });
   const latestLayerCountRef = useRef(Array.isArray(layers) ? layers.length : 1);
+  const movementPulseStateRef = useRef({ active: false, layerId: null, baseSpeed: null });
+
+  const applyPaletteByIndex = useCallback((targetIndex) => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    if (list.length === 0) return;
+    const idx = Math.max(0, Math.min(list.length - 1, Number.isFinite(targetIndex) ? Math.floor(targetIndex) : 0));
+    const pick = list[idx];
+    const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+    setLayers?.(prev => {
+      if (!Array.isArray(prev) || prev.length === 0) return prev;
+      const sel = Math.max(0, Math.min(clampedSelectedIndex ?? 0, Math.max(0, prev.length - 1)));
+      const layer = prev[sel] || {};
+      const count = Number.isFinite(layer?.numColors)
+        ? layer.numColors
+        : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (src.length || 1));
+      const nextColors = sampleColorsEven?.(src, Math.max(1, count)) || [];
+      return prev.map((l, i) => (i === sel ? { ...l, colors: nextColors, numColors: nextColors.length, selectedColor: 0 } : l));
+    });
+    setGlobalPaletteIndex?.(idx);
+  }, [clampedSelectedIndex, palettes, sampleColorsEven, setGlobalPaletteIndex, setLayers]);
+
+  useEffect(() => {
+    const listLength = Array.isArray(palettes) ? palettes.length : 0;
+    if (!listLength) {
+      triggerPaletteStateRef.current.index = -1;
+      return;
+    }
+    const parsed = Number(globalPaletteIndex);
+    if (Number.isFinite(parsed)) {
+      triggerPaletteStateRef.current.index = Math.max(0, Math.min(listLength - 1, Math.floor(parsed)));
+    }
+  }, [globalPaletteIndex, palettes]);
 
   useEffect(() => {
     const currentCount = Math.max(1, Math.min(20, Number.isFinite(layers?.length) ? layers.length : 1));
@@ -50,9 +89,12 @@ export function useAudioHandlers({
   // Randomize All (rising-edge trigger)
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('randomizeAll', ({ value01 }) => {
+    const unregister = registerAudioHandler('randomizeAll', ({ value01, raw, processed }) => {
       const prev = rndAllPrevRef?.current || 0;
-      const cur = Math.max(0, Math.min(1, value01));
+      const source = Number.isFinite(processed)
+        ? processed
+        : (Number.isFinite(raw) ? raw : value01);
+      const cur = Math.max(0, Math.min(1, source));
       const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
         : Date.now();
@@ -145,13 +187,15 @@ export function useAudioHandlers({
   // Global Blend Mode (dropdown over blendModes) - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalBlendMode', ({ value01, raw }) => {
+    const unregister = registerAudioHandler('globalBlendMode', ({ value01, raw, processed }) => {
       const opts = Array.isArray(blendModes) ? blendModes : [];
       if (!opts.length) return;
 
       const normalized = Math.max(0, Math.min(
         1,
-        Number.isFinite(value01) ? value01 : (Number.isFinite(raw) ? raw : 0)
+        Number.isFinite(processed)
+          ? processed
+          : (Number.isFinite(raw) ? raw : (Number.isFinite(value01) ? value01 : 0))
       ));
       const idx = Math.max(0, Math.min(opts.length - 1, Math.floor(normalized * opts.length)));
       const state = blendModeStateRef.current;
@@ -245,13 +289,15 @@ export function useAudioHandlers({
   // Global Palette Preset -> applies to currently selected layer - use raw 0-1 for index lookup
   useEffect(() => {
     if (!registerAudioHandler) return;
-    const unregister = registerAudioHandler('globalPaletteIndex', ({ value01, raw }) => {
+    const unregister = registerAudioHandler('globalPaletteIndex', ({ value01, raw, processed }) => {
       const list = palettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
 
       const normalized = Math.max(0, Math.min(
         1,
-        Number.isFinite(value01) ? value01 : (Number.isFinite(raw) ? raw : 0)
+        Number.isFinite(processed)
+          ? processed
+          : (Number.isFinite(raw) ? raw : (Number.isFinite(value01) ? value01 : 0))
       ));
       const idx = Math.max(0, Math.min(list.length - 1, Math.floor(normalized * list.length)));
       const state = paletteStateRef.current;
@@ -265,20 +311,89 @@ export function useAudioHandlers({
 
       state.index = idx;
       state.lastChangeMs = now;
-      const pick = list[idx];
-      const src = Array.isArray(pick) ? pick : (pick?.colors || []);
-      setLayers?.(prev => {
-        const sel = Math.max(0, Math.min(clampedSelectedIndex ?? 0, Math.max(0, prev.length - 1)));
-        const layer = prev[sel] || {};
-        const count = Number.isFinite(layer?.numColors)
-          ? layer.numColors
-          : ((Array.isArray(layer?.colors) ? layer.colors.length : 0) || (src.length || 1));
-        const nextColors = sampleColorsEven?.(src, Math.max(1, count)) || [];
-        return prev.map((l, i) => (i === sel ? { ...l, colors: nextColors, numColors: nextColors.length, selectedColor: 0 } : l));
-      });
+      applyPaletteByIndex(idx);
     });
     return unregister;
-  }, [registerAudioHandler, clampedSelectedIndex, setLayers, palettes, sampleColorsEven, paletteStateRef]);
+  }, [registerAudioHandler, applyPaletteByIndex, palettes, paletteStateRef]);
+
+  // Matrix trigger: step palette on threshold crossings
+  useEffect(() => {
+    if (!registerAudioHandler) return;
+    const unregister = registerAudioHandler('triggerPaletteStep', ({ triggered, triggerDirection }) => {
+      if (!triggered) return;
+      const list = Array.isArray(palettes) ? palettes : [];
+      if (list.length === 0) return;
+
+      const state = triggerPaletteStateRef.current;
+      const currentIdx = Number.isFinite(state.index) ? state.index : 0;
+      const step = triggerDirection === 'down' ? -1 : 1;
+      const nextIdx = (currentIdx + step + list.length) % list.length;
+      state.index = nextIdx;
+      applyPaletteByIndex(nextIdx);
+    });
+    return unregister;
+  }, [registerAudioHandler, palettes, applyPaletteByIndex]);
+
+  // Matrix trigger: spawn/despawn ephemeral audio layer overlays (half-life handled by spawn hook)
+  useEffect(() => {
+    if (!registerAudioHandler) return;
+    const unregister = registerAudioHandler('triggerSpawnLayer', ({ triggered, triggerDirection, triggerReverseOnFall }) => {
+      if (!triggered || typeof triggerAudioSpawn !== 'function') return;
+      if (triggerDirection === 'down' && triggerReverseOnFall) {
+        triggerAudioSpawn('despawn');
+      } else {
+        triggerAudioSpawn('spawn');
+      }
+    });
+    return unregister;
+  }, [registerAudioHandler, triggerAudioSpawn]);
+
+  // Matrix trigger: movement pulse with optional reverse-on-fall restore
+  useEffect(() => {
+    if (!registerAudioHandler) return;
+    const unregister = registerAudioHandler('triggerMovementPulse', ({ value01, triggered, triggerDirection, triggerReverseOnFall }) => {
+      if (!triggered || !setLayers) return;
+
+      if (triggerDirection === 'up') {
+        const pulseSpeed = Math.max(0, Math.min(8, Number.isFinite(value01) ? value01 : 1));
+        setLayers((prev) => {
+          if (!Array.isArray(prev) || prev.length === 0) return prev;
+          const sel = Math.max(0, Math.min(clampedSelectedIndex ?? 0, Math.max(0, prev.length - 1)));
+          const target = prev[sel];
+          if (!target) return prev;
+          const targetLayerId = target?.id ?? sel;
+          const state = movementPulseStateRef.current;
+          if (!state.active || state.layerId !== targetLayerId) {
+            state.active = true;
+            state.layerId = targetLayerId;
+            state.baseSpeed = Number.isFinite(target?.movementSpeed) ? target.movementSpeed : 1;
+          }
+          return prev.map((layer, index) => (
+            index === sel ? { ...layer, movementSpeed: pulseSpeed } : layer
+          ));
+        });
+        return;
+      }
+
+      if (triggerDirection === 'down' && triggerReverseOnFall) {
+        const state = movementPulseStateRef.current;
+        if (!state.active) return;
+        setLayers((prev) => {
+          if (!Array.isArray(prev) || prev.length === 0) return prev;
+          const restoreIndex = prev.findIndex((layer, index) => ((layer?.id ?? index) === state.layerId));
+          const targetIndex = restoreIndex >= 0
+            ? restoreIndex
+            : Math.max(0, Math.min(clampedSelectedIndex ?? 0, Math.max(0, prev.length - 1)));
+          const baseSpeed = Number.isFinite(state.baseSpeed) ? state.baseSpeed : 1;
+          return prev.map((layer, index) => (
+            index === targetIndex ? { ...layer, movementSpeed: baseSpeed } : layer
+          ));
+        });
+        movementPulseStateRef.current = { active: false, layerId: null, baseSpeed: null };
+      }
+    });
+    return unregister;
+  }, [registerAudioHandler, setLayers, clampedSelectedIndex]);
 
   // Per-layer position handlers (X, Y, Z/scale) - use raw 0-1 for position mapping
   useEffect(() => {
@@ -288,47 +403,52 @@ export function useAudioHandlers({
     const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
     layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idX = `layer:${layerKey}:posX`;
-      const idY = `layer:${layerKey}:posY`;
-      const idZ = `layer:${layerKey}:posZ`;
+      const legacyKey = (layer?.name || `Layer ${index + 1}`).toString();
+      const stableKey = String(layer?.id ?? legacyKey);
+      const layerKeys = Array.from(new Set([stableKey, legacyKey].filter(Boolean)));
 
-      // X - use raw 0-1 value with layer's custom range
-      unsubs.push(registerAudioHandler(idX, ({ raw }) => {
-        if (!layer?.manualAudioPositionEnabled) return;
-        const r = layer?.audioPosRangeX || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
-        )));
-      }));
+      layerKeys.forEach((layerKey) => {
+        const idX = `layer:${layerKey}:posX`;
+        const idY = `layer:${layerKey}:posY`;
+        const idZ = `layer:${layerKey}:posZ`;
 
-      // Y - use raw 0-1 value with layer's custom range
-      unsubs.push(registerAudioHandler(idY, ({ raw }) => {
-        if (!layer?.manualAudioPositionEnabled) return;
-        const r = layer?.audioPosRangeY || { min: 0, max: 1 };
-        const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
-        const v = clamp01(mapped);
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
-        )));
-      }));
+        // X - use raw 0-1 value with layer's custom range
+        unsubs.push(registerAudioHandler(idX, ({ raw }) => {
+          if (!layer?.manualAudioPositionEnabled) return;
+          const r = layer?.audioPosRangeX || { min: 0, max: 1 };
+          const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
+          const v = clamp01(mapped);
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), x: v } } : l
+          )));
+        }));
 
-      // Z (scale) - use raw 0-1 value with layer's custom range
-      unsubs.push(registerAudioHandler(idZ, ({ raw }) => {
-        if (!layer?.manualAudioPositionEnabled) return;
-        const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
-        const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
-        const r = layer?.audioPosRangeZ || { min: scaleMin, max: scaleMax };
-        const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
-        const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
-        const mapped = outMin + raw * (outMax - outMin);
-        const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
-        setLayers?.(prev => prev.map((l, i) => (
-          i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
-        )));
-      }));
+        // Y - use raw 0-1 value with layer's custom range
+        unsubs.push(registerAudioHandler(idY, ({ raw }) => {
+          if (!layer?.manualAudioPositionEnabled) return;
+          const r = layer?.audioPosRangeY || { min: 0, max: 1 };
+          const mapped = (r.min ?? 0) + raw * ((r.max ?? 1) - (r.min ?? 0));
+          const v = clamp01(mapped);
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), y: v } } : l
+          )));
+        }));
+
+        // Z (scale) - use raw 0-1 value with layer's custom range
+        unsubs.push(registerAudioHandler(idZ, ({ raw }) => {
+          if (!layer?.manualAudioPositionEnabled) return;
+          const scaleMin = Number.isFinite(layer?.scaleMin) ? layer.scaleMin : 0.2;
+          const scaleMax = Number.isFinite(layer?.scaleMax) ? layer.scaleMax : 1.5;
+          const r = layer?.audioPosRangeZ || { min: scaleMin, max: scaleMax };
+          const outMin = Number.isFinite(r.min) ? r.min : scaleMin;
+          const outMax = Number.isFinite(r.max) ? r.max : scaleMax;
+          const mapped = outMin + raw * (outMax - outMin);
+          const v = Math.max(scaleMin, Math.min(scaleMax, mapped));
+          setLayers?.(prev => prev.map((l, i) => (
+            i === index ? { ...l, position: { ...(l.position || {}), scale: v } } : l
+          )));
+        }));
+      });
     });
 
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
@@ -340,11 +460,9 @@ export function useAudioHandlers({
     const unsubs = [];
 
     layers.forEach((layer, index) => {
-      const layerKey = (layer?.name || `Layer ${index + 1}`).toString();
-      const idR = `layer:${layerKey}:colorR`;
-      const idG = `layer:${layerKey}:colorG`;
-      const idB = `layer:${layerKey}:colorB`;
-      const idA = `layer:${layerKey}:colorA`;
+      const legacyKey = (layer?.name || `Layer ${index + 1}`).toString();
+      const stableKey = String(layer?.id ?? legacyKey);
+      const layerKeys = Array.from(new Set([stableKey, legacyKey].filter(Boolean)));
 
       const updateChannel = (channel, raw) => {
         if (!layer?.manualAudioColorEnabled) return;
@@ -365,15 +483,22 @@ export function useAudioHandlers({
         }));
       };
 
-      unsubs.push(registerAudioHandler(idR, ({ raw }) => updateChannel('r', raw)));
-      unsubs.push(registerAudioHandler(idG, ({ raw }) => updateChannel('g', raw)));
-      unsubs.push(registerAudioHandler(idB, ({ raw }) => updateChannel('b', raw)));
-      unsubs.push(registerAudioHandler(idA, ({ raw }) => {
-        if (!layer?.manualAudioColorEnabled) return;
-        // Use raw 0-1 value for opacity
-        const v = Math.max(0, Math.min(1, raw));
-        setLayers?.(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
-      }));
+      layerKeys.forEach((layerKey) => {
+        const idR = `layer:${layerKey}:colorR`;
+        const idG = `layer:${layerKey}:colorG`;
+        const idB = `layer:${layerKey}:colorB`;
+        const idA = `layer:${layerKey}:colorA`;
+
+        unsubs.push(registerAudioHandler(idR, ({ raw }) => updateChannel('r', raw)));
+        unsubs.push(registerAudioHandler(idG, ({ raw }) => updateChannel('g', raw)));
+        unsubs.push(registerAudioHandler(idB, ({ raw }) => updateChannel('b', raw)));
+        unsubs.push(registerAudioHandler(idA, ({ raw }) => {
+          if (!layer?.manualAudioColorEnabled) return;
+          // Use raw 0-1 value for opacity
+          const v = Math.max(0, Math.min(1, raw));
+          setLayers?.(prev => prev.map((l, i) => (i === index ? { ...l, opacity: v } : l)));
+        }));
+      });
     });
 
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };

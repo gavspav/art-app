@@ -3,6 +3,13 @@ import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
 import RangeSlider from '../../common/RangeSlider.jsx';
 
+const buildLayerParamIds = (layer, paramId) => {
+  const layerNameKey = (layer?.name || 'Layer').toString();
+  const stableLayerKey = String(layer?.id ?? layerNameKey);
+  const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
+  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+};
+
 export default function LayerShapeSection({
   currentLayer,
   editTarget,
@@ -149,13 +156,13 @@ export default function LayerShapeSection({
                   </label>
                 </div>
                 {(() => {
-                  const layerKey = (currentLayer?.name || 'Layer').toString();
-                  const paramId = `layer:${layerKey}:rotation`;
+                  const paramIds = buildLayerParamIds(currentLayer, 'rotation');
+                  const paramId = paramIds[0] || null;
                   return (
                     <>
-                      <MidiRotationStatus paramId={paramId} />
-                      <AudioRotationStatus paramId={paramId} />
-                      <BPMRotationStatus paramId={paramId} />
+                      <MidiRotationStatus paramId={paramId} paramAliases={paramIds} />
+                      <AudioRotationStatus paramId={paramId} paramAliases={paramIds} />
+                      <BPMRotationStatus paramId={paramId} paramAliases={paramIds} />
                     </>
                   );
                 })()}

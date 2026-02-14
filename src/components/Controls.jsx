@@ -156,6 +156,22 @@ const HoverDropdown = ({ value, options, onChange }) => {
   );
 };
 
+const buildLayerParamIds = (layer, paramId) => {
+  const layerNameKey = (layer?.name || 'Layer').toString();
+  const stableLayerKey = String(layer?.id ?? layerNameKey);
+  const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
+  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+};
+
+const findFirstMappedParamId = (mappings, paramIds) => {
+  const ids = Array.isArray(paramIds) ? paramIds : [];
+  for (let i = 0; i < ids.length; i += 1) {
+    const id = ids[i];
+    if (id && mappings?.[id]) return id;
+  }
+  return ids[0] || null;
+};
+
 // Legacy (unused): previous per-layer MIDI position panel stub kept for reference.
 /*
 const MidiPositionSection = ({ currentLayer: _currentLayer, updateLayer: _updateLayer }) => {
@@ -164,18 +180,33 @@ const MidiPositionSection = ({ currentLayer: _currentLayer, updateLayer: _update
 */
 
 // Small helper component to show MIDI mapping status and controls for rotation
-const MidiRotationStatus = ({ paramId }) => {
+const MidiRotationStatus = ({ paramId, paramAliases = null }) => {
   const { supported: midiSupported, mappings: midiMappings, beginLearn, clearMapping, mappingLabel, learnParamId } = useMidi() || {};
+  const resolvedParamIds = useMemo(() => {
+    const ids = Array.isArray(paramAliases) && paramAliases.length
+      ? paramAliases
+      : [paramId];
+    return Array.from(new Set(ids.filter(Boolean)));
+  }, [paramAliases, paramId]);
+  const primaryParamId = resolvedParamIds[0] || paramId;
+  const activeParamId = findFirstMappedParamId(midiMappings || {}, resolvedParamIds);
+  const clearAliases = useCallback((e) => {
+    e.stopPropagation();
+    if (!clearMapping) return;
+    resolvedParamIds.forEach((id) => {
+      if (id) clearMapping(id);
+    });
+  }, [clearMapping, resolvedParamIds]);
   return (
     <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
       <span className="compact-label" style={{ opacity: 0.8 }}>
-        MIDI: {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+        MIDI: {midiSupported ? (activeParamId ? (mappingLabel ? mappingLabel(midiMappings[activeParamId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
       </span>
       {midiSupported && (
         <>
-          {learnParamId === paramId && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-          <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
-          <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+          {resolvedParamIds.includes(learnParamId) && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+          <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(primaryParamId); }} disabled={!midiSupported}>Learn</button>
+          <button type="button" className="btn-compact-secondary" onClick={clearAliases} disabled={!midiSupported || !activeParamId}>Clear</button>
         </>
       )}
     </div>
@@ -183,7 +214,7 @@ const MidiRotationStatus = ({ paramId }) => {
 };
 
 // Audio control row - compact version for layer parameters
-const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
+const AudioRotationStatus = ({ paramId, paramAliases = null, min = 0, max = 1 }) => {
   const audio = useAudioReactive();
   const bpm = useBPM();
   const midi = useMidi();
@@ -191,17 +222,47 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
   const [showModeSettings, setShowModeSettings] = useState(false);
 
   const hasAudio = !!audio;
-  const mappings = audio?.mappings || {};
+  const mappings = useMemo(() => (
+    (audio?.mappings && typeof audio.mappings === 'object') ? audio.mappings : {}
+  ), [audio?.mappings]);
   const setMapping = audio?.setMapping;
   const clearMapping = audio?.clearMapping;
   const AUDIO_BANDS = audio?.AUDIO_BANDS || ['none'];
-  const mapping = mappings?.[paramId];
+  const resolvedParamIds = useMemo(() => {
+    const ids = Array.isArray(paramAliases) && paramAliases.length
+      ? paramAliases
+      : [paramId];
+    return Array.from(new Set(ids.filter(Boolean)));
+  }, [paramAliases, paramId]);
+  const primaryParamId = resolvedParamIds[0] || paramId;
+  const activeParamId = useMemo(
+    () => findFirstMappedParamId(mappings, resolvedParamIds),
+    [mappings, resolvedParamIds],
+  );
+  const mapping = activeParamId ? mappings?.[activeParamId] : null;
   const currentBand = mapping?.band || 'none';
   
   const defaultRange = { outputMin: min, outputMax: max };
   const currentRange = mapping?.range || defaultRange;
   const currentMode = mapping?.mode || 'direct';
   const currentModeSettings = mapping?.modeSettings || DEFAULT_MODE_SETTINGS[currentMode] || {};
+
+  const clearAliasMappings = useCallback(() => {
+    if (typeof clearMapping !== 'function') return;
+    resolvedParamIds.forEach((id) => {
+      clearMapping(id);
+    });
+  }, [clearMapping, resolvedParamIds]);
+
+  const commitAudioMapping = useCallback((nextMapping) => {
+    if (!hasAudio || typeof setMapping !== 'function' || !primaryParamId) return;
+    setMapping(primaryParamId, nextMapping);
+    if (typeof clearMapping === 'function') {
+      resolvedParamIds.forEach((id) => {
+        if (id !== primaryParamId) clearMapping(id);
+      });
+    }
+  }, [clearMapping, hasAudio, primaryParamId, resolvedParamIds, setMapping]);
   
   // Auto-fix stale mappings - use stable value comparison to avoid infinite loops
   const storedMin = mapping?.range?.outputMin;
@@ -211,43 +272,43 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
     if (!hasAudio || typeof setMapping !== 'function') return;
     if (storedBand && storedBand !== 'none' && storedMin !== undefined && storedMax !== undefined) {
       if (storedMin !== min || storedMax !== max) {
-        setMapping(paramId, { 
+        commitAudioMapping({ 
           ...mapping, 
           range: { outputMin: min, outputMax: max } 
         });
       }
     }
-  // Only re-run when the actual primitive values change, not the mapping object
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAudio, paramId, min, max, storedMin, storedMax, storedBand, setMapping]);
+  }, [hasAudio, min, max, storedMin, storedMax, storedBand, setMapping, commitAudioMapping, mapping]);
   
   const handleBandChange = (band) => {
-    if (!hasAudio || typeof setMapping !== 'function') return;
+    if (!hasAudio || !primaryParamId) return;
     if (band === 'none') {
-      setMapping(paramId, { band: 'none', range: currentRange, mode: currentMode, modeSettings: currentModeSettings });
+      commitAudioMapping({ band: 'none', range: currentRange, mode: currentMode, modeSettings: currentModeSettings });
     } else {
-      setMapping(paramId, { band, range: defaultRange, mode: currentMode, modeSettings: currentModeSettings });
-      if (midi?.clearMapping) midi.clearMapping(paramId);
-      if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+      commitAudioMapping({ band, range: defaultRange, mode: currentMode, modeSettings: currentModeSettings });
+      resolvedParamIds.forEach((id) => {
+        if (midi?.clearMapping) midi.clearMapping(id);
+        if (bpm?.setMapping) bpm.setMapping(id, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+      });
     }
   };
 
   const handleRangeChange = (update) => {
-    if (!hasAudio || typeof setMapping !== 'function') return;
+    if (!hasAudio || !primaryParamId) return;
     if (currentBand === 'none') return;
-    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update }, mode: currentMode, modeSettings: currentModeSettings });
+    commitAudioMapping({ band: currentBand, range: { ...currentRange, ...update }, mode: currentMode, modeSettings: currentModeSettings });
   };
 
   const handleModeChange = (mode) => {
-    if (!hasAudio || typeof setMapping !== 'function') return;
+    if (!hasAudio || !primaryParamId) return;
     const newSettings = DEFAULT_MODE_SETTINGS[mode] || {};
-    setMapping(paramId, { band: currentBand, range: currentRange, mode, modeSettings: newSettings });
+    commitAudioMapping({ band: currentBand, range: currentRange, mode, modeSettings: newSettings });
     if (mode !== 'direct') setShowModeSettings(true);
   };
 
   const handleModeSettingsChange = (newSettings) => {
-    if (!hasAudio || typeof setMapping !== 'function') return;
-    setMapping(paramId, { band: currentBand, range: currentRange, mode: currentMode, modeSettings: newSettings });
+    if (!hasAudio || !primaryParamId) return;
+    commitAudioMapping({ band: currentBand, range: currentRange, mode: currentMode, modeSettings: newSettings });
   };
   
   if (!hasAudio) return null;
@@ -305,7 +366,7 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
             <button
               className="btn-compact-secondary"
               style={{ fontSize: '0.65rem', padding: '2px 4px' }}
-              onClick={() => clearMapping(paramId)}
+              onClick={clearAliasMappings}
               title="Clear audio mapping"
             >
               Clear
@@ -357,7 +418,7 @@ const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
 };
 
 // BPM control row - compact version for layer parameters
-const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
+const BPMRotationStatus = React.memo(({ paramId, paramAliases = null, min = 0, max = 1 }) => {
   const bpm = useBPM();
   const audio = useAudioReactive();
   const midi = useMidi();
@@ -373,13 +434,41 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
   const [playheadPosition, setPlayheadPosition] = useState(null);
 
   const hasBpm = !!bpm;
-  const mappings = bpm?.mappings || {};
+  const mappings = useMemo(() => (
+    (bpm?.mappings && typeof bpm.mappings === 'object') ? bpm.mappings : {}
+  ), [bpm?.mappings]);
   const setMapping = bpm?.setMapping;
   const getPhaseForParam = bpm?.getPhaseForParam;
   const isPlaying = !!bpm?.isPlaying;
   const BEAT_SPEEDS = bpm?.BEAT_SPEEDS || [];
   const LOOP_MODES = bpm?.LOOP_MODES || [];
   const beatsPerBar = bpm?.beatsPerBar;
+  const resolvedParamIds = useMemo(() => {
+    const ids = Array.isArray(paramAliases) && paramAliases.length
+      ? paramAliases
+      : [paramId];
+    return Array.from(new Set(ids.filter(Boolean)));
+  }, [paramAliases, paramId]);
+  const primaryParamId = resolvedParamIds[0] || paramId;
+  const activeParamId = useMemo(
+    () => findFirstMappedParamId(mappings, resolvedParamIds),
+    [mappings, resolvedParamIds],
+  );
+  const mapping = activeParamId ? mappings?.[activeParamId] : null;
+
+  const clearAliasMappings = useCallback(() => {
+    resolvedParamIds.forEach((id) => {
+      if (id && id !== primaryParamId) {
+        bpm?.clearMapping?.(id);
+      }
+    });
+  }, [bpm, primaryParamId, resolvedParamIds]);
+
+  const commitBpmMapping = useCallback((nextMapping) => {
+    if (!hasBpm || typeof setMapping !== 'function' || !primaryParamId) return;
+    setMapping(primaryParamId, nextMapping);
+    clearAliasMappings();
+  }, [clearAliasMappings, hasBpm, primaryParamId, setMapping]);
   
   // Poll for playhead position when envelope is shown and playing
   useEffect(() => {
@@ -388,7 +477,7 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
     
     let frameId;
     const updatePlayhead = () => {
-      const phase = getPhaseForParam(paramId);
+      const phase = getPhaseForParam(activeParamId || primaryParamId);
       setPlayheadPosition(phase);
       frameId = requestAnimationFrame(updatePlayhead);
     };
@@ -397,14 +486,13 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [hasBpm, showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  }, [hasBpm, showEnvelope, isPlaying, getPhaseForParam, activeParamId, primaryParamId]);
   // Persist envelope open state so remounts don't auto-close it
   useEffect(() => {
     try {
-      window.localStorage.setItem(`bpm-env-open-${paramId}`, showEnvelope ? 'true' : 'false');
+      window.localStorage.setItem(`bpm-env-open-${primaryParamId}`, showEnvelope ? 'true' : 'false');
     } catch { /* ignore */ }
-  }, [showEnvelope, paramId]);
-  const mapping = mappings?.[paramId];
+  }, [showEnvelope, primaryParamId]);
   const isEnabled = mapping?.enabled || false;
   const currentSpeed = mapping?.speed || 1;
   const currentLoopMode = mapping?.loopMode || 'forward';
@@ -421,41 +509,43 @@ const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
       const storedMax = mapping.range.outputMax;
       // If stored range doesn't match parameter's actual range, update it
       if (storedMin !== min || storedMax !== max) {
-        setMapping(paramId, { ...mapping, range: { outputMin: min, outputMax: max } });
+        commitBpmMapping({ ...mapping, range: { outputMin: min, outputMax: max } });
       }
     }
-  }, [hasBpm, paramId, min, max, mapping, setMapping]);
+  }, [hasBpm, min, max, mapping, setMapping, commitBpmMapping]);
   
   const handleToggle = () => {
-    if (!hasBpm || typeof setMapping !== 'function') return;
+    if (!hasBpm || !primaryParamId) return;
     // Always use defaultRange when toggling to ensure correct min/max
     const rangeToUse = defaultRange;
     if (isEnabled) {
-      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
+      commitBpmMapping({ enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
     } else {
-      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
+      commitBpmMapping({ enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
       // Clear MIDI and Audio (mutual exclusivity)
-      if (midi?.clearMapping) midi.clearMapping(paramId);
-      if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+      resolvedParamIds.forEach((id) => {
+        if (midi?.clearMapping) midi.clearMapping(id);
+        if (audio?.setMapping) audio.setMapping(id, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+      });
     }
   };
   
   const handleSpeedChange = (speed) => {
-    if (!hasBpm || typeof setMapping !== 'function') return;
+    if (!hasBpm || !primaryParamId) return;
     // Always use defaultRange to ensure correct min/max for this parameter
-    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange, envelope: currentEnvelope });
+    commitBpmMapping({ enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange, envelope: currentEnvelope });
   };
   
   const handleLoopModeChange = (loopMode) => {
-    if (!hasBpm || typeof setMapping !== 'function') return;
+    if (!hasBpm || !primaryParamId) return;
     // Always use defaultRange to ensure correct min/max for this parameter
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange, envelope: currentEnvelope });
+    commitBpmMapping({ enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange, envelope: currentEnvelope });
   };
   
   const handleEnvelopeChange = (newEnvelope) => {
-    if (!hasBpm || typeof setMapping !== 'function') return;
-    console.debug('[Controls] handleEnvelopeChange', { paramId, newEnvelope });
-    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
+    if (!hasBpm || !primaryParamId) return;
+    console.debug('[Controls] handleEnvelopeChange', { paramId: primaryParamId, newEnvelope });
+    commitBpmMapping({ enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
   };
 
   if (!hasBpm) return null;
@@ -533,11 +623,25 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   } = useMidi() || {};
 
   const enabled = !!currentLayer?.manualMidiColorEnabled;
-  const layerKey = (currentLayer?.name || 'Layer').toString();
-  const idR = `layer:${layerKey}:colorR`;
-  const idG = `layer:${layerKey}:colorG`;
-  const idB = `layer:${layerKey}:colorB`;
-  const idA = `layer:${layerKey}:colorA`;
+  const idRAliases = useMemo(() => buildLayerParamIds(currentLayer, 'colorR'), [currentLayer]);
+  const idGAliases = useMemo(() => buildLayerParamIds(currentLayer, 'colorG'), [currentLayer]);
+  const idBAliases = useMemo(() => buildLayerParamIds(currentLayer, 'colorB'), [currentLayer]);
+  const idAAliases = useMemo(() => buildLayerParamIds(currentLayer, 'colorA'), [currentLayer]);
+  const idR = idRAliases[0] || null;
+  const idG = idGAliases[0] || null;
+  const idB = idBAliases[0] || null;
+  const idA = idAAliases[0] || null;
+
+  const findMappedMidiId = useCallback(
+    (aliases) => findFirstMappedParamId(midiMappings || {}, aliases),
+    [midiMappings],
+  );
+  const clearMidiAliases = useCallback((aliases) => {
+    if (typeof clearMapping !== 'function') return;
+    aliases.forEach((id) => {
+      if (id) clearMapping(id);
+    });
+  }, [clearMapping]);
 
   const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
   const selIdx = Number.isFinite(currentLayer?.selectedColor) ? currentLayer.selectedColor : 0;
@@ -611,13 +715,18 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
               <div>R: {curRGB.r}</div>
               <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]}>Clear</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMidiAliases(idRAliases); }} disabled={!midiSupported || !findMappedMidiId(idRAliases)}>Clear</button>
               </div>
             </div>
             <input type="range" min={0} max={255} step={1} value={curRGB.r} onChange={setChannel('r')} className="dc-slider" />
             <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idR] ? (mappingLabel ? mappingLabel(midiMappings[idR]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idR && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+              MIDI: {(() => {
+                if (!midiSupported) return 'Not supported';
+                const mappedId = findMappedMidiId(idRAliases);
+                if (!mappedId) return 'Not mapped';
+                return mappingLabel ? mappingLabel(midiMappings[mappedId]) : 'Mapped';
+              })()}
+              {idRAliases.includes(learnParamId) && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
           </div>
 
@@ -627,13 +736,18 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
               <div>G: {curRGB.g}</div>
               <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]}>Clear</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMidiAliases(idGAliases); }} disabled={!midiSupported || !findMappedMidiId(idGAliases)}>Clear</button>
               </div>
             </div>
             <input type="range" min={0} max={255} step={1} value={curRGB.g} onChange={setChannel('g')} className="dc-slider" />
             <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idG] ? (mappingLabel ? mappingLabel(midiMappings[idG]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idG && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+              MIDI: {(() => {
+                if (!midiSupported) return 'Not supported';
+                const mappedId = findMappedMidiId(idGAliases);
+                if (!mappedId) return 'Not mapped';
+                return mappingLabel ? mappingLabel(midiMappings[mappedId]) : 'Mapped';
+              })()}
+              {idGAliases.includes(learnParamId) && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
           </div>
 
@@ -643,13 +757,18 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
               <div>B: {curRGB.b}</div>
               <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]}>Clear</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMidiAliases(idBAliases); }} disabled={!midiSupported || !findMappedMidiId(idBAliases)}>Clear</button>
               </div>
             </div>
             <input type="range" min={0} max={255} step={1} value={curRGB.b} onChange={setChannel('b')} className="dc-slider" />
             <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idB] ? (mappingLabel ? mappingLabel(midiMappings[idB]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idB && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+              MIDI: {(() => {
+                if (!midiSupported) return 'Not supported';
+                const mappedId = findMappedMidiId(idBAliases);
+                if (!mappedId) return 'Not mapped';
+                return mappingLabel ? mappingLabel(midiMappings[mappedId]) : 'Mapped';
+              })()}
+              {idBAliases.includes(learnParamId) && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
           </div>
 
@@ -659,13 +778,18 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
               <div>A (Opacity): {Number(currentLayer?.opacity ?? 1).toFixed(3)}</div>
               <div className="dc-actions" style={{ display: 'flex', gap: '0.4rem' }}>
                 <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idA); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idA); }} disabled={!midiSupported || !midiMappings?.[idA]}>Clear</button>
+                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMidiAliases(idAAliases); }} disabled={!midiSupported || !findMappedMidiId(idAAliases)}>Clear</button>
               </div>
             </div>
             <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(currentLayer?.opacity ?? 1)))} onChange={setAlpha} className="dc-slider" />
             <div style={{ fontSize: '0.8rem', opacity: 0.8, marginTop: '0.25rem' }}>
-              MIDI: {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[idA] ? (mappingLabel ? mappingLabel(midiMappings[idA]) : 'Mapped') : 'Not mapped')}
-              {learnParamId === idA && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+              MIDI: {(() => {
+                if (!midiSupported) return 'Not supported';
+                const mappedId = findMappedMidiId(idAAliases);
+                if (!mappedId) return 'Not mapped';
+                return mappingLabel ? mappingLabel(midiMappings[mappedId]) : 'Mapped';
+              })()}
+              {idAAliases.includes(learnParamId) && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
           </div>
         </>
@@ -716,13 +840,24 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 
   const bpm = useBPM();
   const audioReactive = useAudioReactive();
-  const bpmParamId = useMemo(
-    () => `layer:${(currentLayer?.name || 'Layer').toString()}:${id}`,
-    [currentLayer?.name, id],
+  const layerParamIds = useMemo(() => buildLayerParamIds(currentLayer, id), [currentLayer, id]);
+  const primaryLayerParamId = layerParamIds[0] || null;
+  const activeBpmParamId = useMemo(
+    () => findFirstMappedParamId(bpm?.mappings || {}, layerParamIds),
+    [bpm?.mappings, layerParamIds],
   );
-  const bpmMapped = !!bpm?.mappings?.[bpmParamId]?.enabled;
+  const activeAudioParamId = useMemo(
+    () => findFirstMappedParamId(audioReactive?.mappings || {}, layerParamIds),
+    [audioReactive?.mappings, layerParamIds],
+  );
+  const bpmMapped = !!(activeBpmParamId && bpm?.mappings?.[activeBpmParamId]?.enabled);
   const bpmPlaying = !!bpm?.isPlaying;
-  const audioMapped = !!(audioReactive?.mappings?.[bpmParamId] && audioReactive.mappings[bpmParamId].band && audioReactive.mappings[bpmParamId].band !== 'none');
+  const audioMapped = !!(
+    activeAudioParamId
+    && audioReactive?.mappings?.[activeAudioParamId]
+    && audioReactive.mappings[activeAudioParamId].band
+    && audioReactive.mappings[activeAudioParamId].band !== 'none'
+  );
   const audioEnabled = !!audioReactive?.settings?.enabled;
   
   // Note: Audio and BPM modulation is now handled in the animation loop (useAnimation.js)
@@ -1257,8 +1392,8 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           </div>
         </div>
         {/* Audio and BPM controls - always shown in settings panel */}
-        <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
-        <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
+        <AudioRotationStatus paramId={primaryLayerParamId} paramAliases={layerParamIds} min={min} max={max} />
+        <BPMRotationStatus paramId={primaryLayerParamId} paramAliases={layerParamIds} min={min} max={max} />
       </div>
     );
   };
@@ -1771,9 +1906,8 @@ const Controls = forwardRef(({
   // Register per-layer MIDI handler for Palette Index
   useEffect(() => {
     if (!registerParamHandler || !currentLayer) return;
-    const layerKey = (currentLayer?.name || 'Layer').toString();
-    const paramId = `layer:${layerKey}:paletteIndex`;
-    const unregister = registerParamHandler(paramId, ({ value01 }) => {
+    const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex');
+    const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
       const list = automationPalettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
       const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
@@ -1784,21 +1918,28 @@ const Controls = forwardRef(({
       const src = Array.isArray(palette) ? palette : palette?.colors;
       const nextColors = sampleColors(src || [], count);
       applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
-    });
-    return unregister;
+    }));
+    return () => {
+      unsubs.forEach((unsub) => {
+        if (typeof unsub === 'function') unsub();
+      });
+    };
   }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {
     if (!registerParamHandler || !currentLayer) return;
-    const layerKey = (currentLayer?.name || 'Layer').toString();
-    const paramId = `layer:${layerKey}:rotation`;
-    const unregister = registerParamHandler(paramId, ({ value01 }) => {
+    const paramIds = buildLayerParamIds(currentLayer, 'rotation');
+    const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
       const v = -180 + (value01 * 360);
       const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
       applyRotation(wrapped);
-    });
-    return unregister;
+    }));
+    return () => {
+      unsubs.forEach((unsub) => {
+        if (typeof unsub === 'function') unsub();
+      });
+    };
   }, [applyRotation, currentLayer, registerParamHandler]);
 
   return (
