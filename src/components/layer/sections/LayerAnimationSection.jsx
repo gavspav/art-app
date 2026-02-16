@@ -5,6 +5,7 @@ import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 export default function LayerAnimationSection({
   currentLayer,
   editTarget,
+  selectedLayerIndex,
   movementParams,
   DynamicControl: _DynamicControl,
   updateLayer,
@@ -43,6 +44,7 @@ export default function LayerAnimationSection({
                 targetMode={targetMode}
                 editTarget={editTarget}
                 debugSettingsEnabled={debugSettingsEnabled}
+                selectedLayerIndex={selectedLayerIndex}
               />
             </div>
           ))}

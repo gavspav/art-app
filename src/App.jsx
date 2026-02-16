@@ -690,6 +690,13 @@ const MainApp = () => {
     }
   }, [timelineMode, bpmForAnimation?.isPlaying, audioReactive?.settings?.enabled, audioReactive, bpmForAnimation]);
 
+  // When audio is disabled in Free mode, clear audio mod state so layers don't keep stale values.
+  useEffect(() => {
+    if (timelineMode) return;
+    if (audioReactive?.settings?.enabled) return;
+    try { modulationStore?.clearAllMods?.('audio'); } catch { /* noop */ }
+  }, [timelineMode, audioReactive?.settings?.enabled, modulationStore]);
+
   // When timeline playback starts from t=0 and a timeline start preset exists,
   // recall that preset app state before timeline automation is applied.
   const lastTimelinePlayingRef = useRef(false);
@@ -2094,6 +2101,8 @@ const MainApp = () => {
     globalPaletteIndex,
     setGlobalPaletteIndex,
     triggerAudioSpawn,
+    audioMappings: audioReactive?.mappings,
+    parameters,
   });
 
   // Register Audio handlers for individual layer parameters
@@ -2104,6 +2113,8 @@ const MainApp = () => {
     modulationStore,
     palettes,
     parameterTargetMode,
+    audioMappings: audioReactive?.mappings,
+    parameters,
   });
 
   // Centralize all BPM handlers (mirrors MIDI/Audio pattern)

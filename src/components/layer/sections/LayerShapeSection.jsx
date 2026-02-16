@@ -3,16 +3,25 @@ import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
 import RangeSlider from '../../common/RangeSlider.jsx';
 
-const buildLayerParamIds = (layer, paramId) => {
+const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
   const stableLayerKey = String(layer?.id ?? layerNameKey);
   const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
-  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  const aliases = layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  if (Number.isFinite(layerIndex)) {
+    aliases.push(`layer:${Math.max(1, Math.floor(layerIndex) + 1)}:${paramId}`);
+  } else {
+    const nameMatch = /^Layer\s+(\d+)$/i.exec(layerNameKey);
+    if (nameMatch) aliases.push(`layer:${nameMatch[1]}:${paramId}`);
+  }
+  aliases.push(`layer:all:${paramId}`);
+  return Array.from(new Set(aliases.filter(Boolean)));
 };
 
 export default function LayerShapeSection({
   currentLayer,
   editTarget,
+  selectedLayerIndex,
   shapeParams,
   DynamicControl: _DynamicControl,
   updateLayer,
@@ -50,6 +59,7 @@ export default function LayerShapeSection({
               buildTargetSet={buildTargetSet}
               targetMode={targetMode}
               debugSettingsEnabled={debugSettingsEnabled}
+              selectedLayerIndex={selectedLayerIndex}
             />
           </div>
         ))}
@@ -156,7 +166,7 @@ export default function LayerShapeSection({
                   </label>
                 </div>
                 {(() => {
-                  const paramIds = buildLayerParamIds(currentLayer, 'rotation');
+                  const paramIds = buildLayerParamIds(currentLayer, 'rotation', selectedLayerIndex);
                   const paramId = paramIds[0] || null;
                   return (
                     <>

@@ -28,6 +28,7 @@ const TimelineCurveEditor = ({
   onPasteKeyframe,
   onPasteKeyframeToTrack,
   onRerollVariation,
+  onRerollAllVariations,
   hasClipboard = false,
   clipboardTrackType = null,
   clipboardSourceTargetId = null,
@@ -64,6 +65,10 @@ const TimelineCurveEditor = ({
   const selectedMenuKeyframe = useMemo(
     () => keyframes.find(k => k.id === curveMenuKeyframeId) || null,
     [keyframes, curveMenuKeyframeId],
+  );
+  const variationKeyframeCount = useMemo(
+    () => keyframes.filter(k => !!k?.variation).length,
+    [keyframes],
   );
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
@@ -1052,6 +1057,31 @@ const TimelineCurveEditor = ({
                   }}
                 >
                   🎲 Reroll Variation
+                </button>
+              )}
+
+              {/* Reroll all variation keyframes on this track */}
+              {isShapeTrack && variationKeyframeCount > 1 && onRerollAllVariations && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRerollAllVariations();
+                    setShowCurveMenu(false);
+                    setCurveMenuKeyframeId(null);
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ffb74d',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  🎲🎲 Reroll All Variations ({variationKeyframeCount})
                 </button>
               )}
               

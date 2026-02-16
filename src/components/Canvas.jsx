@@ -209,7 +209,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         /*blendMode,*/
         opacity = 1,
         noiseAmount = 0,
+        noiseScale = 1,
         noiseSeed = 1,
+        wobbleSpeed = 1,
+        symmetry,
+        freqJitter = 1,
         // New parameters from old version
         freq1 = 2,
         freq2 = 3,
@@ -229,13 +233,20 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     const x = px, y = py, scale = ps;
     const random = createSeededRandom((Number(globalSeed) || 1) + (Number(noiseSeed) || 0));
     const effectiveNoiseAmount = noiseAmount;
+    const noiseScaleFactor = Math.max(0.01, Number.isFinite(Number(noiseScale)) ? Number(noiseScale) : 1);
+    const wobbleTimeScale = Math.max(0, Number.isFinite(Number(wobbleSpeed)) ? Number(wobbleSpeed) : 1);
+    const jitterScale = Math.max(0, Math.min(1, Number.isFinite(Number(freqJitter)) ? Number(freqJitter) : 1));
 
     // Precompute frequencies and symmetry factor for noise deformation (shared between node and procedural shapes)
-    const actualFreq1 = freq1 + (random() - 0.5) * 3;
-    const actualFreq2 = freq2 + (random() - 0.5) * 3;
-    const actualFreq3 = freq3 + (random() - 0.5) * 30;
+    const actualFreq1 = freq1 + (random() - 0.5) * 3 * jitterScale;
+    const actualFreq2 = freq2 + (random() - 0.5) * 3 * jitterScale;
+    const actualFreq3 = freq3 + (random() - 0.5) * 30 * jitterScale;
     const amplitudeFactor = Math.max(0, Math.min(1, wobble));
-    const symmetryFactor = amplitudeFactor; // preserve existing variable usages
+    const symmetryValue = Number(symmetry);
+    const symmetryFactor = Number.isFinite(symmetryValue)
+      ? Math.max(0, Math.min(1, symmetryValue))
+      : amplitudeFactor;
+    const waveTime = time * wobbleTimeScale;
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
@@ -297,10 +308,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         const baseX = centerX + tx;
         const baseY = centerY + ty;
         const angle = (i / nodes.length) * Math.PI * 2;
+        const harmonicAngle = angle * noiseScaleFactor;
         const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-        const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
-        const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
-        const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+        const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
+        const n2 = Math.cos(harmonicAngle * actualFreq2 - waveTime * 0.5 + phase) * Math.cos(waveTime * 0.3 * amplitudeFactor);
+        const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
         // Canvas-relative deformation
         const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075; // 7.5% of current radius
         const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
@@ -459,14 +471,15 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         for (let i = 0; i < sides; i++) {
             // Build base ellipse point, then rotate by layer rotation (R * S * v)
             const angle = (i / sides) * Math.PI * 2;
+            const harmonicAngle = angle * noiseScaleFactor;
 
             // Phase offset for symmetry control (from old version)
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
 
             // Multi-layered noise
-            const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
-            const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
-            const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+            const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
+            const n2 = Math.cos(harmonicAngle * actualFreq2 - waveTime * 0.5 + phase) * Math.cos(waveTime * 0.3 * amplitudeFactor);
+            const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
 
             // Apply noise to radius in radial direction
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
@@ -962,14 +975,23 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
 
         const wobble = Number(layer.wobble ?? 0.5);
         const amplitudeFactor = Math.max(0, Math.min(1, wobble));
-        const symmetryFactor = amplitudeFactor;
+        const symmetryValue = Number(layer.symmetry);
+        const symmetryFactor = Number.isFinite(symmetryValue)
+          ? Math.max(0, Math.min(1, symmetryValue))
+          : amplitudeFactor;
+        const wobbleSpeed = Number(layer.wobbleSpeed ?? 1);
+        const waveTime = time * Math.max(0, Number.isFinite(wobbleSpeed) ? wobbleSpeed : 1);
+        const rawNoiseScale = Number(layer.noiseScale ?? 1);
+        const noiseScale = Math.max(0.01, Number.isFinite(rawNoiseScale) ? rawNoiseScale : 1);
+        const rawFreqJitter = Number(layer.freqJitter ?? 1);
+        const freqJitter = Math.max(0, Math.min(1, Number.isFinite(rawFreqJitter) ? rawFreqJitter : 1));
         const freq1 = Number(layer.freq1 ?? 2);
         const freq2 = Number(layer.freq2 ?? 3);
         const freq3 = Number(layer.freq3 ?? 4);
         const rnd = createSeededRandom((globalSeedBase || 0) + (Number(layer.noiseSeed) || 0));
-        const actualFreq1 = freq1 + (rnd() - 0.5) * 3;
-        const actualFreq2 = freq2 + (rnd() - 0.5) * 3;
-        const actualFreq3 = freq3 + (rnd() - 0.5) * 30;
+        const actualFreq1 = freq1 + (rnd() - 0.5) * 3 * freqJitter;
+        const actualFreq2 = freq2 + (rnd() - 0.5) * 3 * freqJitter;
+        const actualFreq3 = freq3 + (rnd() - 0.5) * 30 * freqJitter;
         const noiseAmount = Number(layer.noiseAmount ?? 0);
 
         const pts = [];
@@ -984,10 +1006,11 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
             const baseX = centerX + tx;
             const baseY = centerY + ty;
             const angle = (i / count) * Math.PI * 2;
+            const harmonicAngle = angle * noiseScale;
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-            const n1 = Math.sin(angle * actualFreq1 + time + phase) * Math.sin(time * 0.8 * amplitudeFactor);
-            const n2 = Math.cos(angle * actualFreq2 - time * 0.5 + phase) * Math.cos(time * 0.3 * amplitudeFactor);
-            const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
+            const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
+            const n2 = Math.cos(harmonicAngle * actualFreq2 - waveTime * 0.5 + phase) * Math.cos(waveTime * 0.3 * amplitudeFactor);
+            const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
             const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
             const dx = baseX - centerX;
@@ -1514,9 +1537,9 @@ const Canvas = forwardRef(({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
-        // In node edit mode, we need to use `layers` (React state) for node geometry,
-        // but we should preserve animated positions from `layersRef` to avoid position jumps.
-        // Merge: use layers for geometry/nodes, but layersRef for positions.
+        // In node edit mode, preserve the animated/modulated appearance from `layersRef`,
+        // but keep editable geometry (nodes/subpaths + core shape params) from React state
+        // for the selected layer.
         let layersForRender;
         if (isNodeEditMode) {
             const animatedLayers = (layersRef && Array.isArray(layersRef.current)) ? layersRef.current : null;
@@ -1525,22 +1548,59 @@ const Canvas = forwardRef(({
                 animatedLayers.forEach((l, i) => {
                     if (l?.id != null) byId.set(l.id, { layer: l, index: i });
                 });
-                // Merge: use React state layers for editable geometry, but animated positions where available.
+                const selectedIndex = Math.max(
+                    0,
+                    Math.min(
+                        Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0,
+                        Math.max(0, (layers.length || 1) - 1)
+                    )
+                );
+                // Merge strategy:
+                // - Start from animated layer (includes live audio/BPM modulation)
+                // - Keep state metadata (id/name/visibility)
+                // - Override selected layer geometry from React state so node editing remains accurate
                 layersForRender = layers.map((layer, i) => {
                     const byIdHit = layer?.id != null ? byId.get(layer.id) : null;
                     const animated = byIdHit?.layer || animatedLayers[i] || null;
-                    if (!animated || !animated.position) return layer;
-                    return {
-                        ...layer,
+                    if (!animated) return layer;
+
+                    const merged = {
+                        ...animated,
+                        id: layer?.id ?? animated?.id,
+                        name: layer?.name ?? animated?.name,
+                        visible: (typeof layer?.visible === 'boolean') ? layer.visible : animated.visible,
                         position: {
-                            ...layer.position,
-                            x: animated.position.x ?? layer.position?.x ?? 0.5,
-                            y: animated.position.y ?? layer.position?.y ?? 0.5,
-                            scale: animated.position.scale ?? layer.position?.scale ?? 1,
+                            ...(layer?.position || {}),
+                            ...(animated?.position || {}),
+                            x: animated?.position?.x ?? layer?.position?.x ?? 0.5,
+                            y: animated?.position?.y ?? layer?.position?.y ?? 0.5,
+                            scale: animated?.position?.scale ?? layer?.position?.scale ?? 1,
                         },
-                        orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
-                        spinAngle: animated.spinAngle ?? layer.spinAngle,
+                        orbitAngle: animated?.orbitAngle ?? layer?.orbitAngle,
+                        spinAngle: animated?.spinAngle ?? layer?.spinAngle,
                     };
+
+                    if (i === selectedIndex) {
+                        if (Array.isArray(layer?.subpaths) && layer.subpaths.length > 0) {
+                            merged.subpaths = layer.subpaths;
+                            merged.nodes = undefined;
+                        } else if (Array.isArray(layer?.nodes) && layer.nodes.length >= 3) {
+                            merged.nodes = layer.nodes;
+                            merged.subpaths = undefined;
+                            if (typeof layer.syncNodesToNumSides === 'boolean') {
+                                merged.syncNodesToNumSides = layer.syncNodesToNumSides;
+                            }
+                        }
+
+                        if (typeof layer?.numSides !== 'undefined') merged.numSides = layer.numSides;
+                        if (typeof layer?.curviness !== 'undefined') merged.curviness = layer.curviness;
+                        if (typeof layer?.radiusFactor !== 'undefined') merged.radiusFactor = layer.radiusFactor;
+                        if (typeof layer?.radiusFactorX !== 'undefined') merged.radiusFactorX = layer.radiusFactorX;
+                        if (typeof layer?.radiusFactorY !== 'undefined') merged.radiusFactorY = layer.radiusFactorY;
+                        if (typeof layer?.rotation !== 'undefined') merged.rotation = layer.rotation;
+                    }
+
+                    return merged;
                 });
             } else {
                 layersForRender = layers;

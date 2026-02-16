@@ -164,12 +164,23 @@ const ClearMappingsButton = () => {
   const bpm = useBPM();
   
   const audioMappings = audio?.mappings || {};
+  const storedAudioMappings = useMemo(() => {
+    if (typeof audio?.getAudioSnapshot !== 'function') return null;
+    const snapshot = audio.getAudioSnapshot();
+    const snapshotMappings = snapshot?.mappings;
+    if (!snapshotMappings || typeof snapshotMappings !== 'object') return null;
+    return snapshotMappings;
+  }, [audio]);
   const bpmMappings = bpm?.mappings || {};
   const clearAudioMappings = audio?.clearAllMappings;
   const clearBPMMappings = bpm?.clearAllMappings;
   
   // Count total mappings
-  const audioCount = Object.keys(audioMappings).length;
+  const audioCount = storedAudioMappings
+    ? Object.keys(storedAudioMappings).length
+    : Object.values(audioMappings).filter(
+      (mapping) => mapping && typeof mapping === 'object' && mapping.band && mapping.band !== 'none',
+    ).length;
   const bpmCount = Object.keys(bpmMappings).length;
   const totalCount = audioCount + bpmCount;
   
@@ -1055,6 +1066,7 @@ const BottomPanel = ({
               />
               <AudioDemoPresetsSection
                 timelineMode={timelineMode}
+                layers={layers}
                 setEnergyInfluence={setEnergyInfluence}
                 setAudioSpawnEnabled={setAudioSpawnEnabled}
                 setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}

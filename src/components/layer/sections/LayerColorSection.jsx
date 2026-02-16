@@ -2,16 +2,25 @@ import React from 'react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 
-const buildLayerParamIds = (layer, paramId) => {
+const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
   const stableLayerKey = String(layer?.id ?? layerNameKey);
   const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
-  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  const aliases = layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  if (Number.isFinite(layerIndex)) {
+    aliases.push(`layer:${Math.max(1, Math.floor(layerIndex) + 1)}:${paramId}`);
+  } else {
+    const nameMatch = /^Layer\s+(\d+)$/i.exec(layerNameKey);
+    if (nameMatch) aliases.push(`layer:${nameMatch[1]}:${paramId}`);
+  }
+  aliases.push(`layer:all:${paramId}`);
+  return Array.from(new Set(aliases.filter(Boolean)));
 };
 
 export default function LayerColorSection({
   currentLayer,
   editTarget,
+  selectedLayerIndex,
   targetMode,
   updateLayer,
   setLayers,
@@ -216,7 +225,7 @@ export default function LayerColorSection({
                 />
               </div>
               {(() => {
-                const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex');
+                const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex', selectedLayerIndex);
                 const paramId = paramIds[0] || null;
                 const mappedMidiId = paramIds.find(id => midiMappings?.[id]) || null;
                 return (
@@ -313,7 +322,7 @@ export default function LayerColorSection({
                 </div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
                 {(() => {
-                  const paramIds = buildLayerParamIds(currentLayer, 'colorFadeSpeed');
+                  const paramIds = buildLayerParamIds(currentLayer, 'colorFadeSpeed', selectedLayerIndex);
                   const paramId = paramIds[0] || null;
                   return (
                     <>

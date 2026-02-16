@@ -14,6 +14,11 @@ const toNumber = (value, fallback) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 };
+const clamp01 = (value, fallback = 0) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(0, Math.min(1, num));
+};
 const sanitizeHex = (val) => (typeof val === 'string' && /^#([0-9a-fA-F]{6})$/.test(val) ? val : '#000000');
 const lerpColor = (ca, cb, t) => {
   const ra = hexToRgb(sanitizeHex(ca));
@@ -97,8 +102,9 @@ const smoothShapeUpdate = (prev, current, factor) => {
   return result;
 };
 
-// Smoothing factor per frame at ~60fps. 0.35 = shapes reach ~88% of target in 5 frames (~83ms).
-const SHAPE_SMOOTH_FACTOR = 0.35;
+// Base shape smoothing factor per frame at ~60fps.
+const SHAPE_SMOOTH_FACTOR_BASE = 0.35;
+const SHAPE_SMOOTH_FACTOR_MIN = 0.08;
 
 const stripMorphFields = (state) => {
   if (!state || typeof state !== 'object') return state;
@@ -157,9 +163,13 @@ export function useTimelineModulation({
   const energyMapRef = useRef(timeline?.energyMap || { total: [], low: [], mid: [], high: [] });
   const enableEnergyScalingRef = useRef(!!appState.enableEnergyScaling);
   const energyInfluenceRef = useRef(appState.energyInfluence ?? 0.5);
+  const timelineSmoothingRef = useRef(clamp01(timeline?.timelineSmoothing, 0));
+  const timelineDampingRef = useRef(clamp01(timeline?.timelineDamping, 0));
   useEffect(() => { energyMapRef.current = timeline?.energyMap || { total: [], low: [], mid: [], high: [] }; }, [timeline?.energyMap]);
   useEffect(() => { enableEnergyScalingRef.current = !!appState.enableEnergyScaling; }, [appState.enableEnergyScaling]);
   useEffect(() => { energyInfluenceRef.current = appState.energyInfluence ?? 0.5; }, [appState.energyInfluence]);
+  useEffect(() => { timelineSmoothingRef.current = clamp01(timeline?.timelineSmoothing, 0); }, [timeline?.timelineSmoothing]);
+  useEffect(() => { timelineDampingRef.current = clamp01(timeline?.timelineDamping, 0); }, [timeline?.timelineDamping]);
 
   // Refs to avoid re-renders
   const modulationStoreRef = useRef(modulationStore);
@@ -184,8 +194,49 @@ export function useTimelineModulation({
 
   // Previous frame's shape updates for temporal smoothing (reduces jitter between keyframes)
   const prevShapeUpdatesRef = useRef(new Map());
+  // Previous per-layer numeric deltas for optional timeline smoothing.
+  const prevNumericDeltasRef = useRef(new Map());
+  // Track play/pause transitions so pause can hold the exact rendered frame.
+  const wasPlayingRef = useRef(!!timeline?.isPlaying);
   // Guard: last position + tracks ref that triggered shape scrubbing setLayers (avoids redundant calls)
   const lastScrubAppliedRef = useRef({ pos: null, tracksRef: null });
+
+  const processTimelineDelta = useCallback((key, delta, rangeHalf) => {
+    if (!Number.isFinite(delta)) return delta;
+
+    const damping = timelineDampingRef.current;
+    let nextDelta = delta;
+
+    // Compress larger excursions more than smaller ones while preserving sign.
+    if (damping > 0 && Number.isFinite(rangeHalf) && rangeHalf > 1e-9) {
+      const normalized = delta / rangeHalf;
+      const compressed = normalized / (1 + damping * 2 * Math.abs(normalized));
+      nextDelta = compressed * rangeHalf;
+    } else if (damping > 0) {
+      nextDelta = delta * (1 - (damping * 0.67));
+    }
+
+    const smoothing = timelineSmoothingRef.current;
+    if (smoothing > 0) {
+      const prev = prevNumericDeltasRef.current.get(key);
+      const alpha = 1 - (smoothing * 0.92); // 1=no smoothing, ~0.08=max smoothing
+      if (Number.isFinite(prev)) {
+        nextDelta = prev + (nextDelta - prev) * alpha;
+      }
+    }
+
+    prevNumericDeltasRef.current.set(key, nextDelta);
+    return nextDelta;
+  }, []);
+
+  const pruneNumericDeltaCache = useCallback((touchedKeys) => {
+    const touched = touchedKeys || new Set();
+    const cache = prevNumericDeltasRef.current;
+    if (!cache || cache.size === 0) return;
+    for (const key of Array.from(cache.keys())) {
+      if (!touched.has(key)) cache.delete(key);
+    }
+  }, []);
 
   // Layer pool for timeline layersCount modulation - preserves layer IDs when shrinking/growing
   // This prevents tracks from losing their targets when layer count changes during playback
@@ -290,12 +341,28 @@ export function useTimelineModulation({
       if (shapeTrackUpdatesRef) {
         shapeTrackUpdatesRef.current = new Map();
       }
+      prevShapeUpdatesRef.current = new Map();
+      prevNumericDeltasRef.current.clear();
+      wasPlayingRef.current = false;
       return;
     }
 
     const store = modulationStoreRef.current;
 
-    if (!store || !Array.isArray(tracks)) return;
+    if (!store || !Array.isArray(tracks)) {
+      prevNumericDeltasRef.current.clear();
+      return;
+    }
+
+    const justPaused = wasPlayingRef.current && !isPlaying;
+    wasPlayingRef.current = !!isPlaying;
+
+    if (justPaused) {
+      // Hold the exact current rendered frame on pause.
+      // We only apply scrub-preview updates after an explicit seek/scrub.
+      lastScrubAppliedRef.current = { pos: positionSeconds, tracksRef: tracks };
+      return;
+    }
 
     // Clear all timeline modulations first when not playing
     // During playback, RAF loop manages layer params for smoother updates
@@ -306,6 +373,7 @@ export function useTimelineModulation({
     // Evaluate each enabled track
     // Collect shape track results to apply after numeric tracks
     const shapeUpdates = []; // { layerId, nodes, subpaths, position, animation, colors }
+    const touchedNumericKeys = new Set();
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
@@ -402,7 +470,10 @@ export function useTimelineModulation({
         if (!isPlaying) {
           const { outputMin = 0, outputMax = 1 } = track.range || {};
           const midpoint = (outputMin + outputMax) / 2;
-          const delta = value - midpoint;
+          const rangeHalf = Math.abs(outputMax - outputMin) / 2;
+          const cacheKey = `${parsed.layerId}:${parsed.paramId}`;
+          const delta = processTimelineDelta(cacheKey, value - midpoint, rangeHalf);
+          touchedNumericKeys.add(cacheKey);
           store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
         }
       } else if (parsed.type === 'global') {
@@ -879,7 +950,10 @@ export function useTimelineModulation({
           if (!isPlaying) {
             const { outputMin = 0, outputMax = 1 } = virtualTrack.range || {};
             const midpoint = (outputMin + outputMax) / 2;
-            const delta = value - midpoint;
+            const rangeHalf = Math.abs(outputMax - outputMin) / 2;
+            const cacheKey = `${parsed.layerId}:${parsed.paramId}`;
+            const delta = processTimelineDelta(cacheKey, value - midpoint, rangeHalf);
+            touchedNumericKeys.add(cacheKey);
             store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
           }
         } else if (parsed.type === 'global') {
@@ -1070,6 +1144,10 @@ export function useTimelineModulation({
       // Clear if no shape updates
       shapeTrackUpdatesRef.current = new Map();
     }
+
+    if (!isPlaying) {
+      pruneNumericDeltaCache(touchedNumericKeys);
+    }
   }, [
     blendModes,
     palettes,
@@ -1086,6 +1164,8 @@ export function useTimelineModulation({
     isNodeEditMode,
     nodeEditContext,
     timelineMode,
+    processTimelineDelta,
+    pruneNumericDeltaCache,
   ]);
 
   // RAF-based modulation update during playback
@@ -1110,6 +1190,7 @@ export function useTimelineModulation({
 
         // Collect shape track updates
         const shapeUpdates = new Map();
+        const touchedNumericKeys = new Set();
 
         for (const track of tracks) {
           if (!track.enabled || !track.targetId) continue;
@@ -1145,6 +1226,7 @@ export function useTimelineModulation({
             // Timeline mods are additive: compute delta from range midpoint
             const { outputMin = 0, outputMax = 1 } = track.range || {};
             const midpoint = (outputMin + outputMax) / 2;
+            const rangeHalf = Math.abs(outputMax - outputMin) / 2;
             let delta = value - midpoint;
             // Apply energy scaling if enabled: delta is modulated by audio energy
             if (enableEnergyScalingRef.current && delta !== 0) {
@@ -1157,6 +1239,9 @@ export function useTimelineModulation({
                 delta *= eFactor;
               }
             }
+            const cacheKey = `${parsed.layerId}:${parsed.paramId}`;
+            delta = processTimelineDelta(cacheKey, delta, rangeHalf);
+            touchedNumericKeys.add(cacheKey);
             store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
           }
           // Global params are handled by the main effect since they need setters
@@ -1204,6 +1289,7 @@ export function useTimelineModulation({
             if (parsed.type === 'layer') {
               const { outputMin = 0, outputMax = 1 } = virtualTrack.range || {};
               const midpoint = (outputMin + outputMax) / 2;
+              const rangeHalf = Math.abs(outputMax - outputMin) / 2;
               let delta = value - midpoint;
               // Apply energy scaling using parent track's energyBand
               if (enableEnergyScalingRef.current && delta !== 0) {
@@ -1216,6 +1302,9 @@ export function useTimelineModulation({
                   delta *= eFactor;
                 }
               }
+              const cacheKey = `${parsed.layerId}:${parsed.paramId}`;
+              delta = processTimelineDelta(cacheKey, delta, rangeHalf);
+              touchedNumericKeys.add(cacheKey);
               store.setMod('timeline', parsed.layerId, parsed.paramId, delta);
             }
           }
@@ -1227,13 +1316,20 @@ export function useTimelineModulation({
           // Temporal smoothing: lerp toward previous frame to reduce jitter
           const prevMap = prevShapeUpdatesRef.current;
           const smoothedMap = new Map();
+          const smoothing = timelineSmoothingRef.current;
+          const shapeSmoothFactor = (
+            SHAPE_SMOOTH_FACTOR_BASE * (1 - smoothing)
+            + SHAPE_SMOOTH_FACTOR_MIN * smoothing
+          );
           for (const [key, update] of shapeUpdates) {
             const prev = prevMap.get(key);
-            smoothedMap.set(key, prev ? smoothShapeUpdate(prev, update, SHAPE_SMOOTH_FACTOR) : update);
+            smoothedMap.set(key, prev ? smoothShapeUpdate(prev, update, shapeSmoothFactor) : update);
           }
           prevShapeUpdatesRef.current = smoothedMap;
           shapeTrackUpdatesRef.current = smoothedMap;
         }
+
+        pruneNumericDeltaCache(touchedNumericKeys);
       }
 
       rafId = requestAnimationFrame(updateModulations);
@@ -1243,11 +1339,22 @@ export function useTimelineModulation({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [timeline?.isPlaying, timeline?.visible, timeline?.tracks, parseTargetId, shapeTrackUpdatesRef, timelineMode, setBackgroundColor]);
+  }, [
+    timeline?.isPlaying,
+    timeline?.visible,
+    timeline?.tracks,
+    parseTargetId,
+    shapeTrackUpdatesRef,
+    timelineMode,
+    setBackgroundColor,
+    processTimelineDelta,
+    pruneNumericDeltaCache,
+  ]);
 
-  // Clean up timeline modulations when timeline is hidden or stopped
+  // Clean up timeline modulations only when timeline mode/visibility is disabled.
+  // Do NOT clear on pause: paused playback should hold timeline-evaluated state.
   useEffect(() => {
-    if (!timelineMode || !timeline?.visible || !timeline?.isPlaying) {
+    if (!timelineMode || !timeline?.visible) {
       const store = modulationStoreRef.current;
       if (store) {
         store.clearAllMods('timeline');
@@ -1256,11 +1363,13 @@ export function useTimelineModulation({
       if (shapeTrackUpdatesRef) {
         shapeTrackUpdatesRef.current = new Map();
       }
-      // Clear layer pool when timeline stops (fresh start next time)
+      prevShapeUpdatesRef.current = new Map();
+      prevNumericDeltasRef.current.clear();
+      // Clear layer pool when leaving timeline mode/visibility (fresh start next time)
       layerPoolRef.current = [];
       maxLayerCountRef.current = 0;
     }
-  }, [timeline?.visible, timeline?.isPlaying, shapeTrackUpdatesRef, timelineMode]);
+  }, [timeline?.visible, shapeTrackUpdatesRef, timelineMode]);
 
   return {
     parseTargetId,

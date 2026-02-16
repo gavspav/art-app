@@ -32,6 +32,7 @@ const DEFAULT_RANGE = {
 
 export const AUDIO_TRIGGER_SOURCES = ['processed', 'raw'];
 export const AUDIO_TRIGGER_MODES = ['crossUp', 'crossDown', 'both', 'whileAbove'];
+export const AUDIO_TRIGGER_ACTIONS = ['modulate', 'addLayer', 'randomize', 'increase', 'decrease'];
 export const DEFAULT_TRIGGER = {
   enabled: false,
   source: 'processed',
@@ -40,6 +41,7 @@ export const DEFAULT_TRIGGER = {
   fallThreshold: 0.55,
   cooldownMs: 250,
   reverseOnFall: false,
+  action: 'modulate',
 };
 
 const normalizeTriggerConfig = (trigger) => {
@@ -57,6 +59,7 @@ const normalizeTriggerConfig = (trigger) => {
     fallThreshold: fall,
     cooldownMs: Math.max(0, Number.isFinite(Number(trigger.cooldownMs)) ? Number(trigger.cooldownMs) : DEFAULT_TRIGGER.cooldownMs),
     reverseOnFall: !!trigger.reverseOnFall,
+    action: AUDIO_TRIGGER_ACTIONS.includes(trigger.action) ? trigger.action : DEFAULT_TRIGGER.action,
   };
 };
 
@@ -264,6 +267,12 @@ export const AudioProvider = ({ children }) => {
             outputMax: Number.isFinite(Number(range.outputMax)) ? Number(range.outputMax) : 1,
           },
         };
+        // Preserve gain if provided
+        if (Number.isFinite(Number(mapping.gain))) {
+          entry.gain = Math.max(0, Number(mapping.gain));
+        } else if (Number.isFinite(Number(prev[paramId]?.gain))) {
+          entry.gain = prev[paramId].gain;
+        }
         // Preserve mode and modeSettings if provided
         if (mapping.mode && typeof mapping.mode === 'string') {
           entry.mode = mapping.mode;
@@ -372,7 +381,10 @@ export const AudioProvider = ({ children }) => {
         const mapping = mappings[paramId];
         if (!mapping || mapping.band === 'none') return;
 
-        const bandValue = currentFeatures[mapping.band] || 0;
+        const rawBandValue = currentFeatures[mapping.band] || 0;
+        // Apply per-mapping gain (default 1.0)
+        const gain = Number.isFinite(Number(mapping.gain)) ? Math.max(0, Number(mapping.gain)) : 1;
+        const bandValue = Math.min(1, rawBandValue * gain);
         
         // Apply mode processing if a non-direct mode is set
         const mode = mapping.mode || 'direct';
@@ -492,14 +504,16 @@ export const AudioProvider = ({ children }) => {
             fn({
               value01: mappedValue,
               band: mapping.band,
-              raw: bandValue,
+              raw: rawBandValue,
               processed: processedValue,
+              gain,
               triggered,
               triggerDirection,
               triggerActive,
               triggerSourceValue,
               triggerMode: triggerEnabled ? triggerCfg.mode : null,
               triggerReverseOnFall: triggerEnabled ? !!triggerCfg.reverseOnFall : false,
+              triggerAction: triggerEnabled ? (triggerCfg.action || 'modulate') : null,
             });
           } catch { /* noop */ }
         });
@@ -685,6 +699,7 @@ export const AudioProvider = ({ children }) => {
     DEFAULT_MODE_SETTINGS,
     AUDIO_TRIGGER_SOURCES,
     AUDIO_TRIGGER_MODES,
+    AUDIO_TRIGGER_ACTIONS,
     DEFAULT_TRIGGER,
   }), [
     isActive,

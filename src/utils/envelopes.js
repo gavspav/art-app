@@ -161,7 +161,14 @@ export const evaluateEnvelope = (envelope, x) => {
 export const evaluateTrackAtTime = (track, timeSeconds) => {
   if (!track?.keyframes || track.keyframes.length === 0) return null;
 
-  const keyframes = track.keyframes;
+  const keyframes = [...track.keyframes]
+    .filter(kf => (
+      kf &&
+      Number.isFinite(Number(kf.timeSeconds)) &&
+      Number.isFinite(Number(kf.value01))
+    ))
+    .sort((a, b) => a.timeSeconds - b.timeSeconds);
+  if (keyframes.length === 0) return null;
 
   // Single keyframe: return its value
   if (keyframes.length === 1) {
@@ -288,7 +295,10 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   const categories = { ...(track.categories || { shape: true, animation: false, color: true }), color: true };
 
   // Sort by time (should already be sorted, but ensure)
-  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  const sorted = [...keyframes]
+    .filter(kf => kf && Number.isFinite(Number(kf.timeSeconds)))
+    .sort((a, b) => a.timeSeconds - b.timeSeconds);
+  if (sorted.length === 0) return null;
 
   const isEnabled = (kf) => kf && kf.enabled !== false;
 
@@ -405,15 +415,15 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
 
     // Topology mismatch: hold previous keyframe's shape
     if (!result.nodes && !result.subpaths) {
-      result.nodes = left.nodes;
-      result.subpaths = left.subpaths;
+      result.nodes = left.nodes || right.nodes || null;
+      result.subpaths = left.subpaths || right.subpaths || null;
     }
   }
 
   // Always interpolate position (for shape screen position)
   if (left.position || right.position) {
-    const posA = left.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
-    const posB = right.position || posA;
+    const posA = left.position || right.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
+    const posB = right.position || left.position || posA;
 
     result.position = {
       x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
@@ -426,8 +436,8 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
 
   // Always interpolate shape params (Layer Shape Tab: Sides, Curviness, Size, Size X, Size Y, Rotate)
   if (left.shapeParams || right.shapeParams) {
-    const spA = left.shapeParams || {};
-    const spB = right.shapeParams || spA;
+    const spA = left.shapeParams || right.shapeParams || {};
+    const spB = right.shapeParams || left.shapeParams || spA;
 
     result.shapeParams = {
       // numSides: interpolate but round to integer for rendering
@@ -442,8 +452,8 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
 
   // Interpolate animation parameters (always if data exists — category toggles control application, not storage)
   if (left.animation || right.animation) {
-    const animA = left.animation || {};
-    const animB = right.animation || animA;
+    const animA = left.animation || right.animation || {};
+    const animB = right.animation || left.animation || animA;
 
     result.animation = {
       // movementStyle: use left's style (discrete, no interpolation)
@@ -501,29 +511,31 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   // This enables runtime energy blending: final = lerp(base, varied, energy * influence)
   const leftBase = left.base;
   const rightBase = right.base;
-  if (leftBase && rightBase) {
+  if (leftBase || rightBase) {
+    const baseA = leftBase || rightBase;
+    const baseB = rightBase || leftBase || baseA;
     result.base = { nodes: null, subpaths: null };
 
     // Interpolate base shape
     if (categories.shape) {
-      if (leftBase.subpaths && rightBase.subpaths && lerpSubpaths) {
-        const interpolated = lerpSubpaths(leftBase.subpaths, rightBase.subpaths, clampedT);
+      if (baseA.subpaths && baseB.subpaths && lerpSubpaths) {
+        const interpolated = lerpSubpaths(baseA.subpaths, baseB.subpaths, clampedT);
         if (interpolated) result.base.subpaths = interpolated;
       }
-      if (!result.base.subpaths && leftBase.nodes && rightBase.nodes && lerpNodes) {
-        const interpolated = lerpNodes(leftBase.nodes, rightBase.nodes, clampedT);
+      if (!result.base.subpaths && baseA.nodes && baseB.nodes && lerpNodes) {
+        const interpolated = lerpNodes(baseA.nodes, baseB.nodes, clampedT);
         if (interpolated) result.base.nodes = interpolated;
       }
       if (!result.base.nodes && !result.base.subpaths) {
-        result.base.nodes = leftBase.nodes;
-        result.base.subpaths = leftBase.subpaths;
+        result.base.nodes = baseA.nodes || baseB.nodes || null;
+        result.base.subpaths = baseA.subpaths || baseB.subpaths || null;
       }
     }
 
     // Interpolate base position
-    if (leftBase.position || rightBase.position) {
-      const bpA = leftBase.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
-      const bpB = rightBase.position || bpA;
+    if (baseA.position || baseB.position) {
+      const bpA = baseA.position || baseB.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
+      const bpB = baseB.position || baseA.position || bpA;
       result.base.position = {
         x: lerp(bpA.x ?? 0.5, bpB.x ?? 0.5, easedT),
         y: lerp(bpA.y ?? 0.5, bpB.y ?? 0.5, easedT),
@@ -534,9 +546,9 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     }
 
     // Interpolate base shape params
-    if (leftBase.shapeParams || rightBase.shapeParams) {
-      const bsA = leftBase.shapeParams || {};
-      const bsB = rightBase.shapeParams || bsA;
+    if (baseA.shapeParams || baseB.shapeParams) {
+      const bsA = baseA.shapeParams || baseB.shapeParams || {};
+      const bsB = baseB.shapeParams || baseA.shapeParams || bsA;
       result.base.shapeParams = {
         numSides: Math.round(lerp(bsA.numSides ?? 6, bsB.numSides ?? 6, easedT)),
         curviness: lerp(bsA.curviness ?? 1.0, bsB.curviness ?? 1.0, easedT),
@@ -548,9 +560,9 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     }
 
     // Interpolate base animation
-    if (categories.animation && (leftBase.animation || rightBase.animation)) {
-      const baA = leftBase.animation || {};
-      const baB = rightBase.animation || baA;
+    if (categories.animation && (baseA.animation || baseB.animation)) {
+      const baA = baseA.animation || baseB.animation || {};
+      const baB = baseB.animation || baseA.animation || baA;
       result.base.animation = {
         movementStyle: baA.movementStyle ?? baB.movementStyle ?? 'bounce',
         movementSpeed: lerp(baA.movementSpeed ?? 1, baB.movementSpeed ?? 1, easedT),
@@ -564,10 +576,10 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     }
 
     // Interpolate base colors
-    if (categories.color && Array.isArray(leftBase.colors) && Array.isArray(rightBase.colors)) {
-      result.base.colors = lerpColorArrays(leftBase.colors, rightBase.colors, easedT);
-    } else if (leftBase.colors) {
-      result.base.colors = [...leftBase.colors];
+    if (categories.color && (Array.isArray(baseA.colors) || Array.isArray(baseB.colors))) {
+      result.base.colors = lerpColorArrays(baseA.colors || [], baseB.colors || [], easedT);
+    } else if (baseA.colors) {
+      result.base.colors = [...baseA.colors];
     }
   }
 
@@ -596,7 +608,10 @@ export const evaluateColorTrackAtTime = (track, timeSeconds) => {
   if (keyframes.length === 0) return null;
 
   // Sort by time
-  const sorted = [...keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+  const sorted = [...keyframes]
+    .filter(kf => kf && Number.isFinite(Number(kf.timeSeconds)))
+    .sort((a, b) => a.timeSeconds - b.timeSeconds);
+  if (sorted.length === 0) return null;
 
   // Before first keyframe: use first keyframe's color
   if (timeSeconds <= sorted[0].timeSeconds) {
@@ -680,7 +695,7 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
   // Sort by time; ignore malformed keyframes (e.g. numeric keyframes accidentally added to a globalShape track)
   const sorted = [...keyframes]
-    .filter(kf => kf && Array.isArray(kf.layers))
+    .filter(kf => kf && Array.isArray(kf.layers) && Number.isFinite(Number(kf.timeSeconds)))
     .sort((a, b) => a.timeSeconds - b.timeSeconds);
   if (sorted.length === 0) return null;
 
@@ -763,8 +778,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
   const interpolatedLayers = [];
 
   for (let i = 0; i < maxLayers; i++) {
-    const layerA = leftLayers[i] || {};
-    const layerB = rightLayers[i] || layerA;
+    const layerA = leftLayers[i] || rightLayers[i] || {};
+    const layerB = rightLayers[i] || leftLayers[i] || layerA;
 
     const result = {
       nodes: null,
@@ -789,15 +804,15 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
       // Topology mismatch: hold previous
       if (!result.nodes && !result.subpaths) {
-        result.nodes = layerA.nodes;
-        result.subpaths = layerA.subpaths;
+        result.nodes = layerA.nodes || layerB.nodes || null;
+        result.subpaths = layerA.subpaths || layerB.subpaths || null;
       }
     }
 
     // Interpolate position
     if (layerA.position || layerB.position) {
-      const posA = layerA.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
-      const posB = layerB.position || posA;
+      const posA = layerA.position || layerB.position || { x: 0.5, y: 0.5, scale: 1, xOffset: 0, yOffset: 0 };
+      const posB = layerB.position || layerA.position || posA;
 
       result.position = {
         x: lerp(posA.x ?? 0.5, posB.x ?? 0.5, easedT),
@@ -810,8 +825,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
     // Interpolate shape params
     if (layerA.shapeParams || layerB.shapeParams) {
-      const spA = layerA.shapeParams || {};
-      const spB = layerB.shapeParams || spA;
+      const spA = layerA.shapeParams || layerB.shapeParams || {};
+      const spB = layerB.shapeParams || layerA.shapeParams || spA;
 
       result.shapeParams = {
         numSides: Math.round(lerp(spA.numSides ?? 6, spB.numSides ?? 6, easedT)),
@@ -825,8 +840,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
     // Interpolate animation (always if data exists — category toggles control application, not storage)
     if (layerA.animation || layerB.animation) {
-      const animA = layerA.animation || {};
-      const animB = layerB.animation || animA;
+      const animA = layerA.animation || layerB.animation || {};
+      const animB = layerB.animation || layerA.animation || animA;
 
       result.animation = {
         movementStyle: animA.movementStyle ?? animB.movementStyle ?? 'bounce',
@@ -845,8 +860,12 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
     // Interpolate base properties if present (for runtime variation scaling)
     if (layerA.base || layerB.base) {
-      const baseA = layerA.base || layerA; // Fallback to main if base missing? No, fallback to empty/undefined to avoid double-processing
-      const baseB = layerB.base || layerB;
+      const baseA = layerA.base || layerB.base || null;
+      const baseB = layerB.base || layerA.base || baseA;
+      if (!baseA || !baseB) {
+        interpolatedLayers.push(result);
+        continue;
+      }
 
       const baseResult = {
         nodes: null,
@@ -868,15 +887,15 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
           if (interpolated) baseResult.nodes = interpolated;
         }
         if (!baseResult.nodes && !baseResult.subpaths) {
-          baseResult.nodes = baseA.nodes;
-          baseResult.subpaths = baseA.subpaths;
+          baseResult.nodes = baseA.nodes || baseB.nodes || null;
+          baseResult.subpaths = baseA.subpaths || baseB.subpaths || null;
         }
       }
 
       // Interpolate base position
       if (baseA.position || baseB.position) {
-        const pA = baseA.position || { x: 0.5, y: 0.5, scale: 1 };
-        const pB = baseB.position || pA;
+        const pA = baseA.position || baseB.position || { x: 0.5, y: 0.5, scale: 1 };
+        const pB = baseB.position || baseA.position || pA;
         baseResult.position = {
           x: lerp(pA.x ?? 0.5, pB.x ?? 0.5, easedT),
           y: lerp(pA.y ?? 0.5, pB.y ?? 0.5, easedT),
@@ -888,8 +907,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
       // Interpolate base shape params
       if (baseA.shapeParams || baseB.shapeParams) {
-        const sA = baseA.shapeParams || {};
-        const sB = baseB.shapeParams || sA;
+        const sA = baseA.shapeParams || baseB.shapeParams || {};
+        const sB = baseB.shapeParams || baseA.shapeParams || sA;
         baseResult.shapeParams = {
           numSides: Math.round(lerp(sA.numSides ?? 6, sB.numSides ?? 6, easedT)),
           curviness: lerp(sA.curviness ?? 1.0, sB.curviness ?? 1.0, easedT),
@@ -902,8 +921,8 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
 
       // Interpolate base animation
       if (categories.animation && (baseA.animation || baseB.animation)) {
-        const aA = baseA.animation || {};
-        const aB = baseB.animation || aA;
+        const aA = baseA.animation || baseB.animation || {};
+        const aB = baseB.animation || baseA.animation || aA;
         baseResult.animation = {
           movementStyle: aA.movementStyle ?? aB.movementStyle ?? 'bounce',
           movementSpeed: lerp(aA.movementSpeed ?? 1, aB.movementSpeed ?? 1, easedT),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 /**
@@ -39,6 +39,10 @@ export function useAudioHandlers({
   setGlobalPaletteIndex,
   // Optional spawn trigger hook
   triggerAudioSpawn,
+  // Current audio mapping definitions (for range normalization)
+  audioMappings = {},
+  // Parameter metadata (min/max/random range handles)
+  parameters = [],
 }) {
   const blendModeStateRef = useRef({ index: -1, lastChangeMs: 0 });
   const paletteStateRef = useRef({ index: -1, lastChangeMs: 0 });
@@ -47,6 +51,53 @@ export function useAudioHandlers({
   const layersCountStateRef = useRef({ count: null, lastChangeMs: 0 });
   const latestLayerCountRef = useRef(Array.isArray(layers) ? layers.length : 1);
   const movementPulseStateRef = useRef({ active: false, layerId: null, baseSpeed: null });
+  const audioMappingsRef = useRef(audioMappings);
+  audioMappingsRef.current = audioMappings;
+
+  const parameterBoundsById = useMemo(() => {
+    const map = new Map();
+    if (!Array.isArray(parameters)) return map;
+    parameters.forEach((param) => {
+      const id = typeof param?.id === 'string' ? param.id : null;
+      if (!id) return;
+      const randomMin = Number(param?.randomMin);
+      const randomMax = Number(param?.randomMax);
+      const fallbackMin = Number(param?.min);
+      const fallbackMax = Number(param?.max);
+      const min = Number.isFinite(randomMin) ? randomMin : fallbackMin;
+      const max = Number.isFinite(randomMax) ? randomMax : fallbackMax;
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return;
+      map.set(id, { min, max });
+    });
+    return map;
+  }, [parameters]);
+
+  const getBounds = useCallback((paramId, fallbackMin, fallbackMax) => {
+    const bounds = parameterBoundsById.get(paramId);
+    const min = Number.isFinite(bounds?.min) ? bounds.min : fallbackMin;
+    const max = Number.isFinite(bounds?.max) ? bounds.max : fallbackMax;
+    const lo = Math.min(min, max);
+    const hi = Math.max(min, max);
+    return { min: lo, max: hi };
+  }, [parameterBoundsById]);
+
+  const projectToBounds = useCallback((paramId, value, fallbackMin, fallbackMax) => {
+    const { min, max } = getBounds(paramId, fallbackMin, fallbackMax);
+    if (!Number.isFinite(value)) return min;
+
+    const mapping = (audioMappingsRef.current && typeof audioMappingsRef.current === 'object')
+      ? audioMappingsRef.current[paramId]
+      : null;
+    const outMin = Number(mapping?.range?.outputMin);
+    const outMax = Number(mapping?.range?.outputMax);
+    if (Number.isFinite(outMin) && Number.isFinite(outMax) && Math.abs(outMax - outMin) > 1e-9) {
+      const normalized = (value - outMin) / (outMax - outMin);
+      const n = Math.max(0, Math.min(1, normalized));
+      return min + n * (max - min);
+    }
+
+    return Math.max(min, Math.min(max, value));
+  }, [getBounds]);
 
   const applyPaletteByIndex = useCallback((targetIndex) => {
     const list = Array.isArray(palettes) ? palettes : [];
@@ -80,11 +131,12 @@ export function useAudioHandlers({
   }, [globalPaletteIndex, palettes]);
 
   useEffect(() => {
-    const currentCount = Math.max(1, Math.min(20, Number.isFinite(layers?.length) ? layers.length : 1));
+    const { min, max } = getBounds('layersCount', 1, 400);
+    const currentCount = Math.max(min, Math.min(max, Number.isFinite(layers?.length) ? layers.length : 1));
     latestLayerCountRef.current = currentCount;
     const state = layersCountStateRef.current;
     state.count = currentCount;
-  }, [layers?.length]);
+  }, [getBounds, layers?.length]);
 
   // Randomize All (rising-edge trigger)
   useEffect(() => {
@@ -113,27 +165,27 @@ export function useAudioHandlers({
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('globalSpeedMultiplier', ({ value01 }) => {
       // value01 is already the final value from range mapping, just clamp to valid range
-      const clamped = Math.max(0, Math.min(5, value01));
+      const clamped = projectToBounds('globalSpeedMultiplier', value01, 0, 5);
       setGlobalSpeedMultiplier?.(+clamped.toFixed(2));
     });
     return unregister;
-  }, [registerAudioHandler, setGlobalSpeedMultiplier]);
+  }, [projectToBounds, registerAudioHandler, setGlobalSpeedMultiplier]);
 
   // Global Opacity for all layers - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('globalOpacity', ({ value01 }) => {
-      const clamped = Math.max(0, Math.min(1, value01));
+      const clamped = projectToBounds('globalOpacity', value01, 0, 1);
       setLayers?.(prev => prev.map(l => ({ ...l, opacity: clamped })));
     });
     return unregister;
-  }, [registerAudioHandler, setLayers]);
+  }, [projectToBounds, registerAudioHandler, setLayers]);
 
   // Legacy Layer Variation - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('variation', ({ value01 }) => {
-      const clamped = Math.max(0, Math.min(3, value01));
+      const clamped = projectToBounds('variation', value01, 0, 3);
       const mapped = +clamped.toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { 
         ...l, 
@@ -145,25 +197,25 @@ export function useAudioHandlers({
       } : l)));
     });
     return unregister;
-  }, [registerAudioHandler, setLayers]);
+  }, [projectToBounds, registerAudioHandler, setLayers]);
 
   // Split variations - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const u0 = registerAudioHandler('variationPosition', ({ value01 }) => {
-      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
+      const mapped = +projectToBounds('variationPosition', value01, 0, 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: mapped } : l)));
     });
     const u1 = registerAudioHandler('variationShape', ({ value01 }) => {
-      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
+      const mapped = +projectToBounds('variationShape', value01, 0, 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: mapped } : l)));
     });
     const u2 = registerAudioHandler('variationAnim', ({ value01 }) => {
-      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
+      const mapped = +projectToBounds('variationAnim', value01, 0, 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: mapped } : l)));
     });
     const u3 = registerAudioHandler('variationColor', ({ value01 }) => {
-      const mapped = +Math.max(0, Math.min(3, value01)).toFixed(2);
+      const mapped = +projectToBounds('variationColor', value01, 0, 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: mapped } : l)));
     });
     return () => {
@@ -172,17 +224,17 @@ export function useAudioHandlers({
       if (typeof u2 === 'function') u2();
       if (typeof u3 === 'function') u3();
     };
-  }, [registerAudioHandler, setLayers]);
+  }, [projectToBounds, registerAudioHandler, setLayers]);
 
   // variationScale - value01 is already mapped to output range
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('variationScale', ({ value01 }) => {
-      const mapped = +Math.max(-3, Math.min(3, value01)).toFixed(2);
+      const mapped = +projectToBounds('variationScale', value01, -3, 3).toFixed(2);
       setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationScale: mapped } : l)));
     });
     return unregister;
-  }, [registerAudioHandler, setLayers]);
+  }, [projectToBounds, registerAudioHandler, setLayers]);
 
   // Global Blend Mode (dropdown over blendModes) - use raw 0-1 for index lookup
   useEffect(() => {
@@ -218,7 +270,9 @@ export function useAudioHandlers({
   useEffect(() => {
     if (!registerAudioHandler) return;
     const unregister = registerAudioHandler('layersCount', ({ value01 }) => {
-      const target = Math.max(1, Math.min(20, Math.round(value01)));
+      const { min, max } = getBounds('layersCount', 1, 400);
+      const bounded = projectToBounds('layersCount', value01, min, max);
+      const target = Math.max(min, Math.min(max, Math.round(bounded)));
       const state = layersCountStateRef.current;
       const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
         ? performance.now()
@@ -228,7 +282,7 @@ export function useAudioHandlers({
       if (target === current) return;
       if ((now - state.lastChangeMs) < minStepMs) return;
       const step = target > current ? 1 : -1;
-      const nextCount = Math.max(1, Math.min(20, current + step));
+      const nextCount = Math.max(min, Math.min(max, current + step));
       state.count = nextCount;
       state.lastChangeMs = now;
 
@@ -262,7 +316,7 @@ export function useAudioHandlers({
       setSelectedLayerIndex?.(Math.max(0, Math.min(selected, nextCount - 1)));
     });
     return unregister;
-  }, [DEFAULT_LAYER, buildVariedLayerFrom, clampedSelectedIndex, registerAudioHandler, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, buildVariedLayerFrom, clampedSelectedIndex, getBounds, projectToBounds, registerAudioHandler, setLayers, setSelectedLayerIndex]);
 
   // Background Color (RGB) - use raw 0-1 for color channel mapping
   useEffect(() => {
@@ -503,4 +557,102 @@ export function useAudioHandlers({
 
     return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
   }, [registerAudioHandler, setLayers, layers]);
+
+  // Universal trigger action handlers for all catalog parameters.
+  // When a mapping's trigger fires with a non-modulate action (addLayer, randomize,
+  // increase, decrease), this handler performs the action regardless of which param
+  // the trigger is attached to. Multiple handlers per paramId are supported (Set).
+  const triggerActionLastMs = useRef({});
+
+  const speedRef = useRef(1);
+
+  const paramStepConfig = useMemo(() => ({
+    globalSpeedMultiplier: {
+      applyDelta: (delta) => {
+        const cur = Number.isFinite(speedRef.current) ? speedRef.current : 1;
+        const next = Math.max(0, Math.min(5, +(cur + delta).toFixed(3)));
+        speedRef.current = next;
+        setGlobalSpeedMultiplier?.(next);
+      },
+      step: 0.15,
+    },
+    globalOpacity: { setViaLayers: (delta) => setLayers?.(prev => prev.map(l => ({ ...l, opacity: Math.max(0, Math.min(1, (l.opacity ?? 1) + delta)) }))), step: 0.08 },
+    layersCount: { isCount: true, step: 1, min: 1, max: 400 },
+    variationShape: { setViaLayers: (delta) => setLayers?.(prev => prev.map((l, i) => i === 0 ? { ...l, variationShape: Math.max(0, Math.min(3, (l.variationShape ?? 0) + delta)) } : l)), step: 0.25 },
+    variationAnim: { setViaLayers: (delta) => setLayers?.(prev => prev.map((l, i) => i === 0 ? { ...l, variationAnim: Math.max(0, Math.min(3, (l.variationAnim ?? 0) + delta)) } : l)), step: 0.25 },
+    variationColor: { setViaLayers: (delta) => setLayers?.(prev => prev.map((l, i) => i === 0 ? { ...l, variationColor: Math.max(0, Math.min(3, (l.variationColor ?? 0) + delta)) } : l)), step: 0.25 },
+    variationScale: { setViaLayers: (delta) => setLayers?.(prev => prev.map((l, i) => i === 0 ? { ...l, variationScale: Math.max(-3, Math.min(3, (l.variationScale ?? 0) + delta)) } : l)), step: 0.25 },
+    variationPosition: { setViaLayers: (delta) => setLayers?.(prev => prev.map((l, i) => i === 0 ? { ...l, variationPosition: Math.max(0, Math.min(3, (l.variationPosition ?? 0) + delta)) } : l)), step: 0.25 },
+  }), [setGlobalSpeedMultiplier, setLayers]);
+
+  useEffect(() => {
+    if (!registerAudioHandler) return;
+    const unsubs = [];
+    const catalogIds = [
+      'globalSpeedMultiplier', 'globalOpacity', 'globalBlendMode', 'globalPaletteIndex',
+      'layersCount', 'backgroundColorR', 'backgroundColorG', 'backgroundColorB',
+      'variationShape', 'variationAnim', 'variationColor', 'variationScale',
+      'variationPosition', 'variation', 'randomizeAll',
+      'triggerPaletteStep', 'triggerSpawnLayer', 'triggerMovementPulse',
+    ];
+
+    catalogIds.forEach(paramId => {
+      unsubs.push(registerAudioHandler(paramId, ({ triggered, triggerAction, triggerDirection }) => {
+        if (!triggered || !triggerAction || triggerAction === 'modulate') return;
+        const now = performance.now();
+        const last = triggerActionLastMs.current[paramId] || 0;
+        if (now - last < 200) return;
+        triggerActionLastMs.current[paramId] = now;
+
+        switch (triggerAction) {
+          case 'addLayer':
+            if (typeof triggerAudioSpawn === 'function') {
+              triggerAudioSpawn(triggerDirection === 'down' ? 'despawn' : 'spawn');
+            } else {
+              setLayers?.(prev => {
+                if (!Array.isArray(prev)) return prev;
+                const base = prev[prev.length - 1] || DEFAULT_LAYER;
+                const nl = buildVariedLayerFrom?.(base, prev.length + 1, {}) || { ...DEFAULT_LAYER };
+                nl.layerType = 'shape';
+                return [...prev, nl].map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+              });
+            }
+            break;
+          case 'randomize':
+            handleRandomizeAll?.();
+            break;
+          case 'increase':
+          case 'decrease': {
+            const cfg = paramStepConfig[paramId];
+            if (!cfg) break;
+            const sign = triggerAction === 'increase' ? 1 : -1;
+            const delta = (cfg.step || 0.1) * sign;
+            if (cfg.isCount) {
+              setLayers?.(prev => {
+                if (!Array.isArray(prev)) return prev;
+                const target = Math.max(cfg.min || 1, Math.min(cfg.max || 20, prev.length + (sign > 0 ? 1 : -1)));
+                if (target === prev.length) return prev;
+                if (target > prev.length) {
+                  const base = prev[prev.length - 1] || DEFAULT_LAYER;
+                  const nl = buildVariedLayerFrom?.(base, prev.length + 1, {}) || { ...DEFAULT_LAYER };
+                  nl.layerType = 'shape';
+                  return [...prev, nl].map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+                }
+                return prev.slice(0, target).map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+              });
+            } else if (typeof cfg.applyDelta === 'function') {
+              cfg.applyDelta(delta);
+            } else if (typeof cfg.setViaLayers === 'function') {
+              cfg.setViaLayers(delta);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      }));
+    });
+
+    return () => { unsubs.forEach(u => { if (typeof u === 'function') u(); }); };
+  }, [registerAudioHandler, triggerAudioSpawn, handleRandomizeAll, setLayers, DEFAULT_LAYER, buildVariedLayerFrom, paramStepConfig]);
 }

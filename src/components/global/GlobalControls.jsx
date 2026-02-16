@@ -685,14 +685,49 @@ const GlobalControls = ({
   const [variationScaleStep, setVariationScaleStep] = useState(varScaleRange.step);
 
   // Wrapper functions that update both local state and parameter context
+  const syncAudioMappingRangeToParam = useCallback((paramId, outputMin, outputMax) => {
+    const setAudioMapping = audioContext?.setMapping;
+    const mapping = audioContext?.mappings?.[paramId];
+    if (typeof setAudioMapping !== 'function') return;
+    if (!mapping || mapping.band === 'none') return;
+    const nextMin = Number(outputMin);
+    const nextMax = Number(outputMax);
+    if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax)) return;
+    const curMin = Number(mapping?.range?.outputMin);
+    const curMax = Number(mapping?.range?.outputMax);
+    if (Number.isFinite(curMin) && Number.isFinite(curMax) && curMin === nextMin && curMax === nextMax) {
+      return;
+    }
+    setAudioMapping(paramId, {
+      band: mapping.band,
+      range: { outputMin: nextMin, outputMax: nextMax },
+      ...(Number.isFinite(Number(mapping?.gain)) ? { gain: Number(mapping.gain) } : {}),
+      ...(mapping?.mode ? { mode: mapping.mode } : {}),
+      ...(mapping?.modeSettings ? { modeSettings: mapping.modeSettings } : {}),
+      ...(mapping?.trigger ? { trigger: mapping.trigger } : {}),
+    });
+  }, [audioContext]);
+
   const setSpeedMin = useCallback((v) => { setSpeedMinState(v); syncRangeToParam('globalSpeedMultiplier', 'randomMin', v); }, [syncRangeToParam]);
   const setSpeedMax = useCallback((v) => { setSpeedMaxState(v); syncRangeToParam('globalSpeedMultiplier', 'randomMax', v); }, [syncRangeToParam]);
 
   const setOpacityMin = useCallback((v) => { setOpacityMinState(v); syncRangeToParam('globalOpacity', 'randomMin', v); }, [syncRangeToParam]);
   const setOpacityMax = useCallback((v) => { setOpacityMaxState(v); syncRangeToParam('globalOpacity', 'randomMax', v); }, [syncRangeToParam]);
 
-  const setLayersMin = useCallback((v) => { setLayersMinState(v); syncRangeToParam('layersCount', 'randomMin', v); }, [syncRangeToParam]);
-  const setLayersMax = useCallback((v) => { setLayersMaxState(v); syncRangeToParam('layersCount', 'randomMax', v); }, [syncRangeToParam]);
+  const setLayersMin = useCallback((v) => {
+    const next = Math.max(1, Math.round(Number(v) || 1));
+    const pairedMax = Math.max(next, Math.round(Number(layersMax) || next));
+    setLayersMinState(next);
+    syncRangeToParam('layersCount', 'randomMin', next);
+    syncAudioMappingRangeToParam('layersCount', next, pairedMax);
+  }, [layersMax, syncAudioMappingRangeToParam, syncRangeToParam]);
+  const setLayersMax = useCallback((v) => {
+    const next = Math.max(1, Math.round(Number(v) || 1));
+    const pairedMin = Math.min(next, Math.round(Number(layersMin) || next));
+    setLayersMaxState(next);
+    syncRangeToParam('layersCount', 'randomMax', next);
+    syncAudioMappingRangeToParam('layersCount', pairedMin, next);
+  }, [layersMin, syncAudioMappingRangeToParam, syncRangeToParam]);
 
   const setVariationPositionMin = useCallback((v) => { setVariationPositionMinState(v); syncRangeToParam('variationPosition', 'randomMin', v); }, [syncRangeToParam]);
   const setVariationPositionMax = useCallback((v) => { setVariationPositionMaxState(v); syncRangeToParam('variationPosition', 'randomMax', v); }, [syncRangeToParam]);
@@ -1734,6 +1769,7 @@ const GlobalControls = ({
             <AudioDemoPresetsSection
               isActiveTab={isActiveTab}
               timelineMode={timelineMode}
+              layers={layers}
               parameterTargetMode={_parameterTargetMode}
               setParameterTargetMode={_setParameterTargetMode}
               energyInfluence={energyInfluence}

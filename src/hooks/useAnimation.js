@@ -98,6 +98,75 @@ const lerpColorArraysUnclamped = (colorsA, colorsB, t) => {
     });
 };
 
+const clamp01 = (value, fallback = 0) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return fallback;
+    return Math.max(0, Math.min(1, num));
+};
+
+// Base playback smoothing for timeline shape updates.
+const SHAPE_SMOOTH_FACTOR_BASE = 0.35;
+const SHAPE_SMOOTH_FACTOR_MIN = 0.08;
+
+const smoothShapeTrackUpdate = (prev, current, factor) => {
+    if (!prev || factor >= 1) return current;
+    if (factor <= 0) return prev;
+    const result = { ...current };
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    if (prev.subpaths && current.subpaths) {
+        const interpolated = lerpSubpaths(prev.subpaths, current.subpaths, factor);
+        if (interpolated) result.subpaths = interpolated;
+    } else if (prev.nodes && current.nodes) {
+        const interpolated = lerpNodes(prev.nodes, current.nodes, factor);
+        if (interpolated) result.nodes = interpolated;
+    }
+
+    if (prev.position && current.position) {
+        result.position = {
+            ...current.position,
+            x: lerp(prev.position.x ?? 0.5, current.position.x ?? 0.5, factor),
+            y: lerp(prev.position.y ?? 0.5, current.position.y ?? 0.5, factor),
+            scale: lerp(prev.position.scale ?? 1, current.position.scale ?? 1, factor),
+            xOffset: lerp(prev.position.xOffset ?? 0, current.position.xOffset ?? 0, factor),
+            yOffset: lerp(prev.position.yOffset ?? 0, current.position.yOffset ?? 0, factor),
+        };
+    }
+
+    if (prev.shapeParams && current.shapeParams) {
+        result.shapeParams = {
+            ...current.shapeParams,
+            numSides: Math.round(lerp(prev.shapeParams.numSides ?? 6, current.shapeParams.numSides ?? 6, factor)),
+            curviness: lerp(prev.shapeParams.curviness ?? 1, current.shapeParams.curviness ?? 1, factor),
+            radiusFactor: lerp(prev.shapeParams.radiusFactor ?? 0.125, current.shapeParams.radiusFactor ?? 0.125, factor),
+            radiusFactorX: lerp(prev.shapeParams.radiusFactorX ?? 0.125, current.shapeParams.radiusFactorX ?? 0.125, factor),
+            radiusFactorY: lerp(prev.shapeParams.radiusFactorY ?? 0.125, current.shapeParams.radiusFactorY ?? 0.125, factor),
+            rotation: lerp(prev.shapeParams.rotation ?? 0, current.shapeParams.rotation ?? 0, factor),
+        };
+    }
+
+    if (prev.animation && current.animation) {
+        result.animation = {
+            ...current.animation,
+            movementStyle: current.animation.movementStyle ?? prev.animation.movementStyle,
+            movementSpeed: lerp(prev.animation.movementSpeed ?? 1, current.animation.movementSpeed ?? 1, factor),
+            movementAngle: lerp(prev.animation.movementAngle ?? 45, current.animation.movementAngle ?? 45, factor),
+            scaleSpeed: lerp(prev.animation.scaleSpeed ?? 0.05, current.animation.scaleSpeed ?? 0.05, factor),
+            scaleMin: lerp(prev.animation.scaleMin ?? 0, current.animation.scaleMin ?? 0, factor),
+            scaleMax: lerp(prev.animation.scaleMax ?? 1.5, current.animation.scaleMax ?? 1.5, factor),
+        };
+    }
+
+    if (Array.isArray(prev.colors) && Array.isArray(current.colors)) {
+        const blended = lerpColorArraysUnclamped(prev.colors, current.colors, factor);
+        if (Array.isArray(blended) && blended.length > 0) {
+            result.colors = blended;
+        }
+    }
+
+    return result;
+};
+
 // Pure function to update layer animation state
 const updateLayerAnimation = (layer, globalSpeedMultiplier, zIgnore = false) => {
     const {
@@ -451,6 +520,7 @@ export const useAnimation = (
     const animatedPrevRef = useRef(null);
     const lastBaseLayersRef = useRef(null);
     const lastBasePosByIdRef = useRef(new Map());
+    const prevPlaybackShapeUpdatesRef = useRef(new Map());
 
     const mergeBaseIntoAnimated = useCallback((baseLayers, prevAnimated, _prevBasePosById) => {
         if (!Array.isArray(baseLayers) || baseLayers.length === 0) return Array.isArray(baseLayers) ? baseLayers : [];
@@ -523,9 +593,18 @@ export const useAnimation = (
         const hasAudioMods = Object.keys(audioMods).length > 0;
         if (!hasTimelineMods && !hasBpmMods && !hasAudioMods) return layersIn;
 
-        return (Array.isArray(layersIn) ? layersIn : []).map((layer) => (
-            applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods)
-        ));
+        const baseLayers = Array.isArray(sourceLayersRefLocal.current?.current)
+            ? sourceLayersRefLocal.current.current
+            : [];
+        const baseLayerById = new Map();
+        baseLayers.forEach((l) => {
+            if (l?.id) baseLayerById.set(l.id, l);
+        });
+
+        return (Array.isArray(layersIn) ? layersIn : []).map((layer, idx) => {
+            const baseLayer = (layer?.id && baseLayerById.get(layer.id)) || baseLayers[idx] || layer;
+            return applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods, baseLayer);
+        });
     }, []);
 
     // Apply modulations only (no movement animation)
@@ -553,8 +632,21 @@ export const useAnimation = (
             const prevLayers = Array.isArray(animatedPrevRef.current)
                 ? animatedPrevRef.current
                 : (sourceLayersRefLocal.current?.current || []);
+            const baseLayers = Array.isArray(sourceLayersRefLocal.current?.current)
+                ? sourceLayersRefLocal.current.current
+                : [];
+            const baseLayerById = new Map();
+            baseLayers.forEach((l) => {
+                if (l?.id) baseLayerById.set(l.id, l);
+            });
             const next = (Array.isArray(prevLayers) ? prevLayers : []).map(layer =>
-                applyModulationsToLayer(layer, effectiveBpmMods, effectiveAudioMods, timelineMods)
+                applyModulationsToLayer(
+                    layer,
+                    effectiveBpmMods,
+                    effectiveAudioMods,
+                    timelineMods,
+                    (layer?.id && baseLayerById.get(layer.id)) || layer,
+                )
             );
             animatedPrevRef.current = next;
             outRef.current = next;
@@ -567,7 +659,7 @@ export const useAnimation = (
 
         const applyUpdate = () => setLayersFn(prevLayers =>
             prevLayers.map(layer => (
-                applyModulationsToLayer(layer, effectiveBpmMods, effectiveAudioMods, timelineMods)
+                applyModulationsToLayer(layer, effectiveBpmMods, effectiveAudioMods, timelineMods, layer)
             ))
         );
 
@@ -754,12 +846,45 @@ export const useAnimation = (
                     }
                 }
             }
+
+            // Temporal smoothing to reduce visual popping around close keyframes.
+            if (shapeUpdatesMap.size > 0) {
+                const smoothing = clamp01(tlCtx?.timelineSmoothing, 0);
+                const shapeSmoothFactor = (
+                    SHAPE_SMOOTH_FACTOR_BASE * (1 - smoothing)
+                    + SHAPE_SMOOTH_FACTOR_MIN * smoothing
+                );
+                const prevMap = prevPlaybackShapeUpdatesRef.current;
+                const smoothed = new Map();
+                for (const [key, update] of shapeUpdatesMap) {
+                    const prev = prevMap.get(key);
+                    smoothed.set(key, prev ? smoothShapeTrackUpdate(prev, update, shapeSmoothFactor) : update);
+                }
+                prevPlaybackShapeUpdatesRef.current = smoothed;
+                shapeUpdatesMap = smoothed;
+            } else {
+                prevPlaybackShapeUpdatesRef.current = new Map();
+            }
         } else {
             // Fallback: use pre-computed shape updates from useTimelineModulation (for scrubbing/paused)
             shapeUpdatesMap = shapeTrackUpdatesRefLocal.current?.current || new Map();
+            prevPlaybackShapeUpdatesRef.current = new Map();
         }
 
+        const baseLayersForFrame = Array.isArray(sourceLayersRefLocal.current?.current)
+            ? sourceLayersRefLocal.current.current
+            : [];
+        const baseLayerByIdForFrame = new Map();
+        baseLayersForFrame.forEach((l) => {
+            if (l?.id) baseLayerByIdForFrame.set(l.id, l);
+        });
+
+        const timelinePaused = !!(tlCtx?.visible && !tlCtx?.isPlaying);
+
         const computeUpdatedLayers = (prevLayers) => (Array.isArray(prevLayers) ? prevLayers : []).map((layer, _idx) => {
+            const baseLayerForMod = (layer?.id && baseLayerByIdForFrame.get(layer.id))
+                || baseLayersForFrame[_idx]
+                || layer;
             // Check if this layer has shape track updates
             // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
             const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);
@@ -768,7 +893,7 @@ export const useAnimation = (
             // 1. Update layer animation (movement, scale oscillation, etc.)
             // Skip if shape track is controlling this layer (to avoid conflicts with keyframe interpolation)
             // Noise and wobble still apply (they're applied in Canvas, not here)
-            let updatedLayer = hasShapeUpdate
+            let updatedLayer = (hasShapeUpdate || timelinePaused)
                 ? { ...layer }
                 : updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
 
@@ -798,6 +923,8 @@ export const useAnimation = (
                 const eEnabled = enableEnergyScalingRef.current;
                 const eInfluence = energyInfluenceRef.current ?? 0.5;
                 const tlCtxForEnergy = timelineContextRef.current;
+                const timelineDamping = clamp01(tlCtxForEnergy?.timelineDamping, 0);
+                const timelineDampingMultiplier = 1 - (timelineDamping * 0.85);
                 let energyFactor = 1; // default: no energy scaling
                 if (eEnabled) {
                     // Use per-track energy band (total/low/mid/high)
@@ -825,9 +952,9 @@ export const useAnimation = (
                     const sliderT = clampVariationMultiplier(val);
                     // With energy: slider controls max multiplier, energy drives how much of that multiplier shows.
                     // Without energy: slider value is the blend multiplier directly.
-                    if (!eEnabled) return sliderT;
+                    if (!eEnabled) return clampVariationMultiplier(sliderT * timelineDampingMultiplier);
                     const energyT = Math.max(0, Math.min(1, energyFactor));
-                    return clampVariationMultiplier(sliderT * energyT);
+                    return clampVariationMultiplier(sliderT * energyT * timelineDampingMultiplier);
                 };
 
                 // Runtime Blending Logic
@@ -1018,7 +1145,8 @@ export const useAnimation = (
                     updatedLayer,
                     effectiveBpmMods,
                     effectiveAudioMods,
-                    timelineMods
+                    timelineMods,
+                    baseLayerForMod,
                 );
             }
 

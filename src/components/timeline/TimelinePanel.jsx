@@ -102,6 +102,10 @@ const TimelinePanel = ({
     setTransientSensitivity,
     setTransientsEnabled,
     energyMap,
+    timelineSmoothing,
+    timelineDamping,
+    setTimelineSmoothing,
+    setTimelineDamping,
   } = timeline || {};
 
   const rulerHeight = 44;
@@ -419,20 +423,27 @@ const TimelinePanel = ({
     }
   }, [zoom, setZoom]);
 
-  // When starting playback from the beginning, always unfreeze the scene
+  // Timeline transport should behave like a true playback freeze when paused.
   const handlePlay = useCallback(() => {
-    if (!isPlaying && (positionSeconds ?? 0) <= 0.001 && setIsFrozen) {
-      setIsFrozen(false);
-    }
+    if (setIsFrozen) setIsFrozen(false);
     if (play) play();
-  }, [isPlaying, positionSeconds, play, setIsFrozen]);
+  }, [play, setIsFrozen]);
+
+  const handlePause = useCallback(() => {
+    if (setIsFrozen) setIsFrozen(true);
+    if (pause) pause();
+  }, [pause, setIsFrozen]);
+
+  const handleStop = useCallback(() => {
+    if (setIsFrozen) setIsFrozen(true);
+    if (stop) stop();
+  }, [setIsFrozen, stop]);
 
   const handleTogglePlay = useCallback(() => {
-    if (!isPlaying && (positionSeconds ?? 0) <= 0.001 && setIsFrozen) {
-      setIsFrozen(false);
-    }
+    const willPlay = !isPlaying;
+    if (setIsFrozen) setIsFrozen(!willPlay);
     if (togglePlay) togglePlay();
-  }, [isPlaying, positionSeconds, togglePlay, setIsFrozen]);
+  }, [isPlaying, togglePlay, setIsFrozen]);
 
   // Global parameters - per user list
   const globalParameters = useMemo(() => [
@@ -550,6 +561,28 @@ const TimelinePanel = ({
     if (!sourceLayers?.length) return;
     rerollGlobalShapeKeyframe(trackId, keyframeId, sourceLayers);
   }, [rerollGlobalShapeKeyframe, layers, animatedLayersRef]);
+
+  const handleRerollAllGlobalShapeKeyframes = useCallback((trackId) => {
+    if (!rerollGlobalShapeKeyframe) return;
+
+    const track = tracks?.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return;
+
+    const keyframeIds = (track.keyframes || [])
+      .filter(kf => !!kf?.variation)
+      .map(kf => kf.id);
+    if (!keyframeIds.length) return;
+
+    const animatedLayers = animatedLayersRef?.current;
+    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
+      ? animatedLayers
+      : layers;
+    if (!sourceLayers?.length) return;
+
+    keyframeIds.forEach((keyframeId) => {
+      rerollGlobalShapeKeyframe(trackId, keyframeId, sourceLayers);
+    });
+  }, [rerollGlobalShapeKeyframe, tracks, layers, animatedLayersRef]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName, timeSecondsOverride = null) => {
@@ -672,6 +705,31 @@ const TimelinePanel = ({
     if (success) {
       console.log('Rerolled variation keyframe:', keyframeId);
     }
+  }, [timeline, tracks, layers]);
+
+  const handleRerollAllVariations = useCallback((trackId) => {
+    if (!timeline?.rerollVariationKeyframe) return;
+
+    const track = tracks?.find(t => t.id === trackId);
+    if (!track || track.type !== 'shape') return;
+
+    const keyframeIds = (track.keyframes || [])
+      .filter(kf => !!kf?.variation)
+      .map(kf => kf.id);
+    if (!keyframeIds.length) return;
+
+    const targetId = track.targetId || '';
+    const parts = targetId.split(':');
+    const layerName = parts.length >= 2 ? parts[1] : null;
+    const layer = layers.find(l => l?.name === layerName || l?.id === layerName);
+    if (!layer) {
+      console.warn('[Timeline] Cannot reroll all: layer not found for track', trackId);
+      return;
+    }
+
+    keyframeIds.forEach((keyframeId) => {
+      timeline.rerollVariationKeyframe(trackId, keyframeId, layer);
+    });
   }, [timeline, tracks, layers]);
 
   // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
@@ -871,8 +929,8 @@ const TimelinePanel = ({
         lengthSeconds={lengthSeconds}
         loop={loop}
         onPlay={handlePlay}
-        onPause={pause}
-        onStop={stop}
+        onPause={handlePause}
+        onStop={handleStop}
         onTogglePlay={handleTogglePlay}
         onSeek={seekTo}
         onSetLength={setLengthSeconds}
@@ -1153,6 +1211,46 @@ const TimelinePanel = ({
                     </label>
                   </div>
                 </div>
+                <div style={{ display: 'grid', gap: 3, marginTop: 2 }}>
+                  <label
+                    style={{ display: 'grid', gridTemplateColumns: '46px 1fr 26px', alignItems: 'center', gap: 4, fontSize: '0.62rem', color: 'rgba(255,255,255,0.72)' }}
+                    title="Temporal smoothing for timeline modulation. Higher values reduce abrupt transitions."
+                  >
+                    <span>Smooth</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={Number.isFinite(timelineSmoothing) ? timelineSmoothing : 0}
+                      onChange={(e) => setTimelineSmoothing?.(Number(e.target.value))}
+                      aria-label="Timeline smoothing"
+                      style={{ width: '100%', height: 12, cursor: 'pointer' }}
+                    />
+                    <span style={{ textAlign: 'right', opacity: 0.82 }}>
+                      {(Number.isFinite(timelineSmoothing) ? timelineSmoothing : 0).toFixed(2)}
+                    </span>
+                  </label>
+                  <label
+                    style={{ display: 'grid', gridTemplateColumns: '46px 1fr 26px', alignItems: 'center', gap: 4, fontSize: '0.62rem', color: 'rgba(255,255,255,0.72)' }}
+                    title="Dampen extreme timeline modulation values while preserving direction."
+                  >
+                    <span>Dampen</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.01"
+                      value={Number.isFinite(timelineDamping) ? timelineDamping : 0}
+                      onChange={(e) => setTimelineDamping?.(Number(e.target.value))}
+                      aria-label="Timeline dampening"
+                      style={{ width: '100%', height: 12, cursor: 'pointer' }}
+                    />
+                    <span style={{ textAlign: 'right', opacity: 0.82 }}>
+                      {(Number.isFinite(timelineDamping) ? timelineDamping : 0).toFixed(2)}
+                    </span>
+                  </label>
+                </div>
               </div>
             </div>
             {/* Time markers */}
@@ -1429,10 +1527,12 @@ const TimelinePanel = ({
                 onCaptureGlobalShapeKeyframe={handleCaptureGlobalShapeKeyframe}
                 onGenerateGlobalVariationKeyframe={handleGenerateGlobalVariationKeyframe}
                 onRerollGlobalShapeKeyframe={handleRerollGlobalShapeKeyframe}
+                onRerollAllGlobalShapeKeyframes={handleRerollAllGlobalShapeKeyframes}
                 onCopyKeyframe={(kfId) => copyKeyframe?.(track.id, kfId)}
                 onPasteKeyframe={(time) => pasteKeyframe?.(track.id, time)}
                 onPasteKeyframeToTrack={(targetTrackId, time) => pasteKeyframeToTrack?.(targetTrackId, time)}
                 onRerollVariation={(kfId) => handleRerollVariation(track.id, kfId)}
+                onRerollAllVariations={handleRerollAllVariations}
                 hasClipboard={!!keyframeClipboard}
                 clipboardTrackType={clipboardTrackType}
                 clipboardSourceTargetId={clipboardSourceTargetId}

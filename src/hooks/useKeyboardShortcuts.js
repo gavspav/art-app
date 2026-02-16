@@ -53,9 +53,9 @@ export function useKeyboardShortcuts({
         e.preventDefault();
         if (timelineVisible) {
           const willPlay = !timelineIsPlaying;
-          toggleTimelinePlay?.();
           // Keep global freeze in sync with timeline play/pause
           setIsFrozen?.(!willPlay);
+          toggleTimelinePlay?.();
         } else {
           setIsFrozen?.(prev => !prev);
         }
@@ -150,10 +150,8 @@ export function useKeyboardShortcuts({
       // P -> Toggle Timeline play/pause (when timeline is visible)
       if (key === 'p' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        // If we're about to start playing the timeline, always unfreeze
-        if (!timelineIsPlaying) {
-          setIsFrozen?.(false);
-        }
+        const willPlay = !timelineIsPlaying;
+        setIsFrozen?.(!willPlay);
         toggleTimelinePlay?.();
         return;
       }

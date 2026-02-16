@@ -278,7 +278,7 @@ function rgbComponentsToHex(r, g, b) {
  * This avoids the overhead of going through the hook's callback
  * Precedence: timeline > bpm > audio
  */
-export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods = {}) {
+export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods = {}, baseLayer = null) {
   if (!layer || !layer.id) return layer;
   
   const layerBpmMods = bpmMods[layer.id] || {};
@@ -293,6 +293,9 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
   if (Object.keys(mods).length === 0) return layer;
   
   let modifiedLayer = { ...layer };
+  // Timeline deltas should be applied against the stable scene/base layer,
+  // not against the already-modulated animated layer from the previous frame.
+  const additiveBaseLayer = (baseLayer && typeof baseLayer === 'object') ? baseLayer : layer;
   
   // Check if we have color component modulations (colorR, colorG, colorB)
   const hasColorMods = 'colorR' in mods || 'colorG' in mods || 'colorB' in mods;
@@ -327,7 +330,7 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
     
     if (paramId === 'scale') {
       if (isTimelineMod) {
-        const baseScale = layer.position?.scale ?? 1;
+        const baseScale = additiveBaseLayer.position?.scale ?? layer.position?.scale ?? 1;
         modifiedLayer = {
           ...modifiedLayer,
           position: { ...(modifiedLayer.position || {}), scale: baseScale + value },
@@ -340,7 +343,7 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
       }
     } else if (paramId === 'numSides') {
       if (isTimelineMod) {
-        const baseSides = layer.numSides ?? 6;
+        const baseSides = additiveBaseLayer.numSides ?? layer.numSides ?? 6;
         modifiedLayer = {
           ...modifiedLayer,
           numSides: Math.max(3, Math.min(256, Math.round(baseSides + value))),
@@ -413,7 +416,7 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
     } else {
       if (isTimelineMod) {
         // Additive: add delta to layer's base value
-        const baseValue = layer[paramId] ?? 0;
+        const baseValue = additiveBaseLayer[paramId] ?? layer[paramId] ?? 0;
         modifiedLayer = {
           ...modifiedLayer,
           [paramId]: baseValue + value,

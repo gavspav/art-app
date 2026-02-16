@@ -156,11 +156,19 @@ const HoverDropdown = ({ value, options, onChange }) => {
   );
 };
 
-const buildLayerParamIds = (layer, paramId) => {
+const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
   const stableLayerKey = String(layer?.id ?? layerNameKey);
   const layerKeys = Array.from(new Set([stableLayerKey, layerNameKey].filter(Boolean)));
-  return layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  const aliases = layerKeys.map((layerKey) => `layer:${layerKey}:${paramId}`);
+  if (Number.isFinite(layerIndex)) {
+    aliases.push(`layer:${Math.max(1, Math.floor(layerIndex) + 1)}:${paramId}`);
+  } else {
+    const nameMatch = /^Layer\s+(\d+)$/i.exec(layerNameKey);
+    if (nameMatch) aliases.push(`layer:${nameMatch[1]}:${paramId}`);
+  }
+  aliases.push(`layer:all:${paramId}`);
+  return Array.from(new Set(aliases.filter(Boolean)));
 };
 
 const findFirstMappedParamId = (mappings, paramIds) => {
@@ -798,7 +806,7 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, debugSettingsEnabled }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, debugSettingsEnabled, selectedLayerIndex = null }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
@@ -840,7 +848,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 
   const bpm = useBPM();
   const audioReactive = useAudioReactive();
-  const layerParamIds = useMemo(() => buildLayerParamIds(currentLayer, id), [currentLayer, id]);
+  const layerParamIds = useMemo(() => buildLayerParamIds(currentLayer, id, selectedLayerIndex), [currentLayer, id, selectedLayerIndex]);
   const primaryLayerParamId = layerParamIds[0] || null;
   const activeBpmParamId = useMemo(
     () => findFirstMappedParamId(bpm?.mappings || {}, layerParamIds),
@@ -1816,6 +1824,7 @@ const Controls = forwardRef(({
     <LayerAnimationSection
       currentLayer={currentLayer}
       editTarget={editTarget}
+      selectedLayerIndex={selectedLayerIndex}
       movementParams={movementParams}
       DynamicControl={DynamicControl}
       updateLayer={updateLayer}
@@ -1832,6 +1841,7 @@ const Controls = forwardRef(({
     <LayerShapeSection
       currentLayer={currentLayer}
       editTarget={editTarget}
+      selectedLayerIndex={selectedLayerIndex}
       shapeParams={shapeParams}
       DynamicControl={DynamicControl}
       updateLayer={updateLayer}
@@ -1858,6 +1868,7 @@ const Controls = forwardRef(({
     <LayerColorSection
       currentLayer={currentLayer}
       editTarget={editTarget}
+      selectedLayerIndex={selectedLayerIndex}
       targetMode={targetMode}
       updateLayer={updateLayer}
       setLayers={setLayers}
@@ -1906,7 +1917,7 @@ const Controls = forwardRef(({
   // Register per-layer MIDI handler for Palette Index
   useEffect(() => {
     if (!registerParamHandler || !currentLayer) return;
-    const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex');
+    const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex', selectedLayerIndex);
     const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
       const list = automationPalettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
@@ -1924,12 +1935,12 @@ const Controls = forwardRef(({
         if (typeof unsub === 'function') unsub();
       });
     };
-  }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes]);
+  }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes, selectedLayerIndex]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {
     if (!registerParamHandler || !currentLayer) return;
-    const paramIds = buildLayerParamIds(currentLayer, 'rotation');
+    const paramIds = buildLayerParamIds(currentLayer, 'rotation', selectedLayerIndex);
     const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
       const v = -180 + (value01 * 360);
       const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
@@ -1940,7 +1951,7 @@ const Controls = forwardRef(({
         if (typeof unsub === 'function') unsub();
       });
     };
-  }, [applyRotation, currentLayer, registerParamHandler]);
+  }, [applyRotation, currentLayer, registerParamHandler, selectedLayerIndex]);
 
   return (
     <div className="controls-panel">

@@ -13,6 +13,10 @@ export const DEFAULT_LAYER = {
   // Legacy match: 250px * 0.4 = 100px on minWH≈800 -> ~0.125
   radiusFactor: 0.125,
   noiseAmount: 0.5, // Changed to match old version default
+  noiseScale: 1,
+  wobbleSpeed: 1,
+  symmetry: 0.5,
+  freqJitter: 1,
   noiseSpeed: 0.005,
   opacity: 0.8, // Changed to match old version default
   blendMode: 'source-over', // Changed to match old version
@@ -98,6 +102,9 @@ export const DEFAULT_LAYER = {
     curviness: true,
     wobble: true,
     noiseAmount: true,
+    noiseScale: true,
+    wobbleSpeed: true,
+    symmetry: true,
     radiusFactor: true,
     radiusFactorX: true,
     radiusFactorY: true,
@@ -123,6 +130,7 @@ export const DEFAULT_LAYER = {
     freq1: false,
     freq2: false,
     freq3: false,
+    freqJitter: false,
 
     // Image Effects
     imageBlur: true,

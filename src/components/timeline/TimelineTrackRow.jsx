@@ -32,6 +32,8 @@ const TimelineTrackRow = ({
   onPasteKeyframe,
   onPasteKeyframeToTrack,
   onRerollVariation,
+  onRerollAllVariations,
+  onRerollAllGlobalShapeKeyframes,
   hasClipboard = false,
   clipboardTrackType = null,
   clipboardSourceTargetId = null,
@@ -635,6 +637,13 @@ const TimelineTrackRow = ({
               onRerollGlobalShapeKeyframe?.(track.id, keyframeId);
             } else {
               onRerollVariation?.(keyframeId);
+            }
+          }}
+          onRerollAllVariations={() => {
+            if (isGlobalShapeTrack) {
+              onRerollAllGlobalShapeKeyframes?.(track.id);
+            } else {
+              onRerollAllVariations?.(track.id);
             }
           }}
           hasClipboard={hasClipboard}

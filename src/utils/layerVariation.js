@@ -203,6 +203,10 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     const nextA = mixAnim(prev.movementAngle ?? 45, 0, 360, true);
     varied.movementAngle = ((nextA % 360) + 360) % 360;
   }
+  if (includeAnim && varyFlags.noiseScale && isAllowed('noiseScale')) varied.noiseScale = Number(mixAnim(prev.noiseScale ?? 1, 0.1, 3).toFixed(3));
+  if (includeAnim && varyFlags.wobbleSpeed && isAllowed('wobbleSpeed')) varied.wobbleSpeed = Number(mixAnim(prev.wobbleSpeed ?? 1, 0, 2).toFixed(3));
+  if (includeAnim && varyFlags.symmetry && isAllowed('symmetry')) varied.symmetry = Number(mixAnim(prev.symmetry ?? 0.5, 0, 1).toFixed(3));
+  if (includeAnim && varyFlags.freqJitter && isAllowed('freqJitter')) varied.freqJitter = Number(mixAnim(prev.freqJitter ?? 1, 0, 1).toFixed(3));
   if (includeAnim && varyFlags.scaleSpeed && isAllowed('scaleSpeed')) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
   let nextScaleMin = prev.scaleMin ?? 0.2;
   let nextScaleMax = prev.scaleMax ?? 1.5;

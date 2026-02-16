@@ -232,6 +232,8 @@ const DEFAULT_SETTINGS = {
   visible: false,
   zoom: 1, // pixels per second (will be calculated based on view width)
   scrollLeft: 0,
+  timelineSmoothing: 0, // 0..1 low-pass smoothing for timeline modulation
+  timelineDamping: 0, // 0..1 compression for timeline modulation extremes
 };
 
 // Default transient detection settings
@@ -422,6 +424,8 @@ export const TimelineProvider = ({ children }) => {
   }, [isPlaying, startAudioPlayback]);
 
   const pause = useCallback(() => {
+    // Snap React state to the exact live position so pause holds the current frame.
+    setPositionSeconds(positionRef.current);
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (animationFrameRef.current) {
@@ -2063,6 +2067,18 @@ export const TimelineProvider = ({ children }) => {
     setSettings(prev => ({ ...prev, scrollLeft: Math.max(0, scrollLeft) }));
   }, []);
 
+  const setTimelineSmoothing = useCallback((next) => {
+    const num = Number(next);
+    const clamped = Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : 0;
+    setSettings(prev => ({ ...prev, timelineSmoothing: clamped }));
+  }, []);
+
+  const setTimelineDamping = useCallback((next) => {
+    const num = Number(next);
+    const clamped = Number.isFinite(num) ? Math.max(0, Math.min(1, num)) : 0;
+    setSettings(prev => ({ ...prev, timelineDamping: clamped }));
+  }, []);
+
   // --- Snapshot for export/import ---
 
   const getTimelineSnapshot = useCallback(() => ({
@@ -2131,6 +2147,12 @@ export const TimelineProvider = ({ children }) => {
     visible: settings.visible,
     zoom: settings.zoom,
     scrollLeft: settings.scrollLeft,
+    timelineSmoothing: Number.isFinite(Number(settings.timelineSmoothing))
+      ? Number(settings.timelineSmoothing)
+      : DEFAULT_SETTINGS.timelineSmoothing,
+    timelineDamping: Number.isFinite(Number(settings.timelineDamping))
+      ? Number(settings.timelineDamping)
+      : DEFAULT_SETTINGS.timelineDamping,
 
     // Playback controls
     play,
@@ -2211,6 +2233,8 @@ export const TimelineProvider = ({ children }) => {
     toggleVisible,
     setZoom,
     setScrollLeft,
+    setTimelineSmoothing,
+    setTimelineDamping,
 
     // Snapshot
     getTimelineSnapshot,
@@ -2278,6 +2302,8 @@ export const TimelineProvider = ({ children }) => {
     toggleVisible,
     setZoom,
     setScrollLeft,
+    setTimelineSmoothing,
+    setTimelineDamping,
     getTimelineSnapshot,
     applyTimelineSnapshot,
     clearTimeline,
