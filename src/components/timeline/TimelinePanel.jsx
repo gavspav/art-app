@@ -120,6 +120,33 @@ const TimelinePanel = ({
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
+  const buildRandomGenerationOptions = useCallback((overrides = {}) => {
+    const startStr = String(genStartTime).trim();
+    const endStr = String(genEndTime).trim();
+    const startTime = startStr !== '' ? Number(startStr) : NaN;
+    const endTime = endStr !== '' ? Number(endStr) : NaN;
+    return {
+      count: useTransientTimes ? undefined : Math.max(1, Math.floor(Number(randomCount) || 5)),
+      startTime: Number.isFinite(startTime) ? startTime : undefined,
+      endTime: Number.isFinite(endTime) ? endTime : undefined,
+      useTransients: !!useTransientTimes,
+      nodeModEnabled: !!useNodeMod,
+      nodeModAmount: Number(nodeModAmount),
+      nodeModCycles: Number(nodeModCycles),
+      energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : undefined,
+      ...(overrides || {}),
+    };
+  }, [
+    genStartTime,
+    genEndTime,
+    randomCount,
+    useTransientTimes,
+    useNodeMod,
+    nodeModAmount,
+    nodeModCycles,
+    energyInfluence,
+  ]);
+
   // Compute all shape tracks for paste menu
   const allShapeTracks = useMemo(() => {
     if (!Array.isArray(tracks)) return [];
@@ -563,26 +590,12 @@ const TimelinePanel = ({
   }, [rerollGlobalShapeKeyframe, layers, animatedLayersRef]);
 
   const handleRerollAllGlobalShapeKeyframes = useCallback((trackId) => {
-    if (!rerollGlobalShapeKeyframe) return;
-
-    const track = tracks?.find(t => t.id === trackId);
-    if (!track || track.type !== 'globalShape') return;
-
-    const keyframeIds = (track.keyframes || [])
-      .filter(kf => !!kf?.variation)
-      .map(kf => kf.id);
-    if (!keyframeIds.length) return;
-
-    const animatedLayers = animatedLayersRef?.current;
-    const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
-      ? animatedLayers
-      : layers;
-    if (!sourceLayers?.length) return;
-
-    keyframeIds.forEach((keyframeId) => {
-      rerollGlobalShapeKeyframe(trackId, keyframeId, sourceLayers);
-    });
-  }, [rerollGlobalShapeKeyframe, tracks, layers, animatedLayersRef]);
+    if (typeof onGenerateRandomKeyframes !== 'function') return;
+    onGenerateRandomKeyframes(buildRandomGenerationOptions({
+      targetTrackId: trackId,
+      regenerateExistingSequence: true,
+    }));
+  }, [onGenerateRandomKeyframes, buildRandomGenerationOptions]);
 
   // Handle capturing a shape keyframe (extended to capture animation and color data)
   const handleCaptureShapeKeyframe = useCallback((trackId, layerIdOrName, timeSecondsOverride = null) => {
@@ -708,29 +721,12 @@ const TimelinePanel = ({
   }, [timeline, tracks, layers]);
 
   const handleRerollAllVariations = useCallback((trackId) => {
-    if (!timeline?.rerollVariationKeyframe) return;
-
-    const track = tracks?.find(t => t.id === trackId);
-    if (!track || track.type !== 'shape') return;
-
-    const keyframeIds = (track.keyframes || [])
-      .filter(kf => !!kf?.variation)
-      .map(kf => kf.id);
-    if (!keyframeIds.length) return;
-
-    const targetId = track.targetId || '';
-    const parts = targetId.split(':');
-    const layerName = parts.length >= 2 ? parts[1] : null;
-    const layer = layers.find(l => l?.name === layerName || l?.id === layerName);
-    if (!layer) {
-      console.warn('[Timeline] Cannot reroll all: layer not found for track', trackId);
-      return;
-    }
-
-    keyframeIds.forEach((keyframeId) => {
-      timeline.rerollVariationKeyframe(trackId, keyframeId, layer);
-    });
-  }, [timeline, tracks, layers]);
+    if (typeof onGenerateRandomKeyframes !== 'function') return;
+    onGenerateRandomKeyframes(buildRandomGenerationOptions({
+      targetTrackId: trackId,
+      regenerateExistingSequence: true,
+    }));
+  }, [onGenerateRandomKeyframes, buildRandomGenerationOptions]);
 
   // Keyboard shortcut: 'c' to capture a shape keyframe for the active layer's shape track (if any)
   useEffect(() => {
@@ -834,33 +830,10 @@ const TimelinePanel = ({
     clearStartPreset,
   ]);
 
-  const handleGenerateRandomFromPanel = useCallback(() => {
+  const handleGenerateRandomFromPanel = useCallback((overrides = {}) => {
     if (typeof onGenerateRandomKeyframes !== 'function') return;
-    const startStr = String(genStartTime).trim();
-    const endStr = String(genEndTime).trim();
-    const startTime = startStr !== '' ? Number(startStr) : NaN;
-    const endTime = endStr !== '' ? Number(endStr) : NaN;
-    onGenerateRandomKeyframes({
-      count: useTransientTimes ? undefined : Math.max(1, Math.floor(Number(randomCount) || 5)),
-      startTime: Number.isFinite(startTime) ? startTime : undefined,
-      endTime: Number.isFinite(endTime) ? endTime : undefined,
-      useTransients: !!useTransientTimes,
-      nodeModEnabled: !!useNodeMod,
-      nodeModAmount: Number(nodeModAmount),
-      nodeModCycles: Number(nodeModCycles),
-      energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : undefined,
-    });
-  }, [
-    onGenerateRandomKeyframes,
-    genStartTime,
-    genEndTime,
-    randomCount,
-    useTransientTimes,
-    useNodeMod,
-    nodeModAmount,
-    nodeModCycles,
-    energyInfluence,
-  ]);
+    onGenerateRandomKeyframes(buildRandomGenerationOptions(overrides));
+  }, [onGenerateRandomKeyframes, buildRandomGenerationOptions]);
 
   // Expose panel handler via ref so keyboard shortcut (Shift+R) uses panel settings
   useEffect(() => {

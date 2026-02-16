@@ -1081,7 +1081,7 @@ const TimelineCurveEditor = ({
                     textAlign: 'left',
                   }}
                 >
-                  🎲🎲 Reroll All Variations ({variationKeyframeCount})
+                  🎲🎲 Regenerate Sequence ({variationKeyframeCount})
                 </button>
               )}
               

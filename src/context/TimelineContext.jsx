@@ -13,6 +13,7 @@ import {
   generateRandomTimes,
   selectTopTransientTimes,
   generateRerollSeed,
+  computeTemporalVariationScales,
 } from '../utils/variationKeyframe.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
 import { saveTimelineAudio, loadTimelineAudio, clearTimelineAudio } from '../utils/timelineAudioStorage.js';
@@ -83,6 +84,28 @@ const createColorKeyframe = (timeSeconds, color = '#ffffff') => ({
   timeSeconds,
   color,
 });
+
+const scaleVariationWeights = (weights, scale = 1) => ({
+  shape: (weights?.shape ?? 0) * scale,
+  anim: (weights?.anim ?? 0) * scale,
+  color: (weights?.color ?? 0) * scale,
+  position: (weights?.position ?? 0) * scale,
+  scale: (weights?.scale ?? 0) * scale,
+});
+
+const normalizeKeyframeTimes = (times, epsilon = 0.01) => {
+  if (!Array.isArray(times) || times.length === 0) return [];
+  const sorted = times.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return [];
+  const normalized = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const t = sorted[i];
+    if (Math.abs(t - normalized[normalized.length - 1]) >= epsilon) {
+      normalized.push(t);
+    }
+  }
+  return normalized;
+};
 
 /**
  * Create a shape keyframe (stores node geometry snapshot)
@@ -1183,6 +1206,25 @@ export const TimelineProvider = ({ children }) => {
 
     const time = positionRef.current;
     const seed = options.seed ?? Date.now();
+    const baseWeights = options.variationWeights || {
+      shape: layer.variationShape ?? layer.variation ?? 0.2,
+      anim: layer.variationAnim ?? layer.variation ?? 0.2,
+      color: layer.variationColor ?? layer.variation ?? 0.2,
+      position: layer.variationPosition ?? layer.variation ?? 0.2,
+      scale: layer.variationScale ?? 0,
+    };
+    const existingTimes = (track.keyframes || [])
+      .map(kf => kf?.timeSeconds)
+      .filter(Number.isFinite);
+    const [temporalScaleRaw] = computeTemporalVariationScales([time], existingTimes, {
+      enabled: options.temporalDampingEnabled,
+      windowSeconds: options.temporalDampingWindowSeconds,
+      minScale: options.temporalDampingMinScale,
+    });
+    const temporalScale = Number.isFinite(temporalScaleRaw)
+      ? Math.max(0, temporalScaleRaw)
+      : 1;
+    const variationWeights = scaleVariationWeights(baseWeights, temporalScale);
 
     // Get track categories for what to include in keyframe
     const categories = track.categories || { shape: true, animation: false, color: false };
@@ -1190,7 +1232,7 @@ export const TimelineProvider = ({ children }) => {
     // Generate varied layer
     const variedLayer = generateVariedLayer(layer, {
       seed,
-      variationWeights: options.variationWeights,
+      variationWeights,
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'],
       isParamRandomizable: options.isParamRandomizable,
       constrainColorsToPalette: options.constrainColorsToPalette,
@@ -1204,13 +1246,8 @@ export const TimelineProvider = ({ children }) => {
     extras.variation = {
       baseSeed: seed,
       baseTime: time,
-      weights: options.variationWeights || {
-        shape: layer.variationShape ?? layer.variation ?? 0.2,
-        anim: layer.variationAnim ?? layer.variation ?? 0.2,
-        color: layer.variationColor ?? layer.variation ?? 0.2,
-        position: layer.variationPosition ?? layer.variation ?? 0.2,
-        scale: layer.variationScale ?? 0,
-      },
+      weights: variationWeights,
+      temporalScale,
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'],
       constrainColorsToPalette: options.constrainColorsToPalette,
       paletteColors: options.paletteColors,
@@ -1232,20 +1269,40 @@ export const TimelineProvider = ({ children }) => {
    */
   const generateVariationKeyframesAtTimes = useCallback((trackId, baseLayer, times, options = {}) => {
     if (!trackId || !baseLayer || !Array.isArray(times) || times.length === 0) return [];
+    const normalizedTimes = normalizeKeyframeTimes(times);
+    if (!normalizedTimes.length) return [];
 
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'shape') return [];
 
+    const replaceExistingKeyframes = options.replaceExistingKeyframes === true;
     const categories = track.categories || { shape: true, animation: false, color: false };
     const keyframeIds = [];
+    const generatedEntries = [];
+    const existingTimes = (Array.isArray(options.temporalReferenceTimes)
+      ? options.temporalReferenceTimes
+      : (replaceExistingKeyframes ? [] : (track.keyframes || []).map(kf => kf?.timeSeconds)))
+      .filter(Number.isFinite);
+    const temporalScales = computeTemporalVariationScales(normalizedTimes, existingTimes, {
+      enabled: options.temporalDampingEnabled,
+      windowSeconds: options.temporalDampingWindowSeconds,
+      minScale: options.temporalDampingMinScale,
+    });
+    const rawWeights = options.variationWeights || {
+      shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
+      anim: baseLayer.variationAnim ?? baseLayer.variation ?? 0.2,
+      color: baseLayer.variationColor ?? baseLayer.variation ?? 0.2,
+      position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
+      scale: baseLayer.variationScale ?? 0,
+    };
 
     // Node modulation config (merge with defaults)
     const nodeMod = options.nodeMod?.enabled
       ? { ...DEFAULT_NODE_MOD_CONFIG, ...options.nodeMod }
       : null;
 
-    for (let i = 0; i < times.length; i++) {
-      const time = times[i];
+    for (let i = 0; i < normalizedTimes.length; i++) {
+      const time = normalizedTimes[i];
       const seed = (options.baseSeed ?? Date.now()) + i * 16807;
 
       // If evaluateAtTime is true, evaluate the track at this time to get interpolated base
@@ -1271,20 +1328,10 @@ export const TimelineProvider = ({ children }) => {
       // buildVariedLayerFrom divides by 3, so raw 0.2 → 0.067 effective weight.
       // With TIMELINE_BOOST=5: 0.2*5=1.0 → 0.33 effective; 0.6*5=3.0 → 1.0 (max).
       const TIMELINE_BOOST = 5;
-      const rawWeights = options.variationWeights || {
-        shape: baseLayer.variationShape ?? baseLayer.variation ?? 0.2,
-        anim: baseLayer.variationAnim ?? baseLayer.variation ?? 0.2,
-        color: baseLayer.variationColor ?? baseLayer.variation ?? 0.2,
-        position: baseLayer.variationPosition ?? baseLayer.variation ?? 0.2,
-        scale: baseLayer.variationScale ?? 0,
-      };
-      const variationWeights = {
-        shape: rawWeights.shape * TIMELINE_BOOST,
-        anim: rawWeights.anim * TIMELINE_BOOST,
-        color: rawWeights.color * TIMELINE_BOOST,
-        position: rawWeights.position * TIMELINE_BOOST,
-        scale: rawWeights.scale * TIMELINE_BOOST,
-      };
+      const temporalScale = Number.isFinite(temporalScales[i])
+        ? Math.max(0, temporalScales[i])
+        : 1;
+      const variationWeights = scaleVariationWeights(rawWeights, TIMELINE_BOOST * temporalScale);
 
       // Extract base (un-varied) keyframe data for runtime energy blending
       const baseKeyframeData = extractKeyframeData(layerToVary, categories);
@@ -1304,7 +1351,7 @@ export const TimelineProvider = ({ children }) => {
 
       // Apply node modulation if enabled
       if (nodeMod) {
-        const phase = generateKeyframePhase(i, times.length, nodeMod.cycles || 1);
+        const phase = generateKeyframePhase(i, normalizedTimes.length, nodeMod.cycles || 1);
         const modConfig = {
           ...nodeMod,
           phase,
@@ -1341,18 +1388,38 @@ export const TimelineProvider = ({ children }) => {
         baseSeed: seed,
         baseTime: time,
         weights: variationWeights,
+        temporalScale,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'],
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       };
 
-      // Add the keyframe (need to temporarily seek to this time)
-      const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
-      if (keyframeId) keyframeIds.push(keyframeId);
+      if (replaceExistingKeyframes) {
+        generatedEntries.push({ time, nodes, subpaths, extras });
+      } else {
+        // Add the keyframe
+        const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
+        if (keyframeId) keyframeIds.push(keyframeId);
+      }
+    }
+
+    if (replaceExistingKeyframes) {
+      const created = generatedEntries
+        .map(entry => createShapeKeyframe(entry.time, entry.nodes, entry.subpaths, '', entry.extras))
+        .sort((a, b) => a.timeSeconds - b.timeSeconds);
+      setSession(prev => ({
+        ...prev,
+        tracks: prev.tracks.map(t => {
+          const isShapeTrack = t.type === 'shape' || t.targetId?.endsWith(':shape');
+          if (t.id !== trackId || !isShapeTrack) return t;
+          return { ...t, type: 'shape', keyframes: created };
+        }),
+      }));
+      return created.map(kf => kf.id);
     }
 
     return keyframeIds;
-  }, [session.tracks, addShapeKeyframe]);
+  }, [session.tracks, addShapeKeyframe, setSession]);
 
   /**
    * Generate N keyframes between two existing keyframes.
@@ -1453,7 +1520,8 @@ export const TimelineProvider = ({ children }) => {
           }
           return createKeyframe(time, Math.random(), curve, tension);
         });
-        const merged = [...(t.keyframes || []), ...newKeyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+        const base = options.replaceExistingKeyframes ? [] : (t.keyframes || []);
+        const merged = [...base, ...newKeyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
         return { ...t, keyframes: merged };
       }),
     }));
@@ -1613,13 +1681,26 @@ export const TimelineProvider = ({ children }) => {
 
     // Get variation weights from first layer or options
     const firstLayer = baseLayers[0];
-    const variationWeights = options.variationWeights || {
+    const baseWeights = options.variationWeights || {
       shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
       anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
       color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
       position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
       scale: firstLayer.variationScale ?? 0,
     };
+    const [temporalScaleRaw] = computeTemporalVariationScales(
+      [time],
+      existingKeyframes.map(kf => kf?.timeSeconds).filter(Number.isFinite),
+      {
+        enabled: options.temporalDampingEnabled,
+        windowSeconds: options.temporalDampingWindowSeconds,
+        minScale: options.temporalDampingMinScale,
+      },
+    );
+    const temporalScale = Number.isFinite(temporalScaleRaw)
+      ? Math.max(0, temporalScaleRaw)
+      : 1;
+    const variationWeights = scaleVariationWeights(baseWeights, temporalScale);
 
     const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'];
 
@@ -1684,6 +1765,7 @@ export const TimelineProvider = ({ children }) => {
         baseSeed,
         baseTime: time,
         weights: variationWeights,
+        temporalScale,
         affectCategories,
         layerCount: baseLayers.length,
         isParamRandomizable: options.isParamRandomizable,
@@ -1778,6 +1860,162 @@ export const TimelineProvider = ({ children }) => {
   }, [session.tracks, updateKeyframe]);
 
   /**
+   * Generate or update global shape variation keyframes at explicit times.
+   * This lets callers regenerate an existing sequence while preserving timing.
+   */
+  const generateGlobalVariationKeyframesAtTimes = useCallback((trackId, baseLayers, times, options = {}) => {
+    if (!trackId || !Array.isArray(baseLayers) || baseLayers.length === 0) return [];
+    if (!Array.isArray(times) || times.length === 0) return [];
+    const validTimes = normalizeKeyframeTimes(times);
+    if (!validTimes.length) return [];
+
+    const track = session.tracks.find(t => t.id === trackId);
+    if (!track || track.type !== 'globalShape') return [];
+
+    const replaceExistingKeyframes = options.replaceExistingKeyframes === true;
+    const existingKeyframes = track.keyframes || [];
+    if (existingKeyframes.length > 0) {
+      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
+      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
+        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
+      }
+    }
+
+    const TIMELINE_BOOST = 5;
+    const firstLayer = baseLayers[0];
+    const baseWeights = options.variationWeights || {
+      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
+      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
+      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
+      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
+      scale: firstLayer.variationScale ?? 0,
+    };
+
+    const temporalReferenceTimes = (Array.isArray(options.temporalReferenceTimes)
+      ? options.temporalReferenceTimes
+      : (replaceExistingKeyframes ? [] : existingKeyframes.map(kf => kf?.timeSeconds)))
+      .filter(Number.isFinite);
+
+    const temporalScales = computeTemporalVariationScales(validTimes, temporalReferenceTimes, {
+      enabled: options.temporalDampingEnabled,
+      windowSeconds: options.temporalDampingWindowSeconds,
+      minScale: options.temporalDampingMinScale,
+    });
+
+    const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'];
+    const baseSeedStart = Number.isFinite(Number(options.baseSeed))
+      ? Number(options.baseSeed)
+      : Date.now();
+    const curve = options.curve || 'easeInOut';
+    const tension = options.tension ?? 0.5;
+
+    const keyframeIds = [];
+    const generatedEntries = [];
+
+    for (let i = 0; i < validTimes.length; i++) {
+      const time = validTimes[i];
+      const baseSeed = baseSeedStart + i * 16807;
+      const temporalScale = Number.isFinite(temporalScales[i])
+        ? Math.max(0, temporalScales[i])
+        : 1;
+      const variationWeights = scaleVariationWeights(baseWeights, TIMELINE_BOOST * temporalScale);
+
+      const layersData = baseLayers.map((layer, layerIndex) => {
+        const layerSeed = baseSeed + layerIndex * 16807;
+
+        const variedLayer = generateVariedLayer(layer, {
+          seed: layerSeed,
+          variationWeights,
+          affectCategories,
+          isParamRandomizable: options.isParamRandomizable,
+          constrainColorsToPalette: options.constrainColorsToPalette,
+          paletteColors: options.paletteColors,
+        });
+
+        const extractData = (l) => ({
+          nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
+          subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
+          position: {
+            x: l.position?.x ?? 0.5,
+            y: l.position?.y ?? 0.5,
+            scale: l.position?.scale ?? 1,
+            xOffset: l.xOffset ?? 0,
+            yOffset: l.yOffset ?? 0,
+          },
+          shapeParams: {
+            numSides: l.numSides ?? 6,
+            curviness: l.curviness ?? 1.0,
+            radiusFactor: l.radiusFactor ?? 0.125,
+            radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
+            radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
+            rotation: l.rotation ?? 0,
+          },
+          animation: {
+            movementStyle: l.movementStyle ?? 'bounce',
+            movementSpeed: l.movementSpeed ?? 1,
+            movementAngle: l.movementAngle ?? 45,
+            scaleSpeed: l.scaleSpeed ?? 0.05,
+            scaleMin: l.scaleMin ?? 0,
+            scaleMax: l.scaleMax ?? 1.5,
+          },
+          colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
+        });
+
+        const variedData = extractData(variedLayer);
+        const baseData = extractData(layer);
+
+        return {
+          ...variedData,
+          base: baseData,
+        };
+      });
+
+      const variation = {
+        baseSeed,
+        baseTime: time,
+        weights: variationWeights,
+        temporalScale,
+        affectCategories,
+        layerCount: baseLayers.length,
+        isParamRandomizable: options.isParamRandomizable,
+        constrainColorsToPalette: options.constrainColorsToPalette,
+        paletteColors: options.paletteColors,
+      };
+
+      if (replaceExistingKeyframes) {
+        generatedEntries.push({ time, layersData, variation });
+      } else {
+        addGlobalShapeKeyframe(trackId, time, layersData, '', {
+          curve,
+          tension,
+          variation,
+        });
+        keyframeIds.push(`global-kf-${time}`);
+      }
+    }
+
+    if (replaceExistingKeyframes) {
+      const created = generatedEntries
+        .map(entry => createGlobalShapeKeyframe(entry.time, entry.layersData, '', {
+          curve,
+          tension,
+          variation: entry.variation,
+        }))
+        .sort((a, b) => a.timeSeconds - b.timeSeconds);
+      setSession(prev => ({
+        ...prev,
+        tracks: prev.tracks.map(t => {
+          if (t.id !== trackId || t.type !== 'globalShape') return t;
+          return { ...t, keyframes: created };
+        }),
+      }));
+      return created.map(kf => kf.id);
+    }
+
+    return keyframeIds;
+  }, [session.tracks, addGlobalShapeKeyframe, setSession]);
+
+  /**
    * Generate multiple global shape keyframes at random or transient times
    * Similar to generateRandomKeyframes but for global shape tracks (all layers)
    * @param {string} trackId - The global shape track ID
@@ -1791,15 +2029,6 @@ export const TimelineProvider = ({ children }) => {
 
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return [];
-
-    // Check for layer count consistency with existing keyframes
-    const existingKeyframes = track.keyframes || [];
-    if (existingKeyframes.length > 0) {
-      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
-      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
-        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
-      }
-    }
 
     const startTime = options.startTime ?? 0;
     const endTime = options.endTime ?? session.lengthSeconds;
@@ -1821,105 +2050,8 @@ export const TimelineProvider = ({ children }) => {
     }
 
     if (times.length === 0) return [];
-
-    // Get variation weights from first layer or options, boosted for timeline divergence
-    const TIMELINE_BOOST = 5;
-    const firstLayer = baseLayers[0];
-    const rawWeights = options.variationWeights || {
-      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
-      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
-      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
-      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
-      scale: firstLayer.variationScale ?? 0,
-    };
-    const variationWeights = {
-      shape: rawWeights.shape * TIMELINE_BOOST,
-      anim: rawWeights.anim * TIMELINE_BOOST,
-      color: rawWeights.color * TIMELINE_BOOST,
-      position: rawWeights.position * TIMELINE_BOOST,
-      scale: rawWeights.scale * TIMELINE_BOOST,
-    };
-
-    const keyframeIds = [];
-
-    for (let i = 0; i < times.length; i++) {
-      const time = times[i];
-      const baseSeed = Date.now() + i * 16807;
-
-      // Generate varied version of each layer at boosted variation
-      // Energy modulation happens at playback time via base/varied blending
-      const layersData = baseLayers.map((layer, layerIndex) => {
-        const layerSeed = baseSeed + layerIndex * 16807;
-
-        const variedLayer = generateVariedLayer(layer, {
-          seed: layerSeed,
-          variationWeights,
-          affectCategories: ['shape', 'anim', 'color', 'position', 'scale'],
-          isParamRandomizable: options.isParamRandomizable,
-          constrainColorsToPalette: options.constrainColorsToPalette,
-          paletteColors: options.paletteColors,
-        });
-
-        // Helper to extract layer data
-        const extractData = (l) => ({
-          nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
-          subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
-          position: {
-            x: l.position?.x ?? 0.5,
-            y: l.position?.y ?? 0.5,
-            scale: l.position?.scale ?? 1,
-            xOffset: l.xOffset ?? 0,
-            yOffset: l.yOffset ?? 0,
-          },
-          shapeParams: {
-            numSides: l.numSides ?? 6,
-            curviness: l.curviness ?? 1.0,
-            radiusFactor: l.radiusFactor ?? 0.125,
-            radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
-            radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
-            rotation: l.rotation ?? 0,
-          },
-          animation: {
-            movementStyle: l.movementStyle ?? 'bounce',
-            movementSpeed: l.movementSpeed ?? 1,
-            movementAngle: l.movementAngle ?? 45,
-            scaleSpeed: l.scaleSpeed ?? 0.05,
-            scaleMin: l.scaleMin ?? 0,
-            scaleMax: l.scaleMax ?? 1.5,
-          },
-          colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
-        });
-
-        // Store both Varied data (as main) and Base data (for runtime lerp)
-        const variedData = extractData(variedLayer);
-        const baseData = extractData(layer);
-
-        return {
-          ...variedData,
-          base: baseData, // Store unvaried base state
-        };
-      });
-
-      // Add keyframe with variation metadata
-      addGlobalShapeKeyframe(trackId, time, layersData, '', {
-        curve: 'easeInOut',
-        tension: 0.5,
-        variation: {
-          baseSeed,
-          baseTime: time,
-          weights: variationWeights,
-          affectCategories: ['shape', 'anim', 'color', 'position', 'scale'],
-          layerCount: baseLayers.length,
-          constrainColorsToPalette: options.constrainColorsToPalette,
-          paletteColors: options.paletteColors,
-        },
-      });
-
-      keyframeIds.push(`global-kf-${time}`);
-    }
-
-    return keyframeIds;
-  }, [session.tracks, session.lengthSeconds, transients, addGlobalShapeKeyframe]);
+    return generateGlobalVariationKeyframesAtTimes(trackId, baseLayers, times, options);
+  }, [session.tracks, session.lengthSeconds, transients, generateGlobalVariationKeyframesAtTimes]);
 
   /**
    * Fill global shape keyframes between two times (evenly spaced)
@@ -1936,117 +2068,11 @@ export const TimelineProvider = ({ children }) => {
     const track = session.tracks.find(t => t.id === trackId);
     if (!track || track.type !== 'globalShape') return [];
 
-    // Check for layer count consistency with existing keyframes
-    const existingKeyframes = track.keyframes || [];
-    if (existingKeyframes.length > 0) {
-      const firstKfLayerCount = existingKeyframes[0].layers?.length || 0;
-      if (firstKfLayerCount > 0 && baseLayers.length !== firstKfLayerCount) {
-        console.warn(`Global shape track layer count mismatch: existing keyframes have ${firstKfLayerCount} layers, current scene has ${baseLayers.length}. Interpolation may not work correctly.`);
-      }
-    }
-
     // Generate evenly spaced times
     const times = generateEvenlySpacedTimes(startTime, endTime, count);
     if (times.length === 0) return [];
-
-    // Get variation weights from first layer or options, boosted for timeline divergence
-    const TIMELINE_BOOST = 5;
-    const firstLayer = baseLayers[0];
-    const rawWeights = options.variationWeights || {
-      shape: firstLayer.variationShape ?? firstLayer.variation ?? 0.2,
-      anim: firstLayer.variationAnim ?? firstLayer.variation ?? 0.2,
-      color: firstLayer.variationColor ?? firstLayer.variation ?? 0.2,
-      position: firstLayer.variationPosition ?? firstLayer.variation ?? 0.2,
-      scale: firstLayer.variationScale ?? 0,
-    };
-    const variationWeights = {
-      shape: rawWeights.shape * TIMELINE_BOOST,
-      anim: rawWeights.anim * TIMELINE_BOOST,
-      color: rawWeights.color * TIMELINE_BOOST,
-      position: rawWeights.position * TIMELINE_BOOST,
-      scale: rawWeights.scale * TIMELINE_BOOST,
-    };
-
-    const keyframeIds = [];
-
-    for (let i = 0; i < times.length; i++) {
-      const time = times[i];
-      const baseSeed = Date.now() + i * 16807;
-
-      // Generate varied version of each layer at boosted variation
-      // Energy modulation happens at playback time via base/varied blending
-      const layersData = baseLayers.map((layer, layerIndex) => {
-        const layerSeed = baseSeed + layerIndex * 16807;
-
-        const variedLayer = generateVariedLayer(layer, {
-          seed: layerSeed,
-          variationWeights,
-          affectCategories: ['shape', 'anim', 'color', 'position', 'scale'],
-          isParamRandomizable: options.isParamRandomizable,
-          constrainColorsToPalette: options.constrainColorsToPalette,
-          paletteColors: options.paletteColors,
-        });
-
-        // Helper to extract layer data
-        const extractData = (l) => ({
-          nodes: Array.isArray(l.nodes) ? JSON.parse(JSON.stringify(l.nodes)) : null,
-          subpaths: Array.isArray(l.subpaths) ? JSON.parse(JSON.stringify(l.subpaths)) : null,
-          position: {
-            x: l.position?.x ?? 0.5,
-            y: l.position?.y ?? 0.5,
-            scale: l.position?.scale ?? 1,
-            xOffset: l.xOffset ?? 0,
-            yOffset: l.yOffset ?? 0,
-          },
-          shapeParams: {
-            numSides: l.numSides ?? 6,
-            curviness: l.curviness ?? 1.0,
-            radiusFactor: l.radiusFactor ?? 0.125,
-            radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
-            radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
-            rotation: l.rotation ?? 0,
-          },
-          animation: {
-            movementStyle: l.movementStyle ?? 'bounce',
-            movementSpeed: l.movementSpeed ?? 1,
-            movementAngle: l.movementAngle ?? 45,
-            scaleSpeed: l.scaleSpeed ?? 0.05,
-            scaleMin: l.scaleMin ?? 0,
-            scaleMax: l.scaleMax ?? 1.5,
-          },
-          colors: Array.isArray(l.colors) ? [...l.colors] : ['#0000FF'],
-        });
-
-        // Store both varied data (as main) and base data (for runtime energy blending)
-        const variedData = extractData(variedLayer);
-        const baseData = extractData(layer);
-
-        return {
-          ...variedData,
-          base: baseData,
-        };
-      });
-
-      // Add keyframe with variation metadata
-      addGlobalShapeKeyframe(trackId, time, layersData, '', {
-        curve: 'easeInOut',
-        tension: 0.5,
-        variation: {
-          baseSeed,
-          baseTime: time,
-          weights: variationWeights,
-          affectCategories: ['shape', 'anim', 'color', 'position', 'scale'],
-          layerCount: baseLayers.length,
-          constrainColorsToPalette: options.constrainColorsToPalette,
-          paletteColors: options.paletteColors,
-        },
-      });
-
-      keyframeIds.push(`global-kf-${time}`);
-    }
-
-    return keyframeIds;
-  }, [session.tracks, addGlobalShapeKeyframe]);
+    return generateGlobalVariationKeyframesAtTimes(trackId, baseLayers, times, options);
+  }, [session.tracks, generateGlobalVariationKeyframesAtTimes]);
 
   // --- Settings ---
 
@@ -2216,6 +2242,7 @@ export const TimelineProvider = ({ children }) => {
     // Global shape track keyframe generation
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,
+    generateGlobalVariationKeyframesAtTimes,
     generateGlobalRandomKeyframes,
     generateGlobalKeyframesBetween,
     rerollGlobalShapeKeyframe,
@@ -2291,6 +2318,7 @@ export const TimelineProvider = ({ children }) => {
     rerollVariationKeyframe,
     captureGlobalShapeKeyframe,
     generateGlobalVariationKeyframe,
+    generateGlobalVariationKeyframesAtTimes,
     generateGlobalRandomKeyframes,
     generateGlobalKeyframesBetween,
     rerollGlobalShapeKeyframe,

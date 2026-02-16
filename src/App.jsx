@@ -1541,7 +1541,7 @@ const MainApp = () => {
   const handleGenerateVariationKeyframe = useCallback(() => {
     if (!timelineContext?.visible) return;
 
-    const layer = layers[selectedLayerIndex];
+    let layer = layers[selectedLayerIndex];
     let shapeTrack = findShapeTrackForLayer(layer);
     let autoCreatedShapeTrackId = null;
 
@@ -1647,17 +1647,50 @@ const MainApp = () => {
   const handleGenerateRandomKeyframes = useCallback((options = {}) => {
     if (!timelineContext?.visible) return;
 
-    const layer = layers[selectedLayerIndex];
-    const selectedShapeTrack = findShapeTrackForLayer(layer);
+    let layer = layers[selectedLayerIndex];
+    const allTracks = timelineContext.tracks || [];
+    const requestedTrackId = typeof options.targetTrackId === 'string' ? options.targetTrackId : null;
+    const requestedTrack = requestedTrackId
+      ? allTracks.find(t => t.id === requestedTrackId)
+      : null;
+    const requestedIsShape = !!(requestedTrack && (requestedTrack.type === 'shape' || requestedTrack.targetId?.endsWith(':shape')));
+    const requestedIsGlobal = requestedTrack?.type === 'globalShape';
+    if (requestedIsShape && requestedTrack?.targetId) {
+      const parts = String(requestedTrack.targetId).split(':');
+      const targetLayerIdOrName = parts.length >= 2 ? parts[1] : null;
+      const targetLayer = layers.find(l => l?.name === targetLayerIdOrName || l?.id === targetLayerIdOrName);
+      if (targetLayer) {
+        layer = targetLayer;
+      }
+    }
+    const selectedShapeTrack = requestedTrack
+      ? (requestedIsShape ? requestedTrack : null)
+      : findShapeTrackForLayer(layer);
 
-    // Prefer selected-layer shape track when available.
-    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
-    const isGlobal = !selectedShapeTrack && !!globalShapeTrack;
-    
+    // Prefer selected-layer shape track when available unless an explicit track is requested.
+    const globalShapeTrack = requestedIsGlobal
+      ? requestedTrack
+      : allTracks.find(t => t.type === 'globalShape');
+    const isGlobal = requestedTrack
+      ? requestedIsGlobal
+      : (!selectedShapeTrack && !!globalShapeTrack);
+
     // For single-layer mode, get the selected layer's track
-    let shapeTrack = isGlobal ? globalShapeTrack : selectedShapeTrack;
+    let shapeTrack = requestedTrack
+      ? ((requestedIsShape || requestedIsGlobal) ? requestedTrack : null)
+      : (isGlobal ? globalShapeTrack : selectedShapeTrack);
     let autoCreatedShapeTrackId = null;
-    
+    const regenerateExistingSequence = options.regenerateExistingSequence === true;
+
+    if (requestedTrack && !shapeTrack) {
+      console.warn('Requested track is not a shape/global-shape track:', requestedTrackId);
+      return;
+    }
+    if (requestedTrack && requestedIsShape && !layer) {
+      console.warn('Cannot resolve base layer for requested shape track:', requestedTrackId);
+      return;
+    }
+
     if (!isGlobal) {
       if (!layer) return;
       if (!shapeTrack) {
@@ -1700,6 +1733,7 @@ const MainApp = () => {
               useTransients: !!options.useTransients && (timelineContext.transients?.length > 0),
               startTime,
               endTime,
+              replaceExistingKeyframes: !!options.replaceTrackKeyframes,
             });
             totalAdded += (added || 0);
           }
@@ -1743,6 +1777,99 @@ const MainApp = () => {
       }
     }
 
+    // Get variation weights from first layer (for global) or selected layer
+    const refLayer = isGlobal ? layers[0] : layer;
+    const variationWeights = {
+      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
+      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
+      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
+      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
+      scale: refLayer?.variationScale ?? 0,
+    };
+
+    // Node modulation only for single-layer tracks (not global)
+    let nodeMod = null;
+    if (!isGlobal && enableBreathing && !!options.nodeModEnabled) {
+      const amount = Number(options.nodeModAmount);
+      const cycles = Number(options.nodeModCycles);
+      nodeMod = {
+        enabled: true,
+        mode: 'sineRadial',
+        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+        mask: 'all',
+        phaseSpread: 0.5,
+      };
+    }
+
+    let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
+      ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
+      : 0;
+    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
+      energyInfluenceValue = Number.isFinite(energyInfluence)
+        ? Math.max(0, Math.min(2, energyInfluence))
+        : 0.5;
+    }
+
+    if (regenerateExistingSequence) {
+      const keyframes = Array.isArray(shapeTrack?.keyframes) ? shapeTrack.keyframes : [];
+      const variationKeyframes = keyframes.filter(kf => !!kf?.variation);
+      if (!variationKeyframes.length) {
+        console.warn('No variation keyframes found to regenerate on track');
+        return;
+      }
+
+      const regenTimes = variationKeyframes
+        .map(kf => kf?.timeSeconds)
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+      const temporalReferenceTimes = keyframes
+        .filter(kf => !kf?.variation)
+        .map(kf => kf?.timeSeconds)
+        .filter(Number.isFinite);
+
+      if (isGlobal) {
+        const keyframeIds = timelineContext.generateGlobalVariationKeyframesAtTimes?.(
+          shapeTrack.id,
+          layers,
+          regenTimes,
+          {
+            variationWeights,
+            energyInfluence: energyInfluenceValue,
+            isParamRandomizable,
+            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+            paletteColors: generationPaletteColors,
+            temporalReferenceTimes,
+            baseSeed: Date.now(),
+          },
+        );
+        if (keyframeIds?.length) {
+          console.log('Regenerated', keyframeIds.length, 'global variation keyframes (sequence reroll)');
+        }
+      } else {
+        const keyframeIds = timelineContext.generateVariationKeyframesAtTimes?.(
+          shapeTrack.id,
+          baseLayer,
+          regenTimes,
+          {
+            evaluateAtTime: false,
+            nodeMod,
+            energyInfluence: energyInfluenceValue,
+            variationWeights,
+            isParamRandomizable,
+            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+            paletteColors: generationPaletteColors,
+            temporalReferenceTimes,
+            baseSeed: Date.now(),
+          },
+        );
+        if (keyframeIds?.length) {
+          console.log('Regenerated', keyframeIds.length, 'variation keyframes (sequence reroll)');
+        }
+      }
+      return;
+    }
+
     const rawCount = Number(options.count);
     const count = Number.isFinite(rawCount) && rawCount >= 1
       ? Math.max(1, Math.floor(rawCount))
@@ -1778,41 +1905,7 @@ const MainApp = () => {
       return;
     }
 
-    // Get variation weights from first layer (for global) or selected layer
-    const refLayer = isGlobal ? layers[0] : layer;
-    const variationWeights = {
-      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
-      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
-      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
-      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
-      scale: refLayer?.variationScale ?? 0,
-    };
-
     const useTransients = !!options.useTransients && (timelineContext.transients?.length > 0);
-
-    // Node modulation only for single-layer tracks (not global)
-    let nodeMod = null;
-    if (!isGlobal && enableBreathing && !!options.nodeModEnabled) {
-      const amount = Number(options.nodeModAmount);
-      const cycles = Number(options.nodeModCycles);
-      nodeMod = {
-        enabled: true,
-        mode: 'sineRadial',
-        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
-        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
-        mask: 'all',
-        phaseSpread: 0.5,
-      };
-    }
-
-    let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
-      ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
-      : 0;
-    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
-      energyInfluenceValue = Number.isFinite(energyInfluence)
-        ? Math.max(0, Math.min(2, energyInfluence))
-        : 0.5;
-    }
 
     let keyframeIds;
     if (isGlobal) {
@@ -1823,6 +1916,7 @@ const MainApp = () => {
         endTime,
         energyInfluence: energyInfluenceValue,
         variationWeights,
+        replaceExistingKeyframes: !!options.replaceTrackKeyframes,
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
@@ -1835,6 +1929,7 @@ const MainApp = () => {
         nodeMod,
         energyInfluence: energyInfluenceValue,
         variationWeights,
+        replaceExistingKeyframes: !!options.replaceTrackKeyframes,
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
@@ -2042,10 +2137,25 @@ const MainApp = () => {
     // Variation keyframe generation
 	    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
 	    onGenerateRandomKeyframes: () => {
+        const timelineEnd = timelineContext?.audio?.durationSeconds ?? timelineContext?.lengthSeconds;
 	      if (panelGenerateRandomRef.current) {
-	        panelGenerateRandomRef.current();
+	        panelGenerateRandomRef.current({
+            replaceTrackKeyframes: true,
+            regenerateExistingSequence: false,
+            useTransients: true,
+            count: undefined,
+            startTime: 0,
+            endTime: Number.isFinite(Number(timelineEnd)) ? Number(timelineEnd) : undefined,
+          });
 	      } else {
-	        handleGenerateRandomKeyframes();
+	        handleGenerateRandomKeyframes({
+            replaceTrackKeyframes: true,
+            regenerateExistingSequence: false,
+            useTransients: true,
+            count: undefined,
+            startTime: 0,
+            endTime: Number.isFinite(Number(timelineEnd)) ? Number(timelineEnd) : undefined,
+          });
 	      }
 	    },
 	    onFillKeyframesBetween: handleFillKeyframesBetween,

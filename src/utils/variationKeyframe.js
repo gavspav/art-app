@@ -7,6 +7,8 @@
 
 import { buildVariedLayerFrom } from './layerVariation.js';
 
+const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
 /**
  * Generate a varied layer snapshot from a base layer.
  * 
@@ -209,4 +211,71 @@ export function selectTopTransientTimes(transients, count, startTime = 0, endTim
 export function generateRerollSeed(previousSeed = 0) {
   // Use current time + previous seed to ensure uniqueness
   return (Date.now() + previousSeed * 16807) % 2147483647;
+}
+
+/**
+ * Compute per-keyframe variation scales based on temporal proximity.
+ *
+ * Closer keyframes get lower variation scale to reduce sudden visual jumps.
+ *
+ * @param {number[]} candidateTimes - Times being generated now
+ * @param {number[]} existingTimes - Existing track keyframe times
+ * @param {object} options
+ * @param {boolean} options.enabled - Enable proximity damping (default: true)
+ * @param {number} options.windowSeconds - Distance where full variation is restored (default: 0.8s)
+ * @param {number} options.minScale - Minimum variation scale at zero distance (default: 0.25)
+ * @returns {number[]} Scale values aligned with candidateTimes
+ */
+export function computeTemporalVariationScales(candidateTimes, existingTimes = [], options = {}) {
+  if (!Array.isArray(candidateTimes) || candidateTimes.length === 0) return [];
+
+  const enabled = options.enabled !== false;
+  if (!enabled) return candidateTimes.map(() => 1);
+
+  const windowRaw = Number(options.windowSeconds);
+  const windowSeconds = Number.isFinite(windowRaw) ? Math.max(0.001, windowRaw) : 0.8;
+  const minScaleRaw = Number(options.minScale);
+  const minScale = Number.isFinite(minScaleRaw) ? clamp01(minScaleRaw) : 0.25;
+
+  const entries = [];
+  for (const time of existingTimes) {
+    if (!Number.isFinite(time)) continue;
+    entries.push({ time, source: 'existing', index: -1 });
+  }
+  for (let i = 0; i < candidateTimes.length; i++) {
+    const time = candidateTimes[i];
+    if (!Number.isFinite(time)) continue;
+    entries.push({ time, source: 'candidate', index: i });
+  }
+
+  // Stable ordering ensures deterministic behavior for equal timestamps.
+  entries.sort((a, b) => {
+    if (a.time !== b.time) return a.time - b.time;
+    if (a.source !== b.source) return a.source === 'existing' ? -1 : 1;
+    return a.index - b.index;
+  });
+
+  const scales = candidateTimes.map(() => 1);
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (entry.source !== 'candidate') continue;
+
+    const prev = entries[i - 1];
+    const next = entries[i + 1];
+    let nearestDistance = Infinity;
+
+    if (prev) nearestDistance = Math.min(nearestDistance, Math.abs(entry.time - prev.time));
+    if (next) nearestDistance = Math.min(nearestDistance, Math.abs(next.time - entry.time));
+
+    if (!Number.isFinite(nearestDistance)) {
+      scales[entry.index] = 1;
+      continue;
+    }
+
+    const ratio = clamp01(nearestDistance / windowSeconds);
+    scales[entry.index] = minScale + (1 - minScale) * ratio;
+  }
+
+  return scales;
 }
