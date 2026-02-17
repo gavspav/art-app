@@ -379,6 +379,8 @@ const BottomPanel = ({
   setAudioSpawnHalfLifeEnergyFactor,
   audioSpawnMaxLayers,
   setAudioSpawnMaxLayers,
+  audioSpawnMicReactive,
+  setAudioSpawnMicReactive,
   timelineMode,
   setTimelineMode,
   layers,
@@ -900,6 +902,8 @@ const BottomPanel = ({
               setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
               audioSpawnMaxLayers={audioSpawnMaxLayers}
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              audioSpawnMicReactive={audioSpawnMicReactive}
+              setAudioSpawnMicReactive={setAudioSpawnMicReactive}
               colorFadeWhileFrozen={colorFadeWhileFrozen}
               setColorFadeWhileFrozen={setColorFadeWhileFrozen}
               classicMode={classicMode}
@@ -1078,6 +1082,7 @@ const BottomPanel = ({
                 setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
                 setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                setAudioSpawnMicReactive={setAudioSpawnMicReactive}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
               />
               <AudioSpawnSection
@@ -1105,6 +1110,8 @@ const BottomPanel = ({
                 setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
                 audioSpawnMaxLayers={audioSpawnMaxLayers}
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                audioSpawnMicReactive={audioSpawnMicReactive}
+                setAudioSpawnMicReactive={setAudioSpawnMicReactive}
                 audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
               />
@@ -1395,6 +1402,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return fail('audioSpawnHalfLifeMs changed');
   if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return fail('audioSpawnHalfLifeEnergyFactor changed');
   if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return fail('audioSpawnMaxLayers changed');
+  if (!Object.is(prev.audioSpawnMicReactive, next.audioSpawnMicReactive)) return fail('audioSpawnMicReactive changed');
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
   if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
   if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
@@ -1434,6 +1442,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setAudioSpawnHalfLifeMs',
     'setAudioSpawnHalfLifeEnergyFactor',
     'setAudioSpawnMaxLayers',
+    'setAudioSpawnMicReactive',
     'setColorFadeWhileFrozen',
     'setClassicMode',
     'setZIgnore',

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAudioReactive } from '../context/AudioContext.jsx';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { clamp } from '../utils/mathUtils.js';
+import { hslToHex } from '../utils/colorUtils.js';
 
 const DEFAULTS = Object.freeze({
   triggerMode: 'level', // 'level' | 'transient'
@@ -14,6 +15,7 @@ const DEFAULTS = Object.freeze({
   minOpacity: 0.01,
   repeatWhileAbove: true,
   hysteresis: 0.08,
+  micReactive: false,
 });
 
 const nowMs = () => (
@@ -23,6 +25,86 @@ const nowMs = () => (
 );
 
 const uniqueId = (prefix = 'spawn') => `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
+
+const readWaveSample = (waveform, index) => {
+  if (!waveform || !Number.isFinite(Number(waveform.length)) || waveform.length < 1) return 0;
+  const i = Math.max(0, Math.min(waveform.length - 1, Math.floor(index)));
+  return clamp(Number(waveform[i]) || 0, -1, 1);
+};
+
+const applyWaveformShape = (layer, waveform, energy = 0) => {
+  if (!layer || !waveform || waveform.length < 8) return;
+
+  const count = clamp(Math.round(10 + (energy * 14)), 8, 32);
+  const deformAmount = 0.22 + (energy * 0.35);
+  const nodes = [];
+
+  let peak = 0;
+  let zeroCross = 0;
+  let positive = 0;
+  let negative = 0;
+  let prev = readWaveSample(waveform, 0);
+
+  for (let i = 0; i < count; i += 1) {
+    const sampleIdx = (i / count) * (waveform.length - 1);
+    const sample = readWaveSample(waveform, sampleIdx);
+    const abs = Math.abs(sample);
+    if (abs > peak) peak = abs;
+    if (sample >= 0) positive += sample; else negative += abs;
+    if (i > 0 && ((sample >= 0) !== (prev >= 0))) zeroCross += 1;
+    prev = sample;
+
+    const angle = (i / count) * Math.PI * 2;
+    const radius = 0.45 * (1 + (sample * deformAmount));
+    nodes.push({
+      x: clamp(0.5 + (Math.cos(angle) * radius), 0, 1),
+      y: clamp(0.5 + (Math.sin(angle) * radius), 0, 1),
+    });
+  }
+
+  const asymmetry = clamp(
+    (positive - negative) / Math.max(1e-6, positive + negative),
+    -1,
+    1,
+  );
+  const baseRadius = Number.isFinite(layer.radiusFactor) ? layer.radiusFactor : 0.125;
+  const radius = clamp(baseRadius * (0.78 + (peak * 1.15)), 0.04, 1.8);
+
+  layer.nodes = nodes;
+  layer.syncNodesToNumSides = false;
+  layer.numSides = count;
+  layer.curviness = clamp(0.2 + ((zeroCross / Math.max(1, count - 1)) * 0.9), 0, 1);
+  layer.radiusFactor = radius;
+  layer.radiusFactorX = clamp(radius * (1 + (asymmetry * 0.22)), 0.04, 2);
+  layer.radiusFactorY = clamp(radius * (1 - (asymmetry * 0.22)), 0.04, 2);
+};
+
+const applyPitchColor = (layer, pitchHz, pitchConfidence, energy = 0) => {
+  if (!layer) return;
+  const hz = Number(pitchHz);
+  const confidence = clamp(Number(pitchConfidence) || 0, 0, 1);
+  if (!Number.isFinite(hz) || hz <= 0 || confidence < 0.12) return;
+
+  const midi = 69 + (12 * Math.log2(hz / 440));
+  const pitchClass = ((Math.round(midi) % 12) + 12) % 12;
+  const hue = (pitchClass / 12) * 360;
+  const saturation = clamp(52 + (confidence * 36) + (energy * 18), 35, 96);
+  const lightness = clamp(40 + (energy * 24), 24, 72);
+  const palette = [
+    hslToHex(hue, saturation, lightness),
+    hslToHex((hue + 32) % 360, clamp(saturation * 0.95, 30, 96), clamp(lightness * 0.92, 20, 80)),
+    hslToHex((hue + 75) % 360, clamp(saturation * 0.88, 30, 96), clamp(lightness * 0.85, 20, 78)),
+    hslToHex((hue + 160) % 360, clamp(saturation * 0.82, 25, 95), clamp(lightness * 0.78, 18, 75)),
+  ];
+  const desiredCount = clamp(Math.round(layer.numColors || layer.colors?.length || 4), 1, 8);
+  const nextColors = [];
+  for (let i = 0; i < desiredCount; i += 1) {
+    nextColors.push(palette[i % palette.length]);
+  }
+  layer.colors = nextColors;
+  layer.numColors = nextColors.length;
+  layer.selectedColor = clamp(Number(layer.selectedColor) || 0, 0, nextColors.length - 1);
+};
 
 /**
  * Spawns ephemeral (non-export) overlay layers from live audio threshold crossings.
@@ -48,6 +130,7 @@ export function useAudioSpawnLayers({
   minOpacity = DEFAULTS.minOpacity,
   repeatWhileAbove = DEFAULTS.repeatWhileAbove,
   hysteresis = DEFAULTS.hysteresis,
+  micReactive = DEFAULTS.micReactive,
 } = {}) {
   const audio = useAudioReactive();
   const overlayLayersRef = useRef([]);
@@ -73,6 +156,7 @@ export function useAudioSpawnLayers({
     minOpacity: clamp(Number(minOpacity) || DEFAULTS.minOpacity, 0.0001, 1),
     repeatWhileAbove: !!repeatWhileAbove,
     hysteresis: clamp(Number(hysteresis) || 0, 0, 0.5),
+    micReactive: !!micReactive,
   };
 
   const rafRef = useRef(null);
@@ -152,59 +236,92 @@ export function useAudioSpawnLayers({
         layer.opacity = nextOpacity;
         layer.visible = true;
 
-        // Animate position based on movementStyle
         const pos = layer.position || {};
-        const style = layer.movementStyle || 'bounce';
-        const speed = (layer.movementSpeed || 1) * 0.002 * dtSec * 60;
-        const angle = (layer.movementAngle || 45) * (Math.PI / 180);
-
-        if (style === 'drift' || style === 'bounce') {
-          let vx = pos.vx ?? (Math.cos(angle) * speed);
-          let vy = pos.vy ?? (Math.sin(angle) * speed);
-          let nx = (pos.x ?? 0.5) + vx;
-          let ny = (pos.y ?? 0.5) + vy;
-
-          if (style === 'bounce') {
-            if (nx <= 0 || nx >= 1) { vx = -vx; nx = clamp(nx, 0, 1); }
-            if (ny <= 0 || ny >= 1) { vy = -vy; ny = clamp(ny, 0, 1); }
-          } else {
-            // Drift wraps around
-            if (nx < 0) nx += 1; else if (nx > 1) nx -= 1;
-            if (ny < 0) ny += 1; else if (ny > 1) ny -= 1;
-          }
-          layer.position = { ...pos, x: nx, y: ny, vx, vy };
-        } else if (style === 'orbit') {
-          const orbitSpeed = speed * 2;
-          const orbitAngle = (pos.orbitAngle || 0) + orbitSpeed;
-          const cx = pos.orbitCenterX ?? 0.5;
-          const cy = pos.orbitCenterY ?? 0.5;
-          const rx = pos.orbitRadiusX ?? 0.15;
-          const ry = pos.orbitRadiusY ?? 0.15;
+        if (spawn.micReactive) {
+          const progress = clamp(1 - decay, 0, 1);
+          const startX = Number.isFinite(spawn.startX) ? spawn.startX : (pos.x ?? 0.5);
+          const startY = Number.isFinite(spawn.startY) ? spawn.startY : (pos.y ?? 0.5);
+          const depthVx = Number.isFinite(spawn.depthVx) ? spawn.depthVx : 0;
+          const depthVy = Number.isFinite(spawn.depthVy) ? spawn.depthVy : -1;
+          const depthTravel = Number.isFinite(spawn.depthTravel) ? spawn.depthTravel : 0.25;
+          const centerPull = Number.isFinite(spawn.depthCenterPull) ? spawn.depthCenterPull : 0.55;
+          const travel = depthTravel * progress;
+          const nx = clamp(
+            startX + (depthVx * travel) + ((0.5 - startX) * centerPull * progress),
+            -0.3,
+            1.3,
+          );
+          const ny = clamp(
+            startY + (depthVy * travel) + ((0.5 - startY) * centerPull * progress),
+            -0.3,
+            1.3,
+          );
+          const baseScale = Number.isFinite(spawn.baseScale) ? spawn.baseScale : (pos.scale ?? 1);
+          const scaleDecay = clamp(Number(spawn.scaleDecay) || 0.82, 0.1, 0.98);
+          const nextScale = Math.max(0.04, baseScale * (1 - (progress * scaleDecay)));
           layer.position = {
             ...pos,
-            x: cx + Math.cos(orbitAngle) * rx,
-            y: cy + Math.sin(orbitAngle) * ry,
-            orbitAngle,
+            x: nx,
+            y: ny,
+            vx: 0,
+            vy: 0,
+            scale: nextScale,
+            scaleDirection: -1,
           };
-        } else if (style === 'spin') {
-          const spinSpeed = speed * 100;
-          layer.rotation = ((layer.rotation || 0) + spinSpeed) % 360;
-        }
-        // 'still' = no position update
+        } else {
+          // Animate position based on movementStyle
+          const style = layer.movementStyle || 'bounce';
+          const speed = (layer.movementSpeed || 1) * 0.002 * dtSec * 60;
+          const angle = (layer.movementAngle || 45) * (Math.PI / 180);
 
-        // Scale pulsing (respect Global "Z-Ignore")
-        if (!cfg.zIgnore && layer.scaleSpeed > 0) {
-          const scaleDir = pos.scaleDirection || 1;
-          const scaleSpd = (layer.scaleSpeed || 0.05) * dtSec * 60;
-          let nextScale = (pos.scale || 1) + scaleDir * scaleSpd;
-          let nextDir = scaleDir;
-          const rawMin = Number.isFinite(layer.scaleMin) ? layer.scaleMin : 0.2;
-          const rawMax = Number.isFinite(layer.scaleMax) ? layer.scaleMax : 1.5;
-          const sMin = Math.max(0.05, rawMin);
-          const sMax = Math.max(sMin, rawMax);
-          if (nextScale >= sMax) { nextScale = sMax; nextDir = -1; }
-          else if (nextScale <= sMin) { nextScale = sMin; nextDir = 1; }
-          layer.position = { ...(layer.position || pos), scale: nextScale, scaleDirection: nextDir };
+          if (style === 'drift' || style === 'bounce') {
+            let vx = pos.vx ?? (Math.cos(angle) * speed);
+            let vy = pos.vy ?? (Math.sin(angle) * speed);
+            let nx = (pos.x ?? 0.5) + vx;
+            let ny = (pos.y ?? 0.5) + vy;
+
+            if (style === 'bounce') {
+              if (nx <= 0 || nx >= 1) { vx = -vx; nx = clamp(nx, 0, 1); }
+              if (ny <= 0 || ny >= 1) { vy = -vy; ny = clamp(ny, 0, 1); }
+            } else {
+              // Drift wraps around
+              if (nx < 0) nx += 1; else if (nx > 1) nx -= 1;
+              if (ny < 0) ny += 1; else if (ny > 1) ny -= 1;
+            }
+            layer.position = { ...pos, x: nx, y: ny, vx, vy };
+          } else if (style === 'orbit') {
+            const orbitSpeed = speed * 2;
+            const orbitAngle = (pos.orbitAngle || 0) + orbitSpeed;
+            const cx = pos.orbitCenterX ?? 0.5;
+            const cy = pos.orbitCenterY ?? 0.5;
+            const rx = pos.orbitRadiusX ?? 0.15;
+            const ry = pos.orbitRadiusY ?? 0.15;
+            layer.position = {
+              ...pos,
+              x: cx + Math.cos(orbitAngle) * rx,
+              y: cy + Math.sin(orbitAngle) * ry,
+              orbitAngle,
+            };
+          } else if (style === 'spin') {
+            const spinSpeed = speed * 100;
+            layer.rotation = ((layer.rotation || 0) + spinSpeed) % 360;
+          }
+          // 'still' = no position update
+
+          // Scale pulsing (respect Global "Z-Ignore")
+          if (!cfg.zIgnore && layer.scaleSpeed > 0) {
+            const scaleDir = pos.scaleDirection || 1;
+            const scaleSpd = (layer.scaleSpeed || 0.05) * dtSec * 60;
+            let nextScale = (pos.scale || 1) + scaleDir * scaleSpd;
+            let nextDir = scaleDir;
+            const rawMin = Number.isFinite(layer.scaleMin) ? layer.scaleMin : 0.2;
+            const rawMax = Number.isFinite(layer.scaleMax) ? layer.scaleMax : 1.5;
+            const sMin = Math.max(0.05, rawMin);
+            const sMax = Math.max(sMin, rawMax);
+            if (nextScale >= sMax) { nextScale = sMax; nextDir = -1; }
+            else if (nextScale <= sMin) { nextScale = sMin; nextDir = 1; }
+            layer.position = { ...(layer.position || pos), scale: nextScale, scaleDirection: nextDir };
+          }
         }
 
         list[writeIndex++] = layer;
@@ -283,6 +400,10 @@ export function useAudioSpawnLayers({
               includeVarScale ? 'scale' : null,
             ].filter(Boolean)
             : null;
+          const micReactiveEnabled = !!cfg.micReactive && !audio?.isFileMode;
+          const waveform = features?.waveform;
+          const pitchHz = Number(features?.pitchHz) || 0;
+          const pitchConfidence = clamp(Number(features?.pitchConfidence) || 0, 0, 1);
 
           for (let spawnCount = 0; spawnCount < totalSpawns; spawnCount += 1) {
             counterRef.current += 1;
@@ -307,10 +428,24 @@ export function useAudioSpawnLayers({
               paletteColors: cfg.paletteColors,
             });
 
+            if (micReactiveEnabled) {
+              applyWaveformShape(varied, waveform, energy);
+              if (!cfg.useGlobalPalette) {
+                applyPitchColor(varied, pitchHz, pitchConfidence, energy);
+              }
+            }
+
+            const variedPos = varied.position || {};
+            const startX = Number.isFinite(variedPos.x) ? variedPos.x : 0.5;
+            const startY = Number.isFinite(variedPos.y) ? variedPos.y : 0.5;
+            const baseScale = Number.isFinite(variedPos.scale) ? variedPos.scale : 1;
+            const movementAngleRad = ((Number(varied?.movementAngle) || 45) * Math.PI) / 180;
+
             varied.id = uniqueId('audio-spawn');
             varied.name = `Audio ${spawnIndex}`;
             varied.visible = true;
             varied.opacity = baseOpacity;
+            varied.position = { ...variedPos, x: startX, y: startY, scale: baseScale };
             varied.__audioSpawn = {
               createdAtMs: t,
               halfLifeMs: Math.max(50, hl),
@@ -318,6 +453,17 @@ export function useAudioSpawnLayers({
               band: cfg.band,
               threshold: cfg.threshold,
               energyAtSpawn: energy,
+              micReactive: micReactiveEnabled,
+              pitchHz,
+              pitchConfidence,
+              startX,
+              startY,
+              baseScale,
+              depthVx: Math.cos(movementAngleRad),
+              depthVy: Math.sin(movementAngleRad),
+              depthTravel: 0.2 + (energy * 0.2),
+              depthCenterPull: 0.55,
+              scaleDecay: 0.82,
             };
 
             list.push(varied);

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { PitchDetector } from 'pitchy';
 
 /**
  * useAudio - Web Audio API hook for audio-reactive features
@@ -6,12 +7,30 @@ import { useState, useRef, useCallback, useEffect } from 'react';
  * Captures audio input from default device and extracts audio features:
  * - RMS (overall level)
  * - Bass, Mids, Highs (frequency bands)
+ * - Pitch estimate (Pitchy / McLeod Pitch Method, plus confidence)
+ * - Waveform snapshot + simple time-domain shape metrics
  * 
  * All values are smoothed for organic animation response.
  */
 
 const DEFAULT_SMOOTHING = 0.7; // 0..1, higher = more responsive
 const DEFAULT_RELEASE = 0.85; // 0..1, higher = slower falloff
+const WAVEFORM_SAMPLE_COUNT = 48;
+const PITCH_MIN_HZ = 60;
+const PITCH_MAX_HZ = 1400;
+const PITCH_MIN_RMS = 0.015;
+const PITCH_LOG_MIN = Math.log2(PITCH_MIN_HZ);
+const PITCH_LOG_MAX = Math.log2(PITCH_MAX_HZ);
+const PITCH_LOG_RANGE = Math.max(1e-6, PITCH_LOG_MAX - PITCH_LOG_MIN);
+
+const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+
+const pitchHzTo01 = (hz) => {
+  const numericHz = Number(hz);
+  if (!Number.isFinite(numericHz) || numericHz <= 0) return 0;
+  const normalized = (Math.log2(numericHz) - PITCH_LOG_MIN) / PITCH_LOG_RANGE;
+  return clamp01(normalized);
+};
 
 // IndexedDB helpers for persisting audio file
 const DB_NAME = 'artapp-audio';
@@ -145,8 +164,24 @@ export const useAudio = ({
   const [error, setError] = useState(null);
   const [availableDevices, setAvailableDevices] = useState([]);
   const [currentDeviceId, setCurrentDeviceId] = useState(deviceId);
+  const waveformRef = useRef(new Float32Array(WAVEFORM_SAMPLE_COUNT));
+  const floatTimeRef = useRef(new Float32Array(1024));
+  const pitchDetectorRef = useRef(null);
+  const pitchDetectorLengthRef = useRef(0);
+  const pitchStateRef = useRef({ pitch01: 0, pitchHz: 0, pitchConfidence: 0 });
   // Keep per-frame audio features in a ref to avoid re-rendering the whole app at audio-frame rate.
-  const featuresRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0 });
+  const featuresRef = useRef({
+    rms: 0,
+    bass: 0,
+    mids: 0,
+    highs: 0,
+    pitch: 0,
+    pitchHz: 0,
+    pitchConfidence: 0,
+    waveform: waveformRef.current,
+    waveformPeak: 0,
+    waveformZeroCross: 0,
+  });
   
   // File playback state
   const [isFileMode, setIsFileMode] = useState(false);
@@ -162,7 +197,7 @@ export const useAudio = ({
   const streamRef = useRef(null);
   const freqDataRef = useRef(null);
   const timeDataRef = useRef(null);
-  const smoothRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0 });
+  const smoothRef = useRef({ rms: 0, bass: 0, mids: 0, highs: 0, pitch: 0 });
   const rafIdRef = useRef(null);
   
   // File playback refs
@@ -190,19 +225,60 @@ export const useAudio = ({
     const timeData = timeDataRef.current;
 
     if (!analyser || !freqData || !timeData) {
-      return { rms: 0, bass: 0, mids: 0, highs: 0 };
+      return {
+        rms: 0,
+        bass: 0,
+        mids: 0,
+        highs: 0,
+        pitch: 0,
+        pitchHz: 0,
+        pitchConfidence: 0,
+        waveform: waveformRef.current,
+        waveformPeak: 0,
+        waveformZeroCross: 0,
+      };
     }
 
     analyser.getByteFrequencyData(freqData);
     analyser.getByteTimeDomainData(timeData);
 
-    // Calculate RMS from time domain data
+    const floatTime = (
+      floatTimeRef.current && floatTimeRef.current.length === timeData.length
+    ) ? floatTimeRef.current : new Float32Array(timeData.length);
+    if (floatTimeRef.current !== floatTime) {
+      floatTimeRef.current = floatTime;
+    }
+
+    // Calculate RMS + waveform stats from time domain data
     let sum = 0;
+    let peak = 0;
+    let zeroCross = 0;
+    let prev = 0;
     for (let i = 0; i < timeData.length; i++) {
       const v = (timeData[i] - 128) / 128; // normalize to -1..1
+      floatTime[i] = v;
       sum += v * v;
+      const abs = Math.abs(v);
+      if (abs > peak) peak = abs;
+      if (i > 0) {
+        const sign = v >= 0 ? 1 : -1;
+        const prevSign = prev >= 0 ? 1 : -1;
+        if (sign !== prevSign) zeroCross += 1;
+      }
+      prev = v;
     }
     const rms = Math.sqrt(sum / timeData.length); // 0..~1
+    const zeroCrossRate = timeData.length > 1 ? zeroCross / (timeData.length - 1) : 0;
+
+    const waveform = waveformRef.current;
+    if (waveform && waveform.length > 0) {
+      const denom = Math.max(1, waveform.length - 1);
+      const n = floatTime.length;
+      for (let i = 0; i < waveform.length; i += 1) {
+        const sampleIndex = Math.min(n - 1, Math.floor((i / denom) * (n - 1)));
+        waveform[i] = floatTime[sampleIndex];
+      }
+    }
 
     // Calculate frequency band energies
     const n = freqData.length;
@@ -223,7 +299,40 @@ export const useAudio = ({
     const mids = band(n * 0.1, n * 0.4);
     const highs = band(n * 0.4, n * 0.9);
 
-    return { rms, bass, mids, highs };
+    if (!pitchDetectorRef.current || pitchDetectorLengthRef.current !== floatTime.length) {
+      const detector = PitchDetector.forFloat32Array(floatTime.length);
+      detector.minVolumeAbsolute = PITCH_MIN_RMS;
+      pitchDetectorRef.current = detector;
+      pitchDetectorLengthRef.current = floatTime.length;
+    }
+
+    const sampleRate = analyser.context?.sampleRate || 44100;
+    let pitchHz = 0;
+    let pitchConfidence = 0;
+    try {
+      const [detectedHz, clarity] = pitchDetectorRef.current.findPitch(floatTime, sampleRate);
+      if (Number.isFinite(detectedHz) && detectedHz >= PITCH_MIN_HZ && detectedHz <= PITCH_MAX_HZ) {
+        pitchHz = detectedHz;
+        pitchConfidence = clamp01(clarity);
+      }
+    } catch {
+      pitchHz = 0;
+      pitchConfidence = 0;
+    }
+    const pitch01 = pitchHzTo01(pitchHz);
+
+    return {
+      rms,
+      bass,
+      mids,
+      highs,
+      pitch: pitch01,
+      pitchHz,
+      pitchConfidence,
+      waveform,
+      waveformPeak: peak,
+      waveformZeroCross: zeroCrossRate,
+    };
   }, []);
 
   // Update loop - runs on animation frame when active
@@ -256,6 +365,22 @@ export const useAudio = ({
     smooth.bass = applySmoothing(raw.bass, smooth.bass);
     smooth.mids = applySmoothing(raw.mids, smooth.mids);
     smooth.highs = applySmoothing(raw.highs, smooth.highs);
+    smooth.pitch = applySmoothing(raw.pitch || 0, smooth.pitch || 0);
+
+    const pitchState = pitchStateRef.current;
+    const rawPitchHz = Number(raw.pitchHz);
+    const rawPitchConfidence = clamp01(raw.pitchConfidence);
+    if (rawPitchConfidence > 0.1 && Number.isFinite(rawPitchHz) && rawPitchHz > 0) {
+      const currentHz = Number.isFinite(pitchState.pitchHz) && pitchState.pitchHz > 0
+        ? pitchState.pitchHz
+        : rawPitchHz;
+      pitchState.pitchHz = (currentHz * 0.72) + (rawPitchHz * 0.28);
+    } else {
+      pitchState.pitchHz = (pitchState.pitchHz || 0) * 0.92;
+      if (pitchState.pitchHz < 1) pitchState.pitchHz = 0;
+    }
+    pitchState.pitch01 = applySmoothing(raw.pitch || 0, pitchState.pitch01 || 0);
+    pitchState.pitchConfidence = applySmoothing(rawPitchConfidence, pitchState.pitchConfidence || 0);
 
     // Apply sensitivity scaling
     const scaled = {
@@ -263,6 +388,7 @@ export const useAudio = ({
       bass: Math.min(1, smooth.bass * currentSensitivity * currentBassSensitivity),
       mids: Math.min(1, smooth.mids * currentSensitivity * currentMidsSensitivity),
       highs: Math.min(1, smooth.highs * currentSensitivity * currentHighsSensitivity),
+      pitch: Math.min(1, smooth.pitch * currentSensitivity),
     };
 
     // Mutate in place to avoid allocations; consumers read via getFeatures().
@@ -270,6 +396,12 @@ export const useAudio = ({
     featuresRef.current.bass = scaled.bass;
     featuresRef.current.mids = scaled.mids;
     featuresRef.current.highs = scaled.highs;
+    featuresRef.current.pitch = scaled.pitch;
+    featuresRef.current.pitchHz = pitchState.pitchHz || 0;
+    featuresRef.current.pitchConfidence = clamp01(pitchState.pitchConfidence || 0);
+    featuresRef.current.waveform = raw.waveform || waveformRef.current;
+    featuresRef.current.waveformPeak = Number.isFinite(raw.waveformPeak) ? raw.waveformPeak : 0;
+    featuresRef.current.waveformZeroCross = Number.isFinite(raw.waveformZeroCross) ? raw.waveformZeroCross : 0;
 
     rafIdRef.current = requestAnimationFrame(updateAudio);
   }, [getAudioFeatures]); // Only depends on getAudioFeatures, settings read from refs
@@ -315,6 +447,7 @@ export const useAudio = ({
       // Create data arrays
       freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
       timeDataRef.current = new Uint8Array(analyser.fftSize);
+      floatTimeRef.current = new Float32Array(analyser.fftSize);
 
       // Build audio constraints - use default device if no specific device requested
       const audioConstraints = targetDeviceId
@@ -390,10 +523,26 @@ export const useAudio = ({
     analyserRef.current = null;
     freqDataRef.current = null;
     timeDataRef.current = null;
+    floatTimeRef.current = new Float32Array(1024);
+    pitchDetectorRef.current = null;
+    pitchDetectorLengthRef.current = 0;
+    if (waveformRef.current) waveformRef.current.fill(0);
+    pitchStateRef.current = { pitch01: 0, pitchHz: 0, pitchConfidence: 0 };
 
     // Reset smoothed values
-    smoothRef.current = { rms: 0, bass: 0, mids: 0, highs: 0 };
-    featuresRef.current = { rms: 0, bass: 0, mids: 0, highs: 0 };
+    smoothRef.current = { rms: 0, bass: 0, mids: 0, highs: 0, pitch: 0 };
+    featuresRef.current = {
+      rms: 0,
+      bass: 0,
+      mids: 0,
+      highs: 0,
+      pitch: 0,
+      pitchHz: 0,
+      pitchConfidence: 0,
+      waveform: waveformRef.current,
+      waveformPeak: 0,
+      waveformZeroCross: 0,
+    };
     setIsActive(false);
     setError(null);
   }, []);
@@ -437,6 +586,7 @@ export const useAudio = ({
       // Create data arrays
       freqDataRef.current = new Uint8Array(analyser.frequencyBinCount);
       timeDataRef.current = new Uint8Array(analyser.fftSize);
+      floatTimeRef.current = new Float32Array(analyser.fftSize);
 
       // Create audio element for file playback
       const audio = new Audio();

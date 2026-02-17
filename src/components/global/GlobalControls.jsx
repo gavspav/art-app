@@ -78,6 +78,8 @@ const GlobalControls = ({
   setAudioSpawnHalfLifeEnergyFactor,
   audioSpawnMaxLayers,
   setAudioSpawnMaxLayers,
+  audioSpawnMicReactive,
+  setAudioSpawnMicReactive,
   zIgnore,
   setZIgnore,
   classicMode,
@@ -1794,6 +1796,8 @@ const GlobalControls = ({
               setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
               audioSpawnMaxLayers={audioSpawnMaxLayers}
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              audioSpawnMicReactive={audioSpawnMicReactive}
+              setAudioSpawnMicReactive={setAudioSpawnMicReactive}
               audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
               setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
             />
@@ -1822,6 +1826,8 @@ const GlobalControls = ({
               setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
               audioSpawnMaxLayers={audioSpawnMaxLayers}
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+              audioSpawnMicReactive={audioSpawnMicReactive}
+              setAudioSpawnMicReactive={setAudioSpawnMicReactive}
               audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
               setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
             />
@@ -1947,6 +1953,7 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return diff('audioSpawnHalfLifeMs');
   if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return diff('audioSpawnHalfLifeEnergyFactor');
   if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return diff('audioSpawnMaxLayers');
+  if (prev.audioSpawnMicReactive !== next.audioSpawnMicReactive) return diff('audioSpawnMicReactive');
   if (prev.parameterTargetMode !== next.parameterTargetMode) return diff('parameterTargetMode');
   if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
 

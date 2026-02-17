@@ -316,6 +316,20 @@ const quantile = (values, q) => {
   return lower + (upper - lower) * rest;
 };
 
+const PITCH_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+const pitchToNoteLabel = (hz) => {
+  const frequency = Number(hz);
+  if (!Number.isFinite(frequency) || frequency <= 0) return 'No stable pitch';
+  const midi = 69 + (12 * Math.log2(frequency / 440));
+  const rounded = Math.round(midi);
+  const noteName = PITCH_NOTE_NAMES[((rounded % 12) + 12) % 12];
+  const octave = Math.floor(rounded / 12) - 1;
+  const cents = Math.round((midi - rounded) * 100);
+  const centsLabel = `${cents >= 0 ? '+' : ''}${cents}c`;
+  return `${noteName}${octave} (${centsLabel})`;
+};
+
 const AUDIO_DEMO_PRESETS = [
   {
     id: 'cinematic-slow-bloom',
@@ -500,6 +514,144 @@ const AUDIO_DEMO_PRESETS = [
       variationShape: createMapping('mids', 0.1, 2.6, 'onsetDrift', { threshold: 1.35, minLevel: 0.09, driftSpeed: 0.06 }),
       variationColor: createMapping('highs', 0.5, 3, 'leaky', { rate: 0.045, decay: 0.995, restValue: 0.25 }),
       layersCount: createMapping('rms', 2, 14, 'runningAvg', { windowSeconds: 3 }),
+    },
+  },
+  {
+    id: 'mic-waveform-stream',
+    name: 'Mic Waveform Stream',
+    summary: 'Level-gated mic stream where waveform contours bend geometry and pitch paints colour.',
+    recommendedInput: 'Close mic speech/singing, beatboxing, breath/noise textures.',
+    audioSettings: {
+      sensitivity: 2.0,
+      bassSensitivity: 1.0,
+      midsSensitivity: 1.45,
+      highsSensitivity: 1.3,
+      smoothing: 0.7,
+      release: 0.86,
+    },
+    energyInfluence: 1.4,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.06,
+      band: 'rms',
+      threshold: 0.2,
+      cooldownMs: 90,
+      halfLifeMs: 2400,
+      halfLifeEnergyFactor: 1.4,
+      maxLayers: 32,
+      useGlobalPalette: false,
+      micReactive: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('rms', 0.5, 1.9, 'runningAvg', { windowSeconds: 1.8 }),
+      variationShape: createMapping('mids', 0.15, 2.6, 'runningAvg', { windowSeconds: 2.2 }),
+      variationAnim: createMapping('highs', 0.18, 2.8, 'onsetDrift', { threshold: 1.28, minLevel: 0.08, driftSpeed: 0.085 }),
+      variationScale: createMapping('rms', -0.2, 2.5, 'leaky', { rate: 0.04, decay: 0.995, restValue: 0.2 }),
+      layersCount: createMapping('rms', 2, 16, 'runningAvg', { windowSeconds: 2.6 }),
+    },
+  },
+  {
+    id: 'mic-pitch-tunnel',
+    name: 'Mic Pitch Tunnel',
+    summary: 'Pitch-coloured waveform shards drift toward a vanishing point while decaying like depth trails.',
+    recommendedInput: 'Sustained vowels, humming, monophonic singing, whistle tones.',
+    audioSettings: {
+      sensitivity: 1.85,
+      bassSensitivity: 0.95,
+      midsSensitivity: 1.55,
+      highsSensitivity: 1.25,
+      smoothing: 0.76,
+      release: 0.9,
+    },
+    energyInfluence: 1.2,
+    spawn: {
+      enabled: true,
+      triggerMode: 'level',
+      repeatWhileAbove: true,
+      hysteresis: 0.07,
+      band: 'mids',
+      threshold: 0.24,
+      cooldownMs: 120,
+      halfLifeMs: 3000,
+      halfLifeEnergyFactor: 1.25,
+      maxLayers: 28,
+      useGlobalPalette: false,
+      micReactive: true,
+    },
+    mappings: {
+      globalOpacity: createMapping('rms', 0.35, 1, 'runningAvg', { windowSeconds: 2.4 }),
+      globalSpeedMultiplier: createMapping('mids', 0.45, 1.7, 'leaky', { rate: 0.03, decay: 0.996, restValue: 0.3 }),
+      variationColor: createMapping('highs', 0.25, 2.8, 'runningAvg', { windowSeconds: 1.9 }),
+      variationPosition: createMapping('mids', 0.1, 2.3, 'runningAvg', { windowSeconds: 2.8 }),
+      layersCount: createMapping('rms', 2, 12, 'hysteresis', {
+        quietToMed: 0.12,
+        medToLoud: 0.32,
+        loudToMed: 0.22,
+        medToQuiet: 0.08,
+        lerpSpeed: 0.03,
+        quietValue: 0.15,
+        medValue: 0.5,
+        loudValue: 1,
+      }),
+    },
+  },
+  {
+    id: 'mic-consonant-bursts',
+    name: 'Mic Consonant Bursts',
+    summary: 'Consonant spikes (t/k/s/ch/f) fire dense transient bursts with fast-decay depth trails.',
+    recommendedInput: 'Speech consonants, beatbox clicks, whispered plosives, fast spoken phrases.',
+    audioSettings: {
+      sensitivity: 2.3,
+      bassSensitivity: 0.95,
+      midsSensitivity: 1.85,
+      highsSensitivity: 2.35,
+      smoothing: 0.54,
+      release: 0.68,
+    },
+    energyInfluence: 1.75,
+    spawn: {
+      enabled: true,
+      triggerMode: 'transient',
+      repeatWhileAbove: false,
+      hysteresis: 0.05,
+      band: 'highs',
+      threshold: 0.08,
+      cooldownMs: 85,
+      halfLifeMs: 1250,
+      halfLifeEnergyFactor: 1.55,
+      maxLayers: 38,
+      useGlobalPalette: false,
+      micReactive: true,
+    },
+    mappings: {
+      globalSpeedMultiplier: createMapping('highs', 0.75, 2.85, 'onsetDrift', {
+        threshold: 1.12,
+        minLevel: 0.04,
+        driftSpeed: 0.16,
+      }),
+      variationAnim: createMapping('highs', 0.28, 3, 'onsetDrift', {
+        threshold: 1.08,
+        minLevel: 0.04,
+        driftSpeed: 0.18,
+      }),
+      variationShape: createMapping('mids', 0.2, 2.8, 'leaky', {
+        rate: 0.08,
+        decay: 0.989,
+        restValue: 0.16,
+      }),
+      variationScale: createMapping('rms', -0.45, 3),
+      layersCount: createMapping('highs', 2, 18, 'hysteresis', {
+        quietToMed: 0.08,
+        medToLoud: 0.24,
+        loudToMed: 0.18,
+        medToQuiet: 0.06,
+        lerpSpeed: 0.05,
+        quietValue: 0.12,
+        medValue: 0.5,
+        loudValue: 1,
+      }),
     },
   },
   {
@@ -1132,6 +1284,8 @@ const AudioDemoPresetsSection = ({
   setAudioSpawnHalfLifeEnergyFactor = null,
   audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
+  audioSpawnMicReactive = false,
+  setAudioSpawnMicReactive = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
 } = {}) => {
@@ -1201,6 +1355,7 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnHalfLifeMs?.(Number.isFinite(spawn.halfLifeMs) ? spawn.halfLifeMs : 1500);
     setAudioSpawnHalfLifeEnergyFactor?.(Number.isFinite(spawn.halfLifeEnergyFactor) ? spawn.halfLifeEnergyFactor : 1);
     setAudioSpawnMaxLayers?.(Number.isFinite(spawn.maxLayers) ? spawn.maxLayers : 12);
+    setAudioSpawnMicReactive?.(typeof spawn.micReactive === 'boolean' ? spawn.micReactive : false);
     if (typeof spawn.useGlobalPalette === 'boolean') {
       setAudioSpawnUseGlobalPalette?.(spawn.useGlobalPalette);
     }
@@ -1226,6 +1381,7 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnHalfLifeMs,
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
+    setAudioSpawnMicReactive,
     setAudioSpawnUseGlobalPalette,
   ]);
 
@@ -1348,6 +1504,8 @@ const AudioDemoPresetsSection = ({
         setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
         audioSpawnMaxLayers={audioSpawnMaxLayers}
         setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+        audioSpawnMicReactive={audioSpawnMicReactive}
+        setAudioSpawnMicReactive={setAudioSpawnMicReactive}
       />
 
       {timelineMode && (
@@ -1387,6 +1545,8 @@ const AudioPresetSlotsSection = ({
   setAudioSpawnHalfLifeEnergyFactor = null,
   audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
+  audioSpawnMicReactive = false,
+  setAudioSpawnMicReactive = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [slots, setSlots] = useState(() => loadAudioPresetSlots());
@@ -1431,6 +1591,7 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeMs: Number.isFinite(audioSpawnHalfLifeMs) ? audioSpawnHalfLifeMs : 1500,
     audioSpawnHalfLifeEnergyFactor: Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0,
     audioSpawnMaxLayers: Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12,
+    audioSpawnMicReactive: !!audioSpawnMicReactive,
   }), [
     parameterTargetMode,
     energyInfluence,
@@ -1445,6 +1606,7 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeMs,
     audioSpawnHalfLifeEnergyFactor,
     audioSpawnMaxLayers,
+    audioSpawnMicReactive,
   ]);
 
   const applyPayload = useCallback((payload) => {
@@ -1476,6 +1638,7 @@ const AudioPresetSlotsSection = ({
     if (Number.isFinite(state.audioSpawnHalfLifeMs)) setAudioSpawnHalfLifeMs?.(state.audioSpawnHalfLifeMs);
     if (Number.isFinite(state.audioSpawnHalfLifeEnergyFactor)) setAudioSpawnHalfLifeEnergyFactor?.(state.audioSpawnHalfLifeEnergyFactor);
     if (Number.isFinite(state.audioSpawnMaxLayers)) setAudioSpawnMaxLayers?.(state.audioSpawnMaxLayers);
+    if (typeof state.audioSpawnMicReactive === 'boolean') setAudioSpawnMicReactive?.(state.audioSpawnMicReactive);
 
     if (enableAudioOnLoad) {
       audio?.setAudioEnabled?.(true);
@@ -1498,6 +1661,7 @@ const AudioPresetSlotsSection = ({
     setAudioSpawnHalfLifeMs,
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
+    setAudioSpawnMicReactive,
   ]);
 
   const saveSelectedSlot = useCallback(() => {
@@ -2789,11 +2953,20 @@ const AudioSpawnSection = ({
   setAudioSpawnHalfLifeEnergyFactor = null,
   audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
+  audioSpawnMicReactive = false,
+  setAudioSpawnMicReactive = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [bandValue, setBandValue] = useState(0);
+  const [pitchMeterExpanded, setPitchMeterExpanded] = useState(false);
+  const [pitchMeterEnabled, setPitchMeterEnabled] = useState(true);
+  const [pitchMeterValue, setPitchMeterValue] = useState({
+    hz: 0,
+    normalized: 0,
+    confidence: 0,
+  });
 
   const enabled = !!audio?.settings?.enabled;
   const getFeatures = audio?.getFeatures;
@@ -2801,6 +2974,7 @@ const AudioSpawnSection = ({
   useEffect(() => {
     if (!isActiveTab || !enabled || typeof getFeatures !== 'function') {
       setBandValue(0);
+      setPitchMeterValue({ hz: 0, normalized: 0, confidence: 0 });
       return undefined;
     }
 
@@ -2809,18 +2983,29 @@ const AudioSpawnSection = ({
       const features = getFeatures?.() || {};
       const v = typeof features?.[audioSpawnBand] === 'number' ? features[audioSpawnBand] : 0;
       setBandValue(v);
+      if (pitchMeterEnabled) {
+        setPitchMeterValue({
+          hz: Number.isFinite(features?.pitchHz) ? features.pitchHz : 0,
+          normalized: clampValue(Number(features?.pitch) || 0, 0, 1),
+          confidence: clampValue(Number(features?.pitchConfidence) || 0, 0, 1),
+        });
+      }
     };
     intervalId = setInterval(tick, 50);
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [isActiveTab, enabled, getFeatures, audioSpawnBand]);
+  }, [isActiveTab, enabled, getFeatures, audioSpawnBand, pitchMeterEnabled]);
 
   const disabledByTimeline = !!timelineMode;
   const canRun = !disabledByTimeline && enabled;
   const mode = (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level';
   const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
+  const pitchLabel = pitchToNoteLabel(pitchMeterValue.hz);
+  const pitchHzText = (Number.isFinite(pitchMeterValue.hz) && pitchMeterValue.hz > 0)
+    ? `${pitchMeterValue.hz.toFixed(1)} Hz`
+    : '— Hz';
 
   return (
     <div
@@ -2956,6 +3141,95 @@ const AudioSpawnSection = ({
           />
           Use Global Palette
         </label>
+      </div>
+
+      <div style={{ marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="For microphone input: waveform-bent shapes, pitch-driven colours, and depth-style shrink/fade as shapes age">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnMicReactive}
+            disabled={!setAudioSpawnMicReactive || disabledByTimeline}
+            onChange={(e) => setAudioSpawnMicReactive?.(!!e.target.checked)}
+          />
+          Mic Waveform + Pitch Mode
+        </label>
+      </div>
+
+      <div style={{ marginTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.35rem', opacity: canRun ? 1 : 0.8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'space-between' }}>
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ fontSize: '0.68rem', padding: '2px 8px' }}
+            onClick={() => setPitchMeterExpanded(v => !v)}
+            title={pitchMeterExpanded ? 'Hide pitch meter' : 'Show pitch meter'}
+          >
+            {pitchMeterExpanded ? 'Hide Pitch Meter' : 'Show Pitch Meter'}
+          </button>
+          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Disable live pitch updates to reduce visual noise">
+            <input
+              type="checkbox"
+              checked={pitchMeterEnabled}
+              onChange={(e) => {
+                const next = !!e.target.checked;
+                setPitchMeterEnabled(next);
+                if (!next) {
+                  setPitchMeterValue({ hz: 0, normalized: 0, confidence: 0 });
+                }
+              }}
+            />
+            Enabled
+          </label>
+        </div>
+
+        {pitchMeterExpanded && (
+          <div style={{ marginTop: '0.3rem', padding: '0.35rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+            {!pitchMeterEnabled ? (
+              <div style={{ fontSize: '0.68rem', opacity: 0.68 }}>
+                Pitch meter disabled.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' }}>
+                  <span className="compact-label" style={{ fontSize: '0.74rem' }}>{pitchLabel}</span>
+                  <span className="compact-label" style={{ fontSize: '0.7rem', opacity: 0.72 }}>{pitchHzText}</span>
+                </div>
+                <div style={{ marginTop: '0.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', opacity: 0.62 }}>
+                    <span>Pitch Position</span>
+                    <span>{Math.round(pitchMeterValue.normalized * 100)}%</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,0.12)', overflow: 'hidden', marginTop: '0.12rem' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${clampValue(pitchMeterValue.normalized * 100, 0, 100)}%`,
+                        background: 'linear-gradient(90deg, #4fc3f7 0%, #81c784 50%, #ffd54f 100%)',
+                        transition: 'width 0.08s linear',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ marginTop: '0.22rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', opacity: 0.62 }}>
+                    <span>Confidence</span>
+                    <span>{Math.round(pitchMeterValue.confidence * 100)}%</span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 4, background: 'rgba(255,255,255,0.12)', overflow: 'hidden', marginTop: '0.12rem' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${clampValue(pitchMeterValue.confidence * 100, 0, 100)}%`,
+                        background: '#7dd3fc',
+                        transition: 'width 0.08s linear',
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: '0.35rem' }}>

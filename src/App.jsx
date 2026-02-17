@@ -104,6 +104,7 @@ const MainApp = () => {
 	    audioSpawnHalfLifeMs,
 	    audioSpawnHalfLifeEnergyFactor,
 	    audioSpawnMaxLayers,
+	    audioSpawnMicReactive,
 	    setAudioSpawnEnabled,
 	    setAudioSpawnTriggerMode,
 	    setAudioSpawnRepeatWhileAbove,
@@ -115,6 +116,7 @@ const MainApp = () => {
 	    setAudioSpawnHalfLifeMs,
 	    setAudioSpawnHalfLifeEnergyFactor,
 	    setAudioSpawnMaxLayers,
+	    setAudioSpawnMicReactive,
 	    backgroundColor, setBackgroundColor,
 	    backgroundImage, setBackgroundImage,
 	    globalSeed, setGlobalSeed,
@@ -633,6 +635,7 @@ const MainApp = () => {
 	    maxLayers: audioSpawnMaxLayers,
 	    repeatWhileAbove: audioSpawnRepeatWhileAbove,
 	    hysteresis: audioSpawnHysteresis,
+	    micReactive: audioSpawnMicReactive,
 	  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
@@ -2519,6 +2522,8 @@ const MainApp = () => {
     setAudioSpawnHalfLifeEnergyFactor,
     audioSpawnMaxLayers,
     setAudioSpawnMaxLayers,
+    audioSpawnMicReactive,
+    setAudioSpawnMicReactive,
     timelineMode,
     setTimelineMode,
     layers: uiLayers,

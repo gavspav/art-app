@@ -95,6 +95,7 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnHalfLifeEnergyFactor: 1.0,
     audioSpawnMaxLayers: 12,
     audioSpawnUseGlobalPalette: false,
+    audioSpawnMicReactive: false,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
@@ -346,6 +347,16 @@ export const AppStateProvider = ({ children }) => {
       ...prev,
       audioSpawnUseGlobalPalette: (typeof value === 'function')
         ? !!value(prev.audioSpawnUseGlobalPalette)
+        : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnMicReactive = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnMicReactive: (typeof value === 'function')
+        ? !!value(prev.audioSpawnMicReactive)
         : !!value,
     }));
     markDirty();
@@ -716,6 +727,9 @@ export const AppStateProvider = ({ children }) => {
         setAppState(prevState => ({
           ...prevState,
           ...newState,
+          audioSpawnMicReactive: typeof newState.audioSpawnMicReactive === 'boolean'
+            ? newState.audioSpawnMicReactive
+            : !!prevState.audioSpawnMicReactive,
           globalPaletteIndex: normalizedPaletteIndex,
           globalPaletteRef: normalizedPaletteRef,
           syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
@@ -828,6 +842,7 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnHalfLifeEnergyFactor: 1.0,
       audioSpawnMaxLayers: 12,
       audioSpawnUseGlobalPalette: false,
+      audioSpawnMicReactive: false,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: generateSeed(),
@@ -886,6 +901,7 @@ export const AppStateProvider = ({ children }) => {
     setEnergyInfluence,
     setAudioSpawnEnabled,
     setAudioSpawnUseGlobalPalette,
+    setAudioSpawnMicReactive,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,
@@ -974,6 +990,7 @@ export const AppStateProvider = ({ children }) => {
     setEnergyInfluence,
     setAudioSpawnEnabled,
     setAudioSpawnUseGlobalPalette,
+    setAudioSpawnMicReactive,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,
