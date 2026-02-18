@@ -1149,6 +1149,8 @@ const Canvas = forwardRef(({
     hideLayerIndex = -1,
     hideLayerId = null,
     backgroundColor,
+    feedbackTrailEnabled = false,
+    feedbackTrailAmount = 0,
     globalSeed,
     globalBlendMode,
     isNodeEditMode,
@@ -1630,10 +1632,17 @@ const Canvas = forwardRef(({
             const nodeEditSelectedIndex = isNodeEditMode
                 ? Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, (layersForRender?.length || 1) - 1)))
                 : -1;
+	        const trailAmount = Math.max(0, Math.min(0.9, Number(feedbackTrailAmount) || 0));
+	        const useTrails = !!feedbackTrailEnabled && trailAmount > 0.001 && !isNodeEditMode;
 	        // Always repaint the background so color changes show immediately (even when frozen)
-	        ctx.clearRect(0, 0, width, height);
+	        if (!useTrails) {
+	            ctx.clearRect(0, 0, width, height);
+	        }
+	        ctx.save();
+	        ctx.globalAlpha = useTrails ? Math.max(0.05, 1 - trailAmount) : 1;
 	        ctx.fillStyle = backgroundColor;
 	        ctx.fillRect(0, 0, width, height);
+	        ctx.restore();
 
 	        // Redraw on selection/mode toggles too; stable frozen time keeps appearance identical while frozen
 	        const needsFullRender = modeChanged || countChanged ||
@@ -2100,6 +2109,8 @@ const Canvas = forwardRef(({
         layerChanges,
         hasMalformedLayers,
         backgroundChanged,
+        feedbackTrailEnabled,
+        feedbackTrailAmount,
         hideBaseLayers,
         hideLayerIndex,
         hideLayerId,
@@ -2977,6 +2988,8 @@ const Canvas = forwardRef(({
 const areCanvasPropsEqual = (prev, next) => {
   return (
     prev.backgroundColor === next.backgroundColor &&
+    prev.feedbackTrailEnabled === next.feedbackTrailEnabled &&
+    prev.feedbackTrailAmount === next.feedbackTrailAmount &&
     prev.globalSeed === next.globalSeed &&
     prev.globalBlendMode === next.globalBlendMode &&
     prev.isNodeEditMode === next.isNodeEditMode &&

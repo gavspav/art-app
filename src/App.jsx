@@ -106,6 +106,8 @@ const MainApp = () => {
 	    audioSpawnMaxLayers,
 	    audioSpawnPresetActive,
 	    audioSpawnMicReactive,
+	    milkdropInfluence,
+	    milkdropFeedbackEnabled,
 	    setAudioSpawnEnabled,
 	    setAudioSpawnPresetActive,
 	    setAudioSpawnTriggerMode,
@@ -119,6 +121,8 @@ const MainApp = () => {
 	    setAudioSpawnHalfLifeEnergyFactor,
 	    setAudioSpawnMaxLayers,
 	    setAudioSpawnMicReactive,
+	    setMilkdropInfluence,
+	    setMilkdropFeedbackEnabled,
 	    backgroundColor, setBackgroundColor,
 	    backgroundImage, setBackgroundImage,
 	    globalSeed, setGlobalSeed,
@@ -638,6 +642,7 @@ const MainApp = () => {
 	    repeatWhileAbove: audioSpawnRepeatWhileAbove,
 	    hysteresis: audioSpawnHysteresis,
 	    micReactive: audioSpawnMicReactive,
+	    milkdropInfluence,
 	  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
@@ -2439,6 +2444,8 @@ const MainApp = () => {
     classicMode,
     isolateMode,
     getActiveTargetLayerIds,
+    feedbackTrailEnabled: !!milkdropFeedbackEnabled,
+    feedbackTrailAmount: Math.max(0, Math.min(0.4, (Number(milkdropInfluence) || 0) / 260)),
   };
 
   const importAdjustProps = {
@@ -2529,6 +2536,10 @@ const MainApp = () => {
     setAudioSpawnMaxLayers,
     audioSpawnMicReactive,
     setAudioSpawnMicReactive,
+    milkdropInfluence,
+    setMilkdropInfluence,
+    milkdropFeedbackEnabled,
+    setMilkdropFeedbackEnabled,
     timelineMode,
     setTimelineMode,
     layers: uiLayers,

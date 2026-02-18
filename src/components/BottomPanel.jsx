@@ -382,6 +382,10 @@ const BottomPanel = ({
   setAudioSpawnMaxLayers,
   audioSpawnMicReactive,
   setAudioSpawnMicReactive,
+  milkdropInfluence,
+  setMilkdropInfluence,
+  milkdropFeedbackEnabled,
+  setMilkdropFeedbackEnabled,
   timelineMode,
   setTimelineMode,
   layers,
@@ -907,6 +911,10 @@ const BottomPanel = ({
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
               audioSpawnMicReactive={audioSpawnMicReactive}
               setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+              milkdropInfluence={milkdropInfluence}
+              setMilkdropInfluence={setMilkdropInfluence}
+              milkdropFeedbackEnabled={milkdropFeedbackEnabled}
+              setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
               colorFadeWhileFrozen={colorFadeWhileFrozen}
               setColorFadeWhileFrozen={setColorFadeWhileFrozen}
               classicMode={classicMode}
@@ -1096,6 +1104,10 @@ const BottomPanel = ({
                 setAudioSpawnMicReactive={setAudioSpawnMicReactive}
                 audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+                milkdropInfluence={milkdropInfluence}
+                setMilkdropInfluence={setMilkdropInfluence}
+                milkdropFeedbackEnabled={milkdropFeedbackEnabled}
+                setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
               />
               <AudioSpawnSection
                 isActiveTab={activeTab === 'audio'}
@@ -1128,6 +1140,10 @@ const BottomPanel = ({
                 setAudioSpawnMicReactive={setAudioSpawnMicReactive}
                 audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+                milkdropInfluence={milkdropInfluence}
+                setMilkdropInfluence={setMilkdropInfluence}
+                milkdropFeedbackEnabled={milkdropFeedbackEnabled}
+                setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
               />
               <BPMSection />
             </div>
@@ -1418,6 +1434,8 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return fail('audioSpawnHalfLifeEnergyFactor changed');
   if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return fail('audioSpawnMaxLayers changed');
   if (!Object.is(prev.audioSpawnMicReactive, next.audioSpawnMicReactive)) return fail('audioSpawnMicReactive changed');
+  if (!Object.is(prev.milkdropInfluence, next.milkdropInfluence)) return fail('milkdropInfluence changed');
+  if (!Object.is(prev.milkdropFeedbackEnabled, next.milkdropFeedbackEnabled)) return fail('milkdropFeedbackEnabled changed');
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
   if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
   if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
@@ -1459,6 +1477,8 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setAudioSpawnHalfLifeEnergyFactor',
     'setAudioSpawnMaxLayers',
     'setAudioSpawnMicReactive',
+    'setMilkdropInfluence',
+    'setMilkdropFeedbackEnabled',
     'setColorFadeWhileFrozen',
     'setClassicMode',
     'setZIgnore',

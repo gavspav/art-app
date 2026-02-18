@@ -12,6 +12,7 @@
  *   runningAvg  - Long-window average (3-10s) follows song structure
  *   onsetDrift  - Beats trigger slow direction changes
  *   hysteresis  - State zones (quiet/medium/loud) with slow lerping
+ *   milkdrop    - Equation-driven blend of LFO, audio, transient, and beat hold
  */
 
 // Available modes with labels and descriptions
@@ -23,6 +24,7 @@ export const AUDIO_MAPPING_MODES = [
   { value: 'runningAvg', label: 'Running Avg',   desc: 'Long window average (slow)' },
   { value: 'onsetDrift', label: 'Onset Drift',   desc: 'Beats trigger direction changes' },
   { value: 'hysteresis', label: 'Hysteresis',    desc: 'Zone-based (quiet/med/loud)' },
+  { value: 'milkdrop',   label: 'Milkdrop Eq',   desc: 'LFO + audio + beat/transient shaping' },
 ];
 
 // Default settings per mode
@@ -59,6 +61,14 @@ export const DEFAULT_MODE_SETTINGS = {
     quietValue: 0.0,     // Output value for quiet zone
     medValue: 0.5,       // Output value for medium zone
     loudValue: 1.0,      // Output value for loud zone
+  },
+  milkdrop: {
+    lfoHz: 0.16,          // Base LFO speed in Hz
+    lfoAmount: 0.35,      // LFO contribution
+    audioAmount: 0.7,     // Raw audio contribution
+    transientAmount: 0.45, // Transient boost
+    beatHold: 0.3,        // Beat hold/decay blend
+    pitchInfluence: 0.25, // Pitch influence on LFO speed
   },
 };
 
@@ -106,6 +116,8 @@ export class AudioModeProcessor {
         return { _mode: 'onsetDrift', prevLevel: 0, target: 0.5, value: 0.5 };
       case 'hysteresis':
         return { _mode: 'hysteresis', zone: 'quiet', value: 0, avgLevel: 0 };
+      case 'milkdrop':
+        return { _mode: 'milkdrop', phase: 0, value: 0, hold: 0 };
       default:
         return { _mode: 'direct' };
     }
@@ -162,6 +174,9 @@ export class AudioModeProcessor {
         break;
       case 'hysteresis':
         output = this._hysteresis(paramId, safeRaw, s, safeDt);
+        break;
+      case 'milkdrop':
+        output = this._milkdrop(paramId, safeRaw, features, s, safeDt);
         break;
       default:
         output = safeRaw;
@@ -358,5 +373,46 @@ export class AudioModeProcessor {
     st.value = clamp01(currentValue + (target - currentValue) * scaledLerp);
 
     return clamp01(st.value);
+  }
+
+  /**
+   * Milkdrop-style equation mode:
+   * Blends an audio-driven term with a lightweight LFO and beat/transient hold.
+   */
+  _milkdrop(paramId, raw, features, settings, dt) {
+    const st = this._getState(paramId, 'milkdrop');
+    const f = (features && typeof features === 'object') ? features : {};
+
+    const lfoHz = Math.max(0.001, toFinite(settings.lfoHz, 0.16));
+    const lfoAmount = clamp01(settings.lfoAmount ?? 0.35);
+    const audioAmount = clamp01(settings.audioAmount ?? 0.7);
+    const transientAmount = clamp01(settings.transientAmount ?? 0.45);
+    const beatHold = clamp01(settings.beatHold ?? 0.3);
+    const pitchInfluence = clamp01(settings.pitchInfluence ?? 0.25);
+
+    const pitch = clamp01(f.pitch);
+    const transient = clamp01(f.transient);
+    const beat = clamp01(f.beat);
+
+    const lfoSpeed = lfoHz * (1 + pitch * pitchInfluence * 2);
+    const phase = toFinite(st.phase, 0) + (lfoSpeed * dt * Math.PI * 2);
+    st.phase = phase % (Math.PI * 2);
+    const lfo = 0.5 + 0.5 * Math.sin(st.phase);
+
+    // Hold spikes on beats, then decay.
+    st.hold = Math.max(toFinite(st.hold, 0), beat);
+    const holdDecay = Math.pow(Math.max(0.05, 1 - beatHold * 0.85), dt / 0.05);
+    st.hold *= holdDecay;
+
+    const transientTerm = clamp01((transient * transientAmount) + (st.hold * 0.7));
+    const combined = clamp01(
+      (raw * audioAmount)
+      + (lfo * lfoAmount)
+      + transientTerm,
+    );
+
+    const smooth = Math.pow(0.82, dt / 0.05);
+    st.value = clamp01((toFinite(st.value, combined) * smooth) + (combined * (1 - smooth)));
+    return st.value;
   }
 }

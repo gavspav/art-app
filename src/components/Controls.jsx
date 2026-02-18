@@ -336,7 +336,13 @@ const AudioRotationStatus = ({ paramId, paramAliases = null, min = 0, max = 1 })
         >
           {AUDIO_BANDS.map(b => (
             <option key={b} value={b}>
-              {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+              {b === 'none'
+                ? 'None'
+                : b === 'rms'
+                  ? 'Level'
+                  : b === 'waveformEnergy'
+                    ? 'Wave Energy'
+                    : b.charAt(0).toUpperCase() + b.slice(1)}
             </option>
           ))}
         </select>

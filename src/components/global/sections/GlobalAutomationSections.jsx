@@ -14,7 +14,7 @@ import {
 
 const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange }) => {
   const [expanded, setExpanded] = useState(false);
-  const bands = ['rms', 'bass', 'mids', 'highs'];
+  const bands = ['rms', 'bass', 'mids', 'highs', 'pitch', 'transient', 'beat', 'waveformEnergy'];
   
   return (
     <div style={{ marginBottom: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
@@ -36,7 +36,14 @@ const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange })
               value={band}
               onChange={(e) => onBandChange(e.target.value)}
             >
-              {bands.map(b => <option key={b} value={b}>{b.toUpperCase()}</option>)}
+              {bands.map((b) => {
+                const label = (
+                  b === 'rms' ? 'LEVEL'
+                    : b === 'waveformEnergy' ? 'WAVE ENERGY'
+                    : b.toUpperCase()
+                );
+                return <option key={b} value={b}>{label}</option>;
+              })}
             </select>
           </div>
           {/* Input range (audio level threshold) */}
@@ -1241,6 +1248,10 @@ const PATCH_MATRIX_BANDS = [
   { id: 'bass', label: 'Bass' },
   { id: 'mids', label: 'Mids' },
   { id: 'highs', label: 'Highs' },
+  { id: 'pitch', label: 'Pitch' },
+  { id: 'transient', label: 'Transient' },
+  { id: 'beat', label: 'Beat' },
+  { id: 'waveformEnergy', label: 'Wave Energy' },
 ];
 
 const PATCH_MATRIX_TRIGGER_MODE_OPTIONS = [
@@ -1377,6 +1388,10 @@ const AudioDemoPresetsSection = ({
   setAudioSpawnMicReactive = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
+  milkdropInfluence = 0,
+  setMilkdropInfluence = null,
+  milkdropFeedbackEnabled = true,
+  setMilkdropFeedbackEnabled = null,
 } = {}) => {
   const audio = useAudioReactive();
   const initialUiState = useMemo(() => loadAudioDemoUiState(), []);
@@ -1822,6 +1837,10 @@ const AudioDemoPresetsSection = ({
             setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
             audioSpawnMicReactive={audioSpawnMicReactive}
             setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+            milkdropInfluence={milkdropInfluence}
+            setMilkdropInfluence={setMilkdropInfluence}
+            milkdropFeedbackEnabled={milkdropFeedbackEnabled}
+            setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
           />
 
           {timelineMode && (
@@ -1867,6 +1886,10 @@ const AudioPresetSlotsSection = ({
   setAudioSpawnMaxLayers = null,
   audioSpawnMicReactive = false,
   setAudioSpawnMicReactive = null,
+  milkdropInfluence = 0,
+  setMilkdropInfluence = null,
+  milkdropFeedbackEnabled = true,
+  setMilkdropFeedbackEnabled = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [slots, setSlots] = useState(() => loadAudioPresetSlots());
@@ -1914,6 +1937,8 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeEnergyFactor: Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0,
     audioSpawnMaxLayers: Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12,
     audioSpawnMicReactive: !!audioSpawnMicReactive,
+    milkdropInfluence: Number.isFinite(milkdropInfluence) ? Math.max(0, Math.min(100, milkdropInfluence)) : 0,
+    milkdropFeedbackEnabled: !!milkdropFeedbackEnabled,
   }), [
     parameterTargetMode,
     energyInfluence,
@@ -1930,6 +1955,8 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeEnergyFactor,
     audioSpawnMaxLayers,
     audioSpawnMicReactive,
+    milkdropInfluence,
+    milkdropFeedbackEnabled,
   ]);
 
   const applyPayload = useCallback((payload) => {
@@ -1967,6 +1994,10 @@ const AudioPresetSlotsSection = ({
     if (Number.isFinite(state.audioSpawnHalfLifeEnergyFactor)) setAudioSpawnHalfLifeEnergyFactor?.(state.audioSpawnHalfLifeEnergyFactor);
     if (Number.isFinite(state.audioSpawnMaxLayers)) setAudioSpawnMaxLayers?.(state.audioSpawnMaxLayers);
     if (typeof state.audioSpawnMicReactive === 'boolean') setAudioSpawnMicReactive?.(state.audioSpawnMicReactive);
+    if (Number.isFinite(state.milkdropInfluence)) setMilkdropInfluence?.(state.milkdropInfluence);
+    if (typeof state.milkdropFeedbackEnabled === 'boolean') {
+      setMilkdropFeedbackEnabled?.(state.milkdropFeedbackEnabled);
+    }
 
     if (enableAudioOnLoad) {
       audio?.setAudioEnabled?.(true);
@@ -1991,6 +2022,8 @@ const AudioPresetSlotsSection = ({
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
     setAudioSpawnMicReactive,
+    setMilkdropInfluence,
+    setMilkdropFeedbackEnabled,
   ]);
 
   const saveSelectedSlot = useCallback(() => {
@@ -3004,7 +3037,16 @@ const PatchMappingCard = ({
 
 const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false, layers = [] } = {}) => {
   const audio = useAudioReactive();
-  const [liveFeatures, setLiveFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
+  const [liveFeatures, setLiveFeatures] = useState({
+    rms: 0,
+    bass: 0,
+    mids: 0,
+    highs: 0,
+    pitch: 0,
+    transient: 0,
+    beat: 0,
+    waveformEnergy: 0,
+  });
   const [debugValues, setDebugValues] = useState({});
   const [addParamId, setAddParamId] = useState('');
   const [addLayerTarget, setAddLayerTarget] = useState('all');
@@ -3073,6 +3115,10 @@ const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false, lay
         bass: Number.isFinite(features.bass) ? features.bass : 0,
         mids: Number.isFinite(features.mids) ? features.mids : 0,
         highs: Number.isFinite(features.highs) ? features.highs : 0,
+        pitch: Number.isFinite(features.pitch) ? features.pitch : 0,
+        transient: Number.isFinite(features.transient) ? features.transient : 0,
+        beat: Number.isFinite(features.beat) ? features.beat : 0,
+        waveformEnergy: Number.isFinite(features.waveformEnergy) ? features.waveformEnergy : 0,
       });
       const debug = (typeof getAllMappingDebug === 'function' ? getAllMappingDebug() : {}) || {};
       setDebugValues((debug && typeof debug === 'object') ? debug : {});
@@ -3133,6 +3179,10 @@ const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false, lay
           { id: 'bass', label: 'Bass', color: '#ff6b6b' },
           { id: 'mids', label: 'Mids', color: '#ffd93d' },
           { id: 'highs', label: 'Highs', color: '#6bcb77' },
+          { id: 'pitch', label: 'Pitch', color: '#90caf9' },
+          { id: 'transient', label: 'Transient', color: '#ff8a65' },
+          { id: 'beat', label: 'Beat', color: '#ce93d8' },
+          { id: 'waveformEnergy', label: 'Wave', color: '#80cbc4' },
         ].map(({ id, label, color }) => (
           <div key={id} style={{ fontSize: '0.62rem', opacity: 0.8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -3260,6 +3310,10 @@ const AudioSpawnSection = ({
   setAudioSpawnMicReactive = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
+  milkdropInfluence = 0,
+  setMilkdropInfluence = null,
+  milkdropFeedbackEnabled = true,
+  setMilkdropFeedbackEnabled = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [bandValue, setBandValue] = useState(0);
@@ -3273,6 +3327,10 @@ const AudioSpawnSection = ({
 
   const enabled = !!audio?.settings?.enabled;
   const getFeatures = audio?.getFeatures;
+  const spawnBandOptions = useMemo(() => {
+    const available = Array.isArray(audio?.AUDIO_BANDS) ? audio.AUDIO_BANDS : ['rms', 'bass', 'mids', 'highs'];
+    return available.filter((id) => id !== 'none');
+  }, [audio?.AUDIO_BANDS]);
 
   useEffect(() => {
     if (!isActiveTab || !enabled || typeof getFeatures !== 'function') {
@@ -3314,6 +3372,7 @@ const AudioSpawnSection = ({
     : `Layer ${sourceIndex + 1}`;
   const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
+  const milkdropInfluenceValue = clampValue(Number(milkdropInfluence) || 0, 0, 100);
   const pitchLabel = pitchToNoteLabel(pitchMeterValue.hz);
   const pitchHzText = (Number.isFinite(pitchMeterValue.hz) && pitchMeterValue.hz > 0)
     ? `${pitchMeterValue.hz.toFixed(1)} Hz`
@@ -3376,10 +3435,16 @@ const AudioSpawnSection = ({
           disabled={!setAudioSpawnBand || disabledByTimeline}
           onChange={(e) => setAudioSpawnBand?.(e.target.value)}
         >
-          <option value="rms">Level</option>
-          <option value="bass">Bass</option>
-          <option value="mids">Mids</option>
-          <option value="highs">Highs</option>
+          {spawnBandOptions.map((id) => {
+            const label = (
+              id === 'rms' ? 'Level'
+                : id === 'waveformEnergy' ? 'Wave Energy'
+                : id.charAt(0).toUpperCase() + id.slice(1)
+            );
+            return (
+              <option key={id} value={id}>{label}</option>
+            );
+          })}
         </select>
         <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7, minWidth: 48, textAlign: 'right' }}>
           {Number.isFinite(bandValue) ? bandValue.toFixed(2) : '0.00'}
@@ -3469,6 +3534,36 @@ const AudioSpawnSection = ({
           />
           Mic Waveform + Pitch Mode
         </label>
+      </div>
+
+      <div style={{ marginTop: '0.4rem', paddingTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.08)', opacity: canRun ? 1 : 0.8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+          <span className="compact-label" style={{ fontWeight: 600 }}>Milkdrop Influence Pack</span>
+          <span className="compact-label" style={{ fontSize: '0.72rem', opacity: 0.72 }}>{Math.round(milkdropInfluenceValue)}%</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={milkdropInfluenceValue}
+          disabled={!setMilkdropInfluence || disabledByTimeline}
+          onChange={(e) => setMilkdropInfluence?.(Number(e.target.value))}
+          title="0 = original behavior. Higher values add Milkdrop-style equation drive, beat bursts, waveform shaping, and directional fields."
+        />
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }} title="Adds subtle frame-to-frame trails behind shapes">
+          <input
+            type="checkbox"
+            checked={!!milkdropFeedbackEnabled}
+            disabled={!setMilkdropFeedbackEnabled || disabledByTimeline}
+            onChange={(e) => setMilkdropFeedbackEnabled?.(!!e.target.checked)}
+          />
+          Feedback Trails
+        </label>
+        <div style={{ marginTop: '0.15rem', fontSize: '0.66rem', opacity: 0.62 }}>
+          Adds equation modulation, beat bursts, waveform mode shifts, directional flow, and symmetry pulses while preserving shape style.
+        </div>
       </div>
 
       <div style={{ marginTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.35rem', opacity: canRun ? 1 : 0.8 }}>
@@ -3745,7 +3840,7 @@ const AudioModeSettings = ({ mode, modeSettings, onSettingsChange }) => {
   const s = { ...defaults, ...modeSettings };
   const update = (key, val) => onSettingsChange({ ...s, [key]: val });
 
-  const bandOptions = ['rms', 'bass', 'mids', 'highs'];
+  const bandOptions = ['rms', 'bass', 'mids', 'highs', 'pitch', 'transient', 'beat', 'waveformEnergy'];
 
   switch (mode) {
     case 'accumulate':
@@ -3817,6 +3912,22 @@ const AudioModeSettings = ({ mode, modeSettings, onSettingsChange }) => {
             <ModeSettingInput label="Quiet" value={s.quietValue} onChange={v => update('quietValue', v)} step={0.05} min={0} max={1} title="Output in quiet zone" />
             <ModeSettingInput label="Med" value={s.medValue} onChange={v => update('medValue', v)} step={0.05} min={0} max={1} title="Output in medium zone" />
             <ModeSettingInput label="Loud" value={s.loudValue} onChange={v => update('loudValue', v)} step={0.05} min={0} max={1} title="Output in loud zone" />
+          </div>
+        </div>
+      );
+
+    case 'milkdrop':
+      return (
+        <div style={{ marginTop: '0.25rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem' }}>
+            <ModeSettingInput label="LFO Hz" value={s.lfoHz} onChange={v => update('lfoHz', v)} step={0.01} min={0.01} max={4} title="Base LFO speed" />
+            <ModeSettingInput label="LFO Amt" value={s.lfoAmount} onChange={v => update('lfoAmount', v)} step={0.05} min={0} max={1} title="LFO contribution" />
+            <ModeSettingInput label="Audio Amt" value={s.audioAmount} onChange={v => update('audioAmount', v)} step={0.05} min={0} max={1} title="Raw audio contribution" />
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.75rem', marginTop: '0.2rem' }}>
+            <ModeSettingInput label="Transient" value={s.transientAmount} onChange={v => update('transientAmount', v)} step={0.05} min={0} max={1} title="Transient boost contribution" />
+            <ModeSettingInput label="Beat Hold" value={s.beatHold} onChange={v => update('beatHold', v)} step={0.05} min={0} max={1} title="Beat hold intensity/decay" />
+            <ModeSettingInput label="Pitch Inf" value={s.pitchInfluence} onChange={v => update('pitchInfluence', v)} step={0.05} min={0} max={1} title="Pitch influence on LFO speed" />
           </div>
         </div>
       );
@@ -3901,7 +4012,13 @@ const AudioControlRow = ({ paramId, label: _label }) => {
         >
           {AUDIO_BANDS.map(b => (
             <option key={b} value={b}>
-              {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+              {b === 'none'
+                ? 'None'
+                : b === 'rms'
+                  ? 'Level'
+                  : b === 'waveformEnergy'
+                    ? 'Wave Energy'
+                    : b.charAt(0).toUpperCase() + b.slice(1)}
             </option>
           ))}
         </select>

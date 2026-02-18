@@ -22,6 +22,10 @@ const PITCH_MIN_RMS = 0.015;
 const PITCH_LOG_MIN = Math.log2(PITCH_MIN_HZ);
 const PITCH_LOG_MAX = Math.log2(PITCH_MAX_HZ);
 const PITCH_LOG_RANGE = Math.max(1e-6, PITCH_LOG_MAX - PITCH_LOG_MIN);
+const TRANSIENT_BASELINE_DECAY = 0.94;
+const TRANSIENT_THRESHOLD = 0.2;
+const BEAT_MIN_LEVEL = 0.06;
+const BEAT_REFRACTORY_MS = 120;
 
 const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
@@ -169,6 +173,8 @@ export const useAudio = ({
   const pitchDetectorRef = useRef(null);
   const pitchDetectorLengthRef = useRef(0);
   const pitchStateRef = useRef({ pitch01: 0, pitchHz: 0, pitchConfidence: 0 });
+  const transientStateRef = useRef({ baseline: 0, transient: 0, beat: 0, lastBeatMs: -Infinity });
+  const frameTimeRef = useRef((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
   // Keep per-frame audio features in a ref to avoid re-rendering the whole app at audio-frame rate.
   const featuresRef = useRef({
     rms: 0,
@@ -178,9 +184,12 @@ export const useAudio = ({
     pitch: 0,
     pitchHz: 0,
     pitchConfidence: 0,
+    transient: 0,
+    beat: 0,
     waveform: waveformRef.current,
     waveformPeak: 0,
     waveformZeroCross: 0,
+    waveformEnergy: 0,
   });
   
   // File playback state
@@ -233,9 +242,12 @@ export const useAudio = ({
         pitch: 0,
         pitchHz: 0,
         pitchConfidence: 0,
+        transient: 0,
+        beat: 0,
         waveform: waveformRef.current,
         waveformPeak: 0,
         waveformZeroCross: 0,
+        waveformEnergy: 0,
       };
     }
 
@@ -320,6 +332,7 @@ export const useAudio = ({
       pitchConfidence = 0;
     }
     const pitch01 = pitchHzTo01(pitchHz);
+    const waveformEnergy = clamp01((peak * 0.72) + (zeroCrossRate * 1.6));
 
     return {
       rms,
@@ -329,9 +342,12 @@ export const useAudio = ({
       pitch: pitch01,
       pitchHz,
       pitchConfidence,
+      transient: 0,
+      beat: 0,
       waveform,
       waveformPeak: peak,
       waveformZeroCross: zeroCrossRate,
+      waveformEnergy,
     };
   }, []);
 
@@ -339,6 +355,10 @@ export const useAudio = ({
   // Uses refs for settings to avoid stale closures
   const updateAudio = useCallback(() => {
     if (!analyserRef.current) return;
+
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const dt = Math.max(0.001, Math.min(0.2, (now - (frameTimeRef.current || now)) / 1000));
+    frameTimeRef.current = now;
 
     const raw = getAudioFeatures();
     const smooth = smoothRef.current;
@@ -391,6 +411,23 @@ export const useAudio = ({
       pitch: Math.min(1, smooth.pitch * currentSensitivity),
     };
 
+    const transientState = transientStateRef.current;
+    transientState.baseline = (transientState.baseline * TRANSIENT_BASELINE_DECAY)
+      + (scaled.rms * (1 - TRANSIENT_BASELINE_DECAY));
+    const flux = Math.max(0, scaled.rms - transientState.baseline);
+    const transientRaw = clamp01((flux - 0.01) / Math.max(1e-6, TRANSIENT_THRESHOLD));
+    transientState.transient = applySmoothing(transientRaw, transientState.transient || 0);
+
+    const canBeat = (now - (transientState.lastBeatMs || -Infinity)) >= BEAT_REFRACTORY_MS;
+    if (canBeat && transientRaw >= 0.85 && scaled.rms >= BEAT_MIN_LEVEL) {
+      transientState.beat = 1;
+      transientState.lastBeatMs = now;
+    } else {
+      const decayPerFrame = 0.84;
+      transientState.beat *= Math.pow(decayPerFrame, dt / 0.016);
+      if (transientState.beat < 0.001) transientState.beat = 0;
+    }
+
     // Mutate in place to avoid allocations; consumers read via getFeatures().
     featuresRef.current.rms = scaled.rms;
     featuresRef.current.bass = scaled.bass;
@@ -399,9 +436,12 @@ export const useAudio = ({
     featuresRef.current.pitch = scaled.pitch;
     featuresRef.current.pitchHz = pitchState.pitchHz || 0;
     featuresRef.current.pitchConfidence = clamp01(pitchState.pitchConfidence || 0);
+    featuresRef.current.transient = clamp01(transientState.transient || 0);
+    featuresRef.current.beat = clamp01(transientState.beat || 0);
     featuresRef.current.waveform = raw.waveform || waveformRef.current;
     featuresRef.current.waveformPeak = Number.isFinite(raw.waveformPeak) ? raw.waveformPeak : 0;
     featuresRef.current.waveformZeroCross = Number.isFinite(raw.waveformZeroCross) ? raw.waveformZeroCross : 0;
+    featuresRef.current.waveformEnergy = Number.isFinite(raw.waveformEnergy) ? clamp01(raw.waveformEnergy) : 0;
 
     rafIdRef.current = requestAnimationFrame(updateAudio);
   }, [getAudioFeatures]); // Only depends on getAudioFeatures, settings read from refs
@@ -528,6 +568,8 @@ export const useAudio = ({
     pitchDetectorLengthRef.current = 0;
     if (waveformRef.current) waveformRef.current.fill(0);
     pitchStateRef.current = { pitch01: 0, pitchHz: 0, pitchConfidence: 0 };
+    transientStateRef.current = { baseline: 0, transient: 0, beat: 0, lastBeatMs: -Infinity };
+    frameTimeRef.current = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
     // Reset smoothed values
     smoothRef.current = { rms: 0, bass: 0, mids: 0, highs: 0, pitch: 0 };
@@ -539,9 +581,12 @@ export const useAudio = ({
       pitch: 0,
       pitchHz: 0,
       pitchConfidence: 0,
+      transient: 0,
+      beat: 0,
       waveform: waveformRef.current,
       waveformPeak: 0,
       waveformZeroCross: 0,
+      waveformEnergy: 0,
     };
     setIsActive(false);
     setError(null);

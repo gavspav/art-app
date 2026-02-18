@@ -14,8 +14,8 @@ const AudioReactiveContext = createContext();
 
 export const useAudioReactive = () => useContext(AudioReactiveContext);
 
-// Available audio bands (extensible - add 'pitch' etc. in future)
-export const AUDIO_BANDS = ['none', 'rms', 'bass', 'mids', 'highs'];
+// Available audio bands/signals.
+export const AUDIO_BANDS = ['none', 'rms', 'bass', 'mids', 'highs', 'pitch', 'transient', 'beat', 'waveformEnergy'];
 
 // LocalStorage keys
 const LS_AUDIO_MAPPINGS = 'artapp-audio-mappings';
@@ -105,7 +105,16 @@ export const mapRange = (value, range) => {
 // Helper to build a label for an audio mapping
 export const audioMappingLabel = (mapping) => {
   if (!mapping || mapping.band === 'none') return 'None';
-  const bandLabels = { rms: 'Level', bass: 'Bass', mids: 'Mids', highs: 'Highs', pitch: 'Pitch' };
+  const bandLabels = {
+    rms: 'Level',
+    bass: 'Bass',
+    mids: 'Mids',
+    highs: 'Highs',
+    pitch: 'Pitch',
+    transient: 'Transient',
+    beat: 'Beat',
+    waveformEnergy: 'Waveform Energy',
+  };
   return bandLabels[mapping.band] || mapping.band;
 };
 
@@ -184,7 +193,21 @@ export const AudioProvider = ({ children }) => {
     if (typeof getFeaturesFromHook === 'function') {
       return getFeaturesFromHook();
     }
-    return { rms: 0, bass: 0, mids: 0, highs: 0 };
+    return {
+      rms: 0,
+      bass: 0,
+      mids: 0,
+      highs: 0,
+      pitch: 0,
+      pitchHz: 0,
+      pitchConfidence: 0,
+      transient: 0,
+      beat: 0,
+      waveform: null,
+      waveformPeak: 0,
+      waveformZeroCross: 0,
+      waveformEnergy: 0,
+    };
   }, [getFeaturesFromHook]);
 
   // Persist settings

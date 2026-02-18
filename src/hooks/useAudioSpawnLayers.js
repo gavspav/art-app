@@ -16,6 +16,7 @@ const DEFAULTS = Object.freeze({
   repeatWhileAbove: true,
   hysteresis: 0.08,
   micReactive: false,
+  milkdropInfluence: 0,
 });
 
 const nowMs = () => (
@@ -32,11 +33,25 @@ const readWaveSample = (waveform, index) => {
   return clamp(Number(waveform[i]) || 0, -1, 1);
 };
 
-const applyWaveformShape = (layer, waveform, energy = 0) => {
-  if (!layer || !waveform || waveform.length < 8) return;
+const chooseWaveformMode = (influence = 0, beat = 0) => {
+  const amt = clamp(Number(influence) || 0, 0, 1);
+  if (amt < 0.25) return 'contour';
+  if (beat > 0.45) return 'starburst';
+  return 'ribbon';
+};
 
-  const count = clamp(Math.round(10 + (energy * 14)), 8, 32);
-  const deformAmount = 0.22 + (energy * 0.35);
+const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influence = 0, waveformEnergy = 0) => {
+  if (!layer || !waveform || waveform.length < 8) return null;
+
+  const modeId = (mode === 'starburst' || mode === 'ribbon') ? mode : 'contour';
+  const influenceAmt = clamp(Number(influence) || 0, 0, 1);
+  const waveEnergy = clamp(Number(waveformEnergy) || 0, 0, 1);
+
+  const baseCount = modeId === 'ribbon' ? 9 : (modeId === 'starburst' ? 14 : 10);
+  const count = clamp(Math.round(baseCount + (energy * 14) + (influenceAmt * 6)), 8, 40);
+  const deformAmount = 0.2 + (energy * 0.35) + (influenceAmt * 0.18);
+  const spikeGain = 1 + (influenceAmt * 1.1);
+
   const nodes = [];
 
   let peak = 0;
@@ -55,10 +70,17 @@ const applyWaveformShape = (layer, waveform, energy = 0) => {
     prev = sample;
 
     const angle = (i / count) * Math.PI * 2;
-    const radius = 0.45 * (1 + (sample * deformAmount));
+    const phaseGate = (modeId === 'starburst' && (i % 2 === 0)) ? spikeGain : 1;
+    const signedSample = (modeId === 'ribbon') ? (sample * 0.65 + abs * 0.35) : sample;
+    const radius = 0.45 * (1 + (signedSample * deformAmount * phaseGate));
+    const flatten = modeId === 'ribbon'
+      ? (0.22 + waveEnergy * 0.55 + influenceAmt * 0.2)
+      : 0;
+    const rx = radius * (1 + flatten);
+    const ry = radius * (1 - flatten * 0.8);
     nodes.push({
-      x: clamp(0.5 + (Math.cos(angle) * radius), 0, 1),
-      y: clamp(0.5 + (Math.sin(angle) * radius), 0, 1),
+      x: clamp(0.5 + (Math.cos(angle) * rx), 0, 1),
+      y: clamp(0.5 + (Math.sin(angle) * ry), 0, 1),
     });
   }
 
@@ -73,10 +95,20 @@ const applyWaveformShape = (layer, waveform, energy = 0) => {
   layer.nodes = nodes;
   layer.syncNodesToNumSides = false;
   layer.numSides = count;
-  layer.curviness = clamp(0.2 + ((zeroCross / Math.max(1, count - 1)) * 0.9), 0, 1);
+  const zeroCrossNorm = zeroCross / Math.max(1, count - 1);
+  let nextCurviness = 0.2 + (zeroCrossNorm * 0.9);
+  if (modeId === 'starburst') nextCurviness = 0.08 + (zeroCrossNorm * 0.45);
+  if (modeId === 'ribbon') nextCurviness = 0.55 + (zeroCrossNorm * 0.35);
+  layer.curviness = clamp(nextCurviness, 0, 1);
   layer.radiusFactor = radius;
   layer.radiusFactorX = clamp(radius * (1 + (asymmetry * 0.22)), 0.04, 2);
   layer.radiusFactorY = clamp(radius * (1 - (asymmetry * 0.22)), 0.04, 2);
+
+  return {
+    peak,
+    asymmetry,
+    zeroCrossNorm,
+  };
 };
 
 const applyPitchColor = (layer, pitchHz, pitchConfidence, energy = 0) => {
@@ -131,6 +163,7 @@ export function useAudioSpawnLayers({
   repeatWhileAbove = DEFAULTS.repeatWhileAbove,
   hysteresis = DEFAULTS.hysteresis,
   micReactive = DEFAULTS.micReactive,
+  milkdropInfluence = DEFAULTS.milkdropInfluence,
 } = {}) {
   const audio = useAudioReactive();
   const overlayLayersRef = useRef([]);
@@ -157,6 +190,7 @@ export function useAudioSpawnLayers({
     repeatWhileAbove: !!repeatWhileAbove,
     hysteresis: clamp(Number(hysteresis) || 0, 0, 0.5),
     micReactive: !!micReactive,
+    milkdropInfluence: clamp(Number(milkdropInfluence) || 0, 0, 100),
   };
 
   const rafRef = useRef(null);
@@ -211,6 +245,11 @@ export function useAudioSpawnLayers({
       const t = nowMs();
       const features = audio.getFeatures() || {};
       const energy = clamp(Number(features[cfg.band]) || 0, 0, 1);
+      const beatSignal = clamp(Number(features?.beat) || 0, 0, 1);
+      const transientSignal = clamp(Number(features?.transient) || 0, 0, 1);
+      const pitch01 = clamp(Number(features?.pitch) || 0, 0, 1);
+      const waveformEnergy = clamp(Number(features?.waveformEnergy) || 0, 0, 1);
+      const influence = clamp((Number(cfg.milkdropInfluence) || 0) / 100, 0, 1);
 
       // Detect enabling edge to avoid carrying trigger state across disables.
       if (!prevEnabledRef.current && cfg.enabled) {
@@ -243,22 +282,30 @@ export function useAudioSpawnLayers({
           const startY = Number.isFinite(spawn.startY) ? spawn.startY : (pos.y ?? 0.5);
           const depthVx = Number.isFinite(spawn.depthVx) ? spawn.depthVx : 0;
           const depthVy = Number.isFinite(spawn.depthVy) ? spawn.depthVy : -1;
+          const fieldAngleRad = Number.isFinite(spawn.fieldAngleRad) ? spawn.fieldAngleRad : Math.atan2(depthVy, depthVx);
+          const fieldBlend = clamp((Number(spawn.milkdropInfluence) || 0) * 0.8, 0, 0.95);
+          const fieldVx = Math.cos(fieldAngleRad);
+          const fieldVy = Math.sin(fieldAngleRad);
+          const dirVx = (depthVx * (1 - fieldBlend)) + (fieldVx * fieldBlend);
+          const dirVy = (depthVy * (1 - fieldBlend)) + (fieldVy * fieldBlend);
           const depthTravel = Number.isFinite(spawn.depthTravel) ? spawn.depthTravel : 0.25;
           const centerPull = Number.isFinite(spawn.depthCenterPull) ? spawn.depthCenterPull : 0.55;
           const travel = depthTravel * progress;
           const nx = clamp(
-            startX + (depthVx * travel) + ((0.5 - startX) * centerPull * progress),
+            startX + (dirVx * travel) + ((0.5 - startX) * centerPull * progress),
             -0.3,
             1.3,
           );
           const ny = clamp(
-            startY + (depthVy * travel) + ((0.5 - startY) * centerPull * progress),
+            startY + (dirVy * travel) + ((0.5 - startY) * centerPull * progress),
             -0.3,
             1.3,
           );
           const baseScale = Number.isFinite(spawn.baseScale) ? spawn.baseScale : (pos.scale ?? 1);
           const scaleDecay = clamp(Number(spawn.scaleDecay) || 0.82, 0.1, 0.98);
-          const nextScale = Math.max(0.04, baseScale * (1 - (progress * scaleDecay)));
+          spawn.beatPulse = (Number(spawn.beatPulse) || 0) * Math.pow(0.88, dtSec * 60);
+          const beatBoost = clamp(Number(spawn.beatPulse) || 0, 0, 1) * (Number(spawn.milkdropInfluence) || 0);
+          const nextScale = Math.max(0.04, baseScale * (1 - (progress * scaleDecay)) * (1 + beatBoost * 0.18));
           layer.position = {
             ...pos,
             x: nx,
@@ -268,6 +315,17 @@ export function useAudioSpawnLayers({
             scale: nextScale,
             scaleDirection: -1,
           };
+          if (Number.isFinite(spawn.symmetryBase)) {
+            const currentSym = Number.isFinite(layer.symmetry) ? layer.symmetry : spawn.symmetryBase;
+            const targetSym = clamp(
+              spawn.symmetryBase
+                + beatBoost * 0.35
+                + (Number(spawn.waveAsymmetry) || 0) * 0.18 * (Number(spawn.milkdropInfluence) || 0),
+              0,
+              1,
+            );
+            layer.symmetry = clamp(currentSym * 0.78 + targetSym * 0.22, 0, 1);
+          }
         } else {
           // Animate position based on movementStyle
           const style = layer.movementStyle || 'bounce';
@@ -378,7 +436,12 @@ export function useAudioSpawnLayers({
       if (manualSpawnCount > 0) {
         manualSpawnQueueRef.current = 0;
       }
-      const totalSpawns = (shouldSpawn ? 1 : 0) + manualSpawnCount;
+      let burstSpawns = 0;
+      if (influence > 0.01 && beatSignal > 0.55 && canSpawn) {
+        shouldSpawn = true;
+        burstSpawns = Math.max(0, Math.round((influence * 2.2) + (beatSignal * 1.6)) - 1);
+      }
+      const totalSpawns = (shouldSpawn ? 1 : 0) + manualSpawnCount + burstSpawns;
 
       if (totalSpawns > 0) {
         const sourceLayers = cfg.layers;
@@ -428,8 +491,10 @@ export function useAudioSpawnLayers({
               paletteColors: cfg.paletteColors,
             });
 
+            let waveStats = null;
             if (micReactiveEnabled) {
-              applyWaveformShape(varied, waveform, energy);
+              const waveformMode = chooseWaveformMode(influence, beatSignal);
+              waveStats = applyWaveformShape(varied, waveform, energy, waveformMode, influence, waveformEnergy);
               if (!cfg.useGlobalPalette) {
                 applyPitchColor(varied, pitchHz, pitchConfidence, energy);
               }
@@ -440,6 +505,23 @@ export function useAudioSpawnLayers({
             const startY = Number.isFinite(variedPos.y) ? variedPos.y : 0.5;
             const baseScale = Number.isFinite(variedPos.scale) ? variedPos.scale : 1;
             const movementAngleRad = ((Number(varied?.movementAngle) || 45) * Math.PI) / 180;
+            const fieldAngleRad = (
+              (((pitch01 * 360) + (transientSignal * 120) + (beatSignal * 90)) * Math.PI) / 180
+            );
+            const dirBlend = clamp(influence * 0.85, 0, 0.95);
+            let dirX = (Math.cos(movementAngleRad) * (1 - dirBlend)) + (Math.cos(fieldAngleRad) * dirBlend);
+            let dirY = (Math.sin(movementAngleRad) * (1 - dirBlend)) + (Math.sin(fieldAngleRad) * dirBlend);
+            const dirLen = Math.hypot(dirX, dirY) || 1;
+            dirX /= dirLen;
+            dirY /= dirLen;
+            const waveAsymmetry = clamp(Number(waveStats?.asymmetry) || 0, -1, 1);
+            const symmetryBase = clamp(
+              (Number(varied?.symmetry) || 0.5) * (1 - influence * 0.28)
+                + ((0.5 + waveAsymmetry * 0.5) * influence * 0.28),
+              0,
+              1,
+            );
+            varied.symmetry = symmetryBase;
 
             varied.id = uniqueId('audio-spawn');
             varied.name = `Audio ${spawnIndex}`;
@@ -459,11 +541,16 @@ export function useAudioSpawnLayers({
               startX,
               startY,
               baseScale,
-              depthVx: Math.cos(movementAngleRad),
-              depthVy: Math.sin(movementAngleRad),
-              depthTravel: 0.2 + (energy * 0.2),
+              depthVx: dirX,
+              depthVy: dirY,
+              depthTravel: 0.2 + (energy * 0.2) + (influence * 0.16) + (beatSignal * 0.08),
               depthCenterPull: 0.55,
-              scaleDecay: 0.82,
+              scaleDecay: clamp(0.86 - (influence * 0.16) + (waveformEnergy * 0.06), 0.58, 0.95),
+              milkdropInfluence: influence,
+              beatPulse: beatSignal,
+              fieldAngleRad,
+              symmetryBase,
+              waveAsymmetry,
             };
 
             list.push(varied);

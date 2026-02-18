@@ -11,7 +11,15 @@ describe('AudioModeProcessor numeric safety', () => {
 
   test('all temporal modes return finite values with malformed settings', () => {
     const processor = new AudioModeProcessor();
-    const features = { rms: 0.72, bass: 0.41, mids: 0.33, highs: 0.18 };
+    const features = {
+      rms: 0.72,
+      bass: 0.41,
+      mids: 0.33,
+      highs: 0.18,
+      pitch: 0.52,
+      transient: 0.61,
+      beat: 0.34,
+    };
 
     const modeCases = [
       { mode: 'accumulate', settings: { rate: NaN, wrap: true } },
@@ -30,6 +38,17 @@ describe('AudioModeProcessor numeric safety', () => {
           quietValue: NaN,
           medValue: NaN,
           loudValue: NaN,
+        },
+      },
+      {
+        mode: 'milkdrop',
+        settings: {
+          lfoHz: NaN,
+          lfoAmount: NaN,
+          audioAmount: NaN,
+          transientAmount: NaN,
+          beatHold: NaN,
+          pitchInfluence: NaN,
         },
       },
     ];
