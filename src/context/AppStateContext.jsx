@@ -94,6 +94,7 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnHalfLifeMs: 1500,
     audioSpawnHalfLifeEnergyFactor: 1.0,
     audioSpawnMaxLayers: 12,
+    audioSpawnPresetActive: false,
     audioSpawnUseGlobalPalette: false,
     audioSpawnMicReactive: false,
     backgroundColor: DEFAULTS.backgroundColor,
@@ -338,6 +339,16 @@ export const AppStateProvider = ({ children }) => {
     setAppState(prev => ({
       ...prev,
       audioSpawnEnabled: (typeof value === 'function') ? !!value(prev.audioSpawnEnabled) : !!value,
+    }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnPresetActive = useCallback((value) => {
+    setAppState(prev => ({
+      ...prev,
+      audioSpawnPresetActive: (typeof value === 'function')
+        ? !!value(prev.audioSpawnPresetActive)
+        : !!value,
     }));
     markDirty();
   }, [markDirty]);
@@ -730,6 +741,9 @@ export const AppStateProvider = ({ children }) => {
           audioSpawnMicReactive: typeof newState.audioSpawnMicReactive === 'boolean'
             ? newState.audioSpawnMicReactive
             : !!prevState.audioSpawnMicReactive,
+          audioSpawnPresetActive: typeof newState.audioSpawnPresetActive === 'boolean'
+            ? newState.audioSpawnPresetActive
+            : false,
           globalPaletteIndex: normalizedPaletteIndex,
           globalPaletteRef: normalizedPaletteRef,
           syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
@@ -841,6 +855,7 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnHalfLifeMs: 1500,
       audioSpawnHalfLifeEnergyFactor: 1.0,
       audioSpawnMaxLayers: 12,
+      audioSpawnPresetActive: false,
       audioSpawnUseGlobalPalette: false,
       audioSpawnMicReactive: false,
       backgroundColor: DEFAULTS.backgroundColor,
@@ -900,6 +915,7 @@ export const AppStateProvider = ({ children }) => {
     setEnableEnergyScaling,
     setEnergyInfluence,
     setAudioSpawnEnabled,
+    setAudioSpawnPresetActive,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnMicReactive,
     setAudioSpawnBand,
@@ -989,6 +1005,7 @@ export const AppStateProvider = ({ children }) => {
     setEnableEnergyScaling,
     setEnergyInfluence,
     setAudioSpawnEnabled,
+    setAudioSpawnPresetActive,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnMicReactive,
     setAudioSpawnBand,

@@ -110,7 +110,7 @@ const triBandScene = (overrides = {}) => {
   };
 };
 
-const MODULATION_PRESETS = [
+export const MODULATION_PRESETS = [
   {
     id: 'tri-band-wobble',
     name: 'Tri-Band Wobble',
@@ -437,12 +437,12 @@ const MODULATION_PRESETS = [
   },
 ];
 
-const DEFAULT_MOD_PRESET_ID = MODULATION_PRESETS?.[0]?.id || '';
+export const DEFAULT_MOD_PRESET_ID = MODULATION_PRESETS?.[0]?.id || '';
 const LAYER_PARAM_PATTERN = /^layer:Layer\s+(\d+):(.+)$/;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const RESPONSE_PROFILES = {
+export const RESPONSE_PROFILES = {
   subtle: { label: 'Subtle', sensitivityMul: 0.78, smoothingDelta: 0.08, releaseDelta: 0.05 },
   balanced: { label: 'Balanced', sensitivityMul: 1, smoothingDelta: 0, releaseDelta: 0 },
   hot: { label: 'Hot', sensitivityMul: 1.35, smoothingDelta: -0.08, releaseDelta: -0.1 },
@@ -525,6 +525,112 @@ const cloneLayerForScene = (defaultLayer, layerDef, layerIndex, paletteColor) =>
   };
 };
 
+export const applyModulationDemoPreset = ({
+  audio = null,
+  preset = null,
+  enableAudioOnApply = true,
+  responseProfile = 'balanced',
+  replaceMappings = true,
+  applySceneSetup = true,
+  includeGlobalEffects = true,
+  disableSpawnOnApply = true,
+  targetMode = 'tri-band',
+  layers = [],
+  setEnergyInfluence = null,
+  setAudioSpawnEnabled = null,
+  setAudioSpawnUseGlobalPalette = null,
+  setParameterTargetMode = null,
+  setLayers = null,
+  DEFAULT_LAYER = null,
+  setSelectedLayerIndex = null,
+  setGlobalSpeedMultiplier = null,
+  setGlobalBlendMode = null,
+  setGlobalPaletteIndex = null,
+  setGlobalPaletteRef = null,
+} = {}) => {
+  if (!audio || !preset) return false;
+
+  const {
+    setAudioEnabled = null,
+    setSensitivity = null,
+    setSmoothing = null,
+    setRelease = null,
+    setMapping = null,
+    clearAllMappings = null,
+  } = audio;
+
+  if (enableAudioOnApply) {
+    setAudioEnabled?.(true);
+  }
+
+  const audioSettings = preset.audioSettings || {};
+  const tunedAudioSettings = getResponseAdjustedSettings(audioSettings, responseProfile);
+  if (Number.isFinite(tunedAudioSettings.sensitivity)) setSensitivity?.(tunedAudioSettings.sensitivity);
+  if (Number.isFinite(tunedAudioSettings.smoothing)) setSmoothing?.(tunedAudioSettings.smoothing);
+  if (Number.isFinite(tunedAudioSettings.release)) setRelease?.(tunedAudioSettings.release);
+
+  if (replaceMappings) {
+    clearAllMappings?.();
+  }
+
+  const baseMappings = applySceneSetup
+    ? { ...(preset.mappings || {}) }
+    : remapMappingsForCurrentLayers(preset.mappings || {}, layers);
+  const mappings = { ...baseMappings };
+
+  if (includeGlobalEffects) {
+    Object.entries(GENERAL_AUDIO_EFFECT_MAPPINGS).forEach(([paramId, mapping]) => {
+      if (!(paramId in mappings)) mappings[paramId] = mapping;
+    });
+  }
+
+  Object.entries(mappings).forEach(([paramId, mapping]) => {
+    setMapping?.(paramId, mapping);
+  });
+
+  if (Number.isFinite(preset.energyInfluence)) {
+    setEnergyInfluence?.(preset.energyInfluence);
+  }
+
+  if (disableSpawnOnApply) {
+    setAudioSpawnEnabled?.(false);
+    setAudioSpawnUseGlobalPalette?.(false);
+  }
+
+  const nextTargetMode = targetMode === 'global' ? 'global' : 'individual';
+  setParameterTargetMode?.(nextTargetMode);
+
+  if (applySceneSetup) {
+    const scene = preset.scene || {};
+    const sceneLayers = Array.isArray(scene.layers) ? scene.layers : [];
+    const palette = Array.isArray(scene.palette) && scene.palette.length
+      ? scene.palette
+      : BASE_TRI_BAND_SCENE.palette;
+
+    if (sceneLayers.length > 0 && typeof setLayers === 'function') {
+      const nextLayers = sceneLayers.map((layerDef, idx) => (
+        cloneLayerForScene(DEFAULT_LAYER, layerDef, idx, palette[idx % palette.length])
+      ));
+      setLayers(() => nextLayers);
+      const selected = Number.isFinite(scene.selectedLayerIndex) ? scene.selectedLayerIndex : 0;
+      setSelectedLayerIndex?.(Math.max(0, Math.min(nextLayers.length - 1, Math.round(selected))));
+    }
+
+    if (Number.isFinite(scene.globalSpeedMultiplier)) {
+      setGlobalSpeedMultiplier?.(scene.globalSpeedMultiplier);
+    }
+    if (typeof scene.globalBlendMode === 'string' && scene.globalBlendMode.length) {
+      setGlobalBlendMode?.(scene.globalBlendMode);
+    }
+    if (Array.isArray(palette) && palette.length) {
+      setGlobalPaletteIndex?.('custom');
+      setGlobalPaletteRef?.(null);
+    }
+  }
+
+  return true;
+};
+
 const AudioModulationPresetsSection = ({
   timelineMode = false,
   layers = [],
@@ -561,86 +667,30 @@ const AudioModulationPresetsSection = ({
 
   const applyPreset = useCallback(() => {
     if (!audio || !selectedPreset) return;
-
-    const {
-      setAudioEnabled = null,
-      setSensitivity = null,
-      setSmoothing = null,
-      setRelease = null,
-      setMapping = null,
-      clearAllMappings = null,
-    } = audio;
-
-    if (enableAudioOnApply) {
-      setAudioEnabled?.(true);
-    }
-
-    const audioSettings = selectedPreset.audioSettings || {};
-    const tunedAudioSettings = getResponseAdjustedSettings(audioSettings, responseProfile);
-    if (Number.isFinite(tunedAudioSettings.sensitivity)) setSensitivity?.(tunedAudioSettings.sensitivity);
-    if (Number.isFinite(tunedAudioSettings.smoothing)) setSmoothing?.(tunedAudioSettings.smoothing);
-    if (Number.isFinite(tunedAudioSettings.release)) setRelease?.(tunedAudioSettings.release);
-
-    if (replaceMappings) {
-      clearAllMappings?.();
-    }
-
-    const baseMappings = applySceneSetup
-      ? { ...(selectedPreset.mappings || {}) }
-      : remapMappingsForCurrentLayers(selectedPreset.mappings || {}, layers);
-    const mappings = { ...baseMappings };
-
-    if (includeGlobalEffects) {
-      Object.entries(GENERAL_AUDIO_EFFECT_MAPPINGS).forEach(([paramId, mapping]) => {
-        if (!(paramId in mappings)) mappings[paramId] = mapping;
-      });
-    }
-
-    Object.entries(mappings).forEach(([paramId, mapping]) => {
-      setMapping?.(paramId, mapping);
+    const applied = applyModulationDemoPreset({
+      audio,
+      preset: selectedPreset,
+      enableAudioOnApply,
+      responseProfile,
+      replaceMappings,
+      applySceneSetup,
+      includeGlobalEffects,
+      disableSpawnOnApply,
+      targetMode,
+      layers,
+      setEnergyInfluence,
+      setAudioSpawnEnabled,
+      setAudioSpawnUseGlobalPalette,
+      setParameterTargetMode,
+      setLayers,
+      DEFAULT_LAYER,
+      setSelectedLayerIndex,
+      setGlobalSpeedMultiplier,
+      setGlobalBlendMode,
+      setGlobalPaletteIndex,
+      setGlobalPaletteRef,
     });
-
-    if (Number.isFinite(selectedPreset.energyInfluence)) {
-      setEnergyInfluence?.(selectedPreset.energyInfluence);
-    }
-
-    if (disableSpawnOnApply) {
-      setAudioSpawnEnabled?.(false);
-      setAudioSpawnUseGlobalPalette?.(false);
-    }
-
-    const nextTargetMode = targetMode === 'global' ? 'global' : 'individual';
-    setParameterTargetMode?.(nextTargetMode);
-
-    if (applySceneSetup) {
-      const scene = selectedPreset.scene || {};
-      const sceneLayers = Array.isArray(scene.layers) ? scene.layers : [];
-      const palette = Array.isArray(scene.palette) && scene.palette.length
-        ? scene.palette
-        : BASE_TRI_BAND_SCENE.palette;
-
-      if (sceneLayers.length > 0 && typeof setLayers === 'function') {
-        const nextLayers = sceneLayers.map((layerDef, idx) => (
-          cloneLayerForScene(DEFAULT_LAYER, layerDef, idx, palette[idx % palette.length])
-        ));
-        setLayers(() => nextLayers);
-        const selected = Number.isFinite(scene.selectedLayerIndex) ? scene.selectedLayerIndex : 0;
-        setSelectedLayerIndex?.(Math.max(0, Math.min(nextLayers.length - 1, Math.round(selected))));
-      }
-
-      if (Number.isFinite(scene.globalSpeedMultiplier)) {
-        setGlobalSpeedMultiplier?.(scene.globalSpeedMultiplier);
-      }
-      if (typeof scene.globalBlendMode === 'string' && scene.globalBlendMode.length) {
-        setGlobalBlendMode?.(scene.globalBlendMode);
-      }
-      if (Array.isArray(palette) && palette.length) {
-        setGlobalPaletteIndex?.('custom');
-        setGlobalPaletteRef?.(null);
-      }
-    }
-
-    setLastAppliedPresetId(selectedPreset.id);
+    if (applied) setLastAppliedPresetId(selectedPreset.id);
   }, [
     audio,
     selectedPreset,

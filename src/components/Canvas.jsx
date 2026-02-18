@@ -1145,6 +1145,7 @@ const Canvas = forwardRef(({
     layersRef,
     overlayLayersRef,
     renderOverlayLayers = true,
+    hideBaseLayers = false,
     hideLayerIndex = -1,
     hideLayerId = null,
     backgroundColor,
@@ -1638,7 +1639,10 @@ const Canvas = forwardRef(({
 	        const needsFullRender = modeChanged || countChanged ||
 	            hasMalformedLayers;
             const hasActiveOverlayLayers = !!(renderOverlayLayers && overlayLayersRef?.current?.length);
-            const shouldHideSourceLayer = hasActiveOverlayLayers && (hideLayerId || hideLayerIndex >= 0);
+            const shouldHideAllBaseLayers = !!hideBaseLayers;
+            const shouldHideSourceLayer = !shouldHideAllBaseLayers
+                && hasActiveOverlayLayers
+                && (hideLayerId || hideLayerIndex >= 0);
 
 	        if (!needsFullRender) {
             // Safety: after clearing the canvas, ensure content is drawn at least once
@@ -1705,6 +1709,10 @@ const Canvas = forwardRef(({
                 : timeNow;
 	            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
 	                if (!layer || !layer.position || !layer.visible) return;
+	                if (shouldHideAllBaseLayers) {
+	                    renderedPointsRef.current.delete(index);
+	                    return;
+	                }
 	                if (shouldHideSourceLayer && ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex))) {
 	                    renderedPointsRef.current.delete(index);
 	                    return;
@@ -1826,6 +1834,10 @@ const Canvas = forwardRef(({
 	                return;
 	            }
 	            if (!layer.visible) return;
+	            if (shouldHideAllBaseLayers) {
+	                renderedPointsRef.current.delete(index);
+	                return;
+	            }
 	            if (shouldHideSourceLayer && ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex))) {
 	                renderedPointsRef.current.delete(index);
 	                return;
@@ -2088,6 +2100,7 @@ const Canvas = forwardRef(({
         layerChanges,
         hasMalformedLayers,
         backgroundChanged,
+        hideBaseLayers,
         hideLayerIndex,
         hideLayerId,
         renderOverlayLayers,
@@ -2972,6 +2985,7 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.selectedLayerIndex === next.selectedLayerIndex &&
     prev.classicMode === next.classicMode &&
     prev.renderOverlayLayers === next.renderOverlayLayers &&
+    prev.hideBaseLayers === next.hideBaseLayers &&
     prev.hideLayerIndex === next.hideLayerIndex &&
     prev.hideLayerId === next.hideLayerId &&
     prev.isolateMode === next.isolateMode &&

@@ -8,7 +8,6 @@ import Controls from './Controls.jsx';
 import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
-import AudioModulationPresetsSection from './global/sections/AudioModulationPresetsSection.jsx';
 import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection } from './global/sections/GlobalAutomationSections.jsx';
 import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
@@ -358,7 +357,9 @@ const BottomPanel = ({
   energyInfluence,
   setEnergyInfluence,
   audioSpawnEnabled,
+  audioSpawnPresetActive,
   setAudioSpawnEnabled,
+  setAudioSpawnPresetActive,
   audioSpawnTriggerMode,
   setAudioSpawnTriggerMode,
   audioSpawnRepeatWhileAbove,
@@ -881,7 +882,9 @@ const BottomPanel = ({
               energyInfluence={energyInfluence}
               setEnergyInfluence={setEnergyInfluence}
               audioSpawnEnabled={audioSpawnEnabled}
+              audioSpawnPresetActive={audioSpawnPresetActive}
               setAudioSpawnEnabled={setAudioSpawnEnabled}
+              setAudioSpawnPresetActive={setAudioSpawnPresetActive}
               audioSpawnTriggerMode={audioSpawnTriggerMode}
               setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
               audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
@@ -1053,12 +1056,10 @@ const BottomPanel = ({
                 )}
               </div>
               <AudioReactiveSection isActiveTab={activeTab === 'audio'} />
-              <AudioModulationPresetsSection
+              <AudioDemoPresetsSection
                 timelineMode={timelineMode}
                 layers={layers}
-                setEnergyInfluence={setEnergyInfluence}
-                setAudioSpawnEnabled={setAudioSpawnEnabled}
-                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+                parameterTargetMode={parameterTargetMode}
                 setParameterTargetMode={setParameterTargetMode}
                 setLayers={setLayers}
                 DEFAULT_LAYER={DEFAULT_LAYER}
@@ -1067,27 +1068,40 @@ const BottomPanel = ({
                 setGlobalBlendMode={setGlobalBlendMode}
                 setGlobalPaletteIndex={setGlobalPaletteIndex}
                 setGlobalPaletteRef={setGlobalPaletteRef}
-              />
-              <AudioDemoPresetsSection
-                timelineMode={timelineMode}
-                layers={layers}
+                energyInfluence={energyInfluence}
                 setEnergyInfluence={setEnergyInfluence}
+                audioSpawnEnabled={audioSpawnEnabled}
+                audioSpawnPresetActive={audioSpawnPresetActive}
                 setAudioSpawnEnabled={setAudioSpawnEnabled}
+                setAudioSpawnPresetActive={setAudioSpawnPresetActive}
+                audioSpawnTriggerMode={audioSpawnTriggerMode}
                 setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+                audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
                 setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+                audioSpawnHysteresis={audioSpawnHysteresis}
                 setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+                audioSpawnBand={audioSpawnBand}
                 setAudioSpawnBand={setAudioSpawnBand}
+                audioSpawnThreshold={audioSpawnThreshold}
                 setAudioSpawnThreshold={setAudioSpawnThreshold}
+                audioSpawnCooldownMs={audioSpawnCooldownMs}
                 setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+                audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
                 setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+                audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
                 setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+                audioSpawnMaxLayers={audioSpawnMaxLayers}
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                audioSpawnMicReactive={audioSpawnMicReactive}
                 setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
               />
               <AudioSpawnSection
                 isActiveTab={activeTab === 'audio'}
                 timelineMode={timelineMode}
+                layers={layers}
+                selectedLayerIndex={selectedLayerIndex}
                 energyInfluence={energyInfluence}
                 setEnergyInfluence={setEnergyInfluence}
                 audioSpawnEnabled={audioSpawnEnabled}
@@ -1392,6 +1406,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
   if (!Object.is(prev.energyInfluence, next.energyInfluence)) return fail('energyInfluence changed');
 	  if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
+  if (!Object.is(prev.audioSpawnPresetActive, next.audioSpawnPresetActive)) return fail('audioSpawnPresetActive changed');
 	  if (!Object.is(prev.audioSpawnTriggerMode, next.audioSpawnTriggerMode)) return fail('audioSpawnTriggerMode changed');
 	  if (!Object.is(prev.audioSpawnRepeatWhileAbove, next.audioSpawnRepeatWhileAbove)) return fail('audioSpawnRepeatWhileAbove changed');
 	  if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return fail('audioSpawnHysteresis changed');
@@ -1435,6 +1450,7 @@ const areBottomPanelPropsEqual = (prev, next) => {
     'setEnableBreathing',
     'setEnergyInfluence',
     'setAudioSpawnEnabled',
+    'setAudioSpawnPresetActive',
     'setAudioSpawnUseGlobalPalette',
     'setAudioSpawnBand',
     'setAudioSpawnThreshold',

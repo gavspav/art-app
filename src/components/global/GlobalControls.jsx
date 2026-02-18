@@ -16,7 +16,6 @@ import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/s
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 import RangeSlider from '../common/RangeSlider.jsx';
-import AudioModulationPresetsSection from './sections/AudioModulationPresetsSection.jsx';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -57,7 +56,9 @@ const GlobalControls = ({
   energyInfluence,
   setEnergyInfluence,
   audioSpawnEnabled,
+  audioSpawnPresetActive,
   setAudioSpawnEnabled,
+  setAudioSpawnPresetActive,
   audioSpawnTriggerMode,
   setAudioSpawnTriggerMode,
   audioSpawnRepeatWhileAbove,
@@ -1754,12 +1755,11 @@ const GlobalControls = ({
               </div>
             </div>
             <AudioReactiveSection isActiveTab={isActiveTab} />
-            <AudioModulationPresetsSection
+            <AudioDemoPresetsSection
+              isActiveTab={isActiveTab}
               timelineMode={timelineMode}
               layers={layers}
-              setEnergyInfluence={setEnergyInfluence}
-              setAudioSpawnEnabled={setAudioSpawnEnabled}
-              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+              parameterTargetMode={_parameterTargetMode}
               setParameterTargetMode={_setParameterTargetMode}
               setLayers={setLayers}
               DEFAULT_LAYER={DEFAULT_LAYER}
@@ -1767,17 +1767,12 @@ const GlobalControls = ({
               setGlobalBlendMode={setGlobalBlendMode}
               setGlobalPaletteIndex={setGlobalPaletteIndex}
               setGlobalPaletteRef={setGlobalPaletteRef}
-            />
-            <AudioDemoPresetsSection
-              isActiveTab={isActiveTab}
-              timelineMode={timelineMode}
-              layers={layers}
-              parameterTargetMode={_parameterTargetMode}
-              setParameterTargetMode={_setParameterTargetMode}
               energyInfluence={energyInfluence}
               setEnergyInfluence={setEnergyInfluence}
               audioSpawnEnabled={audioSpawnEnabled}
+              audioSpawnPresetActive={audioSpawnPresetActive}
               setAudioSpawnEnabled={setAudioSpawnEnabled}
+              setAudioSpawnPresetActive={setAudioSpawnPresetActive}
               audioSpawnTriggerMode={audioSpawnTriggerMode}
               setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
               audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
@@ -1943,6 +1938,7 @@ const areGlobalPropsEqual = (prev, next) => {
   if (!Object.is(prev.globalPaletteIndex, next.globalPaletteIndex)) return diff('globalPaletteIndex');
   if (prev.midiInputId !== next.midiInputId) return diff('midiInputId');
   if (prev.audioSpawnEnabled !== next.audioSpawnEnabled) return diff('audioSpawnEnabled');
+  if (prev.audioSpawnPresetActive !== next.audioSpawnPresetActive) return diff('audioSpawnPresetActive');
   if (prev.audioSpawnTriggerMode !== next.audioSpawnTriggerMode) return diff('audioSpawnTriggerMode');
   if (prev.audioSpawnRepeatWhileAbove !== next.audioSpawnRepeatWhileAbove) return diff('audioSpawnRepeatWhileAbove');
   if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return diff('audioSpawnHysteresis');
