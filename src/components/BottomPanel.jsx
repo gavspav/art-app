@@ -382,6 +382,10 @@ const BottomPanel = ({
   setAudioSpawnMaxLayers,
   audioSpawnMicReactive,
   setAudioSpawnMicReactive,
+  audioSpawnMicReactiveAmount,
+  setAudioSpawnMicReactiveAmount,
+  audioSpawnForceContourMode,
+  setAudioSpawnForceContourMode,
   milkdropInfluence,
   setMilkdropInfluence,
   milkdropFeedbackEnabled,
@@ -911,6 +915,10 @@ const BottomPanel = ({
               setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
               audioSpawnMicReactive={audioSpawnMicReactive}
               setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+              audioSpawnMicReactiveAmount={audioSpawnMicReactiveAmount}
+              setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
+              audioSpawnForceContourMode={audioSpawnForceContourMode}
+              setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
               milkdropInfluence={milkdropInfluence}
               setMilkdropInfluence={setMilkdropInfluence}
               milkdropFeedbackEnabled={milkdropFeedbackEnabled}
@@ -1102,6 +1110,10 @@ const BottomPanel = ({
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
                 audioSpawnMicReactive={audioSpawnMicReactive}
                 setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+                audioSpawnMicReactiveAmount={audioSpawnMicReactiveAmount}
+                setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
+                audioSpawnForceContourMode={audioSpawnForceContourMode}
+                setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
                 audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
                 milkdropInfluence={milkdropInfluence}
@@ -1138,6 +1150,10 @@ const BottomPanel = ({
                 setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
                 audioSpawnMicReactive={audioSpawnMicReactive}
                 setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+                audioSpawnMicReactiveAmount={audioSpawnMicReactiveAmount}
+                setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
+                audioSpawnForceContourMode={audioSpawnForceContourMode}
+                setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
                 audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
                 setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
                 milkdropInfluence={milkdropInfluence}
@@ -1434,6 +1450,8 @@ const areBottomPanelPropsEqual = (prev, next) => {
   if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return fail('audioSpawnHalfLifeEnergyFactor changed');
   if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return fail('audioSpawnMaxLayers changed');
   if (!Object.is(prev.audioSpawnMicReactive, next.audioSpawnMicReactive)) return fail('audioSpawnMicReactive changed');
+  if (!Object.is(prev.audioSpawnMicReactiveAmount, next.audioSpawnMicReactiveAmount)) return fail('audioSpawnMicReactiveAmount changed');
+  if (!Object.is(prev.audioSpawnForceContourMode, next.audioSpawnForceContourMode)) return fail('audioSpawnForceContourMode changed');
   if (!Object.is(prev.milkdropInfluence, next.milkdropInfluence)) return fail('milkdropInfluence changed');
   if (!Object.is(prev.milkdropFeedbackEnabled, next.milkdropFeedbackEnabled)) return fail('milkdropFeedbackEnabled changed');
   if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');

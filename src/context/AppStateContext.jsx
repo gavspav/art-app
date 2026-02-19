@@ -97,6 +97,8 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnPresetActive: false,
     audioSpawnUseGlobalPalette: false,
     audioSpawnMicReactive: false,
+    audioSpawnMicReactiveAmount: 100,
+    audioSpawnForceContourMode: false,
     milkdropInfluence: 0,
     milkdropFeedbackEnabled: true,
     backgroundColor: DEFAULTS.backgroundColor,
@@ -366,10 +368,37 @@ export const AppStateProvider = ({ children }) => {
   }, [markDirty]);
 
   const setAudioSpawnMicReactive = useCallback((value) => {
+    setAppState(prev => {
+      const nextMicReactive = (typeof value === 'function')
+        ? !!value(prev.audioSpawnMicReactive)
+        : !!value;
+      const amountRaw = Number(prev.audioSpawnMicReactiveAmount);
+      const amount = Number.isFinite(amountRaw) ? Math.max(0, Math.min(100, amountRaw)) : 0;
+      return {
+        ...prev,
+        audioSpawnMicReactive: nextMicReactive,
+        audioSpawnMicReactiveAmount: (nextMicReactive && amount <= 0) ? 100 : amount,
+      };
+    });
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnMicReactiveAmount = useCallback((value) => {
+    const raw = (typeof value === 'function')
+      ? value(appStateRef.current.audioSpawnMicReactiveAmount)
+      : value;
+    const next = Number.isFinite(Number(raw))
+      ? Math.max(0, Math.min(100, Number(raw)))
+      : appStateRef.current.audioSpawnMicReactiveAmount;
+    setAppState(prev => ({ ...prev, audioSpawnMicReactiveAmount: next }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnForceContourMode = useCallback((value) => {
     setAppState(prev => ({
       ...prev,
-      audioSpawnMicReactive: (typeof value === 'function')
-        ? !!value(prev.audioSpawnMicReactive)
+      audioSpawnForceContourMode: (typeof value === 'function')
+        ? !!value(prev.audioSpawnForceContourMode)
         : !!value,
     }));
     markDirty();
@@ -760,6 +789,16 @@ export const AppStateProvider = ({ children }) => {
           audioSpawnMicReactive: typeof newState.audioSpawnMicReactive === 'boolean'
             ? newState.audioSpawnMicReactive
             : !!prevState.audioSpawnMicReactive,
+          audioSpawnMicReactiveAmount: Number.isFinite(Number(newState.audioSpawnMicReactiveAmount))
+            ? Math.max(0, Math.min(100, Number(newState.audioSpawnMicReactiveAmount)))
+            : (typeof newState.audioSpawnMicReactive === 'boolean'
+              ? (newState.audioSpawnMicReactive ? 100 : 0)
+              : (Number.isFinite(Number(prevState.audioSpawnMicReactiveAmount))
+                ? Math.max(0, Math.min(100, Number(prevState.audioSpawnMicReactiveAmount)))
+                : (prevState.audioSpawnMicReactive ? 100 : 0))),
+          audioSpawnForceContourMode: typeof newState.audioSpawnForceContourMode === 'boolean'
+            ? newState.audioSpawnForceContourMode
+            : !!prevState.audioSpawnForceContourMode,
           audioSpawnPresetActive: typeof newState.audioSpawnPresetActive === 'boolean'
             ? newState.audioSpawnPresetActive
             : false,
@@ -885,6 +924,8 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnPresetActive: false,
       audioSpawnUseGlobalPalette: false,
       audioSpawnMicReactive: false,
+      audioSpawnMicReactiveAmount: 100,
+      audioSpawnForceContourMode: false,
       milkdropInfluence: 0,
       milkdropFeedbackEnabled: true,
       backgroundColor: DEFAULTS.backgroundColor,
@@ -947,6 +988,8 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnPresetActive,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnMicReactive,
+    setAudioSpawnMicReactiveAmount,
+    setAudioSpawnForceContourMode,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,
@@ -1039,6 +1082,8 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnPresetActive,
     setAudioSpawnUseGlobalPalette,
     setAudioSpawnMicReactive,
+    setAudioSpawnMicReactiveAmount,
+    setAudioSpawnForceContourMode,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,

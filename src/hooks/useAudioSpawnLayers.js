@@ -16,6 +16,8 @@ const DEFAULTS = Object.freeze({
   repeatWhileAbove: true,
   hysteresis: 0.08,
   micReactive: false,
+  micReactiveAmount: 100,
+  forceContourMode: false,
   milkdropInfluence: 0,
 });
 
@@ -33,24 +35,29 @@ const readWaveSample = (waveform, index) => {
   return clamp(Number(waveform[i]) || 0, -1, 1);
 };
 
-const chooseWaveformMode = (influence = 0, beat = 0) => {
+const chooseWaveformMode = (influence = 0, beat = 0, forceContourMode = false) => {
+  if (forceContourMode) return 'contour';
   const amt = clamp(Number(influence) || 0, 0, 1);
   if (amt < 0.25) return 'contour';
   if (beat > 0.45) return 'starburst';
   return 'ribbon';
 };
 
-const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influence = 0, waveformEnergy = 0) => {
+const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influence = 0, waveformEnergy = 0, reactiveAmount = 1) => {
   if (!layer || !waveform || waveform.length < 8) return null;
 
   const modeId = (mode === 'starburst' || mode === 'ribbon') ? mode : 'contour';
   const influenceAmt = clamp(Number(influence) || 0, 0, 1);
   const waveEnergy = clamp(Number(waveformEnergy) || 0, 0, 1);
+  const reactive = clamp(Number(reactiveAmount) || 0, 0, 1);
+  if (reactive <= 0.001) return null;
 
+  const currentCount = clamp(Math.round(Number(layer.numSides) || 10), 6, 40);
   const baseCount = modeId === 'ribbon' ? 9 : (modeId === 'starburst' ? 14 : 10);
-  const count = clamp(Math.round(baseCount + (energy * 14) + (influenceAmt * 6)), 8, 40);
-  const deformAmount = 0.2 + (energy * 0.35) + (influenceAmt * 0.18);
-  const spikeGain = 1 + (influenceAmt * 1.1);
+  const targetCount = clamp(Math.round(baseCount + (energy * 14) + (influenceAmt * 6)), 8, 40);
+  const count = clamp(Math.round(currentCount + ((targetCount - currentCount) * reactive)), 6, 40);
+  const deformAmount = (0.2 + (energy * 0.35) + (influenceAmt * 0.18)) * reactive;
+  const spikeGain = 1 + (influenceAmt * 1.1 * reactive);
 
   const nodes = [];
 
@@ -74,7 +81,7 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
     const signedSample = (modeId === 'ribbon') ? (sample * 0.65 + abs * 0.35) : sample;
     const radius = 0.45 * (1 + (signedSample * deformAmount * phaseGate));
     const flatten = modeId === 'ribbon'
-      ? (0.22 + waveEnergy * 0.55 + influenceAmt * 0.2)
+      ? (0.22 + waveEnergy * 0.55 + influenceAmt * 0.2) * reactive
       : 0;
     const rx = radius * (1 + flatten);
     const ry = radius * (1 - flatten * 0.8);
@@ -89,24 +96,27 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
     -1,
     1,
   );
+  const effectiveAsymmetry = asymmetry * reactive;
   const baseRadius = Number.isFinite(layer.radiusFactor) ? layer.radiusFactor : 0.125;
-  const radius = clamp(baseRadius * (0.78 + (peak * 1.15)), 0.04, 1.8);
+  const targetRadius = clamp(baseRadius * (0.78 + (peak * 1.15)), 0.04, 1.8);
+  const radius = clamp(baseRadius + ((targetRadius - baseRadius) * reactive), 0.04, 1.8);
 
   layer.nodes = nodes;
   layer.syncNodesToNumSides = false;
   layer.numSides = count;
   const zeroCrossNorm = zeroCross / Math.max(1, count - 1);
-  let nextCurviness = 0.2 + (zeroCrossNorm * 0.9);
-  if (modeId === 'starburst') nextCurviness = 0.08 + (zeroCrossNorm * 0.45);
-  if (modeId === 'ribbon') nextCurviness = 0.55 + (zeroCrossNorm * 0.35);
-  layer.curviness = clamp(nextCurviness, 0, 1);
+  const baseCurviness = Number.isFinite(layer.curviness) ? layer.curviness : 0.75;
+  let targetCurviness = 0.2 + (zeroCrossNorm * 0.9);
+  if (modeId === 'starburst') targetCurviness = 0.08 + (zeroCrossNorm * 0.45);
+  if (modeId === 'ribbon') targetCurviness = 0.55 + (zeroCrossNorm * 0.35);
+  layer.curviness = clamp(baseCurviness + ((targetCurviness - baseCurviness) * reactive), 0, 1);
   layer.radiusFactor = radius;
-  layer.radiusFactorX = clamp(radius * (1 + (asymmetry * 0.22)), 0.04, 2);
-  layer.radiusFactorY = clamp(radius * (1 - (asymmetry * 0.22)), 0.04, 2);
+  layer.radiusFactorX = clamp(radius * (1 + (effectiveAsymmetry * 0.22)), 0.04, 2);
+  layer.radiusFactorY = clamp(radius * (1 - (effectiveAsymmetry * 0.22)), 0.04, 2);
 
   return {
     peak,
-    asymmetry,
+    asymmetry: effectiveAsymmetry,
     zeroCrossNorm,
   };
 };
@@ -163,6 +173,8 @@ export function useAudioSpawnLayers({
   repeatWhileAbove = DEFAULTS.repeatWhileAbove,
   hysteresis = DEFAULTS.hysteresis,
   micReactive = DEFAULTS.micReactive,
+  micReactiveAmount = DEFAULTS.micReactiveAmount,
+  forceContourMode = DEFAULTS.forceContourMode,
   milkdropInfluence = DEFAULTS.milkdropInfluence,
 } = {}) {
   const audio = useAudioReactive();
@@ -190,6 +202,8 @@ export function useAudioSpawnLayers({
     repeatWhileAbove: !!repeatWhileAbove,
     hysteresis: clamp(Number(hysteresis) || 0, 0, 0.5),
     micReactive: !!micReactive,
+    micReactiveAmount: clamp(Number(micReactiveAmount) || 0, 0, 100),
+    forceContourMode: !!forceContourMode,
     milkdropInfluence: clamp(Number(milkdropInfluence) || 0, 0, 100),
   };
 
@@ -464,6 +478,7 @@ export function useAudioSpawnLayers({
             ].filter(Boolean)
             : null;
           const micReactiveEnabled = !!cfg.micReactive && !audio?.isFileMode;
+          const micReactiveAmountNorm = clamp((Number(cfg.micReactiveAmount) || 0) / 100, 0, 1);
           const waveform = features?.waveform;
           const pitchHz = Number(features?.pitchHz) || 0;
           const pitchConfidence = clamp(Number(features?.pitchConfidence) || 0, 0, 1);
@@ -493,8 +508,16 @@ export function useAudioSpawnLayers({
 
             let waveStats = null;
             if (micReactiveEnabled) {
-              const waveformMode = chooseWaveformMode(influence, beatSignal);
-              waveStats = applyWaveformShape(varied, waveform, energy, waveformMode, influence, waveformEnergy);
+              const waveformMode = chooseWaveformMode(influence, beatSignal, cfg.forceContourMode);
+              waveStats = applyWaveformShape(
+                varied,
+                waveform,
+                energy,
+                waveformMode,
+                influence,
+                waveformEnergy,
+                micReactiveAmountNorm,
+              );
               if (!cfg.useGlobalPalette) {
                 applyPitchColor(varied, pitchHz, pitchConfidence, energy);
               }

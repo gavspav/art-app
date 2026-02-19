@@ -1386,6 +1386,10 @@ const AudioDemoPresetsSection = ({
   setAudioSpawnMaxLayers = null,
   audioSpawnMicReactive = false,
   setAudioSpawnMicReactive = null,
+  audioSpawnMicReactiveAmount = 100,
+  setAudioSpawnMicReactiveAmount = null,
+  audioSpawnForceContourMode = false,
+  setAudioSpawnForceContourMode = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
   milkdropInfluence = 0,
@@ -1582,6 +1586,12 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnHalfLifeEnergyFactor?.(Number.isFinite(spawn.halfLifeEnergyFactor) ? spawn.halfLifeEnergyFactor : 1);
     setAudioSpawnMaxLayers?.(Number.isFinite(spawn.maxLayers) ? spawn.maxLayers : 12);
     setAudioSpawnMicReactive?.(typeof spawn.micReactive === 'boolean' ? spawn.micReactive : false);
+    if (Number.isFinite(spawn.micReactiveAmount)) {
+      setAudioSpawnMicReactiveAmount?.(Math.max(0, Math.min(100, Number(spawn.micReactiveAmount))));
+    } else if (typeof spawn.micReactive === 'boolean') {
+      setAudioSpawnMicReactiveAmount?.(spawn.micReactive ? 100 : 0);
+    }
+    setAudioSpawnForceContourMode?.(typeof spawn.forceContourMode === 'boolean' ? spawn.forceContourMode : false);
     if (typeof spawn.useGlobalPalette === 'boolean') {
       setAudioSpawnUseGlobalPalette?.(spawn.useGlobalPalette);
     }
@@ -1627,6 +1637,8 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
     setAudioSpawnMicReactive,
+    setAudioSpawnMicReactiveAmount,
+    setAudioSpawnForceContourMode,
   ]);
 
   if (!audio) return null;
@@ -1837,6 +1849,10 @@ const AudioDemoPresetsSection = ({
             setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
             audioSpawnMicReactive={audioSpawnMicReactive}
             setAudioSpawnMicReactive={setAudioSpawnMicReactive}
+            audioSpawnMicReactiveAmount={audioSpawnMicReactiveAmount}
+            setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
+            audioSpawnForceContourMode={audioSpawnForceContourMode}
+            setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
             milkdropInfluence={milkdropInfluence}
             setMilkdropInfluence={setMilkdropInfluence}
             milkdropFeedbackEnabled={milkdropFeedbackEnabled}
@@ -1886,6 +1902,10 @@ const AudioPresetSlotsSection = ({
   setAudioSpawnMaxLayers = null,
   audioSpawnMicReactive = false,
   setAudioSpawnMicReactive = null,
+  audioSpawnMicReactiveAmount = 100,
+  setAudioSpawnMicReactiveAmount = null,
+  audioSpawnForceContourMode = false,
+  setAudioSpawnForceContourMode = null,
   milkdropInfluence = 0,
   setMilkdropInfluence = null,
   milkdropFeedbackEnabled = true,
@@ -1937,6 +1957,10 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeEnergyFactor: Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0,
     audioSpawnMaxLayers: Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12,
     audioSpawnMicReactive: !!audioSpawnMicReactive,
+    audioSpawnMicReactiveAmount: Number.isFinite(audioSpawnMicReactiveAmount)
+      ? Math.max(0, Math.min(100, Number(audioSpawnMicReactiveAmount)))
+      : (audioSpawnMicReactive ? 100 : 0),
+    audioSpawnForceContourMode: !!audioSpawnForceContourMode,
     milkdropInfluence: Number.isFinite(milkdropInfluence) ? Math.max(0, Math.min(100, milkdropInfluence)) : 0,
     milkdropFeedbackEnabled: !!milkdropFeedbackEnabled,
   }), [
@@ -1955,6 +1979,8 @@ const AudioPresetSlotsSection = ({
     audioSpawnHalfLifeEnergyFactor,
     audioSpawnMaxLayers,
     audioSpawnMicReactive,
+    audioSpawnMicReactiveAmount,
+    audioSpawnForceContourMode,
     milkdropInfluence,
     milkdropFeedbackEnabled,
   ]);
@@ -1994,6 +2020,14 @@ const AudioPresetSlotsSection = ({
     if (Number.isFinite(state.audioSpawnHalfLifeEnergyFactor)) setAudioSpawnHalfLifeEnergyFactor?.(state.audioSpawnHalfLifeEnergyFactor);
     if (Number.isFinite(state.audioSpawnMaxLayers)) setAudioSpawnMaxLayers?.(state.audioSpawnMaxLayers);
     if (typeof state.audioSpawnMicReactive === 'boolean') setAudioSpawnMicReactive?.(state.audioSpawnMicReactive);
+    if (Number.isFinite(state.audioSpawnMicReactiveAmount)) {
+      setAudioSpawnMicReactiveAmount?.(state.audioSpawnMicReactiveAmount);
+    } else if (typeof state.audioSpawnMicReactive === 'boolean') {
+      setAudioSpawnMicReactiveAmount?.(state.audioSpawnMicReactive ? 100 : 0);
+    }
+    if (typeof state.audioSpawnForceContourMode === 'boolean') {
+      setAudioSpawnForceContourMode?.(state.audioSpawnForceContourMode);
+    }
     if (Number.isFinite(state.milkdropInfluence)) setMilkdropInfluence?.(state.milkdropInfluence);
     if (typeof state.milkdropFeedbackEnabled === 'boolean') {
       setMilkdropFeedbackEnabled?.(state.milkdropFeedbackEnabled);
@@ -2022,6 +2056,8 @@ const AudioPresetSlotsSection = ({
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
     setAudioSpawnMicReactive,
+    setAudioSpawnMicReactiveAmount,
+    setAudioSpawnForceContourMode,
     setMilkdropInfluence,
     setMilkdropFeedbackEnabled,
   ]);
@@ -3308,6 +3344,10 @@ const AudioSpawnSection = ({
   setAudioSpawnMaxLayers = null,
   audioSpawnMicReactive = false,
   setAudioSpawnMicReactive = null,
+  audioSpawnMicReactiveAmount = 100,
+  setAudioSpawnMicReactiveAmount = null,
+  audioSpawnForceContourMode = false,
+  setAudioSpawnForceContourMode = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
   milkdropInfluence = 0,
@@ -3373,6 +3413,13 @@ const AudioSpawnSection = ({
   const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
   const milkdropInfluenceValue = clampValue(Number(milkdropInfluence) || 0, 0, 100);
+  const micReactiveAmountValue = clampValue(
+    Number.isFinite(Number(audioSpawnMicReactiveAmount))
+      ? Number(audioSpawnMicReactiveAmount)
+      : (audioSpawnMicReactive ? 100 : 0),
+    0,
+    100,
+  );
   const pitchLabel = pitchToNoteLabel(pitchMeterValue.hz);
   const pitchHzText = (Number.isFinite(pitchMeterValue.hz) && pitchMeterValue.hz > 0)
     ? `${pitchMeterValue.hz.toFixed(1)} Hz`
@@ -3533,6 +3580,38 @@ const AudioSpawnSection = ({
             onChange={(e) => setAudioSpawnMicReactive?.(!!e.target.checked)}
           />
           Mic Waveform + Pitch Mode
+        </label>
+      </div>
+
+      <div style={{ marginTop: '0.25rem', opacity: canRun ? 1 : 0.8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">Mic Reactive Amount</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+            {Math.round(micReactiveAmountValue)}%
+          </span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={micReactiveAmountValue}
+          disabled={!setAudioSpawnMicReactiveAmount || disabledByTimeline}
+          onChange={(e) => setAudioSpawnMicReactiveAmount?.(Number(e.target.value))}
+          title="0 keeps the source shape template, 100 applies full waveform-driven shape deformation."
+        />
+      </div>
+
+      <div style={{ marginTop: '0.2rem', opacity: canRun ? 1 : 0.7 }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Force smooth contour waveform shaping and disable starburst/ribbon mode switching">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnForceContourMode}
+            disabled={!setAudioSpawnForceContourMode || disabledByTimeline}
+            onChange={(e) => setAudioSpawnForceContourMode?.(!!e.target.checked)}
+          />
+          Contour Mode
         </label>
       </div>
 
