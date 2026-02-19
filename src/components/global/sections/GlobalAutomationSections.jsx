@@ -3599,7 +3599,7 @@ const AudioSpawnSection = ({
           value={micReactiveAmountValue}
           disabled={!setAudioSpawnMicReactiveAmount || disabledByTimeline}
           onChange={(e) => setAudioSpawnMicReactiveAmount?.(Number(e.target.value))}
-          title="0 keeps the source shape template, 100 applies full waveform-driven shape deformation."
+          title="Low values mainly modulate wobble/noise on the source shape. Higher values progressively add waveform node deformation."
         />
       </div>
 

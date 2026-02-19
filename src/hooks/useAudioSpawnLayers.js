@@ -3,6 +3,7 @@ import { useAudioReactive } from '../context/AudioContext.jsx';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { clamp } from '../utils/mathUtils.js';
 import { hslToHex } from '../utils/colorUtils.js';
+import { resizeNodes } from '../utils/nodeUtils.js';
 
 const DEFAULTS = Object.freeze({
   triggerMode: 'level', // 'level' | 'transient'
@@ -35,6 +36,54 @@ const readWaveSample = (waveform, index) => {
   return clamp(Number(waveform[i]) || 0, -1, 1);
 };
 
+const readWaveSampleSmoothed = (waveform, index, smoothness = 0) => {
+  const amt = clamp(Number(smoothness) || 0, 0, 1);
+  if (amt <= 0.001) return readWaveSample(waveform, index);
+  const radius = Math.max(1, Math.round(1 + (amt * 5)));
+  let sum = 0;
+  let weightSum = 0;
+  for (let o = -radius; o <= radius; o += 1) {
+    const w = (radius + 1) - Math.abs(o);
+    sum += readWaveSample(waveform, index + o) * w;
+    weightSum += w;
+  }
+  if (weightSum <= 0) return 0;
+  return clamp(sum / weightSum, -1, 1);
+};
+
+const detectZeroToOneNodes = (nodes = []) => {
+  if (!Array.isArray(nodes) || nodes.length < 3) return false;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < nodes.length; i += 1) {
+    const n = nodes[i];
+    const x = Number(n?.x);
+    const y = Number(n?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return minX >= 0 && minY >= 0 && maxX <= 1 && maxY <= 1;
+};
+
+const buildFallbackNodes = (count, zeroToOne = false) => {
+  const n = Math.max(3, Math.round(Number(count) || 3));
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const angle = (i / n) * Math.PI * 2;
+    if (zeroToOne) {
+      out.push({ x: 0.5 + Math.cos(angle) * 0.45, y: 0.5 + Math.sin(angle) * 0.45 });
+    } else {
+      out.push({ x: Math.cos(angle), y: Math.sin(angle) });
+    }
+  }
+  return out;
+};
+
 const chooseWaveformMode = (influence = 0, beat = 0, forceContourMode = false) => {
   if (forceContourMode) return 'contour';
   const amt = clamp(Number(influence) || 0, 0, 1);
@@ -51,13 +100,22 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
   const waveEnergy = clamp(Number(waveformEnergy) || 0, 0, 1);
   const reactive = clamp(Number(reactiveAmount) || 0, 0, 1);
   if (reactive <= 0.001) return null;
+  const contourMode = modeId === 'contour';
 
   const currentCount = clamp(Math.round(Number(layer.numSides) || 10), 6, 40);
   const baseCount = modeId === 'ribbon' ? 9 : (modeId === 'starburst' ? 14 : 10);
   const targetCount = clamp(Math.round(baseCount + (energy * 14) + (influenceAmt * 6)), 8, 40);
   const count = clamp(Math.round(currentCount + ((targetCount - currentCount) * reactive)), 6, 40);
-  const deformAmount = (0.2 + (energy * 0.35) + (influenceAmt * 0.18)) * reactive;
-  const spikeGain = 1 + (influenceAmt * 1.1 * reactive);
+  const deformAmount = (0.2 + (energy * 0.35) + (influenceAmt * 0.18)) * reactive * (contourMode ? 0.72 : 1);
+  const spikeGain = contourMode ? 1 : (1 + (influenceAmt * 1.1 * reactive));
+  const sampleSmoothness = contourMode
+    ? clamp(0.75 + ((1 - reactive) * 0.2), 0, 1)
+    : clamp(0.18 + ((1 - reactive) * 0.15), 0, 1);
+  const zeroToOneNodes = detectZeroToOneNodes(layer.nodes);
+  const fallbackNodes = buildFallbackNodes(count, zeroToOneNodes);
+  const baseNodes = Array.isArray(layer.nodes) && layer.nodes.length >= 3
+    ? resizeNodes(layer.nodes, count)
+    : fallbackNodes;
 
   const nodes = [];
 
@@ -69,7 +127,7 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
 
   for (let i = 0; i < count; i += 1) {
     const sampleIdx = (i / count) * (waveform.length - 1);
-    const sample = readWaveSample(waveform, sampleIdx);
+    const sample = readWaveSampleSmoothed(waveform, sampleIdx, sampleSmoothness);
     const abs = Math.abs(sample);
     if (abs > peak) peak = abs;
     if (sample >= 0) positive += sample; else negative += abs;
@@ -79,15 +137,23 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
     const angle = (i / count) * Math.PI * 2;
     const phaseGate = (modeId === 'starburst' && (i % 2 === 0)) ? spikeGain : 1;
     const signedSample = (modeId === 'ribbon') ? (sample * 0.65 + abs * 0.35) : sample;
-    const radius = 0.45 * (1 + (signedSample * deformAmount * phaseGate));
+    const radiusBase = zeroToOneNodes ? 0.45 : 0.9;
+    const radius = radiusBase * (1 + (signedSample * deformAmount * phaseGate));
     const flatten = modeId === 'ribbon'
       ? (0.22 + waveEnergy * 0.55 + influenceAmt * 0.2) * reactive
       : 0;
     const rx = radius * (1 + flatten);
     const ry = radius * (1 - flatten * 0.8);
+    const baseNode = baseNodes[i] || fallbackNodes[i] || { x: zeroToOneNodes ? 0.5 : 0, y: zeroToOneNodes ? 0.5 : 0 };
+    const targetX = zeroToOneNodes
+      ? clamp(0.5 + (Math.cos(angle) * rx), 0, 1)
+      : clamp(Math.cos(angle) * rx, -1, 1);
+    const targetY = zeroToOneNodes
+      ? clamp(0.5 + (Math.sin(angle) * ry), 0, 1)
+      : clamp(Math.sin(angle) * ry, -1, 1);
     nodes.push({
-      x: clamp(0.5 + (Math.cos(angle) * rx), 0, 1),
-      y: clamp(0.5 + (Math.sin(angle) * ry), 0, 1),
+      x: clamp((Number(baseNode.x) || 0) * (1 - reactive) + targetX * reactive, zeroToOneNodes ? 0 : -1, 1),
+      y: clamp((Number(baseNode.y) || 0) * (1 - reactive) + targetY * reactive, zeroToOneNodes ? 0 : -1, 1),
     });
   }
 
@@ -119,6 +185,43 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
     asymmetry: effectiveAsymmetry,
     zeroCrossNorm,
   };
+};
+
+const applyMicReactiveSurface = ({
+  layer,
+  amount = 0,
+  energy = 0,
+  waveformEnergy = 0,
+  transientSignal = 0,
+  forceContourMode = false,
+}) => {
+  if (!layer) return;
+  const amt = clamp(Number(amount) || 0, 0, 1);
+  if (amt <= 0.001) return;
+
+  const wEnergy = clamp(Number(waveformEnergy) || 0, 0, 1);
+  const trans = clamp(Number(transientSignal) || 0, 0, 1);
+  const lvl = clamp(Number(energy) || 0, 0, 1);
+
+  const baseWobble = clamp(Number(layer.wobble) || 0, 0, 1);
+  const baseNoise = clamp(Number(layer.noiseAmount) || 0, 0, 8);
+  const baseCurviness = clamp(Number(layer.curviness) || 0.7, 0, 1);
+  const baseJitter = clamp(Number(layer.freqJitter) || 0, 0, 1);
+
+  if (forceContourMode) {
+    const wobbleTarget = clamp(baseWobble + (amt * (0.06 + wEnergy * 0.22 + lvl * 0.12)), 0, 1);
+    layer.wobble = wobbleTarget;
+    layer.noiseAmount = clamp(baseNoise * (1 - amt * 0.92), 0, 8);
+    layer.curviness = clamp(Math.max(baseCurviness, 0.78 + (amt * 0.18)), 0, 1);
+    layer.freqJitter = clamp(baseJitter * (1 - amt * 0.75), 0, 1);
+    return;
+  }
+
+  const wobbleTarget = clamp(baseWobble + (amt * (0.05 + wEnergy * 0.28 + lvl * 0.12)), 0, 1);
+  const noiseTarget = clamp(baseNoise + (amt * (0.02 + wEnergy * 0.12 + trans * 0.06)), 0, 8);
+  const blend = clamp(0.25 + (amt * 0.45), 0, 0.9);
+  layer.wobble = clamp((baseWobble * (1 - blend)) + (wobbleTarget * blend), 0, 1);
+  layer.noiseAmount = clamp((baseNoise * (1 - blend)) + (noiseTarget * blend), 0, 8);
 };
 
 const applyPitchColor = (layer, pitchHz, pitchConfidence, energy = 0) => {
@@ -479,6 +582,9 @@ export function useAudioSpawnLayers({
             : null;
           const micReactiveEnabled = !!cfg.micReactive && !audio?.isFileMode;
           const micReactiveAmountNorm = clamp((Number(cfg.micReactiveAmount) || 0) / 100, 0, 1);
+          const shapeReactiveAmount = cfg.forceContourMode
+            ? Math.pow(micReactiveAmountNorm, 1.6)
+            : clamp((micReactiveAmountNorm - 0.28) / 0.72, 0, 1);
           const waveform = features?.waveform;
           const pitchHz = Number(features?.pitchHz) || 0;
           const pitchConfidence = clamp(Number(features?.pitchConfidence) || 0, 0, 1);
@@ -508,16 +614,26 @@ export function useAudioSpawnLayers({
 
             let waveStats = null;
             if (micReactiveEnabled) {
-              const waveformMode = chooseWaveformMode(influence, beatSignal, cfg.forceContourMode);
-              waveStats = applyWaveformShape(
-                varied,
-                waveform,
+              applyMicReactiveSurface({
+                layer: varied,
+                amount: micReactiveAmountNorm,
                 energy,
-                waveformMode,
-                influence,
                 waveformEnergy,
-                micReactiveAmountNorm,
-              );
+                transientSignal,
+                forceContourMode: cfg.forceContourMode,
+              });
+              if (shapeReactiveAmount > 0.001) {
+                const waveformMode = chooseWaveformMode(influence, beatSignal, cfg.forceContourMode);
+                waveStats = applyWaveformShape(
+                  varied,
+                  waveform,
+                  energy,
+                  waveformMode,
+                  influence,
+                  waveformEnergy,
+                  shapeReactiveAmount,
+                );
+              }
               if (!cfg.useGlobalPalette) {
                 applyPitchColor(varied, pitchHz, pitchConfidence, energy);
               }
