@@ -99,6 +99,8 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnMicReactive: false,
     audioSpawnMicReactiveAmount: 100,
     audioSpawnForceContourMode: false,
+    audioSpawnDirectionMode: 'template',
+    audioSpawnDirectionSpread: 0,
     milkdropInfluence: 0,
     milkdropFeedbackEnabled: true,
     backgroundColor: DEFAULTS.backgroundColor,
@@ -401,6 +403,29 @@ export const AppStateProvider = ({ children }) => {
         ? !!value(prev.audioSpawnForceContourMode)
         : !!value,
     }));
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnDirectionMode = useCallback((value) => {
+    const allowed = new Set(['template', 'spread']);
+    setAppState(prev => {
+      const raw = (typeof value === 'function')
+        ? value(prev.audioSpawnDirectionMode)
+        : value;
+      const next = allowed.has(raw) ? raw : prev.audioSpawnDirectionMode;
+      return { ...prev, audioSpawnDirectionMode: next };
+    });
+    markDirty();
+  }, [markDirty]);
+
+  const setAudioSpawnDirectionSpread = useCallback((value) => {
+    const raw = (typeof value === 'function')
+      ? value(appStateRef.current.audioSpawnDirectionSpread)
+      : value;
+    const next = Number.isFinite(Number(raw))
+      ? Math.max(0, Math.min(180, Number(raw)))
+      : appStateRef.current.audioSpawnDirectionSpread;
+    setAppState(prev => ({ ...prev, audioSpawnDirectionSpread: next }));
     markDirty();
   }, [markDirty]);
 
@@ -799,6 +824,16 @@ export const AppStateProvider = ({ children }) => {
           audioSpawnForceContourMode: typeof newState.audioSpawnForceContourMode === 'boolean'
             ? newState.audioSpawnForceContourMode
             : !!prevState.audioSpawnForceContourMode,
+          audioSpawnDirectionMode: newState.audioSpawnDirectionMode === 'spread'
+            ? 'spread'
+            : (newState.audioSpawnDirectionMode === 'template'
+              ? 'template'
+              : (prevState.audioSpawnDirectionMode === 'spread' ? 'spread' : 'template')),
+          audioSpawnDirectionSpread: Number.isFinite(Number(newState.audioSpawnDirectionSpread))
+            ? Math.max(0, Math.min(180, Number(newState.audioSpawnDirectionSpread)))
+            : (Number.isFinite(Number(prevState.audioSpawnDirectionSpread))
+              ? Math.max(0, Math.min(180, Number(prevState.audioSpawnDirectionSpread)))
+              : 0),
           audioSpawnPresetActive: typeof newState.audioSpawnPresetActive === 'boolean'
             ? newState.audioSpawnPresetActive
             : false,
@@ -926,6 +961,8 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnMicReactive: false,
       audioSpawnMicReactiveAmount: 100,
       audioSpawnForceContourMode: false,
+      audioSpawnDirectionMode: 'template',
+      audioSpawnDirectionSpread: 0,
       milkdropInfluence: 0,
       milkdropFeedbackEnabled: true,
       backgroundColor: DEFAULTS.backgroundColor,
@@ -990,6 +1027,8 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnMicReactive,
     setAudioSpawnMicReactiveAmount,
     setAudioSpawnForceContourMode,
+    setAudioSpawnDirectionMode,
+    setAudioSpawnDirectionSpread,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,
@@ -1084,6 +1123,8 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnMicReactive,
     setAudioSpawnMicReactiveAmount,
     setAudioSpawnForceContourMode,
+    setAudioSpawnDirectionMode,
+    setAudioSpawnDirectionSpread,
     setAudioSpawnBand,
     setAudioSpawnTriggerMode,
     setAudioSpawnRepeatWhileAbove,

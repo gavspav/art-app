@@ -1390,6 +1390,10 @@ const AudioDemoPresetsSection = ({
   setAudioSpawnMicReactiveAmount = null,
   audioSpawnForceContourMode = false,
   setAudioSpawnForceContourMode = null,
+  audioSpawnDirectionMode = 'template',
+  setAudioSpawnDirectionMode = null,
+  audioSpawnDirectionSpread = 0,
+  setAudioSpawnDirectionSpread = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
   milkdropInfluence = 0,
@@ -1592,6 +1596,8 @@ const AudioDemoPresetsSection = ({
       setAudioSpawnMicReactiveAmount?.(spawn.micReactive ? 100 : 0);
     }
     setAudioSpawnForceContourMode?.(typeof spawn.forceContourMode === 'boolean' ? spawn.forceContourMode : false);
+    setAudioSpawnDirectionMode?.(spawn.directionMode === 'spread' ? 'spread' : 'template');
+    setAudioSpawnDirectionSpread?.(Number.isFinite(spawn.directionSpreadDeg) ? Math.max(0, Math.min(180, Number(spawn.directionSpreadDeg))) : 0);
     if (typeof spawn.useGlobalPalette === 'boolean') {
       setAudioSpawnUseGlobalPalette?.(spawn.useGlobalPalette);
     }
@@ -1639,6 +1645,8 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnMicReactive,
     setAudioSpawnMicReactiveAmount,
     setAudioSpawnForceContourMode,
+    setAudioSpawnDirectionMode,
+    setAudioSpawnDirectionSpread,
   ]);
 
   if (!audio) return null;
@@ -1853,6 +1861,10 @@ const AudioDemoPresetsSection = ({
             setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
             audioSpawnForceContourMode={audioSpawnForceContourMode}
             setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
+            audioSpawnDirectionMode={audioSpawnDirectionMode}
+            setAudioSpawnDirectionMode={setAudioSpawnDirectionMode}
+            audioSpawnDirectionSpread={audioSpawnDirectionSpread}
+            setAudioSpawnDirectionSpread={setAudioSpawnDirectionSpread}
             milkdropInfluence={milkdropInfluence}
             setMilkdropInfluence={setMilkdropInfluence}
             milkdropFeedbackEnabled={milkdropFeedbackEnabled}
@@ -1906,6 +1918,10 @@ const AudioPresetSlotsSection = ({
   setAudioSpawnMicReactiveAmount = null,
   audioSpawnForceContourMode = false,
   setAudioSpawnForceContourMode = null,
+  audioSpawnDirectionMode = 'template',
+  setAudioSpawnDirectionMode = null,
+  audioSpawnDirectionSpread = 0,
+  setAudioSpawnDirectionSpread = null,
   milkdropInfluence = 0,
   setMilkdropInfluence = null,
   milkdropFeedbackEnabled = true,
@@ -1961,6 +1977,10 @@ const AudioPresetSlotsSection = ({
       ? Math.max(0, Math.min(100, Number(audioSpawnMicReactiveAmount)))
       : (audioSpawnMicReactive ? 100 : 0),
     audioSpawnForceContourMode: !!audioSpawnForceContourMode,
+    audioSpawnDirectionMode: audioSpawnDirectionMode === 'spread' ? 'spread' : 'template',
+    audioSpawnDirectionSpread: Number.isFinite(Number(audioSpawnDirectionSpread))
+      ? Math.max(0, Math.min(180, Number(audioSpawnDirectionSpread)))
+      : 0,
     milkdropInfluence: Number.isFinite(milkdropInfluence) ? Math.max(0, Math.min(100, milkdropInfluence)) : 0,
     milkdropFeedbackEnabled: !!milkdropFeedbackEnabled,
   }), [
@@ -1981,6 +2001,8 @@ const AudioPresetSlotsSection = ({
     audioSpawnMicReactive,
     audioSpawnMicReactiveAmount,
     audioSpawnForceContourMode,
+    audioSpawnDirectionMode,
+    audioSpawnDirectionSpread,
     milkdropInfluence,
     milkdropFeedbackEnabled,
   ]);
@@ -2028,6 +2050,12 @@ const AudioPresetSlotsSection = ({
     if (typeof state.audioSpawnForceContourMode === 'boolean') {
       setAudioSpawnForceContourMode?.(state.audioSpawnForceContourMode);
     }
+    if (typeof state.audioSpawnDirectionMode === 'string') {
+      setAudioSpawnDirectionMode?.(state.audioSpawnDirectionMode);
+    }
+    if (Number.isFinite(state.audioSpawnDirectionSpread)) {
+      setAudioSpawnDirectionSpread?.(state.audioSpawnDirectionSpread);
+    }
     if (Number.isFinite(state.milkdropInfluence)) setMilkdropInfluence?.(state.milkdropInfluence);
     if (typeof state.milkdropFeedbackEnabled === 'boolean') {
       setMilkdropFeedbackEnabled?.(state.milkdropFeedbackEnabled);
@@ -2058,6 +2086,8 @@ const AudioPresetSlotsSection = ({
     setAudioSpawnMicReactive,
     setAudioSpawnMicReactiveAmount,
     setAudioSpawnForceContourMode,
+    setAudioSpawnDirectionMode,
+    setAudioSpawnDirectionSpread,
     setMilkdropInfluence,
     setMilkdropFeedbackEnabled,
   ]);
@@ -3348,6 +3378,10 @@ const AudioSpawnSection = ({
   setAudioSpawnMicReactiveAmount = null,
   audioSpawnForceContourMode = false,
   setAudioSpawnForceContourMode = null,
+  audioSpawnDirectionMode = 'template',
+  setAudioSpawnDirectionMode = null,
+  audioSpawnDirectionSpread = 0,
+  setAudioSpawnDirectionSpread = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
   milkdropInfluence = 0,
@@ -3413,6 +3447,8 @@ const AudioSpawnSection = ({
   const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
   const milkdropInfluenceValue = clampValue(Number(milkdropInfluence) || 0, 0, 100);
+  const directionModeValue = (audioSpawnDirectionMode === 'spread') ? 'spread' : 'template';
+  const directionSpreadValue = clampValue(Number(audioSpawnDirectionSpread) || 0, 0, 180);
   const micReactiveAmountValue = clampValue(
     Number.isFinite(Number(audioSpawnMicReactiveAmount))
       ? Number(audioSpawnMicReactiveAmount)
@@ -3529,6 +3565,38 @@ const AudioSpawnSection = ({
           title={mode === 'transient'
             ? 'Lower = more sensitive (triggers on smaller transients)'
             : 'Spawn when the selected band reaches this level'}
+        />
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+          <span className="compact-label" style={{ width: 58 }}>Direction</span>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.75rem', flex: 1 }}
+            value={directionModeValue}
+            disabled={!setAudioSpawnDirectionMode || disabledByTimeline}
+            onChange={(e) => setAudioSpawnDirectionMode?.(e.target.value)}
+            title="Template uses one shared movement direction. Spread gives each spawned layer its own direction around the template angle."
+          >
+            <option value="template">Template</option>
+            <option value="spread">Spread</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">Spread</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{directionSpreadValue.toFixed(0)}°</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="180"
+          step="1"
+          value={directionSpreadValue}
+          disabled={!setAudioSpawnDirectionSpread || disabledByTimeline || directionModeValue !== 'spread'}
+          onChange={(e) => setAudioSpawnDirectionSpread?.(Number(e.target.value))}
+          title="Per-spawn angle jitter around the source layer's movement angle."
         />
       </div>
 

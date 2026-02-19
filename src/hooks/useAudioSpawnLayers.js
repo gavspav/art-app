@@ -19,6 +19,8 @@ const DEFAULTS = Object.freeze({
   micReactive: false,
   micReactiveAmount: 100,
   forceContourMode: false,
+  directionMode: 'template', // 'template' | 'spread'
+  directionSpreadDeg: 0,
   milkdropInfluence: 0,
 });
 
@@ -29,6 +31,11 @@ const nowMs = () => (
 );
 
 const uniqueId = (prefix = 'spawn') => `${prefix}-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
+
+const pseudoRandom01 = (a = 0, b = 0) => {
+  const x = Math.sin((Number(a) || 0) * 12.9898 + (Number(b) || 0) * 78.233) * 43758.5453123;
+  return x - Math.floor(x);
+};
 
 const readWaveSample = (waveform, index) => {
   if (!waveform || !Number.isFinite(Number(waveform.length)) || waveform.length < 1) return 0;
@@ -278,6 +285,8 @@ export function useAudioSpawnLayers({
   micReactive = DEFAULTS.micReactive,
   micReactiveAmount = DEFAULTS.micReactiveAmount,
   forceContourMode = DEFAULTS.forceContourMode,
+  directionMode = DEFAULTS.directionMode,
+  directionSpreadDeg = DEFAULTS.directionSpreadDeg,
   milkdropInfluence = DEFAULTS.milkdropInfluence,
 } = {}) {
   const audio = useAudioReactive();
@@ -307,6 +316,8 @@ export function useAudioSpawnLayers({
     micReactive: !!micReactive,
     micReactiveAmount: clamp(Number(micReactiveAmount) || 0, 0, 100),
     forceContourMode: !!forceContourMode,
+    directionMode: directionMode === 'spread' ? 'spread' : 'template',
+    directionSpreadDeg: clamp(Number(directionSpreadDeg) || 0, 0, 180),
     milkdropInfluence: clamp(Number(milkdropInfluence) || 0, 0, 100),
   };
 
@@ -644,12 +655,19 @@ export function useAudioSpawnLayers({
             const startY = Number.isFinite(variedPos.y) ? variedPos.y : 0.5;
             const baseScale = Number.isFinite(variedPos.scale) ? variedPos.scale : 1;
             const movementAngleRad = ((Number(varied?.movementAngle) || 45) * Math.PI) / 180;
+            const directionSpreadRad = ((Number(cfg.directionSpreadDeg) || 0) * Math.PI) / 180;
+            let spawnAngleRad = movementAngleRad;
+            if (cfg.directionMode === 'spread' && directionSpreadRad > 1e-6) {
+              const jitter01 = pseudoRandom01(spawnIndex + 17, t * 0.001 + 37);
+              const jitter = ((jitter01 * 2) - 1) * directionSpreadRad;
+              spawnAngleRad += jitter;
+            }
             const fieldAngleRad = (
               (((pitch01 * 360) + (transientSignal * 120) + (beatSignal * 90)) * Math.PI) / 180
             );
             const dirBlend = clamp(influence * 0.85, 0, 0.95);
-            let dirX = (Math.cos(movementAngleRad) * (1 - dirBlend)) + (Math.cos(fieldAngleRad) * dirBlend);
-            let dirY = (Math.sin(movementAngleRad) * (1 - dirBlend)) + (Math.sin(fieldAngleRad) * dirBlend);
+            let dirX = (Math.cos(spawnAngleRad) * (1 - dirBlend)) + (Math.cos(fieldAngleRad) * dirBlend);
+            let dirY = (Math.sin(spawnAngleRad) * (1 - dirBlend)) + (Math.sin(fieldAngleRad) * dirBlend);
             const dirLen = Math.hypot(dirX, dirY) || 1;
             dirX /= dirLen;
             dirY /= dirLen;
