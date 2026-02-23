@@ -3,6 +3,7 @@ import { DEFAULT_LAYER as defaultLayer } from '../constants/defaults';
 import { pickPaletteColors } from './paletteUtils';
 import { createSeededRandom as defaultCreateSeededRandom } from './random';
 import { clamp as defaultClamp, mixRandom as defaultMixRandom } from './mathUtils';
+import { hexToHsl, hslToHex, hexToRgb, rgbToHex } from './colorUtils';
 
 // Builds a new layer by varying from a previous layer using split variation weights.
 // When shape variation is zero we keep geometry identical while still applying
@@ -13,11 +14,36 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   clamp = defaultClamp,
   mix = defaultMixRandom,
   createSeededRandom = defaultCreateSeededRandom,
+  randomSeed,
+  affectCategories,
+  preserveSeeds = false,
+  isParamRandomizable,
+  allowUnknownParams = true,
+  randomizeColorsPerLayer = true,
+  uniformColorCount = 3,
+  colorCountMin = 1,
+  colorCountMax = 8,
+  constrainColorsToPalette = false,
+  paletteColors = null,
 } = {}) {
+  const normalizeSeed = (seedVal) => {
+    const n = Math.abs(Number.isFinite(seedVal) ? Math.floor(seedVal) : 0);
+    const mod = n % 2147483646;
+    return mod === 0 ? 1 : mod;
+  };
+
+  const affectSet = Array.isArray(affectCategories) ? new Set(affectCategories) : null;
+  const includeShape = !affectSet || affectSet.has('shape');
+  const includeAnim = !affectSet || affectSet.has('anim');
+  const includeColor = !affectSet || affectSet.has('color');
+  const includePosition = !affectSet || affectSet.has('position');
+  const includeScale = !affectSet || affectSet.has('scale');
+
   const vShapeBase = Number(prev?.variationShape ?? prev?.variation ?? DEFAULT_LAYER.variationShape ?? 0.2);
   const vAnimBase = Number(prev?.variationAnim ?? prev?.variation ?? DEFAULT_LAYER.variationAnim ?? 0.2);
   const vColorBase = Number(prev?.variationColor ?? prev?.variation ?? DEFAULT_LAYER.variationColor ?? 0.2);
   const vPositionBase = Number(prev?.variationPosition ?? prev?.variation ?? DEFAULT_LAYER.variationPosition ?? 0.2);
+  const vScaleBase = Number(prev?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0);
   const resolveVar = (value, fallback) => (Number.isFinite(value) ? value : fallback);
   const v = (baseVar && typeof baseVar === 'object')
     ? {
@@ -25,16 +51,59 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       anim: resolveVar(Number(baseVar.anim), vAnimBase),
       color: resolveVar(Number(baseVar.color), vColorBase),
       position: resolveVar(Number(baseVar.position), vPositionBase),
+      scale: resolveVar(Number(baseVar.scale), vScaleBase),
     }
     : {
       shape: resolveVar(Number(baseVar), vShapeBase),
       anim: resolveVar(Number(baseVar), vAnimBase),
       color: resolveVar(Number(baseVar), vColorBase),
       position: resolveVar(Number(baseVar), vPositionBase),
+      scale: resolveVar(Number(baseVar), vScaleBase),
     };
+
+  const sourceSeed = normalizeSeed(
+    typeof randomSeed !== 'undefined'
+      ? randomSeed
+      : (Number.isFinite(prev?.seed) ? prev.seed : DEFAULT_LAYER.seed || 1),
+  );
+  // Always use nameIndex to offset seed for unique per-layer randomness
+  // preserveSeeds only affects whether we update the layer's stored seed
+  const rngSeed = normalizeSeed(sourceSeed + (nameIndex * 1013904223));
+  const rng = createSeededRandom(rngSeed);
+  const random01 = () => {
+    const val = rng();
+    return Number.isFinite(val) ? Math.min(0.999999999, Math.max(0, val)) : Math.random();
+  };
+  const randomInRange = (min, max) => {
+    const span = Math.max(0, max - min);
+    return min + random01() * span;
+  };
+  const randomIntInclusive = (min, max) => {
+    const lo = Math.ceil(min);
+    const hi = Math.floor(max);
+    if (hi <= lo) return lo;
+    return lo + Math.floor(random01() * (hi - lo + 1));
+  };
+  const chooseRandom = (list) => {
+    if (!Array.isArray(list) || !list.length) return undefined;
+    return list[Math.floor(random01() * list.length)];
+  };
+
+  const mixValue = (baseVal, min, max, weight, integer = false) => {
+    if (weight <= 0) return baseVal;
+    if (mix && mix !== defaultMixRandom) {
+      return mix(baseVal, min, max, weight, integer);
+    }
+    const rnd = randomInRange(min, max);
+    let next = baseVal * (1 - weight) + rnd * weight;
+    next = clamp(next, min, max);
+    if (integer) next = Math.round(next);
+    return next;
+  };
 
   const wShape = clamp((v.shape || 0) / 3, 0, 1);
   const wAnim = clamp((v.anim || 0) / 3, 0, 1);
+  const wScale = clamp((v.scale || 0) / 3, 0, 1);
   const boostAboveOne = (x) => {
     let z = Number(x) || 0;
     if (z > 1) z = 1 + (z - 1) * 1.4;
@@ -42,11 +111,23 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     if (z > 3) z = 3;
     return z;
   };
-  const wColor = clamp(boostAboveOne(v.color || 0) / 3, 0, 1);
+  const colorIntensityRaw = Number(v.color || 0);
+  const boostedColor = boostAboveOne(colorIntensityRaw);
+  const wColor = clamp(boostedColor / 3, 0, 1);
+  const extendedColor = clamp(colorIntensityRaw <= 1 ? colorIntensityRaw : 1 + (colorIntensityRaw - 1) * 0.75, 0, 2.5);
   const wPosition = clamp((v.position || 0) / 3, 0, 1);
 
   const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
-  const mixPosition = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wPosition, integer);
+  const mixPosition = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wPosition, integer);
+  const isAllowed = (paramId) => {
+    if (!paramId) return true;
+    if (typeof isParamRandomizable !== 'function') return true;
+    try {
+      const res = isParamRandomizable(paramId);
+      if (typeof res === 'boolean') return res;
+    } catch { /* noop */ }
+    return !!allowUnknownParams;
+  };
 
   const lockShape = wShape === 0; // preserve geometry exactly, but allow other variation paths below
   const varied = lockShape
@@ -55,10 +136,15 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
 
   varied.name = `Layer ${nameIndex}`;
   if (!lockShape) {
-    const rand = createSeededRandom(Math.random());
-    const newSeed = rand();
-    varied.seed = newSeed;
-    varied.noiseSeed = newSeed;
+    if (preserveSeeds) {
+      if (typeof prev?.seed !== 'undefined') varied.seed = prev.seed;
+      if (typeof prev?.noiseSeed !== 'undefined') varied.noiseSeed = prev.noiseSeed;
+    } else {
+      const newSeed = normalizeSeed(rngSeed);
+      const noiseSeed = normalizeSeed(rngSeed * 16807);
+      varied.seed = newSeed;
+      varied.noiseSeed = noiseSeed;
+    }
   }
   varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
   // Preserve legacy and split variations
@@ -69,230 +155,268 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   varied.variationPosition = Number(v.position);
 
   // Shape and appearance (use wShape)
-  const mixShape = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wShape, integer);
-  if (!lockShape) {
-    if (varyFlags.numSides) varied.numSides = Math.max(3, Math.round(mixShape(prev.numSides ?? 6, 3, 20, true)));
-    if (varyFlags.curviness) varied.curviness = Number(mixShape(prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
-    if (varyFlags.wobble) varied.wobble = Number(mixShape(prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
-    if (varyFlags.noiseAmount) varied.noiseAmount = Number(mixShape(prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
-    if (varyFlags.width) varied.width = Math.max(10, Math.round(mixShape(prev.width ?? 250, 10, 900, true)));
-    if (varyFlags.height) varied.height = Math.max(10, Math.round(mixShape(prev.height ?? 250, 10, 900, true)));
+  const mixShape = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wShape, integer);
+  if (!lockShape && includeShape) {
+    if (varyFlags.numSides && isAllowed('numSides')) varied.numSides = Math.max(3, Math.round(mixShape(prev.numSides ?? 6, 3, 20, true)));
+    if (varyFlags.curviness && isAllowed('curviness')) varied.curviness = Number(mixShape(prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
+    if (varyFlags.wobble && isAllowed('wobble')) varied.wobble = Number(mixShape(prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
+    if (varyFlags.noiseAmount && isAllowed('noiseAmount')) varied.noiseAmount = Number(mixShape(prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
+    if (varyFlags.width && isAllowed('width')) varied.width = Math.max(10, Math.round(mixShape(prev.width ?? 250, 10, 900, true)));
+    if (varyFlags.height && isAllowed('height')) varied.height = Math.max(10, Math.round(mixShape(prev.height ?? 250, 10, 900, true)));
     if (varyFlags.radiusFactor) {
       const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactor = Number(mixShape(baseRF, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactor')) varied.radiusFactor = Number(mixShape(baseRF, 0.02, 0.9).toFixed(3));
     }
     if (varyFlags.radiusFactorX) {
       const baseRFX = Number(prev.radiusFactorX ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactorX = Number(mixShape(baseRFX, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactorX')) varied.radiusFactorX = Number(mixShape(baseRFX, 0.02, 0.9).toFixed(3));
     }
     if (varyFlags.radiusFactorY) {
       const baseRFY = Number(prev.radiusFactorY ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactorY')) varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
     }
   }
   // New: X/Y Offset variation (range -0.5..0.5)
-  if (varyFlags.xOffset) {
+  if (includePosition && varyFlags.xOffset && isAllowed('xOffset')) {
     const baseXO = Number(prev.xOffset ?? 0);
     varied.xOffset = Number(mixPosition(baseXO, -0.5, 0.5).toFixed(3));
   }
-  if (varyFlags.yOffset) {
+  if (includePosition && varyFlags.yOffset && isAllowed('yOffset')) {
     const baseYO = Number(prev.yOffset ?? 0);
     varied.yOffset = Number(mixPosition(baseYO, -0.5, 0.5).toFixed(3));
   }
 
   // Movement (use wAnim)
-  const mixAnim = (pv, mn, mx, integer = false) => mix(pv, mn, mx, wAnim, integer);
-  if (varyFlags.movementStyle && wAnim > 0.7 && Math.random() < wAnim) {
-    const styles = ['bounce', 'drift', 'still'];
+  const mixAnim = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wAnim, integer);
+  if (includeAnim && varyFlags.movementStyle && isAllowed('movementStyle') && wAnim > 0.7 && random01() < wAnim) {
+    const styles = ['bounce', 'drift', 'still', 'orbit', 'spin'];
     const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
     const others = styles.filter(s => s !== cur);
-    varied.movementStyle = (others[Math.floor(Math.random() * others.length)] || cur);
+    varied.movementStyle = chooseRandom(others.length ? others : styles) || cur;
   }
-  if (varyFlags.movementSpeed) varied.movementSpeed = Number(mixAnim(prev.movementSpeed ?? 1, 0, 5).toFixed(3));
-  if (varyFlags.movementAngle) {
+  if (includeAnim && varyFlags.movementSpeed && isAllowed('movementSpeed')) varied.movementSpeed = Number(mixAnim(prev.movementSpeed ?? 1, 0, 5).toFixed(3));
+  if (includeAnim && varyFlags.movementAngle && isAllowed('movementAngle')) {
     const nextA = mixAnim(prev.movementAngle ?? 45, 0, 360, true);
     varied.movementAngle = ((nextA % 360) + 360) % 360;
   }
-  if (varyFlags.scaleSpeed) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
+  if (includeAnim && varyFlags.scaleSpeed && isAllowed('scaleSpeed')) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
   let nextScaleMin = prev.scaleMin ?? 0.2;
   let nextScaleMax = prev.scaleMax ?? 1.5;
-  if (varyFlags.scaleMin) nextScaleMin = mixAnim(prev.scaleMin ?? 0.2, 0.1, 2);
-  if (varyFlags.scaleMax) nextScaleMax = mixAnim(prev.scaleMax ?? 1.5, 0.5, 3);
+  if (includeAnim && varyFlags.scaleMin && isAllowed('scaleMin')) nextScaleMin = mixAnim(prev.scaleMin ?? 0.2, 0.1, 2);
+  if (includeAnim && varyFlags.scaleMax && isAllowed('scaleMax')) nextScaleMax = mixAnim(prev.scaleMax ?? 1.5, 0.5, 3);
   varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
   varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
 
   // Image effects (treat as animation/appearance; use wAnim)
-  if (varyFlags.imageBlur) varied.imageBlur = Number(mixAnim(prev.imageBlur ?? 0, 0, 20).toFixed(2));
-  if (varyFlags.imageBrightness) varied.imageBrightness = Math.round(mixAnim(prev.imageBrightness ?? 100, 0, 200, true));
-  if (varyFlags.imageContrast) varied.imageContrast = Math.round(mixAnim(prev.imageContrast ?? 100, 0, 200, true));
-  if (varyFlags.imageHue) {
+  if (includeAnim && varyFlags.imageBlur && isAllowed('imageBlur')) varied.imageBlur = Number(mixAnim(prev.imageBlur ?? 0, 0, 20).toFixed(2));
+  if (includeAnim && varyFlags.imageBrightness && isAllowed('imageBrightness')) varied.imageBrightness = Math.round(mixAnim(prev.imageBrightness ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageContrast && isAllowed('imageContrast')) varied.imageContrast = Math.round(mixAnim(prev.imageContrast ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageHue && isAllowed('imageHue')) {
     const nextHue = mixAnim(prev.imageHue ?? 0, 0, 360, true);
     varied.imageHue = ((nextHue % 360) + 360) % 360;
   }
-  if (varyFlags.imageSaturation) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
-  if (varyFlags.imageDistortion) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
+  if (includeAnim && varyFlags.imageSaturation && isAllowed('imageSaturation')) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageDistortion && isAllowed('imageDistortion')) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
 
-  // Position jitter (use wAnim)
-  const baseX = prev.position?.x ?? 0.5;
-  const baseY = prev.position?.y ?? 0.5;
-  const jitter = 0.15 * wAnim;
-  const jx = (Math.random() * 2 - 1) * jitter;
-  const jy = (Math.random() * 2 - 1) * jitter;
-  const nx = clamp(baseX + jx, 0.0, 1.0);
-  const ny = clamp(baseY + jy, 0.0, 1.0);
-  varied.position = {
-    ...(prev.position || DEFAULT_LAYER.position),
-    x: nx,
-    y: ny,
-    scale: prev.position?.scale ?? 1.0,
-    scaleDirection: prev.position?.scaleDirection ?? 1,
-  };
-
-  // Recompute velocity from angle/speed
-  {
-    const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
-    const spd = (varied.movementSpeed ?? prev.movementSpeed ?? 0) * 0.001;
-    varied.vx = Math.cos(angleRad) * spd;
-    varied.vy = Math.sin(angleRad) * spd;
+  // Position jitter (use wPosition weight, triggered by includePosition)
+  if (includePosition && wPosition > 0 && isAllowed('position')) {
+    const baseX = prev.position?.x ?? 0.5;
+    const baseY = prev.position?.y ?? 0.5;
+    const jitter = 0.15 * wPosition;
+    const jx = (random01() * 2 - 1) * jitter;
+    const jy = (random01() * 2 - 1) * jitter;
+    const nx = clamp(baseX + jx, 0.0, 1.0);
+    const ny = clamp(baseY + jy, 0.0, 1.0);
+    varied.position = {
+      ...(prev.position || DEFAULT_LAYER.position),
+      x: nx,
+      y: ny,
+      scale: prev.position?.scale ?? 1.0,
+      scaleDirection: prev.position?.scaleDirection ?? 1,
+    };
   }
 
-  // Colors (use wColor) — unified thresholds like Randomize All
-  if (Array.isArray(prev.colors) && prev.colors.length) {
-    if (varyFlags.colors) {
-      if (wColor <= 0) {
-        varied.colors = [...prev.colors];
-        varied.numColors = prev.numColors ?? prev.colors.length;
-      } else if (wColor >= 0.6) {
-        const nextPalette = pickPaletteColors(palettes, Math.random, prev.colors) || prev.colors;
-        varied.colors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
-        varied.numColors = varied.colors.length;
-      } else if (wColor >= 0.15) {
-        const uniqueCount = (() => {
-          try { return new Set(prev.colors.map(c => (c || '').toLowerCase())).size; }
-          catch { return prev.colors.length; }
-        })();
-        if (uniqueCount <= 1) {
-          const amt = Math.max(0.02, wColor);
-          const hueMax = 1 + 24 * (amt * amt);
-          const satMax = 1 + 18 * (amt * amt);
-          const lightMax = 1 + 18 * (amt * amt);
-          const perturbed = (prev.colors || []).map(hex => {
-            const toHsl = (h) => {
-              const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-              let R = 0, G = 0, B = 0;
-              if (m) { R = parseInt(m[1], 16); G = parseInt(m[2], 16); B = parseInt(m[3], 16); }
-              const r1 = R / 255, g1 = G / 255, b1 = B / 255;
-              const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
-              let hh = 0, ss = 0; const ll = (max + min) / 2;
-              if (max !== min) {
-                const d = max - min;
-                ss = ll > 0.5 ? d / (2 - max - min) : d / (max - min);
-                switch (max) {
-                  case r1: hh = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
-                  case g1: hh = (b1 - r1) / d + 2; break;
-                  case b1: hh = (r1 - g1) / d + 4; break;
-                  default: break;
-                }
-                hh /= 6;
-              }
-              return { h: hh * 360, s: ss * 100, l: ll * 100 };
-            };
-            const fromHsl = (h, s, l) => {
-              const s1 = s / 100, l1 = l / 100;
-              const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-              const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-              const m = l1 - c / 2;
-              let r = 0, g = 0, b = 0;
-              if (h < 60) { r = c; g = x; b = 0; }
-              else if (h < 120) { r = x; g = c; b = 0; }
-              else if (h < 180) { r = 0; g = c; b = x; }
-              else if (h < 240) { r = 0; g = x; b = c; }
-              else if (h < 300) { r = x; g = 0; b = c; }
-              else { r = c; g = 0; b = x; }
-              const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-              return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-            };
-            const { h, s, l } = toHsl(hex);
-            const h2 = ((h + (Math.random() * 2 - 1) * hueMax) % 360 + 360) % 360;
-            const s2 = Math.max(0, Math.min(100, s + (Math.random() * 2 - 1) * satMax));
-            const l2 = Math.max(0, Math.min(100, l + (Math.random() * 2 - 1) * lightMax));
-            return fromHsl(h2, s2, l2);
-          });
-          varied.colors = perturbed;
-          varied.numColors = perturbed.length;
-        } else {
-          const arr = [...prev.colors];
-          for (let i = arr.length - 1; i > 0; i--) {
-            if (Math.random() < 0.5 * wColor) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [arr[i], arr[j]] = [arr[j], arr[i]];
-            }
-          }
-          const same = arr.length === prev.colors.length && arr.every((c, i) => c === prev.colors[i]);
-          varied.colors = same ? [...arr.slice(1), arr[0]] : [...arr];
-          varied.numColors = arr.length;
-        }
-      } else if (wColor > 0) {
-        // Subtle HSL perturbation for perceptual similarity
-        const amt = Math.max(0.05, wColor);
-        const hueMax = 2 + 8 * amt;
-        const satMax = 2 + 6 * amt;
-        const lightMax = 2 + 6 * amt;
-        const perturbed = (prev.colors || []).map(hex => {
-          const toHsl = (h) => {
-            const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(h || '');
-            let R = 0, G = 0, B = 0;
-            if (m) { R = parseInt(m[1], 16); G = parseInt(m[2], 16); B = parseInt(m[3], 16); }
-            const r1 = R / 255, g1 = G / 255, b1 = B / 255;
-            const max = Math.max(r1, g1, b1), min = Math.min(r1, g1, b1);
-            let hh = 0, ss = 0; const ll = (max + min) / 2;
-            if (max !== min) {
-              const d = max - min;
-              ss = ll > 0.5 ? d / (2 - max - min) : d / (max - min);
-              switch (max) {
-                case r1: hh = (g1 - b1) / d + (g1 < b1 ? 6 : 0); break;
-                case g1: hh = (b1 - r1) / d + 2; break;
-                case b1: hh = (r1 - g1) / d + 4; break;
-                default: break;
-              }
-              hh /= 6;
-            }
-            return { h: hh * 360, s: ss * 100, l: ll * 100 };
-          };
-          const fromHsl = (h, s, l) => {
-            const s1 = s / 100, l1 = l / 100;
-            const c = (1 - Math.abs(2 * l1 - 1)) * s1;
-            const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-            const m = l1 - c / 2;
-            let r = 0, g = 0, b = 0;
-            if (h < 60) { r = c; g = x; b = 0; }
-            else if (h < 120) { r = x; g = c; b = 0; }
-            else if (h < 180) { r = 0; g = c; b = x; }
-            else if (h < 240) { r = 0; g = x; b = c; }
-            else if (h < 300) { r = x; g = 0; b = c; }
-            else { r = c; g = 0; b = x; }
-            const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
-            return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-          };
-          const { h, s, l } = toHsl(hex);
-          const h2 = ((h + (Math.random() * 2 - 1) * hueMax) % 360 + 360) % 360;
-          const s2 = Math.max(0, Math.min(100, s + (Math.random() * 2 - 1) * satMax));
-          const l2 = Math.max(0, Math.min(100, l + (Math.random() * 2 - 1) * lightMax));
-          return fromHsl(h2, s2, l2);
-        });
-        varied.colors = perturbed;
-        varied.numColors = perturbed.length;
+  // Scale variation (independent of animation variation)
+  // Supports both positive (larger scales) and negative (smaller scales) variation
+  if (includeScale && isAllowed('scale')) {
+    const baseScale = (() => {
+      const raw = prev.position?.scale;
+      if (Number.isFinite(raw) && raw > 0) return raw;
+      const variedRaw = varied.position?.scale;
+      if (Number.isFinite(variedRaw) && variedRaw > 0) return variedRaw;
+      return 1.0;
+    })();
+    const rawScaleVar = Number(v.scale || 0);
+
+    if (rawScaleVar !== 0) {
+      const absWeight = clamp(Math.abs(rawScaleVar) / 3, 0, 1);
+      const minScale = 0.05;
+      const maxScale = 5;
+      if (rawScaleVar < 0) {
+        // Negative variation shrinks relative to each layer's base scale.
+        const shrinkIntensity = 0.95 * absWeight;
+        const ratio = Math.max(0.05, 1 - random01() * shrinkIntensity);
+        const newScale = clamp(baseScale * ratio, minScale, maxScale);
+        varied.position = {
+          ...(varied.position || prev.position || DEFAULT_LAYER.position),
+          scale: newScale,
+        };
       } else {
-        varied.colors = [...prev.colors];
-        varied.numColors = prev.numColors ?? prev.colors.length;
+        // Positive variation grows relative to each layer's base scale.
+        const growthIntensity = 1.2 * absWeight;
+        const ratio = 1 + random01() * growthIntensity;
+        const newScale = clamp(baseScale * ratio, minScale, maxScale);
+        varied.position = {
+          ...(varied.position || prev.position || DEFAULT_LAYER.position),
+          scale: newScale,
+        };
       }
-    } else {
-      varied.colors = [...prev.colors];
-      varied.numColors = prev.numColors ?? prev.colors.length;
     }
   }
 
-  if (!lockShape) {
+  // Recompute velocity from angle/speed
+  if (includeAnim) {
+    if (varied.movementStyle === 'spin') {
+      varied.vx = 0;
+      varied.vy = 0;
+    } else {
+      const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
+      const spd = (varied.movementSpeed ?? prev.movementSpeed ?? 0) * 0.001;
+      varied.vx = Math.cos(angleRad) * spd;
+      varied.vy = Math.sin(angleRad) * spd;
+    }
+  }
+
+  // Colors (use wColor) — unified thresholds like Randomize All
+  if (includeColor && Array.isArray(prev.colors) && prev.colors.length) {
+    const palettePool = (constrainColorsToPalette && Array.isArray(paletteColors) && paletteColors.length)
+      ? paletteColors.filter(c => typeof c === 'string' && c.length > 0)
+      : null;
+    const canVaryColors = !!(varyFlags.colors && isAllowed('colors'));
+    const canVaryCount = !!(varyFlags.numColors && isAllowed('numColors'));
+    // If not randomizing per layer, use uniformColorCount; otherwise start from the layer's current count.
+    const baseCount = !randomizeColorsPerLayer
+      ? Math.max(1, Math.min(32, Math.round(Number(uniformColorCount) || 3)))
+      : (Number.isFinite(prev.numColors) ? Math.max(1, Math.round(prev.numColors)) : Math.max(1, prev.colors.length));
+    const minCount = Math.max(1, Math.min(32, Math.floor(Number(colorCountMin) || 1)));
+    const maxCount = Math.max(minCount, Math.min(32, Math.floor(Number(colorCountMax) || minCount)));
+    const shouldVaryCount = (() => {
+      if (!canVaryCount) return false;
+      if (!randomizeColorsPerLayer) return false; // uniform count handled via baseCount
+      // At high colour variation levels, reliably vary count; at lower values keep stable.
+      const chance = clamp((wColor - 0.7) / 0.25, 0, 1);
+      return random01() < chance;
+    })();
+    const desiredCount = (canVaryCount && randomizeColorsPerLayer && shouldVaryCount)
+      ? randomIntInclusive(minCount, maxCount)
+      : baseCount;
+    const fitColors = (arr, n) => {
+      const src = Array.isArray(arr) ? arr : [];
+      const out = src.slice(0, Math.max(1, n));
+      while (out.length < n) out.push(out[out.length - 1] || src[src.length - 1] || '#000000');
+      return out;
+    };
+
+    if (canVaryColors || canVaryCount) {
+      if (wColor <= 0) {
+        const next = [...prev.colors];
+        // When per-layer colour counts are enabled, allow count to vary at high colour variation.
+        const finalColors = fitColors(next, desiredCount);
+        varied.colors = finalColors;
+        varied.numColors = finalColors.length;
+      } else if (palettePool) {
+        const pickFromPool = (n) => {
+          if (!palettePool.length) return [];
+          const out = [];
+          for (let k = 0; k < n; k += 1) {
+            out.push(palettePool[randomIntInclusive(0, palettePool.length - 1)]);
+          }
+          return out;
+        };
+        const next = canVaryColors ? pickFromPool(desiredCount) : [...prev.colors];
+        const finalColors = fitColors(next, desiredCount);
+        varied.colors = finalColors;
+        varied.numColors = finalColors.length;
+      } else if (wColor >= 0.6) {
+        const nextPalette = pickPaletteColors(palettes, random01, prev.colors) || prev.colors;
+        const paletteColors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
+        const next = canVaryColors ? paletteColors : [...prev.colors];
+        const finalColors = fitColors(next, desiredCount);
+        varied.colors = finalColors;
+        varied.numColors = finalColors.length;
+      } else {
+        const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+        const perturbHueRange = 6 + 180 * Math.pow(Math.min(1, extendedColor), 1.25);
+        const perturbSatRange = 4 + 70 * Math.pow(Math.min(1, extendedColor), 1.1);
+        const perturbLightRange = 4 + 60 * Math.pow(Math.min(1, extendedColor), 1.05);
+        const perturbColor = (hex) => {
+          const { h, s, l } = hexToHsl(hex);
+          const nextH = (h + (random01() * 2 - 1) * perturbHueRange + 360) % 360;
+          const nextS = clamp(s + (random01() * 2 - 1) * perturbSatRange, 0, 100);
+          const nextL = clamp(l + (random01() * 2 - 1) * perturbLightRange, 0, 100);
+          return hslToHex(nextH, nextS, nextL);
+        };
+        const blendTowards = (fromHex, toHex, weight) => {
+          const a = hexToRgb(fromHex);
+          const b = hexToRgb(toHex);
+          return rgbToHex({
+            r: a.r + (b.r - a.r) * weight,
+            g: a.g + (b.g - a.g) * weight,
+            b: a.b + (b.b - a.b) * weight,
+          });
+        };
+        const ensurePaletteDifference = () => {
+          if (!Array.isArray(prev.colors) || !prev.colors.length) return [...prev.colors];
+          let candidate = pickPaletteColors(palettes, random01, prev.colors) || prev.colors;
+          const asLower = (arr) => (arr || []).map(c => (c || '').toLowerCase());
+          const baseLower = asLower(prev.colors);
+          let attempts = 0;
+          while (attempts < 3 && candidate && candidate.length && asLower(candidate).every((c, i) => c === baseLower[i % baseLower.length])) {
+            candidate = pickPaletteColors(palettes, random01, prev.colors) || prev.colors;
+            attempts += 1;
+          }
+          return Array.isArray(candidate) && candidate.length ? [...candidate] : [...prev.colors];
+        };
+        const baseColors = [...prev.colors];
+        const replacementPalette = ensurePaletteDifference();
+        const replacementChance = wColor <= 0.22 ? 0 : easeOutCubic(clamp((wColor - 0.22) / (0.6 - 0.22), 0, 1));
+        const shuffleChance = clamp(wColor * 0.45, 0, 0.6);
+        const blendBias = 0.35 + 0.65 * clamp(wColor, 0, 1);
+
+        const mutated = baseColors.map((hex, idx) => {
+          const safeHex = (typeof hex === 'string' && /^#?[0-9a-fA-F]{6}$/.test(hex.replace('#', ''))) ? (hex.startsWith('#') ? hex : `#${hex}`) : '#000000';
+          const replacement = replacementPalette[idx % replacementPalette.length] || safeHex;
+          if (random01() < replacementChance) {
+            return blendTowards(safeHex, replacement, blendBias);
+          }
+          return perturbColor(safeHex);
+        });
+
+        if (mutated.length > 1 && shuffleChance > 0) {
+          const swaps = Math.max(1, Math.round(mutated.length * shuffleChance));
+          for (let n = 0; n < swaps; n++) {
+            const i = randomIntInclusive(0, mutated.length - 1);
+            const j = randomIntInclusive(0, mutated.length - 1);
+            if (i !== j) [mutated[i], mutated[j]] = [mutated[j], mutated[i]];
+          }
+        }
+
+        const next = canVaryColors ? mutated : [...prev.colors];
+        const finalColors = fitColors(next, desiredCount);
+        varied.colors = finalColors;
+        varied.numColors = finalColors.length;
+      }
+    } else {
+      // When not varying colors, still respect uniform color count setting
+      const finalColors = !randomizeColorsPerLayer 
+        ? fitColors([...prev.colors], Math.max(1, Math.min(32, uniformColorCount)))
+        : [...prev.colors];
+      varied.colors = finalColors;
+      varied.numColors = finalColors.length;
+    }
+  }
+
+  if (!lockShape && includeShape) {
     // If previous layer has edited nodes, vary shape from those nodes
     try {
       const prevNodes = Array.isArray(prev.nodes) ? prev.nodes : null;
@@ -306,17 +430,23 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
           } else {
             while (nodes.length < desired) {
               const N = nodes.length;
-              const k = Math.floor(Math.random() * N);
+              const k = randomIntInclusive(0, N - 1);
               const next = (k + 1) % N;
               nodes.splice(next, 0, { x: (nodes[k].x + nodes[next].x) / 2, y: (nodes[k].y + nodes[next].y) / 2 });
             }
           }
         }
         const jitterAmt = 0.12 * wShape;
-        varied.nodes = nodes.map(n => ({
-          x: Math.max(-1, Math.min(1, n.x + (Math.random() * 2 - 1) * jitterAmt)),
-          y: Math.max(-1, Math.min(1, n.y + (Math.random() * 2 - 1) * jitterAmt)),
-        }));
+        // Only jitter nodes if 'nodes' parameter is allowed
+        if (isAllowed('nodes')) {
+          varied.nodes = nodes.map(n => ({
+            x: Math.max(-1, Math.min(1, n.x + (random01() * 2 - 1) * jitterAmt)),
+            y: Math.max(-1, Math.min(1, n.y + (random01() * 2 - 1) * jitterAmt)),
+          }));
+        } else {
+          // Keep original nodes without jitter
+          varied.nodes = prevNodes ? prevNodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : null;
+        }
         varied.syncNodesToNumSides = prev.syncNodesToNumSides;
       } else {
         varied.nodes = null;

@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
+import { useAudioReactive } from '../../context/AudioContext.jsx';
+import { useBPM } from '../../context/BPMContext.jsx';
 import { usePresetMorph } from '../../hooks/usePresetMorph.js';
+import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 
 /**
  * PresetControls
@@ -11,7 +14,7 @@ import { usePresetMorph } from '../../hooks/usePresetMorph.js';
  * - Morph controls (enables, route, duration, easing, loop mode, algorithm)
  * - Internally runs the morph engine via usePresetMorph
  */
-export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier, showGlobalMidi }) {
+export default function PresetControls({ setLayers, setBackgroundColor, setGlobalSpeedMultiplier }) {
   // Contexts
   const {
     presetSlots,
@@ -32,9 +35,13 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphLoopMode,
     morphMode,
     setMorphMode,
+    morphNodes,
+    setMorphNodes,
   } = useAppState() || {};
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
+  const { getAudioSnapshot, applyAudioSnapshot } = useAudioReactive() || {};
+  const { getBPMSnapshot, applyBPMSnapshot } = useBPM() || {};
 
   const getExportMeta = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -68,6 +75,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     morphEasing,
     morphLoopMode,
     morphMode,
+    morphNodes,
   });
 
   // Preset helpers
@@ -97,7 +105,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         parameters: slot.payload.parameters || [],
         appState: slot.payload.appState || null,
         savedAt: slot.payload.savedAt || new Date().toISOString(),
-        version: '2.0',
+        version: '2.1',
         exportMeta,
       };
       localStorage.setItem(`artapp-config-${key}`, JSON.stringify(saveObj));
@@ -129,6 +137,18 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
           if (typeof preservedMorph.mode !== 'undefined') setMorphMode?.(preservedMorph.mode);
         }
       }
+      // Apply audio config if present
+      try {
+        if (slot.payload.audioConfig && applyAudioSnapshot) {
+          applyAudioSnapshot(slot.payload.audioConfig);
+        }
+      } catch { /* noop */ }
+      // Apply BPM config if present
+      try {
+        if (slot.payload.bpmConfig && applyBPMSnapshot) {
+          applyBPMSnapshot(slot.payload.bpmConfig);
+        }
+      } catch { /* noop */ }
     } catch (e) {
       console.warn('[Presets] Failed to recall preset', slotId, e);
     }
@@ -149,6 +169,8 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphLoopMode,
     setMorphMode,
     setMorphRoute,
+    applyAudioSnapshot,
+    applyBPMSnapshot,
   ]);
 
   const handlePresetClick = useCallback(async (slotId, evt) => {
@@ -161,7 +183,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         const now = new Date().toISOString();
         const appStatePayload = typeof getCurrentAppState === 'function' ? getCurrentAppState() : null;
         const paramPayload = Array.isArray(parameters) ? parameters : [];
-        const payload = { parameters: paramPayload, appState: appStatePayload, savedAt: now, version: '2.0', exportMeta: getExportMeta() };
+        const payload = {
+          parameters: paramPayload,
+          appState: appStatePayload,
+          audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+          bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+          savedAt: now,
+          version: '2.1',
+          exportMeta: getExportMeta(),
+        };
         setPresetSlot && setPresetSlot(slotId, (s) => ({ ...s, payload, savedAt: now }));
       } catch (e) {
         console.warn('[Presets] Failed to save to slot', slotId, e);
@@ -169,7 +199,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       return;
     }
     recallPreset(slotId);
-  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot]);
+  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot, getAudioSnapshot, getBPMSnapshot]);
 
   // MIDI: per-preset triggers. Each preset i (1..16) gets its own mapping id 'preset:i'
   useEffect(() => {
@@ -219,7 +249,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
               >
                 {slot.name || `P${slot.id}`}
               </button>
-              {showGlobalMidi && midiSupported && (
+              {midiSupported && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                   <button
                     className="btn-compact-secondary"
@@ -345,7 +375,15 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
           </label>
           <label className="compact-label" title="Seconds per leg">
             Duration
-            <input type="number" step={0.1} min={0.2} max={120} value={Number(morphDurationPerLeg || 5)} onChange={(e) => setMorphDurationPerLeg && setMorphDurationPerLeg(e.target.value)} className="compact-input" />
+            <BufferedNumberInput
+              value={Number.isFinite(morphDurationPerLeg) ? morphDurationPerLeg : 5}
+              min={0.2}
+              max={120}
+              step={0.1}
+              onCommit={(next) => setMorphDurationPerLeg?.(next)}
+              className="compact-input"
+              inputMode="decimal"
+            />
           </label>
           <label className="compact-label" title="Easing">
             Easing
@@ -366,6 +404,17 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
               <option value="tween">tween</option>
               <option value="fade">fade</option>
             </select>
+          </label>
+        </div>
+        <div className="compact-row" style={{ marginTop: '0.4rem' }}>
+          <label className="compact-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Interpolate node geometry between shapes (requires matching node counts)">
+            <input
+              type="checkbox"
+              checked={!!morphNodes}
+              onChange={() => setMorphNodes && setMorphNodes(!morphNodes)}
+            />
+            Morph Nodes
+            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>(same topology)</span>
           </label>
         </div>
         {morphEnabled && morphStatus && (

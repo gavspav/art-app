@@ -64,4 +64,41 @@ describe('buildVariedLayerFrom', () => {
 
     randomSpy.mockRestore();
   });
+
+
+
+  it('constrains colour variation to provided paletteColors when enabled', () => {
+    const baseLayer = {
+      ...DEFAULT_LAYER,
+      name: 'Layer 1',
+      position: { ...DEFAULT_LAYER.position },
+      colors: ['#112233', '#445566', '#778899'],
+      numColors: 3,
+      vary: {
+        ...DEFAULT_LAYER.vary,
+        colors: true,
+        numColors: false,
+      },
+    };
+
+    const palettePool = ['#ff0000', '#00ff00', '#0000ff'];
+
+    const result = buildVariedLayerFrom(
+      baseLayer,
+      2,
+      { shape: 0, anim: 0, color: 3, position: 0 },
+      {
+        DEFAULT_LAYER,
+        randomSeed: 12345,
+        constrainColorsToPalette: true,
+        paletteColors: palettePool,
+      },
+    );
+
+    expect(result.colors).toHaveLength(3);
+    const allowed = new Set(palettePool.map(c => c.toLowerCase()));
+    result.colors.forEach((c) => {
+      expect(allowed.has(String(c).toLowerCase())).toBe(true);
+    });
+  });
 });

@@ -160,6 +160,18 @@ export const PARAMETERS = [
     showInOverlay: true,
     group: 'General',
   },
+  {
+    id: 'variationScale',
+    label: 'Scale Variation',
+    type: 'slider',
+    min: -3,
+    max: 3,
+    step: 0.1,
+    defaultValue: 0,
+    isRandomizable: true,
+    showInOverlay: true,
+    group: 'General',
+  },
 
   // Appearance
   {
@@ -174,13 +186,33 @@ export const PARAMETERS = [
     showInOverlay: true,
     group: 'Appearance',
   },
+  {
+    id: 'colors',
+    label: 'Colors',
+    type: 'palette',
+    isRandomizable: true,
+    showInOverlay: false,
+    group: 'Appearance',
+  },
+  {
+    id: 'numColors',
+    label: 'Number of Colors',
+    type: 'slider',
+    min: 1,
+    max: 10,
+    step: 1,
+    defaultValue: 1,
+    isRandomizable: true,
+    showInOverlay: false,
+    group: 'Appearance',
+  },
 
   // Movement - keeping modern features
   {
     id: 'movementStyle',
     label: 'Movement Style',
     type: 'dropdown',
-    options: ['bounce', 'drift', 'still'],
+    options: ['bounce', 'drift', 'still', 'orbit', 'spin'],
     defaultValue: 'bounce',
     isRandomizable: true,
     showInOverlay: true,

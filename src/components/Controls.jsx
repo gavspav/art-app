@@ -1,14 +1,153 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
-import { useAppState } from '../context/AppStateContext.jsx';
 import ColorPicker from './ColorPicker';
+import BufferedNumberInput from './common/BufferedNumberInput.jsx';
+import { getOperationalMaxHint } from '../utils/parameterOperationalHints.js';
 import { useParameters } from '../context/ParameterContext.jsx';
 import { DEFAULT_LAYER } from '../constants/defaults';
 // blendModes no longer used here; Global Style handled in App.jsx
-import { palettes } from '../constants/palettes';
 import { useMidi } from '../context/MidiContext.jsx';
+import { useAudioReactive } from '../context/AudioContext.jsx';
+import { useBPM } from '../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
+import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from './common/BPMEnvelopeEditor.jsx';
+
+// Custom hover-based dropdown component
+const HoverDropdown = ({ value, options, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [hoveredValue, setHoveredValue] = useState(value);
+  const dropdownRef = useRef(null);
+  const menuRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  // Update hovered value when value prop changes
+  useEffect(() => {
+    setHoveredValue(value);
+  }, [value]);
+
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    setIsOpen(!isOpen);
+  };
+
+  const handleItemHover = (itemValue) => {
+    setHoveredValue(itemValue);
+    // Trigger onChange on hover to preview the layer
+    onChange(itemValue);
+  };
+
+  const handleItemClick = (e, itemValue) => {
+    e.stopPropagation();
+    onChange(itemValue);
+    setHoveredValue(itemValue);
+    setIsOpen(false);
+  };
+
+  // Find the current label
+  const currentLabel = useMemo(() => {
+    for (const group of options) {
+      const item = group.items.find(i => i.value === value);
+      if (item) return item.label;
+    }
+    return 'Select...';
+  }, [value, options]);
+
+  return (
+    <div className="hover-dropdown" ref={dropdownRef} style={{ display: 'inline-block', width: '100%' }}>
+      <button
+        type="button"
+        className="hover-dropdown-toggle compact-select"
+        onClick={handleToggle}
+        style={{
+          padding: '0.25rem 0.5rem',
+          cursor: 'pointer',
+          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: '4px',
+          background: 'rgba(255,255,255,0.05)',
+          color: 'inherit',
+          fontSize: 'inherit',
+          minWidth: '150px',
+          width: '100%',
+          textAlign: 'left',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <span>{currentLabel}</span>
+        <span style={{ marginLeft: '0.5rem', opacity: 0.6 }}>{isOpen ? '▲' : '▼'}</span>
+      </button>
+      {isOpen && (
+        <div
+          ref={menuRef}
+          className="hover-dropdown-menu"
+          style={{
+            marginTop: '2px',
+            marginBottom: '0.5rem',
+            width: '100%',
+            maxHeight: '400px',
+            overflowY: 'auto',
+            background: 'rgba(20, 20, 30, 0.98)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: '6px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          {options.map((group, groupIdx) => (
+            <div key={groupIdx} style={{ padding: '0.25rem 0' }}>
+              {group.label && (
+                <div
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold',
+                    opacity: 0.6,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.items.map((item) => (
+                <div
+                  key={item.value}
+                  onMouseEnter={() => handleItemHover(item.value)}
+                  onClick={(e) => handleItemClick(e, item.value)}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    cursor: 'pointer',
+                    background: hoveredValue === item.value ? 'rgba(100, 150, 255, 0.3)' : 'transparent',
+                    transition: 'background 0.1s ease',
+                    borderLeft: value === item.value ? '3px solid rgba(100, 150, 255, 0.8)' : '3px solid transparent',
+                  }}
+                >
+                  {item.label}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Per-layer MIDI Position control block
 // Minimal stub to avoid build errors; detailed MIDI position UI is handled elsewhere
@@ -34,6 +173,219 @@ const MidiRotationStatus = ({ paramId }) => {
     </div>
   );
 };
+
+// Audio control row - compact version for layer parameters
+const AudioRotationStatus = ({ paramId, min = 0, max = 1 }) => {
+  const audio = useAudioReactive();
+  const bpm = useBPM();
+  const midi = useMidi();
+  
+  if (!audio) return null;
+  
+  const { mappings, setMapping, AUDIO_BANDS } = audio;
+  const mapping = mappings?.[paramId];
+  const currentBand = mapping?.band || 'none';
+  
+  // Use parameter's min/max as default output range (simplified - no inputMin/inputMax)
+  const defaultRange = { outputMin: min, outputMax: max };
+  
+  // Auto-fix stale mappings that have wrong output range values
+  useEffect(() => {
+    if (mapping && mapping.band !== 'none' && mapping.range) {
+      const storedMin = mapping.range.outputMin;
+      const storedMax = mapping.range.outputMax;
+      // If stored output range doesn't match parameter's actual range, update it
+      if (storedMin !== min || storedMax !== max) {
+        setMapping(paramId, { 
+          ...mapping, 
+          range: { ...mapping.range, outputMin: min, outputMax: max } 
+        });
+      }
+    }
+  }, [paramId, min, max, mapping, setMapping]);
+  
+  const handleBandChange = (band) => {
+    if (band === 'none') {
+      setMapping(paramId, { band: 'none', range: defaultRange });
+    } else {
+      // Always use defaultRange to ensure correct output min/max
+      setMapping(paramId, { band, range: defaultRange });
+      // Clear MIDI and BPM (mutual exclusivity)
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  return (
+    <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
+      <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
+      <select
+        className="compact-select"
+        style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+        value={currentBand}
+        onChange={(e) => handleBandChange(e.target.value)}
+      >
+        {AUDIO_BANDS.map(b => (
+          <option key={b} value={b}>
+            {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+};
+
+// BPM control row - compact version for layer parameters
+const BPMRotationStatus = React.memo(({ paramId, min = 0, max = 1 }) => {
+  const bpm = useBPM();
+  const audio = useAudioReactive();
+  const midi = useMidi();
+  const [showEnvelope, setShowEnvelope] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = window.localStorage.getItem(`bpm-env-open-${paramId}`);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [playheadPosition, setPlayheadPosition] = useState(null);
+  
+  if (!bpm) return null;
+  
+  const { mappings, setMapping, getPhaseForParam, isPlaying, BEAT_SPEEDS, LOOP_MODES, beatsPerBar } = bpm;
+  
+  // Poll for playhead position when envelope is shown and playing
+  useEffect(() => {
+    if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
+    
+    let frameId;
+    const updatePlayhead = () => {
+      const phase = getPhaseForParam(paramId);
+      setPlayheadPosition(phase);
+      frameId = requestAnimationFrame(updatePlayhead);
+    };
+    frameId = requestAnimationFrame(updatePlayhead);
+    
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  // Persist envelope open state so remounts don't auto-close it
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`bpm-env-open-${paramId}`, showEnvelope ? 'true' : 'false');
+    } catch { /* ignore */ }
+  }, [showEnvelope, paramId]);
+  const mapping = mappings?.[paramId];
+  const isEnabled = mapping?.enabled || false;
+  const currentSpeed = mapping?.speed || 1;
+  const currentLoopMode = mapping?.loopMode || 'forward';
+  const currentEnvelope = mapping?.envelope || DEFAULT_ENVELOPE;
+  
+  // Use parameter's min/max as default output range
+  const defaultRange = { outputMin: min, outputMax: max };
+  
+  // Auto-fix stale mappings that have wrong range values
+  useEffect(() => {
+    if (mapping?.enabled && mapping?.range) {
+      const storedMin = mapping.range.outputMin;
+      const storedMax = mapping.range.outputMax;
+      // If stored range doesn't match parameter's actual range, update it
+      if (storedMin !== min || storedMax !== max) {
+        setMapping(paramId, { ...mapping, range: { outputMin: min, outputMax: max } });
+      }
+    }
+  }, [paramId, min, max, mapping, setMapping]);
+  
+  const handleToggle = () => {
+    // Always use defaultRange when toggling to ensure correct min/max
+    const rangeToUse = defaultRange;
+    if (isEnabled) {
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
+    } else {
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: rangeToUse, envelope: currentEnvelope });
+      // Clear MIDI and Audio (mutual exclusivity)
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  const handleSpeedChange = (speed) => {
+    // Always use defaultRange to ensure correct min/max for this parameter
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: defaultRange, envelope: currentEnvelope });
+  };
+  
+  const handleLoopModeChange = (loopMode) => {
+    // Always use defaultRange to ensure correct min/max for this parameter
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: defaultRange, envelope: currentEnvelope });
+  };
+  
+  const handleEnvelopeChange = (newEnvelope) => {
+    console.debug('[Controls] handleEnvelopeChange', { paramId, newEnvelope });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: defaultRange, envelope: newEnvelope });
+  };
+  
+  return (
+    <div style={{ marginTop: '0.35rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
+        <input
+          type="checkbox"
+          checked={isEnabled}
+          onChange={handleToggle}
+          style={{ cursor: 'pointer' }}
+        />
+        {isEnabled && (
+          <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
+              value={currentSpeed}
+              onChange={(e) => handleSpeedChange(e.target.value)}
+            >
+              {BEAT_SPEEDS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+              value={currentLoopMode}
+              onChange={(e) => handleLoopModeChange(e.target.value)}
+            >
+              {LOOP_MODES.map(mode => (
+                <option key={mode} value={mode}>
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px', background: showEnvelope ? 'rgba(79, 195, 247, 0.3)' : undefined }}
+              onClick={() => setShowEnvelope(s => !s)}
+              title="Edit envelope curve"
+            >
+              Env
+            </button>
+          </>
+        )}
+      </div>
+      {/* Envelope editor */}
+      {showEnvelope && isEnabled && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <BPMEnvelopeEditor
+            envelope={currentEnvelope}
+            onChange={handleEnvelopeChange}
+            beatsPerBar={beatsPerBar || 4}
+            playheadPosition={playheadPosition}
+          />
+        </div>
+      )}
+    </div>
+  );
+});
 
 // MIDI colour block that applies to the active target scope (individual or global)
 const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
@@ -188,10 +540,36 @@ const MidiColorSection = ({ currentLayer, updateLayer, setLayers, buildTargetSet
   );
 };
 
-const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual' }) => {
+const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, buildTargetSet, targetMode = 'individual', editTarget, debugSettingsEnabled }) => {
   const { updateParameter } = useParameters();
   const { id, type, min, max, step, label, options } = param;
   const [showSettings, setShowSettings] = useState(false);
+  const settingsRenderCountRef = useRef(0);
+  const debugLog = useCallback((...args) => {
+    if (debugSettingsEnabled && typeof console !== 'undefined') {
+      console.debug(...args);
+    }
+  }, [debugSettingsEnabled]);
+
+  // Track settings open/close events for this control
+  useEffect(() => {
+    if (!debugSettingsEnabled) return;
+    settingsRenderCountRef.current = 0;
+    console.info(`[settings] ${id} ${showSettings ? 'opened' : 'closed'}`);
+  }, [debugSettingsEnabled, id, showSettings]);
+
+  // Track render count while settings panel is visible
+  useEffect(() => {
+    if (!debugSettingsEnabled || !showSettings) return;
+    settingsRenderCountRef.current += 1;
+    const count = settingsRenderCountRef.current;
+    if (count === 1 || count % 10 === 0) {
+      debugLog(`[settings] render #${count} for ${id}`, {
+        targetMode,
+        valueSnapshot: currentLayer?.[id],
+      });
+    }
+  }, [currentLayer, debugLog, id, showSettings, targetMode, debugSettingsEnabled]);
   const {
     mappings: midiMappings,
     registerParamHandler,
@@ -201,6 +579,21 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     learnParamId,
     supported: midiSupported,
   } = useMidi() || {};
+
+  const bpm = useBPM();
+  const audioReactive = useAudioReactive();
+  const bpmParamId = useMemo(
+    () => `layer:${(currentLayer?.name || 'Layer').toString()}:${id}`,
+    [currentLayer?.name, id],
+  );
+  const bpmMapped = !!bpm?.mappings?.[bpmParamId]?.enabled;
+  const bpmPlaying = !!bpm?.isPlaying;
+  const audioMapped = !!(audioReactive?.mappings?.[bpmParamId] && audioReactive.mappings[bpmParamId].band && audioReactive.mappings[bpmParamId].band !== 'none');
+  const audioEnabled = !!audioReactive?.settings?.enabled;
+  
+  // Note: Audio and BPM modulation is now handled in the animation loop (useAnimation.js)
+  // to prevent excessive re-renders. Handlers are not registered here.
+  // The AudioRotationStatus and BPMRotationStatus components use their own hooks internally.
 
   // Guard against undefined currentLayer during initial mounts
   let value = currentLayer?.[id];
@@ -216,14 +609,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       buildTargetSet,
       targetMode,
     });
-    try {
-      // Diagnostics: confirm which targets we are about to update for this control
-      console.debug('[applyUpdateToTargets]', {
-        paramId: id,
-        targetMode,
-        targets: Array.from(targets || []),
-      });
-    } catch { /* noop */ }
     const factory = typeof patchFactory === 'function'
       ? patchFactory
       : (() => patchFactory || {});
@@ -267,25 +652,69 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       });
     };
     if (id === 'scale') {
-      applyUpdateToTargets((layer) => ({
-        position: { ...(layer?.position || {}), scale: newValue },
-      }));
+      const targetScale = newValue;
+      const refScale = Number(currentLayer?.position?.scale);
+      const hasGlobalRatio = targetMode === 'global'
+        && Number.isFinite(refScale)
+        && Math.abs(refScale) > 1e-9;
+      const ratio = hasGlobalRatio ? (targetScale / refScale) : null;
+      const clampScale = (value) => {
+        if (!Number.isFinite(value)) return targetScale;
+        if (Number.isFinite(min) && Number.isFinite(max)) {
+          return Math.min(max, Math.max(min, value));
+        }
+        return value;
+      };
+      applyUpdateToTargets((layer) => {
+        const prevScale = Number(layer?.position?.scale);
+        const rawScale = hasGlobalRatio && Number.isFinite(prevScale)
+          ? prevScale * ratio
+          : targetScale;
+        const clampedScale = clampScale(rawScale);
+        return {
+          position: { ...(layer?.position || {}), scale: clampedScale },
+        };
+      });
       return;
     }
 
     if (id === 'radiusFactor') {
+      const targetRF = Number(newValue);
+      const refRF = Number(currentLayer?.radiusFactor);
+      const hasGlobalRatio = targetMode === 'global' && Number.isFinite(refRF) && Math.abs(refRF) > 1e-9;
+      const globalRatio = hasGlobalRatio ? (targetRF / refRF) : null;
       applyUpdateToTargets((layer) => {
         const prevRF = Number(layer?.radiusFactor);
-        const rx = Number(layer?.radiusFactorX);
-        const ry = Number(layer?.radiusFactorY);
-        const targetRF = Number(newValue);
-        const ratioRaw = (Number.isFinite(prevRF) && prevRF > 0) ? (targetRF / prevRF) : targetRF;
+        const prevX = Number(layer?.radiusFactorX);
+        const prevY = Number(layer?.radiusFactorY);
+        if (hasGlobalRatio && Number.isFinite(prevRF)) {
+          const scaledRF = prevRF * globalRatio;
+          const nextX = Number.isFinite(prevX) ? prevX * globalRatio : scaledRF;
+          const nextY = Number.isFinite(prevY) ? prevY * globalRatio : scaledRF;
+          return { radiusFactor: scaledRF, radiusFactorX: nextX, radiusFactorY: nextY };
+        }
+        const ratioRaw = (Number.isFinite(prevRF) && Math.abs(prevRF) > 1e-9) ? (targetRF / prevRF) : targetRF;
         const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-        const baseX = Number.isFinite(rx) ? rx : 1;
-        const baseY = Number.isFinite(ry) ? ry : 1;
+        const baseX = Number.isFinite(prevX) ? prevX : 1;
+        const baseY = Number.isFinite(prevY) ? prevY : 1;
         const nextX = baseX * ratio;
         const nextY = baseY * ratio;
         return { radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
+      });
+      return;
+    }
+
+    if (id === 'radiusFactorX' || id === 'radiusFactorY') {
+      const targetAxis = Number(newValue);
+      const refAxis = Number(currentLayer?.[id]);
+      const hasGlobalRatio = targetMode === 'global' && Number.isFinite(refAxis) && Math.abs(refAxis) > 1e-9;
+      const globalRatio = hasGlobalRatio ? (targetAxis / refAxis) : null;
+      applyUpdateToTargets((layer) => {
+        const prevAxis = Number(layer?.[id]);
+        if (hasGlobalRatio && Number.isFinite(prevAxis)) {
+          return { [id]: prevAxis * globalRatio };
+        }
+        return { [id]: targetAxis };
       });
       return;
     }
@@ -308,12 +737,36 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
       return;
     }
 
-    applyUpdateToTargets({ [id]: newValue });
+    // Special handling for movementStyle to convert between coordinate systems
+    if (id === 'movementStyle') {
+      applyUpdateToTargets((layer) => {
+        const oldStyle = layer.movementStyle || 'bounce';
+        const newStyle = newValue;
+        
+        // If switching between coordinate system types, we need to track this for canvas conversion
+        const oldUsesFullCanvas = oldStyle === 'drift' || oldStyle === 'bounce';
+        const newUsesFullCanvas = newStyle === 'drift' || newStyle === 'bounce';
+        
+        if (oldUsesFullCanvas !== newUsesFullCanvas) {
+          // Mark that coordinate system changed so canvas can convert position
+          return {
+            ...layer,
+            movementStyle: newStyle,
+            _previousMovementStyle: oldStyle,
+            _coordinateSystemChanged: true
+          };
+        }
+        
+        return { ...layer, movementStyle: newStyle };
+      });
+    } else {
+      applyUpdateToTargets({ [id]: newValue });
+    }
   };
 
   // Ensure movementStyle options are hardcoded and independent of saved parameter metadata
   const effectiveOptions = useMemo(() => (
-    id === 'movementStyle' ? ['bounce', 'drift', 'still', 'orbit'] : options
+    id === 'movementStyle' ? ['bounce', 'drift', 'still', 'orbit', 'spin'] : options
   ), [id, options]);
 
   const randomizeThisParam = () => {
@@ -383,12 +836,32 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     updateParameter(id, 'isRandomizable', !!e.target.checked);
   };
 
-  const onMetaChange = (field) => (e) => {
-    let v = e.target.value;
-    if (['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'].includes(field)) {
-      v = parseFloat(v);
+  const onToggleOptionRandomizable = (option) => (e) => {
+    e.stopPropagation();
+    const baseOptions = Array.isArray(options) ? options : [];
+    const current = Array.isArray(param.randomOptions) && param.randomOptions.length
+      ? param.randomOptions.filter((opt) => baseOptions.includes(opt))
+      : baseOptions;
+
+    let next;
+    if (e.target.checked) {
+      next = current.includes(option) ? current : [...current, option];
+    } else {
+      next = current.filter((opt) => opt !== option);
     }
-    updateParameter(id, field, v);
+
+    updateParameter(id, 'randomOptions', next);
+  };
+
+  const onMetaChange = (field) => (input) => {
+    let nextValue = input;
+    if (input && typeof input === 'object' && 'target' in input) {
+      nextValue = input.target.value;
+      if (['min', 'max', 'step', 'defaultValue', 'randomMin', 'randomMax'].includes(field)) {
+        nextValue = parseFloat(nextValue);
+      }
+    }
+    updateParameter(id, field, nextValue);
   };
 
   // Determine visibility but do not return yet to preserve hook order
@@ -452,6 +925,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     return () => { if (typeof unsub === 'function') unsub(); };
   }, [applyUpdateToTargets, id, max, min, options, registerParamHandler, step, type]);
 
+  // BPM and Audio modulation is handled in the animation loop (useAnimation.js)
+  // No handlers registered here to prevent excessive re-renders
+
   // Now short-circuit render if hidden, after hooks are declared
   if (hidden) return null;
 
@@ -459,6 +935,25 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', pointerEvents: 'auto' }}>
       <div>{children}</div>
       <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', userSelect: 'none' }}>
+        {(bpmMapped || audioMapped) && (
+          <span
+            title={
+              audioMapped
+                ? (audioEnabled ? 'Audio automation mapped' : 'Audio automation mapped (disabled)')
+                : (bpmPlaying ? 'BPM automation mapped' : 'BPM automation mapped (paused)')
+            }
+            aria-label={audioMapped ? 'Audio automation mapped' : 'BPM automation mapped'}
+            style={{
+              fontSize: '0.85rem',
+              color: audioMapped
+                ? (audioEnabled ? '#4ade80' : 'rgba(74,222,128,0.6)')
+                : (bpmPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.6)'),
+              lineHeight: 1,
+            }}
+          >
+            ♪
+          </span>
+        )}
         <button
           type="button"
           onClick={onClickRandomize}
@@ -501,18 +996,82 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         {type === 'slider' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
             <label>Min</label>
-            <input type="number" value={min} onChange={onMetaChange('min')} />
-            <label>Max</label>
-            <input type="number" value={max} onChange={onMetaChange('max')} />
+            <BufferedNumberInput
+              value={min}
+              step={step}
+              onCommit={onMetaChange('min')}
+              className="compact-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
+            <label>{`Max${getOperationalMaxHint(id)}`}</label>
+            <BufferedNumberInput
+              value={max}
+              step={step}
+              onCommit={onMetaChange('max')}
+              className="compact-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
             <label>Step</label>
-            <input type="number" value={step} step="0.001" onChange={onMetaChange('step')} />
+            <BufferedNumberInput
+              value={step}
+              onCommit={onMetaChange('step')}
+              className="compact-number"
+              inputMode="decimal"
+              precision={3}
+              style={{ width: '4.5rem' }}
+            />
             <label>Rand Min</label>
-            <input type="number" value={Number.isFinite(param.randomMin) ? param.randomMin : min} onChange={onMetaChange('randomMin')} />
+            <BufferedNumberInput
+              value={Number.isFinite(param.randomMin) ? param.randomMin : min}
+              step={step}
+              onCommit={onMetaChange('randomMin')}
+              className="compact-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
             <label>Rand Max</label>
-            <input type="number" value={Number.isFinite(param.randomMax) ? param.randomMax : max} onChange={onMetaChange('randomMax')} />
+            <BufferedNumberInput
+              value={Number.isFinite(param.randomMax) ? param.randomMax : max}
+              step={step}
+              onCommit={onMetaChange('randomMax')}
+              className="compact-number"
+              inputMode="decimal"
+              style={{ width: '4.5rem' }}
+            />
           </div>
         ) : (
           <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>No numeric bounds for this control.</div>
+        )}
+        {type === 'dropdown' && Array.isArray(options) && options.length > 0 && (
+          <div style={{ marginTop: '0.6rem' }}>
+            <div style={{ fontSize: '0.85rem', opacity: 0.9, marginBottom: '0.25rem' }}>
+              Movement styles allowed in Randomize All
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {options.map((opt) => {
+                const allowed = Array.isArray(param.randomOptions) && param.randomOptions.length
+                  ? param.randomOptions.includes(opt)
+                  : true;
+                return (
+                  <label
+                    key={opt}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}
+                    onMouseDown={(e) => { e.stopPropagation(); }}
+                    onClick={(e) => { e.stopPropagation(); }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowed}
+                      onChange={onToggleOptionRandomizable(opt)}
+                    />
+                    <span>{opt}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
         )}
         <div style={{ marginTop: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <label
@@ -531,6 +1090,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             Include in Randomize All
           </label>
         </div>
+        {/* MIDI controls - always shown in settings panel */}
         <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
             <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
@@ -562,6 +1122,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             </div>
           </div>
         </div>
+        {/* Audio and BPM controls - always shown in settings panel */}
+        <AudioRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
+        <BPMRotationStatus paramId={`layer:${currentLayer?.name || 'Layer'}:${id}`} min={min} max={max} />
       </div>
     );
   };
@@ -582,6 +1145,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               </span>
             </Header>
             <input
+              key={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               type="range"
               min={min}
               max={max}
@@ -603,7 +1167,11 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             <Header>
               <span>{label}:</span>
             </Header>
-            <select value={value} onChange={handleChange}>
+            <select 
+              key={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
+              value={value} 
+              onChange={handleChange}
+            >
               {(effectiveOptions || options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
             </select>
           </div>
@@ -616,28 +1184,10 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 };
 
 // Memoized version: re-render when metadata, target scope, or displayed value changes.
-const DynamicControl = React.memo(DynamicControlBase, (prev, next) => {
-  if (prev.param !== next.param) return false;
-  if (prev.targetMode !== next.targetMode) return false;
-  if (!!prev.param?.isRandomizable !== !!next.param?.isRandomizable) return false;
-
-  const prevId = prev.currentLayer?.id;
-  const nextId = next.currentLayer?.id;
-  if (prevId !== nextId) return false;
-
-  const paramId = prev.param?.id;
-  if (!paramId) return false;
-
-  const readValue = (layer) => {
-    if (!layer) return undefined;
-    if (paramId === 'scale') return layer.position?.scale;
-    return layer[paramId];
-  };
-
-  if (readValue(prev.currentLayer) !== readValue(next.currentLayer)) return false;
-
-  return true;
-});
+// IMPORTANT: We don't use React.memo here because it causes bugs when switching between
+// layers/groups - the control shows stale values and becomes unresponsive.
+// The performance impact is negligible since controls are lightweight.
+const DynamicControl = DynamicControlBase;
 
 // Collapsible Section component defined at module scope to maintain stable identity across renders
 const Section = ({ title, id, defaultOpen = false, children }) => {
@@ -668,7 +1218,14 @@ const Controls = forwardRef(({
   randomizeAnimationOnly,
   setLayers,
   isNodeEditMode,
-  showMidi,
+  layerGroups = [],
+  editTarget,
+  setEditTarget,
+  selectedLayerIds = [],
+  toggleLayerSelection,
+  clearSelection,
+  getActiveTargetLayerIds,
+  parameterTargetMode = 'individual',
   setIsNodeEditMode,
   randomizePalette,
   setRandomizePalette,
@@ -690,19 +1247,11 @@ const Controls = forwardRef(({
   onImportSVG,
   onMoveLayerUp,
   onMoveLayerDown,
+  palettes = [],
+  automationPalettes = [],
+  onSaveCustomPalette,
 }, ref) => {
   const { parameters } = useParameters();
-  const {
-    layerGroups = [],
-    editTarget,
-    setEditTarget,
-    selectedLayerIds: selectedLayerIdsCtx = [],
-    toggleLayerSelection,
-    clearSelection,
-    getActiveTargetLayerIds,
-    layers: _layers = [],
-    parameterTargetMode: contextParameterTargetMode,
-  } = useAppState() || {};
 
   // Local UI state for delete picker
   const [showDeletePicker, setShowDeletePicker] = useState(false);
@@ -728,19 +1277,57 @@ const Controls = forwardRef(({
     setDeleteIndex((idx) => Math.max(0, Math.min(max, Number.isFinite(idx) ? idx : 0)));
   }, [layerNames]);
 
-  const selectionCount = Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx.length : 0;
-  const targetMode = contextParameterTargetMode === 'global' ? 'global' : 'individual';
+  const selectionCount = Array.isArray(selectedLayerIds) ? selectedLayerIds.length : 0;
+  const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
   const layerOptions = useMemo(() => {
     const list = Array.isArray(layerNames) ? layerNames : [];
-    const ids = Array.isArray(layerIds) ? layerIds : [];
-    const out = [];
-    for (let i = 0; i < list.length; i++) {
-      const idx = Math.max(0, list.length - 1 - i);
-      const name = list[idx] || `Layer ${idx + 1}`;
-      out.push({ value: `layer:${idx}`, label: name, layerId: ids[idx] });
+    return list.map((name, idx) => ({
+      value: `layer:${idx}`,
+      label: `${idx + 1}. ${name || 'Layer'}`,
+    }));
+  }, [layerNames]);
+
+  // Optional console-based debug for settings panels.
+  const debugSettingsEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.__artapp_debugSettings === true) return true;
+    try {
+      return localStorage.getItem('artapp-debug-settings') === 'true';
+    } catch {
+      return false;
     }
-    return out;
-  }, [layerNames, layerIds]);
+  }, []);
+
+  // Format options for HoverDropdown component
+  const dropdownOptions = useMemo(() => {
+    const groups = [];
+    
+    if (layerOptions.length > 0) {
+      groups.push({
+        label: 'Layers',
+        items: layerOptions,
+      });
+    }
+    
+    if (selectionCount > 0) {
+      groups.push({
+        label: 'Selection',
+        items: [{ value: 'selection', label: `Selection (${selectionCount})` }],
+      });
+    }
+    
+    if (Array.isArray(layerGroups) && layerGroups.length > 0) {
+      groups.push({
+        label: 'Groups',
+        items: layerGroups.map(group => ({
+          value: `group:${group.id}`,
+          label: `${group.name || 'Group'} (${Array.isArray(group.memberIds) ? group.memberIds.length : 0})`,
+        })),
+      });
+    }
+    
+    return groups;
+  }, [layerOptions, selectionCount, layerGroups]);
 
   const targetSelectValue = useMemo(() => {
     if (editTarget?.type === 'group' && editTarget.groupId && layerGroups.some(g => g.id === editTarget.groupId)) {
@@ -774,10 +1361,6 @@ const Controls = forwardRef(({
       : (() => updater || {});
 
     const ids = Array.from(targets || []);
-    try {
-      console.debug('[Controls] applyTargetedUpdate', targetMode, ids);
-    } catch { /* noop */ }
-
     if (targetMode === 'individual' && ids.length === 1) {
       const nextPatch = factory(currentLayer);
       if (nextPatch && typeof updateLayer === 'function') {
@@ -806,14 +1389,6 @@ const Controls = forwardRef(({
       buildTargetSet,
       targetMode,
     });
-    try {
-      // Diagnostics: confirm targets for rotation updates
-      console.debug('[applyRotation]', {
-        targetMode,
-        targets: Array.from(targets || []),
-        value: wrapped,
-      });
-    } catch { /* noop */ }
     if (typeof setLayers === 'function' && targets.size > 0) {
       setLayers(prev => applyWithVary({
         layers: prev,
@@ -825,14 +1400,11 @@ const Controls = forwardRef(({
     }
   }, [buildTargetSet, currentLayer, setLayers, targetMode, updateLayer]);
 
-  // Diagnostics: observe targetMode changes live
+  // Optional: expose for manual inspection from DevTools when settings debug is enabled
   useEffect(() => {
-    try {
-      console.debug('[Controls] targetMode changed:', targetMode);
-      // Expose for quick manual inspection from DevTools if needed
-      window.__artapp_targetMode = targetMode;
-    } catch { /* noop */ }
-  }, [targetMode]);
+    if (!debugSettingsEnabled) return;
+    try { window.__artapp_targetMode = targetMode; } catch { /* noop */ }
+  }, [targetMode, debugSettingsEnabled]);
 
   const handleTargetSelect = useCallback((e) => {
     const value = e.target.value;
@@ -924,11 +1496,64 @@ const Controls = forwardRef(({
     return out;
   };
 
-  // Return index of palette whose sampled colors match the given array
-  const matchPaletteIndex = (colors = []) => palettes.findIndex(p => {
-    const sampled = sampleColors(p.colors, colors.length);
-    return sampled.length === colors.length && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
-  });
+  const paletteOptions = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const builtins = [];
+    const customs = [];
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        customs.push({
+          value: `custom:${p.id}`,
+          label: p?.name || 'Custom Palette',
+        });
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        builtins.push({
+          value: `builtin:${builtinIndex}`,
+          label: p?.name || `Palette ${builtinIndex + 1}`,
+        });
+      }
+    });
+    return { builtins, customs };
+  }, [palettes]);
+
+  const paletteValueMap = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const map = new Map();
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        map.set(`custom:${p.id}`, colors);
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        map.set(`builtin:${builtinIndex}`, colors);
+      }
+    });
+    return map;
+  }, [palettes]);
+
+  const matchPaletteValue = (colors = []) => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    for (let idx = 0; idx < list.length; idx += 1) {
+      const p = list[idx];
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const src = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(src) || !src.length) continue;
+      const sampled = sampleColors(src, colors.length);
+      const matches = sampled.length === colors.length
+        && sampled.every((c, i) => (c || '').toLowerCase() === (colors[i] || '').toLowerCase());
+      if (!matches) continue;
+      if (source === 'custom' && p?.id) return `custom:${p.id}`;
+      const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+      return `builtin:${builtinIndex}`;
+    }
+    return 'custom';
+  };
 
   // (Removed old duplicate color handlers; consolidated below)
 
@@ -981,11 +1606,11 @@ const Controls = forwardRef(({
       {/* Consolidated movement params into one compact card */}
       {!(currentLayer?.manualMidiPositionEnabled) && (
         <div className="control-card">
-          <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600 }}>Animation</div>
-            <button
-              type="button"
-              className="icon-btn sm"
+            <div className="control-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Animation</div>
+              <button
+                type="button"
+                className="icon-btn sm"
               title="Randomize animation for selected layer"
               aria-label="Randomize animation for selected layer"
               onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
@@ -995,7 +1620,7 @@ const Controls = forwardRef(({
           </div>
           <div style={{ marginTop: '0.5rem' }}>
             {movementParams.map(param => (
-              <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
+              <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
                 <DynamicControl
                   param={param}
                   currentLayer={currentLayer}
@@ -1003,6 +1628,8 @@ const Controls = forwardRef(({
                   setLayers={setLayers}
                   buildTargetSet={buildTargetSet}
                   targetMode={targetMode}
+                  editTarget={editTarget}
+                  debugSettingsEnabled={debugSettingsEnabled}
                 />
               </div>
             ))}
@@ -1025,6 +1652,7 @@ const Controls = forwardRef(({
                 </div>
               </div>
               <input
+                key={`orbitX-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                 type="range"
                 min={0}
                 max={0.5}
@@ -1043,6 +1671,7 @@ const Controls = forwardRef(({
                 </div>
               </div>
               <input
+                key={`orbitY-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                 type="range"
                 min={0}
                 max={0.5}
@@ -1062,7 +1691,7 @@ const Controls = forwardRef(({
     <div className="tab-section">
       <div className="control-card">
         {shapeParams.map(param => (
-          <div key={`${param.id}-${Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0}`}>
+          <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
             <DynamicControl
               param={param}
               currentLayer={currentLayer}
@@ -1070,6 +1699,7 @@ const Controls = forwardRef(({
               setLayers={setLayers}
               buildTargetSet={buildTargetSet}
               targetMode={targetMode}
+              debugSettingsEnabled={debugSettingsEnabled}
             />
           </div>
         ))}
@@ -1111,6 +1741,7 @@ const Controls = forwardRef(({
               </div>
             </div>
             <input
+              key={`rotation-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
               type="range"
               min={-180}
               max={180}
@@ -1129,28 +1760,26 @@ const Controls = forwardRef(({
               <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center' }}>
                   <label className="compact-label">Min</label>
-                  <input
-                    type="number"
-                    step={1}
-                    min={-360}
-                    max={360}
+                  <BufferedNumberInput
                     value={Number.isFinite(rotateMin) ? rotateMin : -180}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setRotateMin(Number.isFinite(v) ? v : -180);
-                    }}
-                  />
-                  <label className="compact-label">Max</label>
-                  <input
-                    type="number"
-                    step={1}
                     min={-360}
                     max={360}
+                    step={1}
+                    onCommit={(next) => setRotateMin(Number.isFinite(next) ? next : -180)}
+                    className="compact-number"
+                    inputMode="numeric"
+                    style={{ width: '4.5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('rotation')}`}</label>
+                  <BufferedNumberInput
                     value={Number.isFinite(rotateMax) ? rotateMax : 180}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      setRotateMax(Number.isFinite(v) ? v : 180);
-                    }}
+                    min={-360}
+                    max={360}
+                    step={1}
+                    onCommit={(next) => setRotateMax(Number.isFinite(next) ? next : 180)}
+                    className="compact-number"
+                    inputMode="numeric"
+                    style={{ width: '4.5rem' }}
                   />
                 </div>
                 <div className="compact-row" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
@@ -1163,16 +1792,20 @@ const Controls = forwardRef(({
                     Include in Randomize All
                   </label>
                 </div>
+                {/* MIDI/Audio/BPM controls for Rotation - inside settings panel */}
+                {(() => {
+                  const layerKey = (currentLayer?.name || 'Layer').toString();
+                  const paramId = `layer:${layerKey}:rotation`;
+                  return (
+                    <>
+                      <MidiRotationStatus paramId={paramId} />
+                      <AudioRotationStatus paramId={paramId} />
+                      <BPMRotationStatus paramId={paramId} />
+                    </>
+                  );
+                })()}
               </div>
             )}
-            {/* MIDI Learn for Rotation */}
-            {(() => {
-              const layerKey = (currentLayer?.name || 'Layer').toString();
-              const paramId = `layer:${layerKey}:rotation`;
-              return (
-                <MidiRotationStatus paramId={paramId} />
-              );
-            })()}
           </div>
         )}
       </div>
@@ -1188,8 +1821,8 @@ const Controls = forwardRef(({
     applyTargetedUpdate(() => ({ colors: [...arr], numColors: n, selectedColor: 0 }));
   };
 
-  const handleLayerNumColorsChange = (e) => {
-    let n = parseInt(e.target.value, 10);
+  const handleLayerNumColorsChange = (rawValue) => {
+    let n = Math.round(Number(rawValue));
     if (!Number.isFinite(n) || n < 1) n = 1;
     applyTargetedUpdate((layer) => {
       const base = Array.isArray(layer?.colors) ? layer.colors : [];
@@ -1214,59 +1847,68 @@ const Controls = forwardRef(({
         {/* Duplicate randomize checkboxes removed; use settings panel toggles below */}
 
         <label>Number of colours:</label>
-        <input
-          type="number"
+        <BufferedNumberInput
+          key={`numColors-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
           min={1}
           step={1}
           value={Math.max(1, Number.isFinite(currentLayer?.numColors) ? currentLayer.numColors : (Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 1))}
-          onChange={handleLayerNumColorsChange}
+          onCommit={handleLayerNumColorsChange}
+          className="compact-number"
+          inputMode="numeric"
           style={{ width: '5rem' }}
         />
 
         <label>Colour Preset:</label>
         <select
+          key={`palette-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
           value={(() => {
             const colors = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
-            const idx = matchPaletteIndex(colors);
-            return idx === -1 ? 'custom' : String(idx);
+            return matchPaletteValue(colors);
           })()}
           onChange={(e) => {
             const val = e.target.value;
-            if (val !== 'custom') {
-              const idx = parseInt(val, 10);
-              if (palettes[idx]) {
-                const count = Number.isFinite(currentLayer?.numColors)
-                  ? currentLayer.numColors
-                  : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || palettes[idx].colors.length);
-                const nextColors = sampleColors(palettes[idx].colors, count);
-                applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
-              }
-            }
+            if (val === 'custom') return;
+            const src = paletteValueMap.get(val);
+            if (!Array.isArray(src) || src.length === 0) return;
+            const count = Number.isFinite(currentLayer?.numColors)
+              ? currentLayer.numColors
+              : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || src.length);
+            const nextColors = sampleColors(src, count);
+            applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
           }}
         >
           <option value="custom">Custom</option>
-          {palettes.map((p, idx) => (
-            <option key={idx} value={idx}>{p.name}</option>
-          ))}
+          {paletteOptions.builtins.length > 0 && (
+            <optgroup label="Built-in">
+              {paletteOptions.builtins.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </optgroup>
+          )}
+          {paletteOptions.customs.length > 0 && (
+            <optgroup label="Custom">
+              {paletteOptions.customs.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
-        {showMidi && (
-          <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-            {(() => {
-              const layerKey = (currentLayer?.name || 'Layer').toString();
-              const paramId = `layer:${layerKey}:paletteIndex`;
-              return (
-                <>
-                  <span className="compact-label" style={{ opacity: 0.8 }}>
-                    MIDI: {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
-                  </span>
-                  {learnParamId === paramId && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
-                </>
-              );
-            })()}
-          </div>
-        )}
+        <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            onClick={() => {
+              const base = Array.isArray(currentLayer?.colors) ? currentLayer.colors : [];
+              const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
+              if (!safe.length || typeof onSaveCustomPalette !== 'function') return;
+              const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
+              if (!name) return;
+              onSaveCustomPalette({ name, colors: safe });
+            }}
+          >
+            Save as custom
+          </button>
+        </div>
 
         {/* Colours header with settings and random icons */}
         <div className="dc-inner" style={{ marginTop: '0.6rem' }}>
@@ -1316,22 +1958,64 @@ const Controls = forwardRef(({
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem' }}>
               <label className="compact-label">Min</label>
-              <input
-                type="number"
+              <BufferedNumberInput
                 min={1}
                 max={colorCountMax || 8}
+                step={1}
                 value={Math.max(1, Number(colorCountMin || 1))}
-                onChange={(e) => setColorCountMin && setColorCountMin(Math.max(1, parseInt(e.target.value || '1', 10)))}
+                onCommit={(next) => {
+                  if (!setColorCountMin) return;
+                  const safe = Math.max(1, Math.round(Number(next) || 1));
+                  setColorCountMin(safe);
+                }}
+                className="compact-number"
+                inputMode="numeric"
+                style={{ width: '4.5rem' }}
               />
               <label className="compact-label">Max</label>
-              <input
-                type="number"
+              <BufferedNumberInput
                 min={colorCountMin || 1}
                 max={32}
+                step={1}
                 value={Math.max(Number(colorCountMin || 1), Number(colorCountMax || 8))}
-                onChange={(e) => setColorCountMax && setColorCountMax(Math.max(Number(colorCountMin || 1), parseInt(e.target.value || '8', 10)))}
+                onCommit={(next) => {
+                  if (!setColorCountMax) return;
+                  const floor = Number(colorCountMin || 1);
+                  const safe = Math.max(floor, Math.round(Number(next) || floor));
+                  setColorCountMax(safe);
+                }}
+                className="compact-number"
+                inputMode="numeric"
+                style={{ width: '4.5rem' }}
               />
             </div>
+            {/* Palette MIDI/Audio/BPM controls */}
+            {(() => {
+              const layerKey = (currentLayer?.name || 'Layer').toString();
+              const paramId = `layer:${layerKey}:paletteIndex`;
+              return (
+                <div style={{ marginTop: '0.6rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: '0.4rem' }}>
+                    <strong>Palette Control</strong>
+                  </div>
+                  {/* MIDI */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                      <span style={{ opacity: 0.7 }}>MIDI:</span> {midiSupported ? (midiMappings?.[paramId] ? (mappingLabel ? mappingLabel(midiMappings[paramId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                      {learnParamId === paramId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(paramId); }} disabled={!midiSupported}>Learn</button>
+                      <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(paramId); }} disabled={!midiSupported || !midiMappings?.[paramId]}>Clear</button>
+                    </div>
+                  </div>
+                  {/* Audio */}
+                  <AudioRotationStatus paramId={paramId} min={0} max={1} />
+                  {/* BPM */}
+                  <BPMRotationStatus paramId={paramId} min={0} max={1} />
+                </div>
+              );
+            })()}
           </div>
           )}
           {/* Animate colours (fade between palette stops) */}
@@ -1379,6 +2063,7 @@ const Controls = forwardRef(({
                 <div className="compact-row" style={{ alignItems: 'center', gap: '0.6rem' }}>
                   <label className="compact-label">Fade speed</label>
                   <input
+                    key={`colorFadeSpeed-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
                     type="range"
                     min={0}
                     max={4}
@@ -1393,14 +2078,27 @@ const Controls = forwardRef(({
                   <span style={{ minWidth: 48, textAlign: 'right', opacity: 0.85 }}>{Number(currentLayer?.colorFadeSpeed ?? 0.5).toFixed(2)}</span>
                 </div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.75, marginTop: '0.25rem' }}>Units: colours per second</div>
+                {/* Audio/BPM controls for colorFadeSpeed */}
+                {(() => {
+                  const layerKey = (currentLayer?.name || 'Layer').toString();
+                  const paramId = `layer:${layerKey}:colorFadeSpeed`;
+                  return (
+                    <>
+                      <AudioRotationStatus paramId={paramId} min={0} max={4} />
+                      <BPMRotationStatus paramId={paramId} min={0} max={4} />
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>
 
           <ColorPicker 
+            key={`colorpicker-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
             label="Colours"
             colors={Array.isArray(currentLayer?.colors) ? currentLayer.colors : []}
             onChange={handleLayerColorChange}
+            layerId={currentLayer?.id}
           />
         </div>
       </div>
@@ -1425,7 +2123,7 @@ const Controls = forwardRef(({
     const layerKey = (currentLayer?.name || 'Layer').toString();
     const paramId = `layer:${layerKey}:paletteIndex`;
     const unregister = registerParamHandler(paramId, ({ value01 }) => {
-      const list = palettes || [];
+      const list = automationPalettes || [];
       if (!Array.isArray(list) || list.length === 0) return;
       const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
       const palette = list[idx];
@@ -1437,7 +2135,7 @@ const Controls = forwardRef(({
       applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
     });
     return unregister;
-  }, [applyTargetedUpdate, currentLayer, registerParamHandler]);
+  }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes]);
 
   // Register per-layer MIDI handler for Rotation (-180..180)
   useEffect(() => {
@@ -1456,39 +2154,20 @@ const Controls = forwardRef(({
 
   return (
     <div className="controls-panel">
-      <div className="controls-header compact" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+      <div className="controls-header compact" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
           <h2 style={{ margin: 0, fontSize: '1rem' }}>Layer Controls</h2>
-          <div className="compact-row" style={{ gap: '0.4rem' }}>
-            <label htmlFor="activeLayerSelect" className="compact-label" style={{ opacity: 0.9 }}>Active layer:</label>
-            <select
-              id="activeLayerSelect"
-              className="compact-select"
+          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <label className="compact-label" style={{ opacity: 0.9 }}>Active layer:</label>
+            <HoverDropdown
               value={targetSelectValue}
-              onChange={handleTargetSelect}
-            >
-              {layerOptions.length > 0 && (
-                <optgroup label="Layers">
-                  {layerOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </optgroup>
-              )}
-              {selectionCount > 0 && (
-                <optgroup label="Selection">
-                  <option value="selection">Selection ({selectionCount})</option>
-                </optgroup>
-              )}
-              {Array.isArray(layerGroups) && layerGroups.length > 0 && (
-                <optgroup label="Groups">
-                  {layerGroups.map(group => (
-                    <option key={group.id} value={`group:${group.id}`}>
-                      {(group.name || 'Group')} ({Array.isArray(group.memberIds) ? group.memberIds.length : 0})
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
+              options={dropdownOptions}
+              onChange={(value) => {
+                handleTargetSelect({ target: { value } });
+              }}
+            />
+          </div>
+          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexWrap: 'wrap' }}>
             <button
               type="button"
               className="icon-btn sm"
@@ -1529,8 +2208,7 @@ const Controls = forwardRef(({
               -
             </button>
           </div>
-        </div>
-        <div className="controls-actions" style={{ display: 'flex', gap: '0.4rem' }}>
+          <div className="controls-actions" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="icon-btn sm"
@@ -1558,34 +2236,7 @@ const Controls = forwardRef(({
           >
             🎲
           </button>
-          {showMidi && (
-            <>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeLayer'); }}
-                disabled={!midiSupported}
-                title="MIDI Learn: Randomize Current Layer"
-              >
-                Learn
-              </button>
-              <button
-                type="button"
-                className="btn-compact-secondary"
-                onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('randomizeLayer'); }}
-                disabled={!midiSupported || !midiMappings?.randomizeLayer}
-                title="Clear MIDI for Randomize Current Layer"
-              >
-                Clear
-              </button>
-              {midiSupported && (
-                <span className="compact-label" style={{ opacity: 0.8 }}>
-                  {midiMappings?.randomizeLayer ? (mappingLabel ? mappingLabel(midiMappings.randomizeLayer) : 'Mapped') : 'Not mapped'}
-                  {learnParamId === 'randomizeLayer' && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening…</span>}
-                </span>
-              )}
-            </>
-          )}
+          </div>
         </div>
       </div>
 
@@ -1653,4 +2304,103 @@ const Controls = forwardRef(({
   );
 });
 
-export default React.memo(Controls);
+// Prevent unnecessary re-renders while the animation loop mutates fast-moving
+// fields (position, rotation for spin, etc.). This keeps the heavy settings UI
+// from re-rendering every frame when the layer tab is visible.
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  const ignores = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const compareRotation = !(a.movementStyle === 'spin' || b.movementStyle === 'spin');
+
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => {
+    if (ignores.has(k)) keys.delete(k);
+    if (!compareRotation && k === 'rotation') keys.delete(k);
+  });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  ['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection'].forEach(k => posKeys.delete(k));
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+
+  if (compareRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
+};
+
+const isArrayShallowEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!Object.is(a[i], b[i])) return false;
+  }
+  return true;
+};
+
+const areControlsPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+
+  const fail = (reason) => {
+    if (debug) log(`[settings-debug] Controls re-render: ${reason}`);
+    return false;
+  };
+
+  if (!isLayerEqualForUI(prev.currentLayer, next.currentLayer)) return fail('currentLayer changed (or animation fields not ignored)');
+  if (!isArrayShallowEqual(prev.layerNames, next.layerNames)) return fail('layerNames changed');
+  if (!isArrayShallowEqual(prev.layerIds, next.layerIds)) return fail('layerIds changed');
+  if (!isArrayShallowEqual(prev.baseColors, next.baseColors)) return fail('baseColors changed');
+  if (!Object.is(prev.baseNumColors, next.baseNumColors)) return fail('baseNumColors changed');
+  if (!Object.is(prev.selectedLayerIndex, next.selectedLayerIndex)) return fail('selectedLayerIndex changed');
+  if (!Object.is(prev.isNodeEditMode, next.isNodeEditMode)) return fail('isNodeEditMode changed');
+  if (!isArrayShallowEqual(prev.layerGroups, next.layerGroups)) return fail('layerGroups changed');
+  if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
+  if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
+  if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
+  if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
+  if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
+  if (!Object.is(prev.colorCountMin, next.colorCountMin)) return fail('colorCountMin changed');
+  if (!Object.is(prev.colorCountMax, next.colorCountMax)) return fail('colorCountMax changed');
+
+  // Assume function/handler props are stable (useCallback); if any change, re-render.
+  const handlerKeys = [
+    'updateLayer',
+    'randomizeCurrentLayer',
+    'randomizeAnimationOnly',
+    'setLayers',
+    'setIsNodeEditMode',
+    'setRandomizePalette',
+    'setRandomizeNumColors',
+    'setColorCountMin',
+    'setColorCountMax',
+    'onRandomizeLayerColors',
+    'getIsRnd',
+    'setIsRnd',
+    'onSelectLayer',
+    'onAddLayer',
+    'onDeleteLayer',
+    'onImportSVG',
+    'onMoveLayerUp',
+    'onMoveLayerDown',
+    'toggleLayerSelection',
+    'clearSelection',
+    'setEditTarget',
+    'getActiveTargetLayerIds',
+  ];
+  for (const key of handlerKeys) {
+    if (prev[key] !== next[key]) return fail(`${key} changed identity`);
+  }
+  
+  if (debug) log('[settings-debug] Controls stable; render skipped');
+  return true;
+};
+
+export default React.memo(Controls, areControlsPropsEqual);

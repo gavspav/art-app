@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useMidi } from '../context/MidiContext.jsx';
+import { useBPM } from '../context/BPMContext.jsx';
+import { useAudioReactive } from '../context/AudioContext.jsx';
 import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
 import GlobalControls from './global/GlobalControls.jsx';
 import Controls from './Controls.jsx';
@@ -7,6 +9,301 @@ import LayerSectionView from './LayerSectionView.jsx';
 import PresetControls from './global/PresetControls.jsx';
 import GroupsControls from './global/GroupsControls.jsx';
 import './BottomPanel.css';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
+
+// Compact beat indicator that shows BPM state with a pulsing circle
+const BeatIndicator = ({ panelExpanded = true }) => {
+  const bpm = useBPM();
+  const [phase, setPhase] = useState(0);
+  const intervalRef = useRef(null);
+  
+  const isPlaying = bpm?.isPlaying;
+  const getClockState = bpm?.getClockState;
+  const togglePlay = bpm?.togglePlay;
+  
+  useEffect(() => {
+    // Only run when panel is expanded and BPM is playing
+    if (!panelExpanded || !isPlaying || typeof getClockState !== 'function') {
+      setPhase(0);
+      return undefined;
+    }
+    
+    const tick = () => {
+      const clock = getClockState();
+      if (clock) {
+        setPhase(clock.beatPhase ?? 0);
+      }
+    };
+
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [panelExpanded, isPlaying, getClockState]);
+  
+  // Pulse effect: scale from 0.6 to 1.0 based on beat phase
+  const scale = isPlaying ? 0.6 + (1 - phase) * 0.4 : 0.6;
+  const opacity = isPlaying ? 0.7 + (1 - phase) * 0.3 : 0.4;
+  
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={(e) => {
+        e.stopPropagation();
+        togglePlay?.();
+      }}
+      title={isPlaying ? 'BPM Playing (B to pause)' : 'BPM Paused (B to play)'}
+      aria-label={isPlaying ? 'Pause BPM' : 'Play BPM'}
+      style={{ padding: '4px' }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          backgroundColor: isPlaying ? '#4ade80' : '#666',
+          transform: `scale(${scale})`,
+          opacity,
+          transition: isPlaying ? 'none' : 'all 0.2s',
+        }}
+      />
+    </button>
+  );
+};
+
+// LED bar meter for audio bands (bass, mids, highs)
+const AudioLEDMeter = ({ panelExpanded = true }) => {
+  const audio = useAudioReactive();
+  const [bands, setBands] = useState({ bass: 0, mids: 0, highs: 0 });
+  const intervalRef = useRef(null);
+
+  const enabled = !!audio?.settings?.enabled;
+  const getFeatures = audio?.getFeatures;
+
+  useEffect(() => {
+    // Only run when panel is expanded and audio is enabled
+    if (!panelExpanded || !enabled || typeof getFeatures !== 'function') {
+      setBands({ bass: 0, mids: 0, highs: 0 });
+      return undefined;
+    }
+
+    const tick = () => {
+      const features = getFeatures?.();
+      setBands({
+        bass: typeof features?.bass === 'number' ? features.bass : 0,
+        mids: typeof features?.mids === 'number' ? features.mids : 0,
+        highs: typeof features?.highs === 'number' ? features.highs : 0,
+      });
+    };
+
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [panelExpanded, enabled, getFeatures]);
+
+  if (!enabled) return null;
+
+  // Each bar is 3 segments (low, mid, high intensity)
+  const renderBar = (value, color) => {
+    const segments = 4;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: '1px', height: '14px' }}>
+        {Array.from({ length: segments }, (_, i) => {
+          const threshold = (i + 1) / segments;
+          const isLit = value >= threshold * 0.8;
+          const isTop = i === segments - 1;
+          return (
+            <div
+              key={i}
+              style={{
+                width: '4px',
+                flex: 1,
+                borderRadius: '1px',
+                background: isLit
+                  ? isTop ? '#ef4444' : color
+                  : 'rgba(255,255,255,0.15)',
+                boxShadow: isLit ? `0 0 3px ${isTop ? '#ef4444' : color}` : 'none',
+                transition: 'background 0.05s, box-shadow 0.05s',
+              }}
+            />
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '2px',
+        padding: '2px 4px',
+        borderRadius: '4px',
+        background: 'rgba(0,0,0,0.3)',
+      }}
+      title="Bass | Mids | Highs"
+    >
+      {renderBar(bands.bass, '#ff6b6b')}
+      {renderBar(bands.mids, '#ffd93d')}
+      {renderBar(bands.highs, '#6bcb77')}
+    </div>
+  );
+};
+
+// Clear all audio and BPM mappings button
+const ClearMappingsButton = () => {
+  const audio = useAudioReactive();
+  const bpm = useBPM();
+  
+  const audioMappings = audio?.mappings || {};
+  const bpmMappings = bpm?.mappings || {};
+  const clearAudioMappings = audio?.clearAllMappings;
+  const clearBPMMappings = bpm?.clearAllMappings;
+  
+  // Count total mappings
+  const audioCount = Object.keys(audioMappings).length;
+  const bpmCount = Object.keys(bpmMappings).length;
+  const totalCount = audioCount + bpmCount;
+  
+  const handleClear = (e) => {
+    e.stopPropagation();
+    if (totalCount === 0) return;
+    if (!window.confirm(`Clear all ${totalCount} audio/BPM mappings?`)) return;
+    clearAudioMappings?.();
+    clearBPMMappings?.();
+  };
+  
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={handleClear}
+      disabled={totalCount === 0}
+      title={totalCount > 0 ? `Clear ${totalCount} audio/BPM mappings` : 'No mappings to clear'}
+      aria-label="Clear all audio and BPM mappings"
+      style={{ padding: '4px', opacity: totalCount > 0 ? 1 : 0.4 }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '14px',
+          height: '14px',
+          lineHeight: '14px',
+          textAlign: 'center',
+          fontSize: '12px',
+        }}
+      >
+        🧹
+      </span>
+    </button>
+  );
+};
+
+// Speaker indicator for Audio on/off & activity
+const AudioIndicator = ({ panelExpanded = true }) => {
+  const audio = useAudioReactive();
+  const [level, setLevel] = useState(0);
+  const intervalRef = useRef(null);
+
+  const enabled = !!audio?.settings?.enabled;
+  const isListening = enabled && !!audio?.isActive;
+  const getFeatures = audio?.getFeatures;
+  const toggleAudio = audio?.toggleAudio;
+
+  useEffect(() => {
+    // Only run when panel is expanded and audio is enabled
+    if (!panelExpanded || !enabled || typeof getFeatures !== 'function') {
+      setLevel(0);
+      return undefined;
+    }
+
+    const tick = () => {
+      const features = getFeatures?.();
+      const rms = typeof features?.rms === 'number' ? features.rms : 0;
+      setLevel(rms);
+    };
+
+    // Run at ~20fps instead of RAF
+    intervalRef.current = setInterval(tick, 50);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [panelExpanded, enabled, getFeatures]);
+
+  const pulseScale = enabled ? 0.9 + Math.min(0.4, level * 0.6) : 0.9;
+  const intensity = enabled ? Math.min(1, 0.35 + level * 2.2) : 0.45;
+  const glow = enabled
+    ? `0 0 ${6 + level * 16}px rgba(74, 222, 128, ${0.5 + level * 0.6})`
+    : '0 0 6px rgba(248, 113, 113, 0.4)';
+
+  return (
+    <button
+      type="button"
+      className="icon-btn sm"
+      onClick={(e) => {
+        e.stopPropagation();
+        toggleAudio?.(!enabled);
+      }}
+      title={enabled ? 'Audio enabled (A to toggle)' : 'Audio disabled (A to toggle)'}
+      aria-label={enabled ? 'Disable audio' : 'Enable audio'}
+      style={{ padding: '4px' }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '14px',
+          height: '14px',
+          lineHeight: '14px',
+          textAlign: 'center',
+          borderRadius: '4px',
+          color: enabled ? '#052e16' : '#fff',
+          background: enabled
+            ? `rgba(74, 222, 128, ${intensity})`
+            : `rgba(248, 113, 113, ${intensity})`,
+          boxShadow: glow,
+          transform: `scale(${pulseScale})`,
+          transition: 'background 0.1s ease-out, box-shadow 0.1s ease-out, transform 0.08s ease-out',
+        }}
+      >
+        🔊
+      </span>
+      {isListening && <span className="sr-only">Audio listening</span>}
+    </button>
+  );
+};
+
+const PANEL_STATE_KEY = 'artapp-bottom-panel-state';
+const PANEL_LOCK_KEY = 'artapp-bottom-panel-locked';
+const PANEL_HIDE_DELAY_MS = 4500;
+
+const readInitialLock = () => {
+  try {
+    const stored = localStorage.getItem(PANEL_LOCK_KEY);
+    if (stored === 'true' || stored === 'false') {
+      return stored === 'true';
+    }
+  } catch { /* noop */ }
+  return true;
+};
+
+const readInitialPanelState = (initialLock) => {
+  try {
+    const stored = localStorage.getItem(PANEL_STATE_KEY);
+    if (stored === 'expanded' || stored === 'peek' || stored === 'hidden') {
+      if (initialLock) {
+        return 'expanded';
+      }
+      return stored === 'hidden' ? 'peek' : stored;
+    }
+  } catch { /* noop */ }
+  return initialLock ? 'expanded' : 'peek';
+};
 
 const BottomPanel = ({
   // All props from App.jsx for GlobalControls
@@ -16,14 +313,14 @@ const BottomPanel = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
+  enableBreathing,
+  setEnableBreathing,
   colorFadeWhileFrozen,
   setColorFadeWhileFrozen,
   classicMode,
   setClassicMode,
   zIgnore,
   setZIgnore,
-  showGlobalMidi,
-  setShowGlobalMidi,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -31,6 +328,13 @@ const BottomPanel = ({
   getIsRnd,
   setIsRnd,
   palettes,
+  globalPaletteIndex,
+  globalPaletteRef,
+  setGlobalPaletteIndex,
+  setGlobalPaletteRef,
+  customPalettes,
+  onSaveCustomPalette,
+  automationPalettes,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -38,6 +342,32 @@ const BottomPanel = ({
   setParameterTargetMode,
   onQuickSave,
   onQuickLoad,
+  energyInfluence,
+  setEnergyInfluence,
+  audioSpawnEnabled,
+  setAudioSpawnEnabled,
+  audioSpawnTriggerMode,
+  setAudioSpawnTriggerMode,
+  audioSpawnRepeatWhileAbove,
+  setAudioSpawnRepeatWhileAbove,
+  audioSpawnHysteresis,
+  setAudioSpawnHysteresis,
+  audioSpawnUseGlobalPalette,
+  setAudioSpawnUseGlobalPalette,
+  audioSpawnBand,
+  setAudioSpawnBand,
+  audioSpawnThreshold,
+  setAudioSpawnThreshold,
+  audioSpawnCooldownMs,
+  setAudioSpawnCooldownMs,
+  audioSpawnHalfLifeMs,
+  setAudioSpawnHalfLifeMs,
+  audioSpawnHalfLifeEnergyFactor,
+  setAudioSpawnHalfLifeEnergyFactor,
+  audioSpawnMaxLayers,
+  setAudioSpawnMaxLayers,
+  timelineMode,
+  setTimelineMode,
   layers,
   sampleColorsEven,
   assignOneColorPerLayer,
@@ -63,6 +393,13 @@ const BottomPanel = ({
   setRandomizeNumColors,
   syncLayerColorsToFirst,
   setSyncLayerColorsToFirst,
+  selectedLayerIds,
+  toggleLayerSelection,
+  clearSelection,
+  layerGroups,
+  editTarget,
+  setEditTarget,
+  getActiveTargetLayerIds,
   colorCountMin,
   colorCountMax,
   setColorCountMin,
@@ -75,10 +412,40 @@ const BottomPanel = ({
   moveSelectedLayerUp,
   moveSelectedLayerDown,
   handleImportSVGClick,
+  // Morph props for GlobalControls
+  presetSlots,
+  getPresetSlot,
+  loadAppState,
+  morphEnabled,
+  morphRoute,
+  morphDurationPerLeg,
+  morphEasing,
+  morphLoopMode,
+  setMorphEnabled,
+  setMorphRoute,
+  setMorphDurationPerLeg,
+  setMorphEasing,
+  setMorphLoopMode,
+  morphMode,
+  setMorphMode,
+  applyVariationInstantly,
+  setApplyVariationInstantly,
+  randomizeColorsPerLayer,
+  setRandomizeColorsPerLayer,
+  uniformColorCount,
+  setUniformColorCount,
 }) => {
-  const [activeTab, setActiveTab] = useState('presets');
-  const [panelState, setPanelState] = useState('peek'); // 'hidden', 'peek', 'expanded', 'locked'
-  const [isLocked, setIsLocked] = useState(false);
+  const initialLock = useMemo(() => readInitialLock(), []);
+  const initialPanelState = useMemo(() => readInitialPanelState(initialLock), [initialLock]);
+
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const stored = localStorage.getItem('artapp-bottom-panel-tab');
+      return typeof stored === 'string' && stored.length ? stored : 'global';
+    } catch { return 'global'; }
+  });
+  const [panelState, setPanelState] = useState(initialPanelState);
+  const [isLocked, setIsLocked] = useState(initialLock);
   const hideTimeoutRef = useRef(null);
   const panelRef = useRef(null);
   const tabsContainerRef = useRef(null);
@@ -89,6 +456,7 @@ const BottomPanel = ({
       return Number.isFinite(v) ? Math.max(160, Math.min(600, v)) : 260;
     } catch { return 260; }
   });
+  const [autosaveToggleToken, setAutosaveToggleToken] = useState(0);
   const isResizingRef = useRef(false);
   const [panelWidthVW, setPanelWidthVW] = useState(() => {
     try {
@@ -128,7 +496,7 @@ const BottomPanel = ({
     if (!isLocked && panelState === 'expanded') {
       hideTimeoutRef.current = setTimeout(() => {
         setPanelState('peek');
-      }, 3000); // Hide after 3 seconds of inactivity
+      }, PANEL_HIDE_DELAY_MS);
     }
   }, [isLocked, panelState]);
 
@@ -151,14 +519,21 @@ const BottomPanel = ({
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [dockV, panelState, resetHideTimer]);
 
-  // Handle panel interactions
-  const handlePanelInteraction = () => {
+  // Handle panel interactions (throttled to avoid excessive work while scrolling)
+  const lastPanelInteractionRef = useRef(0);
+  const handlePanelInteraction = useCallback(() => {
+    if (panelState !== 'expanded') return;
+    const now = Date.now();
+    if (now - lastPanelInteractionRef.current < 200) return;
+    lastPanelInteractionRef.current = now;
     resetHideTimer();
-  };
+  }, [panelState, resetHideTimer]);
 
   const toggleLock = useCallback(() => {
     setIsLocked(prev => {
-      if (!prev) {
+      const next = !prev;
+      try { localStorage.setItem(PANEL_LOCK_KEY, String(next)); } catch { /* noop */ }
+      if (next) {
         setPanelState('expanded');
         if (hideTimeoutRef.current) {
           clearTimeout(hideTimeoutRef.current);
@@ -166,7 +541,7 @@ const BottomPanel = ({
       } else {
         resetHideTimer();
       }
-      return !prev;
+      return next;
     });
   }, [resetHideTimer]);
 
@@ -174,6 +549,21 @@ const BottomPanel = ({
   useEffect(() => {
     try { localStorage.setItem('artapp-bottom-panel-height', String(panelHeight)); } catch { /* noop */ }
   }, [panelHeight]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_STATE_KEY, panelState); } catch { /* noop */ }
+  }, [panelState]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PANEL_LOCK_KEY, String(isLocked)); } catch { /* noop */ }
+  }, [isLocked]);
+
+  useEffect(() => {
+    try { localStorage.setItem('artapp-bottom-panel-tab', activeTab); } catch { /* noop */ }
+  }, [activeTab]);
+
+  // Removed: Lock no longer forces panel to stay expanded
+  // This allows the 'H' keyboard shortcut to work even when locked
 
   // Start/stop resize from the top edge handle
   const onResizeStart = useCallback((e) => {
@@ -357,7 +747,6 @@ const BottomPanel = ({
               setLayers={setLayers}
               setBackgroundColor={setBackgroundColor}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-              showGlobalMidi={showGlobalMidi}
             />
           </div>
         );
@@ -365,39 +754,70 @@ const BottomPanel = ({
       case 'global':
         return (
           <div className="tab-content global-tab" style={{ overflowY: 'auto' }}>
-            <GlobalControls
-              key={`glob-${parameterTargetMode}`}
-              backgroundColor={backgroundColor}
-              setBackgroundColor={setBackgroundColor}
-              backgroundImage={backgroundImage}
-              setBackgroundImage={setBackgroundImage}
-              isFrozen={isFrozen}
-              setIsFrozen={setIsFrozen}
-              colorFadeWhileFrozen={colorFadeWhileFrozen}
-              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-              classicMode={classicMode}
-              setClassicMode={setClassicMode}
-              zIgnore={zIgnore}
-              setZIgnore={setZIgnore}
-              showGlobalMidi={showGlobalMidi}
-              setShowGlobalMidi={setShowGlobalMidi}
+	            <GlobalControls
+	              key={`glob-${parameterTargetMode}`}
+	              isActiveTab={activeTab === 'global'}
+	              autosaveToggleToken={autosaveToggleToken}
+	              timelineMode={timelineMode}
+	              backgroundColor={backgroundColor}
+	              setBackgroundColor={setBackgroundColor}
+	              backgroundImage={backgroundImage}
+	              setBackgroundImage={setBackgroundImage}
+	              isFrozen={isFrozen}
+	              setIsFrozen={setIsFrozen}
+	              enableBreathing={enableBreathing}
+	              setEnableBreathing={setEnableBreathing}
+	              energyInfluence={energyInfluence}
+	              setEnergyInfluence={setEnergyInfluence}
+		              audioSpawnEnabled={audioSpawnEnabled}
+		              setAudioSpawnEnabled={setAudioSpawnEnabled}
+		              audioSpawnTriggerMode={audioSpawnTriggerMode}
+		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+		              audioSpawnHysteresis={audioSpawnHysteresis}
+		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+		              audioSpawnBand={audioSpawnBand}
+		              setAudioSpawnBand={setAudioSpawnBand}
+	              audioSpawnThreshold={audioSpawnThreshold}
+	              setAudioSpawnThreshold={setAudioSpawnThreshold}
+	              audioSpawnCooldownMs={audioSpawnCooldownMs}
+	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+	              audioSpawnMaxLayers={audioSpawnMaxLayers}
+	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+	              classicMode={classicMode}
+	              setClassicMode={setClassicMode}
+	              zIgnore={zIgnore}
+	              setZIgnore={setZIgnore}
               globalSeed={globalSeed}
               setGlobalSeed={setGlobalSeed}
               globalSpeedMultiplier={globalSpeedMultiplier}
               setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
               getIsRnd={getIsRnd}
               setIsRnd={setIsRnd}
-              palettes={palettes}
-              blendModes={blendModes}
-              globalBlendMode={globalBlendMode}
-              setGlobalBlendMode={setGlobalBlendMode}
+		              palettes={palettes}
+                  globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={onSaveCustomPalette}
+		              blendModes={blendModes}
+		              globalBlendMode={globalBlendMode}
+		              setGlobalBlendMode={setGlobalBlendMode}
               parameterTargetMode={parameterTargetMode}
-              setParameterTargetMode={setParameterTargetMode}
-              onQuickSave={onQuickSave}
-              onQuickLoad={onQuickLoad}
-              midiSupported={midiSupported}
-              beginLearn={beginLearn}
-              clearMapping={clearMapping}
+	              setParameterTargetMode={setParameterTargetMode}
+	              midiSupported={midiSupported}
+	              beginLearn={beginLearn}
+	              clearMapping={clearMapping}
               midiMappings={midiMappings}
               mappingLabel={mappingLabel}
               learnParamId={learnParamId}
@@ -415,6 +835,28 @@ const BottomPanel = ({
               syncLayerColorsToFirst={syncLayerColorsToFirst}
               setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
               hidePresets
+              // Morph props
+              presetSlots={presetSlots}
+              getPresetSlot={getPresetSlot}
+              loadAppState={loadAppState}
+              morphEnabled={morphEnabled}
+              morphRoute={morphRoute}
+              morphDurationPerLeg={morphDurationPerLeg}
+              morphEasing={morphEasing}
+              morphLoopMode={morphLoopMode}
+              setMorphEnabled={setMorphEnabled}
+              setMorphRoute={setMorphRoute}
+              setMorphDurationPerLeg={setMorphDurationPerLeg}
+              setMorphEasing={setMorphEasing}
+              setMorphLoopMode={setMorphLoopMode}
+              morphMode={morphMode}
+              setMorphMode={setMorphMode}
+              applyVariationInstantly={applyVariationInstantly}
+              setApplyVariationInstantly={setApplyVariationInstantly}
+              randomizeColorsPerLayer={randomizeColorsPerLayer}
+              setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+              uniformColorCount={uniformColorCount}
+              setUniformColorCount={setUniformColorCount}
             />
           </div>
         );
@@ -441,7 +883,6 @@ const BottomPanel = ({
               baseColors={baseColors}
               baseNumColors={baseNumColors}
               isNodeEditMode={isNodeEditMode}
-              showMidi={showGlobalMidi}
               setIsNodeEditMode={setIsNodeEditMode}
               classicMode={classicMode}
               setClassicMode={setClassicMode}
@@ -466,6 +907,16 @@ const BottomPanel = ({
               onMoveLayerDown={moveSelectedLayerDown}
               onImportSVG={handleImportSVGClick}
               parameterTargetMode={parameterTargetMode}
+              selectedLayerIds={selectedLayerIds}
+              toggleLayerSelection={toggleLayerSelection}
+              clearSelection={clearSelection}
+              layerGroups={layerGroups}
+              editTarget={editTarget}
+              setEditTarget={setEditTarget}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+              palettes={palettes}
+              automationPalettes={automationPalettes}
+              onSaveCustomPalette={onSaveCustomPalette}
             />
           </div>
         );
@@ -541,6 +992,71 @@ const BottomPanel = ({
           </div>
         </div>
 
+        {/* Global quick actions toolbar (visible across tabs) */}
+        <div className="global-toolbar">
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof onQuickSave !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              typeof onQuickSave === 'function' && onQuickSave();
+            }}
+            title="Save configuration"
+            aria-label="Save configuration"
+          >
+            💾
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof onQuickLoad !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              typeof onQuickLoad === 'function' && onQuickLoad();
+            }}
+            title="Load configuration"
+            aria-label="Load configuration"
+          >
+            📂
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              setActiveTab('global');
+              setAutosaveToggleToken((token) => token + 1);
+            }}
+            title="Autosave recovery"
+            aria-label="Autosave recovery"
+          >
+            🛟
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            disabled={typeof setTimelineMode !== 'function'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePanelInteraction();
+              setTimelineMode?.((v) => !v);
+            }}
+            title={timelineMode ? 'Timeline mode (BPM + Audio disabled)' : 'Free mode (no timeline)'}
+            aria-label={timelineMode ? 'Disable timeline mode' : 'Enable timeline mode'}
+            style={{ opacity: timelineMode ? 1 : 0.35 }}
+          >
+            {timelineMode ? '🕒' : '⏱️'}
+          </button>
+          <BeatIndicator panelExpanded={panelState === 'expanded'} />
+          <AudioIndicator panelExpanded={panelState === 'expanded'} />
+          <AudioLEDMeter panelExpanded={panelState === 'expanded'} />
+          <ClearMappingsButton />
+        </div>
+
         {/* Tab content area */}
         <div className="tab-content-area">
           {renderTabContent()}
@@ -550,4 +1066,157 @@ const BottomPanel = ({
   );
 };
 
-export default BottomPanel;
+// Helpers to avoid re-rendering the entire panel on every animation frame.
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ignoreTopLevel = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => { if (ignoreTopLevel.has(k)) keys.delete(k); });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection']);
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  posKeys.forEach(k => { if (ignorePos.has(k)) posKeys.delete(k); });
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+  const ignoreRotation = a.movementStyle === 'spin' || b.movementStyle === 'spin';
+  if (!ignoreRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
+};
+
+const areLayersEqualForUI = (prevLayers, nextLayers) => {
+  if (prevLayers === nextLayers) return true;
+  if (!Array.isArray(prevLayers) || !Array.isArray(nextLayers)) return false;
+  if (prevLayers.length !== nextLayers.length) return false;
+  for (let i = 0; i < prevLayers.length; i += 1) {
+    if (!isLayerEqualForUI(prevLayers[i], nextLayers[i])) return false;
+  }
+  return true;
+};
+
+const isArrayShallowEqual = (a, b) => {
+  if (a === b) return true;
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!Object.is(a[i], b[i])) return false;
+  }
+  return true;
+};
+
+const areBottomPanelPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+  const fail = (reason) => {
+    if (debug) log(`[settings-debug] BottomPanel re-render: ${reason}`);
+    return false;
+  };
+
+  if (!areLayersEqualForUI(prev.layers, next.layers)) return fail('layers changed');
+  if (!isLayerEqualForUI(prev.currentLayer, next.currentLayer)) return fail('currentLayer changed');
+  if (!Object.is(prev.backgroundColor, next.backgroundColor)) return fail('backgroundColor changed');
+  if (!Object.is(prev.backgroundImage, next.backgroundImage)) return fail('backgroundImage changed');
+  if (!Object.is(prev.isFrozen, next.isFrozen)) return fail('isFrozen changed');
+  if (!Object.is(prev.enableBreathing, next.enableBreathing)) return fail('enableBreathing changed');
+  if (!Object.is(prev.energyInfluence, next.energyInfluence)) return fail('energyInfluence changed');
+	  if (!Object.is(prev.audioSpawnEnabled, next.audioSpawnEnabled)) return fail('audioSpawnEnabled changed');
+	  if (!Object.is(prev.audioSpawnTriggerMode, next.audioSpawnTriggerMode)) return fail('audioSpawnTriggerMode changed');
+	  if (!Object.is(prev.audioSpawnRepeatWhileAbove, next.audioSpawnRepeatWhileAbove)) return fail('audioSpawnRepeatWhileAbove changed');
+	  if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return fail('audioSpawnHysteresis changed');
+	  if (!Object.is(prev.audioSpawnUseGlobalPalette, next.audioSpawnUseGlobalPalette)) return fail('audioSpawnUseGlobalPalette changed');
+	  if (!Object.is(prev.audioSpawnBand, next.audioSpawnBand)) return fail('audioSpawnBand changed');
+  if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return fail('audioSpawnThreshold changed');
+  if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return fail('audioSpawnCooldownMs changed');
+  if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return fail('audioSpawnHalfLifeMs changed');
+  if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return fail('audioSpawnHalfLifeEnergyFactor changed');
+  if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return fail('audioSpawnMaxLayers changed');
+  if (!Object.is(prev.colorFadeWhileFrozen, next.colorFadeWhileFrozen)) return fail('colorFadeWhileFrozen changed');
+  if (!Object.is(prev.classicMode, next.classicMode)) return fail('classicMode changed');
+  if (!Object.is(prev.zIgnore, next.zIgnore)) return fail('zIgnore changed');
+  if (!Object.is(prev.globalSeed, next.globalSeed)) return fail('globalSeed changed');
+  if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return fail('globalSpeedMultiplier changed');
+  if (!Object.is(prev.globalBlendMode, next.globalBlendMode)) return fail('globalBlendMode changed');
+  if (!Object.is(prev.globalPaletteIndex, next.globalPaletteIndex)) return fail('globalPaletteIndex changed');
+  if (!Object.is(prev.timelineMode, next.timelineMode)) return fail('timelineMode changed');
+  if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
+  if (!Object.is(prev.randomizePalette, next.randomizePalette)) return fail('randomizePalette changed');
+  if (!Object.is(prev.randomizeNumColors, next.randomizeNumColors)) return fail('randomizeNumColors changed');
+  if (!Object.is(prev.syncLayerColorsToFirst, next.syncLayerColorsToFirst)) return fail('syncLayerColorsToFirst changed');
+  if (!Object.is(prev.colorCountMin, next.colorCountMin)) return fail('colorCountMin changed');
+  if (!Object.is(prev.colorCountMax, next.colorCountMax)) return fail('colorCountMax changed');
+  if (!Object.is(prev.selectedLayerIndex, next.selectedLayerIndex)) return fail('selectedLayerIndex changed');
+  if (!Object.is(prev.isNodeEditMode, next.isNodeEditMode)) return fail('isNodeEditMode changed');
+  if (!isArrayShallowEqual(prev.layerNames, next.layerNames)) return fail('layerNames changed');
+  if (!isArrayShallowEqual(prev.layerIds, next.layerIds)) return fail('layerIds changed');
+  if (!isArrayShallowEqual(prev.baseColors, next.baseColors)) return fail('baseColors changed');
+  if (!Object.is(prev.baseNumColors, next.baseNumColors)) return fail('baseNumColors changed');
+  if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
+  if (!isArrayShallowEqual(prev.layerGroups, next.layerGroups)) return fail('layerGroups changed');
+  if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
+
+  // Assume callbacks passed in are stable (useCallback); if any change, allow re-render.
+  const handlerKeys = [
+    'setBackgroundColor',
+    'setBackgroundImage',
+    'setIsFrozen',
+    'setEnableBreathing',
+    'setEnergyInfluence',
+    'setAudioSpawnEnabled',
+    'setAudioSpawnUseGlobalPalette',
+    'setAudioSpawnBand',
+    'setAudioSpawnThreshold',
+    'setAudioSpawnCooldownMs',
+    'setAudioSpawnHalfLifeMs',
+    'setAudioSpawnHalfLifeEnergyFactor',
+    'setAudioSpawnMaxLayers',
+    'setColorFadeWhileFrozen',
+    'setClassicMode',
+    'setZIgnore',
+    'setGlobalSeed',
+    'setGlobalSpeedMultiplier',
+    'setGlobalBlendMode',
+    'setGlobalPaletteIndex',
+    'setTimelineMode',
+    'setParameterTargetMode',
+    'onQuickSave',
+    'onQuickLoad',
+    'sampleColorsEven',
+    'assignOneColorPerLayer',
+    'setLayers',
+    'buildVariedLayerFrom',
+    'setSelectedLayerIndex',
+    'handleRandomizeAll',
+    'updateCurrentLayer',
+    'randomizeCurrentLayer',
+    'randomizeAnimationForCurrentLayer',
+    'randomizeCurrentLayerColors',
+    'setIsNodeEditMode',
+    'setRandomizePalette',
+    'setRandomizeNumColors',
+    'setSyncLayerColorsToFirst',
+    'setColorCountMin',
+    'setColorCountMax',
+    'selectLayer',
+    'addNewLayer',
+    'deleteLayer',
+    'moveSelectedLayerUp',
+    'moveSelectedLayerDown',
+    'handleImportSVGClick',
+    'toggleLayerSelection',
+    'clearSelection',
+    'setEditTarget',
+    'getActiveTargetLayerIds',
+  ];
+  for (const key of handlerKeys) {
+    if (prev[key] !== next[key]) return fail(`${key} changed identity`);
+  }
+
+  return true;
+};
+
+export default React.memo(BottomPanel, areBottomPanelPropsEqual);

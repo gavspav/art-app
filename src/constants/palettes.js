@@ -12,5 +12,6 @@ export const palettes = [
   { name: 'Retro', colors: ['#ffb347', '#ffcc33', '#ffee93', '#a4de02', '#ff5e5b'] },
   { name: 'Candy', colors: ['#ff6b6b', '#ffb6b9', '#fae3d9', '#bbded6', '#61c0bf'] },
   { name: 'Autumn', colors: ['#7b2d26', '#b33f62', '#e19c6d', '#f2b880', '#d6903d'] },
-  { name: 'Midnight', colors: ['#000024', '#001b44', '#00335b', '#00467f', '#005d8f'] }
+  { name: 'Midnight', colors: ['#000024', '#001b44', '#00335b', '#00467f', '#005d8f'] },
+  { name: 'Rasta', colors: ['#d62828', '#ff3b30', '#b91c1c', '#d4af37', '#ffd60a', '#f59e0b', '#1b5e20', '#2e7d32', '#00c853'] }
 ]

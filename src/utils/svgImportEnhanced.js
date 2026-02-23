@@ -147,25 +147,28 @@ function extractShape(element, classStyles = {}) {
   const attributes = collectShapeAttributes(element, classStyles);
   
   switch (tag) {
-    case 'path':
+    case 'path': {
       const sampled = samplePathElement(element);
       points = sampled.points;
       if (Array.isArray(sampled.subpaths) && sampled.subpaths.length > 0) {
         subpaths = sampled.subpaths;
       }
       break;
+    }
     case 'polygon':
-    case 'polyline':
+    case 'polyline': {
       points = parsePolygonPoints(element.getAttribute('points'));
       break;
-    case 'circle':
+    }
+    case 'circle': {
       points = generateCirclePoints(
         parseFloat(element.getAttribute('cx') || 0),
         parseFloat(element.getAttribute('cy') || 0),
         parseFloat(element.getAttribute('r') || 0)
       );
       break;
-    case 'ellipse':
+    }
+    case 'ellipse': {
       points = generateEllipsePoints(
         parseFloat(element.getAttribute('cx') || 0),
         parseFloat(element.getAttribute('cy') || 0),
@@ -173,7 +176,8 @@ function extractShape(element, classStyles = {}) {
         parseFloat(element.getAttribute('ry') || 0)
       );
       break;
-    case 'rect':
+    }
+    case 'rect': {
       points = generateRectPoints(
         parseFloat(element.getAttribute('x') || 0),
         parseFloat(element.getAttribute('y') || 0),
@@ -183,11 +187,15 @@ function extractShape(element, classStyles = {}) {
         parseFloat(element.getAttribute('ry') || 0)
       );
       break;
-    case 'line':
+    }
+    case 'line': {
       points = [
         { x: parseFloat(element.getAttribute('x1') || 0), y: parseFloat(element.getAttribute('y1') || 0) },
         { x: parseFloat(element.getAttribute('x2') || 0), y: parseFloat(element.getAttribute('y2') || 0) }
       ];
+      break;
+    }
+    default:
       break;
   }
   
@@ -377,6 +385,24 @@ function splitPathDataIntoSubpaths(d = '') {
     segments.push(current.trim());
   }
   return segments;
+}
+
+function parsePolygonPoints(pointsAttr = '') {
+  if (!pointsAttr || typeof pointsAttr !== 'string') {
+    return [];
+  }
+
+  const values = pointsAttr
+    .trim()
+    .split(/[\s,]+/)
+    .map(token => parseFloat(token))
+    .filter(Number.isFinite);
+
+  const points = [];
+  for (let i = 0; i + 1 < values.length; i += 2) {
+    points.push({ x: values[i], y: values[i + 1] });
+  }
+  return points;
 }
 
 /**
@@ -997,6 +1023,81 @@ function applySubpathStyleFallbacks(styles, count, palette = []) {
   };
 }
 
+function simplifyClosedPoints(points, minPoints = 6, maxPoints = 64, tolerance = 0.03) {
+  const src = Array.isArray(points) ? points : [];
+  const n = src.length;
+  const safeMin = Math.max(3, Math.floor(minPoints || 0));
+  const safeMax = Math.max(safeMin, Math.floor(maxPoints || safeMin));
+  if (n <= safeMin) return src.slice();
+
+  const distPointToSegment = (p, a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const denom = dx * dx + dy * dy;
+    if (!(denom > 0)) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / denom;
+    const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = a.x + clamped * dx;
+    const py = a.y + clamped * dy;
+    return Math.hypot(p.x - px, p.y - py);
+  };
+
+  const keep = new Array(n).fill(false);
+  keep[0] = true;
+  keep[n - 1] = true;
+  const tol = Math.max(0, Number(tolerance) || 0);
+  const stack = [[0, n - 1]];
+
+  while (stack.length) {
+    const seg = stack.pop();
+    const start = seg[0];
+    const end = seg[1];
+    if (end <= start + 1) continue;
+    const a = src[start];
+    const b = src[end];
+    let index = -1;
+    let maxDist = 0;
+    for (let i = start + 1; i < end; i++) {
+      const d = distPointToSegment(src[i], a, b);
+      if (d > maxDist) {
+        maxDist = d;
+        index = i;
+      }
+    }
+    if (index >= 0 && maxDist > tol) {
+      keep[index] = true;
+      stack.push([start, index], [index, end]);
+    }
+  }
+
+  const simplified = [];
+  for (let i = 0; i < n; i++) {
+    if (keep[i]) simplified.push(src[i]);
+  }
+
+  if (simplified.length < safeMin) {
+    const result = [];
+    const step = n / safeMin;
+    for (let i = 0; i < safeMin; i++) {
+      const idx = Math.floor(i * step) % n;
+      result.push(src[idx]);
+    }
+    return result;
+  }
+
+  if (simplified.length > safeMax) {
+    const result = [];
+    const step = simplified.length / safeMax;
+    for (let i = 0; i < safeMax; i++) {
+      const idx = Math.floor(i * step);
+      result.push(simplified[idx]);
+    }
+    return result;
+  }
+
+  return simplified;
+}
+
 /**
  * Create a layer configuration from parsed SVG
  */
@@ -1013,16 +1114,43 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
   const finalPalette = (Array.isArray(paletteWithFallbacks) && paletteWithFallbacks.length)
     ? paletteWithFallbacks
     : (palette.length ? palette : []);
-  
+
+  // Detect a "simple" SVG that can be treated as a standard node-based layer:
+  // exactly one subpath with at least 3 points.
+  const isSimpleSVG =
+    subpathCount === 1 &&
+    Array.isArray(subpaths[0]) &&
+    subpaths[0].length >= 3;
+
+  // Decide how to map geometry into the layer model based on simplicity.
+  let layerNodes = null;
+  let layerSubpaths = null;
+  let layerSubpathStyles = null;
+  let layerSubpathGroups = null;
+  let numSides = 0;
+
+  if (isSimpleSVG) {
+    const baseNodes = Array.isArray(subpaths[0]) ? subpaths[0] : [];
+    layerNodes = simplifyClosedPoints(baseNodes, 6, 64, 0.03);
+    numSides = Array.isArray(layerNodes) ? layerNodes.length : 0;
+  } else {
+    // Complex: keep existing rich SVG behavior with subpaths and styles.
+    layerNodes = subpaths ? null : nodes;
+    layerSubpaths = Array.isArray(subpaths) && subpaths.length ? subpaths : null;
+    layerSubpathStyles = resolvedSubpathStyles;
+    layerSubpathGroups = Array.isArray(subpathGroups) && subpathGroups.length ? subpathGroups : null;
+    numSides = Array.isArray(nodes) ? nodes.length : 0;
+  }
+
   const layer = {
     ...DEFAULT_LAYER,
     ...options,
     name: fileName.replace(/\.[^/.]+$/, ''),
     layerType: 'shape',
-    nodes: subpaths ? null : nodes,  // Use subpaths if multiple paths
-    subpaths: subpaths,
-    subpathStyles: resolvedSubpathStyles,
-    subpathGroups: Array.isArray(subpathGroups) && subpathGroups.length ? subpathGroups : null,
+    nodes: layerNodes,
+    subpaths: layerSubpaths,
+    subpathStyles: layerSubpathStyles,
+    subpathGroups: layerSubpathGroups,
     syncNodesToNumSides: false,
     viewBoxMapped: false,
     
@@ -1030,7 +1158,7 @@ export function createLayerFromSVG(svgData, fileName = 'SVG Layer', options = {}
     curviness: 0,
     noiseAmount: 0,
     wobble: 0,
-    numSides: nodes.length,
+    numSides,
     
     // Position and scale
     position: {
@@ -1073,6 +1201,8 @@ export async function importSVGFiles(files, options = {}) {
   const layers = [];
   const errors = [];
   
+  const parsed = [];
+  
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     
@@ -1083,33 +1213,136 @@ export async function importSVGFiles(files, options = {}) {
         centerOnCanvas: files.length === 1,  // Only center if single file
         extractColors
       });
-      
-      // Adjust position for multiple files
-      if (files.length > 1 && distributePositions) {
-        // Distribute in a grid or circle
-        const angle = (i / files.length) * Math.PI * 2;
-        const radius = 0.3;
-        svgData.transform.position = {
-          x: 0.5 + Math.cos(angle) * radius,
-          y: 0.5 + Math.sin(angle) * radius
-        };
-      }
-      
-      const layerOptions = {
-        opacity: 100,
-        movementStyle: applyAnimation ? animationStyle : 'still',
-        movementSpeed: applyAnimation ? animationSpeed : 0,
-        scaleSpeed: applyAnimation ? 0.05 : 0
-      };
-      
-      const layer = createLayerFromSVG(svgData, file.name, layerOptions);
-      layers.push(layer);
-      
+
+      parsed.push({ file, svgData, index: i });
     } catch (error) {
       console.error(`Error importing ${file.name}:`, error);
       errors.push({ file: file.name, error: error.message });
     }
   }
+
+  // If we have multiple SVGs that all share the same viewBox and the caller
+  // requested no distribution, map them into a shared composite layout using
+  // a common bounding box so relative positions are preserved while each
+  // layer remains independently controllable.
+  let sharedViewBoxLayoutApplied = false;
+
+  if (parsed.length > 1 && !distributePositions) {
+    const firstViewBox = parsed[0]?.svgData?.viewBox || null;
+    const allShareViewBox = !!firstViewBox && parsed.every(item => {
+      const vb = item?.svgData?.viewBox;
+      return vb &&
+        vb.minX === firstViewBox.minX &&
+        vb.minY === firstViewBox.minY &&
+        vb.width === firstViewBox.width &&
+        vb.height === firstViewBox.height;
+    });
+
+    const allHaveBoundingBox = parsed.every(item => {
+      const bbox = item?.svgData?.metadata?.boundingBox;
+      return bbox &&
+        Number.isFinite(bbox.minX) &&
+        Number.isFinite(bbox.minY) &&
+        Number.isFinite(bbox.maxX) &&
+        Number.isFinite(bbox.maxY);
+    });
+
+    if (allShareViewBox && allHaveBoundingBox) {
+      let globalMinX = Infinity;
+      let globalMinY = Infinity;
+      let globalMaxX = -Infinity;
+      let globalMaxY = -Infinity;
+
+      parsed.forEach(item => {
+        const bbox = item.svgData.metadata.boundingBox;
+        if (bbox.minX < globalMinX) globalMinX = bbox.minX;
+        if (bbox.minY < globalMinY) globalMinY = bbox.minY;
+        if (bbox.maxX > globalMaxX) globalMaxX = bbox.maxX;
+        if (bbox.maxY > globalMaxY) globalMaxY = bbox.maxY;
+      });
+
+      const globalWidth = globalMaxX - globalMinX;
+      const globalHeight = globalMaxY - globalMinY;
+      const maxDim = Math.max(globalWidth, globalHeight);
+
+      if (maxDim > 0 && Number.isFinite(maxDim)) {
+        const globalHalf = maxDim / 2;
+        const globalCenterX = (globalMinX + globalMaxX) / 2;
+        const globalCenterY = (globalMinY + globalMaxY) / 2;
+
+        const rfBaseRaw = Number.isFinite(DEFAULT_LAYER?.radiusFactor)
+          ? Number(DEFAULT_LAYER.radiusFactor)
+          : Number(DEFAULT_LAYER?.baseRadiusFactor) || 0.4;
+        const rfBase = rfBaseRaw > 0 ? rfBaseRaw : 0.4;
+        const safeTargetScale = Math.max(0.01, Math.min(1.5, Number(targetScale) || 0.3));
+        const margin = 0.02;
+
+        parsed.forEach(item => {
+          const bbox = item.svgData.metadata.boundingBox;
+          const width = bbox.width;
+          const height = bbox.height;
+          const halfSize = Math.max(width, height) / 2 || 1;
+          const cx = bbox.centerX;
+          const cy = bbox.centerY;
+
+          let posX = 0.5 + ((cx - globalCenterX) / globalHalf) * safeTargetScale;
+          let posY = 0.5 + ((cy - globalCenterY) / globalHalf) * safeTargetScale;
+
+          posX = Math.max(margin, Math.min(1 - margin, Number.isFinite(posX) ? posX : 0.5));
+          posY = Math.max(margin, Math.min(1 - margin, Number.isFinite(posY) ? posY : 0.5));
+
+          const rawScale = (safeTargetScale / globalHalf) * (halfSize / rfBase);
+          const safeScale = (Number.isFinite(rawScale) && rawScale > 0) ? rawScale : safeTargetScale;
+
+          const existingTransform = item.svgData.transform || {};
+          const existingPosition = existingTransform.position || {};
+
+          item.svgData.transform = {
+            ...existingTransform,
+            position: {
+              ...existingPosition,
+              x: posX,
+              y: posY,
+            },
+            scale: safeScale,
+          };
+        });
+
+        sharedViewBoxLayoutApplied = true;
+      }
+    }
+  }
+
+  // Now create layers in original file order, applying either the shared-viewBox
+  // layout (when active) or the legacy distribution behaviour.
+  parsed.sort((a, b) => a.index - b.index).forEach((entry, i) => {
+    const { file, svgData } = entry;
+
+    if (parsed.length > 1 && distributePositions && !sharedViewBoxLayoutApplied) {
+      const angle = (i / parsed.length) * Math.PI * 2;
+      const radius = 0.3;
+      const existingTransform = svgData.transform || {};
+      const existingPosition = existingTransform.position || {};
+      svgData.transform = {
+        ...existingTransform,
+        position: {
+          ...existingPosition,
+          x: 0.5 + Math.cos(angle) * radius,
+          y: 0.5 + Math.sin(angle) * radius,
+        },
+      };
+    }
+
+    const layerOptions = {
+      opacity: 100,
+      movementStyle: applyAnimation ? animationStyle : 'still',
+      movementSpeed: applyAnimation ? animationSpeed : 0,
+      scaleSpeed: applyAnimation ? 0.05 : 0
+    };
+
+    const layer = createLayerFromSVG(svgData, file.name, layerOptions);
+    layers.push(layer);
+  });
   
   return { layers, errors };
 }

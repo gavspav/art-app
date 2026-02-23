@@ -2,6 +2,60 @@
 
 Interactive generative art app with layers, palettes, animation, MIDI control, and reproducible randomization.
 
+## Beginner Installation Guide (Step by Step)
+
+### 1. Install Node.js (the tool we need)
+
+1. Open your web browser and go to [https://nodejs.org/](https://nodejs.org/).
+2. Click the big green button labeled **LTS**. This version is the stable one we want.
+3. When the download finishes, open the installer and keep clicking **Next/Continue** until it finishes.
+4. After the installer closes, restart your computer if it asks you to.
+5. Open a terminal window (on Windows, open **Command Prompt** or **PowerShell**; on macOS, open the **Terminal** app).
+6. Type `node -v` and press **Enter**. If you see something like `v20.11.0`, Node is installed. If you get an error, repeat the steps above.
+
+### 2. Download this project from GitHub
+
+1. Visit [https://github.com/gavspav/art-app](https://github.com/gavspav/art-app) in your browser.
+2. Click the big green **Code** button near the top right of the file list.
+3. Choose **Download ZIP** and wait for the file to finish downloading.
+
+### 3. Unzip the project folder
+
+1. Find the ZIP file you just downloaded (usually in your **Downloads** folder).
+2. Double-click the ZIP file. Your computer will create a new folder named `art-app-main` (or similar) with the project files inside.
+3. Move that new folder somewhere easy to find, like your **Desktop**.
+
+### 4. Open the project folder in a terminal
+
+1. Open a terminal window (Command Prompt/PowerShell on Windows, Terminal on macOS).
+2. Type `cd ` (the letters c and d, followed by a space).
+3. Drag the project folder from your Desktop into the terminal window. The full path to the folder will appear after `cd`.
+4. Press **Enter**. You are now “inside” the project folder. You can type `ls` (macOS) or `dir` (Windows) and press **Enter** to see the files.
+
+### 5. Install the project packages (do this once)
+
+1. In the terminal, make sure you are still inside the project folder.
+2. Type `npm install` and press **Enter**.
+3. Wait while the computer downloads everything it needs. This can take a few minutes the first time.
+
+### 6. Start the app
+
+1. In the same terminal window, type `npm run dev` and press **Enter**.
+2. When the command finishes starting, the terminal will show a line like `Local:   http://localhost:5173/`.
+3. Leave the terminal open. The app needs it to stay running.
+
+### 7. Open the app in your browser
+
+1. Open your web browser (Chrome, Firefox, Safari, etc.).
+2. Type the address from the terminal (`http://localhost:5173/`) into the address bar and press **Enter**.
+3. You should now see the art app. Experiment and enjoy!
+
+### 8. Stop the app when you are done
+
+1. Go back to the terminal window where `npm run dev` is running.
+2. Press **Ctrl + C** on Windows/Linux or **Control + C** on macOS. This stops the server.
+3. When you want to use the app again later, repeat steps 4, 6, and 7 (you do not need to run `npm install` again unless you deleted the folder).
+
 ## Quick Start
 
 ```bash
@@ -53,17 +107,24 @@ npm run dev
 
 ## Keyboard Shortcuts
 
-- Space – Toggle Freeze
-- H – Toggle controls overlay
-- F – Toggle fullscreen
-- G – Toggle parameter target (Individual / Global)
-- R – Randomize All
-- M – Toggle MIDI Learn visibility (global)
-- N – Toggle Node Edit mode
-- [ / ] – Previous/Next layer
-- 1..9 – Jump to layer
-- Z – Toggle Z-Ignore (disable Z scaling movement)
-- L – Show/Hide layer outlines
+- **Space** – Toggle Freeze (`setIsFrozen`)
+- **F** – Toggle fullscreen (`useFullscreen`)
+- **R** – Randomize all layers (`handleRandomizeAll()`)
+- **G** – Switch parameter target (Global ⇄ Individual)
+- **M** – Show or hide the global MIDI learn controls
+- **N** – Toggle Node Edit mode
+- **Z** – Toggle Z-Ignore (stop Z-axis motion)
+- **O** – Show or hide layer outlines
+- **S** – Quick-save the current setup to the in-memory slot
+- **Shift + A** – Recall the quick preset from memory
+- **[** / **]** – Select the previous or next layer
+- **Shift + 1…9** – Jump to a specific layer (Layer 1..9)
+- **K** – Open/close the keyboard shortcuts overlay
+- **Esc** – Close the keyboard shortcuts overlay (when open)
+- **1…6** – Switch bottom panel tabs (Global, Shape, Animation, Colour, Presets, Groups)
+- **H** – Expand or collapse the bottom control panel (expanded ⇄ peek)
+- **L** – Lock or unlock the bottom control panel position
+- **Delete / Backspace** – Delete the active layer while in Node Edit mode (if more than one layer remains)
 
 ## MIDI
 

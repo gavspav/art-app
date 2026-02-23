@@ -9,6 +9,9 @@ import Controls from './Controls.jsx';
 export default function LayerSectionView({
   visibleSection = 'layer',
   hideTabbar = false,
+  showMidi,
+  showAudio,
+  showBPM,
   // Passthrough props for Controls
   ...controlProps
 }) {
@@ -41,7 +44,7 @@ export default function LayerSectionView({
           {labels[visibleSection]}
         </div>
       )}
-      <Controls ref={ctrlRef} {...controlProps} />
+      <Controls ref={ctrlRef} showMidi={showMidi} showAudio={showAudio} showBPM={showBPM} {...controlProps} />
     </div>
   );
 }

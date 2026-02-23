@@ -14,6 +14,8 @@ export function useRandomization({
   selectedLayerIndex: _selectedLayerIndex,
   randomizePalette,
   randomizeNumColors,
+  randomizeColorsPerLayer = true,
+  uniformColorCount = 3,
   colorCountMin = 1,
   colorCountMax = 8,
   classicMode,
@@ -223,19 +225,22 @@ export function useRandomization({
       : ["#FFC300", "#FF5733", "#C70039"];
 
     const layersOut = [];
-    // Variation intensities: separate shape/anim/color paths
+    // Variation intensities: separate shape/anim/color/scale paths
     const includeVarPosition = !!getIsRnd('variationPosition');
     const includeVarShape = !!getIsRnd('variationShape');
     const includeVarAnim = !!getIsRnd('variationAnim');
     const includeVarColor = !!getIsRnd('variationColor');
+    const includeVarScale = !!getIsRnd('variationScale');
     const pVarPosition = parameters.find(p => p.id === 'variationPosition');
     const pVarShape = parameters.find(p => p.id === 'variationShape');
     const pVarAnim = parameters.find(p => p.id === 'variationAnim');
     const pVarColor = parameters.find(p => p.id === 'variationColor');
+    const pVarScale = parameters.find(p => p.id === 'variationScale');
     const currentShape = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
     const currentAnim = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
     const currentColor = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
     const currentPosition = Number(layers?.[0]?.variationPosition ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationPosition);
+    const currentScale = Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0);
     const sampleVarFromParam = (param, fallback) => {
       if (!param || param.type !== 'slider') return fallback;
       const rmin = Number.isFinite(param.randomMin) ? param.randomMin : param.min;
@@ -249,6 +254,7 @@ export function useRandomization({
     const sampledShape = includeVarShape ? sampleVarFromParam(pVarShape, currentShape) : currentShape;
     const sampledAnim = includeVarAnim ? sampleVarFromParam(pVarAnim, currentAnim) : currentAnim;
     const sampledColor = includeVarColor ? sampleVarFromParam(pVarColor, currentColor) : currentColor;
+    const sampledScale = includeVarScale ? sampleVarFromParam(pVarScale, currentScale) : currentScale;
     const boostAboveOne = (v) => {
       let x = Number(v) || 0;
       if (x > 1) x = 1 + (x - 1) * 1.4;
@@ -269,41 +275,60 @@ export function useRandomization({
       varied.variationShape = Number(sampledShape);
       varied.variationAnim = Number(sampledAnim);
       varied.variationColor = Number(sampledColor);
+      varied.variationScale = Number(sampledScale);
 
       // Variation weights come from the sampled per-category values
       const wPosition = clamp((Number(sampledPosition) || 0) / 3, 0, 1);
       const wShape = clamp((Number(sampledShape) || 0) / 3, 0, 1);
       const wAnim = clamp((Number(sampledAnim) || 0) / 3, 0, 1);
       const wColor = clamp(boostAboveOne(sampledColor) / 3, 0, 1);
+      const wScale = clamp((Number(sampledScale) || 0) / 3, 0, 1);
 
-      // IMPORTANT: Randomize All should affect core properties regardless of per-layer vary flags.
+      // IMPORTANT: Randomize All should affect core properties based on isRandomizable flags.
       // Use variation only to scale the intensity of the change.
-      varied.numSides = Math.max(3, Math.round(mixRand(prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, wShape, true)));
-      varied.curviness = Number(mixRand(prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, wShape).toFixed(3));
-      varied.noiseAmount = Number(mixRand(prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, wShape).toFixed(2));
-      varied.wobble = Number(mixRand(prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, wShape).toFixed(3));
-      // Use relative size instead of pixel width/height
+      
+      // Helper to randomize a parameter if it's marked as randomizable
+      const randomizeParam = (paramId, currentValue, fallbackMin, fallbackMax, weight, isInteger = false) => {
+        const p = getParam(paramId);
+        if (!p || !p.isRandomizable) return currentValue;
+        const rmin = Number.isFinite(p.randomMin) ? p.randomMin : (Number.isFinite(p.min) ? p.min : fallbackMin);
+        const rmax = Number.isFinite(p.randomMax) ? p.randomMax : (Number.isFinite(p.max) ? p.max : fallbackMax);
+        return mixRand(currentValue, rmin, rmax, weight, isInteger);
+      };
+      
+      varied.numSides = Math.max(3, Math.round(randomizeParam('numSides', prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, wShape, true)));
+      varied.curviness = Number(randomizeParam('curviness', prev.curviness ?? DEFAULT_LAYER.curviness, 0, 1, wShape).toFixed(3));
+      varied.noiseAmount = Number(randomizeParam('noiseAmount', prev.noiseAmount ?? DEFAULT_LAYER.noiseAmount, 0, 10, wShape).toFixed(2));
+      varied.wobble = Number(randomizeParam('wobble', prev.wobble ?? DEFAULT_LAYER.wobble, 0, 1, wShape).toFixed(3));
+      
+      // Size parameters
       const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.4);
-      const rfMin = 0.05, rfMax = 0.45;
-      varied.radiusFactor = Number(mixRand(baseRF, rfMin, rfMax, wShape).toFixed(3));
-      // X/Y offsets (screen-relative), vary with shape weight
-      const pXO = getParam('xOffset');
-      const pYO = getParam('yOffset');
-      const allowXO = pXO ? !!pXO.isRandomizable : true;
-      const allowYO = pYO ? !!pYO.isRandomizable : true;
+      varied.radiusFactor = Number(randomizeParam('radiusFactor', baseRF, 0.05, 0.45, wShape).toFixed(3));
+      
+      const baseRFX = Number(prev.radiusFactorX ?? DEFAULT_LAYER.radiusFactorX ?? 0.4);
+      varied.radiusFactorX = Number(randomizeParam('radiusFactorX', baseRFX, 0.01, 2.0, wShape).toFixed(3));
+      
+      const baseRFY = Number(prev.radiusFactorY ?? DEFAULT_LAYER.radiusFactorY ?? 0.4);
+      varied.radiusFactorY = Number(randomizeParam('radiusFactorY', baseRFY, 0.01, 2.0, wShape).toFixed(3));
+      
+      // X/Y offsets (screen-relative), vary with position weight
       const baseXO = Number(prev.xOffset ?? 0);
       const baseYO = Number(prev.yOffset ?? 0);
-      const xoMin = Number.isFinite(pXO?.randomMin) ? pXO.randomMin : (Number.isFinite(pXO?.min) ? pXO.min : -0.5);
-      const xoMax = Number.isFinite(pXO?.randomMax) ? pXO.randomMax : (Number.isFinite(pXO?.max) ? pXO.max : 0.5);
-      const yoMin = Number.isFinite(pYO?.randomMin) ? pYO.randomMin : (Number.isFinite(pYO?.min) ? pYO.min : -0.5);
-      const yoMax = Number.isFinite(pYO?.randomMax) ? pYO.randomMax : (Number.isFinite(pYO?.max) ? pYO.max : 0.5);
-      if (allowXO) varied.xOffset = Number(mixRand(baseXO, xoMin, xoMax, wPosition).toFixed(3));
-      if (allowYO) varied.yOffset = Number(mixRand(baseYO, yoMin, yoMax, wPosition).toFixed(3));
+      varied.xOffset = Number(randomizeParam('xOffset', baseXO, -0.5, 0.5, wPosition).toFixed(3));
+      varied.yOffset = Number(randomizeParam('yOffset', baseYO, -0.5, 0.5, wPosition).toFixed(3));
 
       // Movement
       // Randomize movement style with a probability scaled by variation weight; otherwise keep previous
-      {
-        const styles = ['bounce', 'drift', 'still'];
+      const pMovementStyle = getParam('movementStyle');
+      if (pMovementStyle && pMovementStyle.isRandomizable) {
+        const baseOptions = Array.isArray(pMovementStyle.options) && pMovementStyle.options.length
+          ? pMovementStyle.options
+          : ['bounce', 'drift', 'still', 'orbit', 'spin'];
+        const allowed = Array.isArray(pMovementStyle.randomOptions) && pMovementStyle.randomOptions.length
+          ? pMovementStyle.randomOptions.filter((opt) => baseOptions.includes(opt))
+          : baseOptions;
+
+        const styles = allowed.length ? allowed : baseOptions;
         const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
         let nextStyle = cur;
         const changeProb = Math.max(0.3, wAnim); // ensure some chance even at low variation
@@ -313,8 +338,13 @@ export function useRandomization({
           nextStyle = pool[Math.floor(rand() * pool.length)];
         }
         varied.movementStyle = nextStyle;
+      } else {
+        varied.movementStyle = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
       }
-      varied.movementSpeed = Number(mixRand(prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, wAnim).toFixed(3));
+      
+      varied.movementSpeed = Number(randomizeParam('movementSpeed', prev.movementSpeed ?? DEFAULT_LAYER.movementSpeed, 0, 5, wAnim).toFixed(3));
+      varied.movementAngle = randomizeParam('movementAngle', prev.movementAngle ?? DEFAULT_LAYER.movementAngle, 0, 360, wAnim, true);
+      
       if (incRotation) {
         const nextRot = (uniformRotation !== null)
           ? uniformRotation
@@ -323,12 +353,16 @@ export function useRandomization({
       }
 
       // Scale
-      varied.scaleSpeed = Number(mixRand(prev.scaleSpeed ?? 0.05, 0, 0.2, wAnim).toFixed(3));
-      let nextScaleMin = prev.scaleMin ?? 0.2;
-      let nextScaleMax = prev.scaleMax ?? 1.5;
-      // Keep scale bounds as non-randomizable defaults; do not change unless your design later permits
-      varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
-      varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
+      varied.scaleSpeed = Number(randomizeParam('scaleSpeed', prev.scaleSpeed ?? 0.05, 0, 0.2, wAnim).toFixed(3));
+      
+      const baseScaleMin = prev.scaleMin ?? 0.2;
+      const baseScaleMax = prev.scaleMax ?? 1.5;
+      varied.scaleMin = Number(randomizeParam('scaleMin', baseScaleMin, 0.1, 2, wAnim).toFixed(2));
+      varied.scaleMax = Number(randomizeParam('scaleMax', baseScaleMax, 0.5, 3, wAnim).toFixed(2));
+      // Ensure min <= max
+      if (varied.scaleMin > varied.scaleMax) {
+        [varied.scaleMin, varied.scaleMax] = [varied.scaleMax, varied.scaleMin];
+      }
 
       // Position jitter
       const baseX = prev.position?.x ?? 0.5;
@@ -347,9 +381,14 @@ export function useRandomization({
       };
 
       // Velocity recompute
-      const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
-      varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
-      varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+      if (varied.movementStyle === 'spin') {
+        varied.vx = 0;
+        varied.vy = 0;
+      } else {
+        const angleRad = (varied.movementAngle ?? prev.movementAngle ?? 0) * (Math.PI / 180);
+        varied.vx = Math.cos(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+        varied.vy = Math.sin(angleRad) * ((varied.movementSpeed ?? prev.movementSpeed ?? 1) * 0.001) * 1.0;
+      }
 
       // Colors (continuous response):
       // - wColor === 0: no change
@@ -413,6 +452,11 @@ export function useRandomization({
         }
       } else {
         // Respect per-layer color randomization settings (global toggles control behavior)
+        // If randomizeColorsPerLayer is false, use uniformColorCount for all layers
+        const cMin = Math.max(1, Math.floor(colorCountMin));
+        const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
+        // Pre-compute uniform color count if not randomizing per layer
+        const uniformN = !randomizeColorsPerLayer ? Math.max(1, Math.min(32, uniformColorCount)) : null;
         for (let i = 0; i < layersOut.length; i++) {
           const prev = layers[i] || DEFAULT_LAYER;
           const curColors = Array.isArray(prev.colors) ? prev.colors : [];
@@ -420,13 +464,19 @@ export function useRandomization({
           const perLayerPalette = randomizePalette
             ? (pickPaletteColors(palettes, rand, curColors) || curColors)
             : curColors;
-          const cMin = Math.max(1, Math.floor(colorCountMin));
-          const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
           const maxN = Math.min(cMaxCap, (perLayerPalette.length || cMaxCap));
           const minN = cMin;
-          const n = randomizeNumColors
-            ? (maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1))
-            : (prev.numColors || curColors.length || 1);
+          let n;
+          if (!randomizeColorsPerLayer) {
+            // Use uniform color count for all layers
+            n = uniformN;
+          } else if (randomizeNumColors) {
+            // Random color count per layer
+            n = maxN > 0 ? Math.floor(rand() * (maxN - minN + 1)) + minN : (curColors.length || 1);
+          } else {
+            // Keep existing color count
+            n = prev.numColors || curColors.length || 1;
+          }
           const next = sampleColorsEven(perLayerPalette.length ? perLayerPalette : curColors, Math.max(1, n));
           layersOut[i].colors = next;
           layersOut[i].numColors = next.length;
@@ -450,6 +500,7 @@ export function useRandomization({
       if (includeVarShape) layersOut[0].variationShape = Number(sampledShape.toFixed ? sampledShape.toFixed(2) : sampledShape);
       if (includeVarAnim) layersOut[0].variationAnim = Number(sampledAnim.toFixed ? sampledAnim.toFixed(2) : sampledAnim);
       if (includeVarColor) layersOut[0].variationColor = Number(sampledColor.toFixed ? sampledColor.toFixed(2) : sampledColor);
+      if (includeVarScale) layersOut[0].variationScale = Number(sampledScale.toFixed ? sampledScale.toFixed(2) : sampledScale);
     }
 
     setLayers(layersOut.map((l, idx) => ({ ...l, name: `Layer ${idx + 1}` })));
@@ -467,7 +518,7 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
@@ -483,16 +534,19 @@ export function useRandomization({
     const incVarShape = getIsRnd('variationShape');
     const incVarAnim = getIsRnd('variationAnim');
     const incVarColor = getIsRnd('variationColor');
+    const incVarScale = getIsRnd('variationScale');
 
     // Variation handling (base layer): preserve unless included, then sample
     const pVP = parameters.find(p => p.id === 'variationPosition');
     const pVS = parameters.find(p => p.id === 'variationShape');
     const pVA = parameters.find(p => p.id === 'variationAnim');
     const pVC = parameters.find(p => p.id === 'variationColor');
+    const pVScale = parameters.find(p => p.id === 'variationScale');
     const prevVP = Number(layers?.[0]?.variationPosition ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationPosition);
     const prevVS = Number(layers?.[0]?.variationShape ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationShape);
     const prevVA = Number(layers?.[0]?.variationAnim ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationAnim);
     const prevVC = Number(layers?.[0]?.variationColor ?? layers?.[0]?.variation ?? DEFAULT_LAYER.variationColor);
+    const prevVScale = Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0);
     const sampleClassic = (p, fb) => {
       if (!p || p.type !== 'slider') return fb;
       const rmin = Number.isFinite(p.randomMin) ? p.randomMin : p.min;
@@ -506,6 +560,7 @@ export function useRandomization({
     const sampledVS = incVarShape ? sampleClassic(pVS, prevVS) : prevVS;
     const sampledVA = incVarAnim ? sampleClassic(pVA, prevVA) : prevVA;
     const sampledVC = incVarColor ? sampleClassic(pVC, prevVC) : prevVC;
+    const sampledVScale = incVarScale ? sampleClassic(pVScale, prevVScale) : prevVScale;
 
     // Scene palette
     let baseColors = pickPaletteColors(palettes, rnd, []);
@@ -513,14 +568,18 @@ export function useRandomization({
     const currentN = Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (currentBase.length || 3);
     // Only change global base colors if Include (palette) is ON
     if (!incPalette) baseColors = currentBase.length ? currentBase : baseColors;
-    if (randomizeNumColors) {
+    // Determine color count: if not randomizing per layer, use uniform count
+    let colorCount;
+    if (!randomizeColorsPerLayer) {
+      colorCount = Math.max(1, Math.min(32, uniformColorCount));
+    } else if (randomizeNumColors) {
       const maxN = Math.min(5, baseColors.length || 5);
       const minN = Math.min(3, maxN);
-      const n = Math.floor(rnd() * (maxN - minN + 1)) + minN;
-      baseColors = sampleColorsEven(baseColors, n);
+      colorCount = Math.floor(rnd() * (maxN - minN + 1)) + minN;
     } else {
-      baseColors = sampleColorsEven(baseColors, Math.max(1, currentN));
+      colorCount = Math.max(1, currentN);
     }
+    baseColors = sampleColorsEven(baseColors, colorCount);
 
     // Layers count
     const layersParam = parameters.find(p => p.id === 'layersCount');
@@ -533,6 +592,12 @@ export function useRandomization({
       ? null
       : (((Math.floor(rnd() * 360) + 180) % 360) - 180);
 
+    // Helper to check if a parameter should be randomized in classic mode
+    const shouldRandomizeClassic = (paramId) => {
+      const p = parameters.find(pp => pp.id === paramId);
+      return p ? !!p.isRandomizable : true;
+    };
+    
     const buildLayer = (idx) => {
       const layer = { ...DEFAULT_LAYER };
       layer.name = `Layer ${idx + 1}`;
@@ -540,18 +605,45 @@ export function useRandomization({
       layer.seed = rnd();
       layer.noiseSeed = rnd();
       layer.variationPosition = sampledVP;
-      layer.numSides = Math.floor(3 + rnd() * 17);
-      layer.curviness = Number((0.3 + rnd() * 1.2).toFixed(3));
-      layer.wobble = rnd();
-      layer.noiseAmount = Number((rnd() * 8).toFixed(2));
-      // Relative size in classic mode as well
-      layer.radiusFactor = Number((0.05 + rnd() * 0.4).toFixed(3));
+      
+      // Respect isRandomizable flags for each parameter
+      layer.numSides = shouldRandomizeClassic('numSides') 
+        ? Math.floor(3 + rnd() * 17) 
+        : (layers?.[idx]?.numSides ?? DEFAULT_LAYER.numSides);
+      layer.curviness = shouldRandomizeClassic('curviness') 
+        ? Number((0.3 + rnd() * 1.2).toFixed(3)) 
+        : (layers?.[idx]?.curviness ?? DEFAULT_LAYER.curviness);
+      layer.wobble = shouldRandomizeClassic('wobble') 
+        ? rnd() 
+        : (layers?.[idx]?.wobble ?? DEFAULT_LAYER.wobble);
+      layer.noiseAmount = shouldRandomizeClassic('noiseAmount') 
+        ? Number((rnd() * 8).toFixed(2)) 
+        : (layers?.[idx]?.noiseAmount ?? DEFAULT_LAYER.noiseAmount);
+      
+      // Size parameters
+      layer.radiusFactor = shouldRandomizeClassic('radiusFactor') 
+        ? Number((0.05 + rnd() * 0.4).toFixed(3)) 
+        : (layers?.[idx]?.radiusFactor ?? DEFAULT_LAYER.radiusFactor);
+      layer.radiusFactorX = shouldRandomizeClassic('radiusFactorX') 
+        ? Number((0.01 + rnd() * 1.99).toFixed(3)) 
+        : (layers?.[idx]?.radiusFactorX ?? DEFAULT_LAYER.radiusFactorX);
+      layer.radiusFactorY = shouldRandomizeClassic('radiusFactorY') 
+        ? Number((0.01 + rnd() * 1.99).toFixed(3)) 
+        : (layers?.[idx]?.radiusFactorY ?? DEFAULT_LAYER.radiusFactorY);
+      
       layer.colors = baseColors;
       layer.numColors = baseColors.length;
       layer.opacity = Number(layers?.[0]?.opacity ?? 0.8);
-      layer.movementStyle = 'bounce';
-      // movementAngle remains independent; do not gate by rotation include flag
-      layer.movementAngle = layers?.[idx]?.movementAngle ?? DEFAULT_LAYER.movementAngle;
+      
+      layer.movementStyle = shouldRandomizeClassic('movementStyle') 
+        ? 'bounce' 
+        : (layers?.[idx]?.movementStyle ?? DEFAULT_LAYER.movementStyle);
+      
+      // Movement angle
+      layer.movementAngle = shouldRandomizeClassic('movementAngle') 
+        ? Math.floor(rnd() * 360) 
+        : (layers?.[idx]?.movementAngle ?? DEFAULT_LAYER.movementAngle);
+      
       // Apply rotation when included
       if (incRotation) {
         const r = (classicUniformRotation !== null) ? classicUniformRotation : (((Math.floor(rnd() * 360) + 180) % 360) - 180);
@@ -559,30 +651,50 @@ export function useRandomization({
       } else {
         layer.rotation = layers?.[idx]?.rotation ?? 0;
       }
-      layer.movementSpeed = Number((Math.pow(rnd(), 4) * 5).toFixed(3));
+      
+      layer.movementSpeed = shouldRandomizeClassic('movementSpeed') 
+        ? Number((Math.pow(rnd(), 4) * 5).toFixed(3)) 
+        : (layers?.[idx]?.movementSpeed ?? DEFAULT_LAYER.movementSpeed);
+      
       const angleRad = layer.movementAngle * (Math.PI / 180);
       layer.vx = Math.cos(angleRad) * (layer.movementSpeed * 0.001);
       layer.vy = Math.sin(angleRad) * (layer.movementSpeed * 0.001);
-      // Randomize Z scale parameters for variety (independent of include flags)
-      // scaleSpeed in [0, 0.2], biased toward small
-      layer.scaleSpeed = Number((rnd() * 0.2).toFixed(3));
-      // scaleMin in [0, 0.8]
-      const sMin = Math.max(0, Math.min(0.8, Number((rnd() * 0.8).toFixed(2))));
-      // scaleMax at least sMin + 0.2, up to 2.0
-      const sMaxCandidate = sMin + 0.2 + rnd() * 1.8;
-      const sMax = Math.max(sMin + 0.2, Math.min(2.0, sMaxCandidate));
-      layer.scaleMin = Number(sMin.toFixed(2));
-      layer.scaleMax = Number(sMax.toFixed(2));
+      
+      // Z scale parameters
+      if (shouldRandomizeClassic('scaleSpeed')) {
+        layer.scaleSpeed = Number((rnd() * 0.2).toFixed(3));
+      } else {
+        layer.scaleSpeed = layers?.[idx]?.scaleSpeed ?? DEFAULT_LAYER.scaleSpeed;
+      }
+      
+      if (shouldRandomizeClassic('scaleMin') || shouldRandomizeClassic('scaleMax')) {
+        const sMin = Math.max(0, Math.min(0.8, Number((rnd() * 0.8).toFixed(2))));
+        const sMaxCandidate = sMin + 0.2 + rnd() * 1.8;
+        const sMax = Math.max(sMin + 0.2, Math.min(2.0, sMaxCandidate));
+        layer.scaleMin = shouldRandomizeClassic('scaleMin') ? Number(sMin.toFixed(2)) : (layers?.[idx]?.scaleMin ?? DEFAULT_LAYER.scaleMin);
+        layer.scaleMax = shouldRandomizeClassic('scaleMax') ? Number(sMax.toFixed(2)) : (layers?.[idx]?.scaleMax ?? DEFAULT_LAYER.scaleMax);
+      } else {
+        layer.scaleMin = layers?.[idx]?.scaleMin ?? DEFAULT_LAYER.scaleMin;
+        layer.scaleMax = layers?.[idx]?.scaleMax ?? DEFAULT_LAYER.scaleMax;
+      }
+      
       layer.position = { ...DEFAULT_LAYER.position, x: rnd(), y: rnd(), scale: 1, scaleDirection: 1 };
-      // Classic offsets: random within full allowed range
-      layer.xOffset = Number((rnd() - 0.5).toFixed(3));
-      layer.yOffset = Number((rnd() - 0.5).toFixed(3));
+      
+      // Offsets
+      layer.xOffset = shouldRandomizeClassic('xOffset') 
+        ? Number((rnd() - 0.5).toFixed(3)) 
+        : (layers?.[idx]?.xOffset ?? DEFAULT_LAYER.xOffset);
+      layer.yOffset = shouldRandomizeClassic('yOffset') 
+        ? Number((rnd() - 0.5).toFixed(3)) 
+        : (layers?.[idx]?.yOffset ?? DEFAULT_LAYER.yOffset);
+      
       // Apply base variations to base layer only; others will vary from this baseline when added later
       if (idx === 0) {
         layer.variationPosition = sampledVP;
         layer.variationShape = sampledVS;
         layer.variationAnim = sampledVA;
         layer.variationColor = sampledVC;
+        layer.variationScale = sampledVScale;
         layer.variation = Number(layer.variation ?? sampledVS); // keep legacy populated
       }
       return layer;
@@ -637,7 +749,7 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const randomizeScene = useCallback(() => {
     const layers = getLayersSnapshot();

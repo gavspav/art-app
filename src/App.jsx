@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { ParameterProvider, useParameters } from './context/ParameterContext.jsx';
 import { AppStateProvider, useAppState } from './context/AppStateContext.jsx';
 import { MidiProvider, useMidi } from './context/MidiContext.jsx';
+import { AudioProvider, useAudioReactive } from './context/AudioContext.jsx';
+import { BPMProvider, useBPM } from './context/BPMContext.jsx';
+import { TimelineProvider, useTimeline } from './context/TimelineContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -10,36 +13,115 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
+import { useAudioHandlers } from './hooks/useAudioHandlers.js';
+import { useAudioLayerHandlers } from './hooks/useAudioLayerHandlers.js';
+import { useAudioSpawnLayers } from './hooks/useAudioSpawnLayers.js';
+import { useBPMHandlers } from './hooks/useBPMHandlers.js';
+import { useBPMLayerHandlers } from './hooks/useBPMLayerHandlers.js';
+import { useModulationStore } from './hooks/useModulationStore.js';
 import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
+import { useAutosave } from './hooks/useAutosave.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
 import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { createCustomPaletteEntry, loadCustomPalettes, mergeCustomPalettes, saveCustomPalettes } from './utils/customPalettes.js';
+import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 
-import Canvas, { drawShape, drawLayerWithWrap, drawImage } from './components/Canvas';
+import Canvas from './components/Canvas';
 import Controls from './components/Controls';
 import GlobalControls from './components/global/GlobalControls.jsx';
 import ImportAdjustPanel from './components/global/ImportAdjustPanel.jsx';
 import FloatingActionButtons from './components/global/FloatingActionButtons.jsx';
 import BottomPanel from './components/BottomPanel.jsx';
+import { TimelinePanel } from './components/timeline/index.js';
+import { useTimelineModulation } from './hooks/useTimelineModulation.js';
+import DraggableDivider from './components/common/DraggableDivider.jsx';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
+const pickBestRecorderMime = () => {
+  if (typeof MediaRecorder === 'undefined') {
+    return 'video/webm';
+  }
+  const candidates = [
+    'video/mp4;codecs=h264',
+    'video/mp4',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) {
+        return candidate;
+      }
+    } catch {
+      /* noop */
+    }
+  }
+  return 'video/webm';
+};
+
+const DEFAULT_INCLUDE_RND = Object.freeze({
+  backgroundColor: true,
+  globalSpeedMultiplier: true,
+  globalBlendMode: true,
+  globalOpacity: true,
+  layersCount: true,
+  // Split variation include flags
+  variationPosition: true,
+  variationShape: true,
+  variationAnim: true,
+  variationColor: true,
+  variationScale: true,
+  // legacy key kept for backward compat with saved states; not used by new UI
+  variation: true,
+});
+
 // The MainApp component now contains all the core application logic
 const MainApp = () => {
-  const { parameters } = useParameters();
+  const parametersCtx = useParameters();
+  const { parameters, applyParametersSnapshot } = parametersCtx;
   const layersCountParam = useMemo(
     () => parameters?.find?.((param) => param.id === 'layersCount'),
     [parameters],
   );
   // Get app state from context
+  const appStateCtx = useAppState();
   const {
     isFrozen, setIsFrozen,
-    backgroundColor, setBackgroundColor,
-    backgroundImage, setBackgroundImage,
-    globalSeed, setGlobalSeed,
+	    enableBreathing, setEnableBreathing,
+	    enableEnergyScaling,
+	    energyInfluence,
+	    setEnergyInfluence,
+	    audioSpawnEnabled,
+	    audioSpawnTriggerMode,
+	    audioSpawnRepeatWhileAbove,
+	    audioSpawnHysteresis,
+	    audioSpawnUseGlobalPalette,
+	    audioSpawnBand,
+	    audioSpawnThreshold,
+	    audioSpawnCooldownMs,
+	    audioSpawnHalfLifeMs,
+	    audioSpawnHalfLifeEnergyFactor,
+	    audioSpawnMaxLayers,
+	    setAudioSpawnEnabled,
+	    setAudioSpawnTriggerMode,
+	    setAudioSpawnRepeatWhileAbove,
+	    setAudioSpawnHysteresis,
+	    setAudioSpawnUseGlobalPalette,
+	    setAudioSpawnBand,
+	    setAudioSpawnThreshold,
+	    setAudioSpawnCooldownMs,
+	    setAudioSpawnHalfLifeMs,
+	    setAudioSpawnHalfLifeEnergyFactor,
+	    setAudioSpawnMaxLayers,
+	    backgroundColor, setBackgroundColor,
+	    backgroundImage, setBackgroundImage,
+	    globalSeed, setGlobalSeed,
     globalSpeedMultiplier, setGlobalSpeedMultiplier,
     globalBlendMode, setGlobalBlendMode,
     layers, setLayers,
@@ -47,18 +129,60 @@ const MainApp = () => {
     isOverlayVisible, setIsOverlayVisible,
     isNodeEditMode, setIsNodeEditMode,
     classicMode, setClassicMode,
-    zIgnore, setZIgnore,
-    // Color randomization toggles
-    randomizePalette, setRandomizePalette,
-    randomizeNumColors, setRandomizeNumColors,
+	    zIgnore, setZIgnore,
+	    // Color randomization toggles
+      randomizePalette, setRandomizePalette,
+      randomizeNumColors, setRandomizeNumColors,
+      globalPaletteIndex,
+      setGlobalPaletteIndex,
+      globalPaletteRef,
+      setGlobalPaletteRef,
+      randomizeColorsPerLayer,
+	    setRandomizeColorsPerLayer,
+	    uniformColorCount,
+	    setUniformColorCount,
     syncLayerColorsToFirst, setSyncLayerColorsToFirst,
     parameterTargetMode, setParameterTargetMode,
     // Global: fade while frozen
     colorFadeWhileFrozen, setColorFadeWhileFrozen,
     showLayerOutlines, setShowLayerOutlines,
+    isolateMode, setIsolateMode,
+    getActiveTargetLayerIds,
     clearSelection,
     setEditTarget,
-  } = useAppState();
+    // Group and selection state
+    editTarget,
+    layerGroups,
+    selectedLayerIds,
+    toggleLayerSelection,
+    quickPreset,
+    setQuickPresetSnapshot,
+    getCurrentAppState,
+    loadAppState,
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
+    // Preset/morph state for GlobalControls
+    presetSlots,
+    getPresetSlot,
+    morphEnabled,
+    morphRoute,
+    morphDurationPerLeg,
+    morphEasing,
+    morphLoopMode,
+    setMorphEnabled,
+    setMorphRoute,
+    setMorphDurationPerLeg,
+    setMorphEasing,
+    setMorphLoopMode,
+    morphMode,
+    setMorphMode,
+    morphNodes,
+    setMorphNodes,
+    applyVariationInstantly,
+    setApplyVariationInstantly,
+  } = appStateCtx;
 
   // MIDI context
   const {
@@ -67,16 +191,25 @@ const MainApp = () => {
     registerParamHandler,
   } = useMidi() || {};
 
+  // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
+  const timelineContext = useTimeline();
+  const timelineContextRef = useRef(timelineContext);
+  useEffect(() => { timelineContextRef.current = timelineContext; }, [timelineContext]);
+
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const includeRndRef = useRef(DEFAULT_INCLUDE_RND);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
+  // Shape track updates ref - shared between useTimelineModulation and useAnimation
+  const shapeTrackUpdatesRef = useRef(new Map());
+  const variationBaseRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
-  // Global MIDI learn UI visibility
-  const [showGlobalMidi, setShowGlobalMidi] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const recorderRef = useRef({ mediaRecorder: null, chunks: [], stream: null });
+  const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
+  const recorderRef = useRef({ mediaRecorder: null, stream: null });
+  const recordedChunksRef = useRef([]);
   const latestRecordingNameRef = useRef('art-recording');
 
   const cleanupRecorder = useCallback(() => {
@@ -88,79 +221,107 @@ const MainApp = () => {
         });
       }
     } catch { /* noop */ }
-    recorderRef.current = { mediaRecorder: null, chunks: [], stream: null };
-  }, []);
+	    recorderRef.current = { mediaRecorder: null, stream: null };
+	    recordedChunksRef.current = [];
+	    setIsRecording(false);
+	    setSuppressEphemeralOverlays(false);
+	  }, []);
 
-  const startRecording = useCallback(() => {
-    if (isRecording) return;
-    const canvasHandle = canvasRef.current;
-    const canvasEl = canvasHandle?.canvas || canvasHandle;
-    if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
-      window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
-      return;
+	  const startRecording = useCallback(async () => {
+	    if (isRecording) {
+	      return;
+	    }
+
+	    // Exclude ephemeral overlays from the captured canvas stream.
+	    const wasSuppressing = suppressEphemeralOverlays;
+	    if (!wasSuppressing) {
+	      setSuppressEphemeralOverlays(true);
+	    }
+	    await new Promise(resolve => requestAnimationFrame(resolve));
+
+	    // Resolve the underlying canvas element (forwardRef exposes a handle with .canvas)
+	    let canvasHandle = canvasRef.current;
+	    let canvasEl = canvasHandle?.canvas || canvasHandle;
+
+    // If the canvas has not been sized yet (0x0), wait one frame for layout to settle
+    if (canvasEl && (!canvasEl.width || !canvasEl.height)) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      canvasHandle = canvasRef.current || canvasHandle;
+      canvasEl = canvasHandle?.canvas || canvasHandle;
     }
 
-    let stream;
+	    if (!canvasEl || typeof canvasEl.captureStream !== 'function') {
+	      window.alert('Recording is not supported in this browser (missing canvas.captureStream).');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
+
+    // Final safety: avoid recording from a 0x0 canvas, which would produce a blank video
+	    if (!canvasEl.width || !canvasEl.height) {
+	      console.warn('Recording aborted: canvas has zero size', { width: canvasEl.width, height: canvasEl.height });
+	      window.alert('Unable to start recording: canvas is not visible or has zero size.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
+
+    let videoStream;
     try {
-      stream = canvasEl.captureStream(60);
-    } catch (err) {
-      console.warn('Failed to capture canvas stream', err);
-      window.alert('Unable to start recording: canvas capture stream failed.');
-      return;
-    }
+      // Let the browser pick an appropriate frame rate; 60 can be too aggressive on some setups
+      videoStream = canvasEl.captureStream();
+	    } catch (error) {
+	      console.warn('Failed to capture canvas stream', error);
+	      window.alert('Unable to start recording: canvas capture stream failed.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
-    if (!stream) {
-      window.alert('Unable to start recording: no stream produced.');
-      return;
-    }
+	    if (!videoStream) {
+	      window.alert('Unable to start recording: no stream produced.');
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
-    const chunks = [];
-    // Prefer MP4 (H.264) when supported by the browser; fall back to WebM variants
-    const typeCandidates = [
-      'video/mp4;codecs=h264',
-      'video/mp4',
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm',
-    ];
-
-    const pickRecorderOptions = () => {
-      if (typeof MediaRecorder === 'undefined') return null;
-      for (const mimeType of typeCandidates) {
-        try {
-          if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mimeType)) {
-            return { mimeType };
-          }
-        } catch { /* noop */ }
+    // Try to get audio stream from timeline (if audio is loaded and playing)
+    let combinedStream = videoStream;
+    const audioStream = timelineContext?.getAudioStream?.();
+    if (audioStream && audioStream.getAudioTracks().length > 0) {
+      try {
+        // Combine video and audio tracks into a single stream
+        const videoTracks = videoStream.getVideoTracks();
+        const audioTracks = audioStream.getAudioTracks();
+        combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+        console.log('Recording with audio: video tracks:', videoTracks.length, 'audio tracks:', audioTracks.length);
+      } catch (error) {
+        console.warn('Failed to combine audio stream, recording video only:', error);
+        combinedStream = videoStream;
       }
-      return {};
-    };
-
-    const options = pickRecorderOptions();
-    if (!options) {
-      window.alert('MediaRecorder is not available in this browser.');
-      stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
-      return;
+    } else {
+      console.log('Recording video only (no usable timeline audio stream available)');
     }
 
+    const preferredMime = pickBestRecorderMime();
+    const options = { mimeType: preferredMime, videoBitsPerSecond: 20_000_000, audioBitsPerSecond: 128_000 };
     let mediaRecorder;
     try {
-      mediaRecorder = new MediaRecorder(stream, options);
-    } catch (err) {
-      console.warn('Failed to create MediaRecorder with options', options, err);
-      try {
-        mediaRecorder = new MediaRecorder(stream);
-      } catch (fallbackErr) {
-        console.warn('Failed to create MediaRecorder without options', fallbackErr);
-        window.alert('Unable to start recording: MediaRecorder could not be initialized.');
-        stream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
-        return;
-      }
-    }
+      mediaRecorder = new MediaRecorder(combinedStream, options);
+    } catch (error) {
+      console.warn('Failed to create MediaRecorder with options', options, error);
+	      try {
+	        mediaRecorder = new MediaRecorder(combinedStream);
+	      } catch (fallbackError) {
+	        console.warn('Failed to create MediaRecorder without options', fallbackError);
+	        window.alert('Unable to start recording: MediaRecorder could not be initialized.');
+	        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+	        if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	        return;
+	      }
+	    }
+
+    recordedChunksRef.current = [];
 
     mediaRecorder.ondataavailable = (event) => {
       if (event?.data && event.data.size > 0) {
-        chunks.push(event.data);
+        recordedChunksRef.current.push(event.data);
       }
     };
 
@@ -172,58 +333,56 @@ const MainApp = () => {
 
     mediaRecorder.onstop = () => {
       try {
-        const mime = mediaRecorder.mimeType || 'video/webm';
-        const blob = chunks.length ? new Blob(chunks, { type: mime }) : null;
-        if (blob) {
-          const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
-          const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
-          const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
-          latestRecordingNameRef.current = baseName;
-          const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
-          // Pick extension based on actual recorder MIME
-          const lower = (mime || '').toLowerCase();
-          const ext = lower.includes('mp4') ? 'mp4' : 'webm';
-          const url = URL.createObjectURL(blob);
-          const anchor = document.createElement('a');
-          anchor.href = url;
-          anchor.download = `${safeName}.${ext}`;
-          anchor.click();
-          URL.revokeObjectURL(url);
-        } else {
+        const chunks = recordedChunksRef.current;
+        if (!chunks.length) {
           window.alert('Recording stopped but produced no data.');
+          return;
         }
-      } catch (err) {
-        console.warn('Failed to export recording', err);
+        const finalMime = mediaRecorder.mimeType || preferredMime || 'video/webm';
+        const blob = new Blob(chunks, { type: finalMime });
+        const nameInput = window.prompt('Save recording as (no extension needed):', latestRecordingNameRef.current || 'art-recording');
+        const baseNameRaw = (nameInput || latestRecordingNameRef.current || 'art-recording').trim();
+        const baseName = baseNameRaw.length ? baseNameRaw : 'art-recording';
+        latestRecordingNameRef.current = baseName;
+        const safeName = baseName.replace(/[^a-z0-9-_]+/gi, '-');
+        const fileExtension = finalMime.toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${safeName}.${fileExtension}`;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } catch (error) {
+        console.warn('Failed to export recording', error);
         window.alert('Recording stopped but exporting failed. Check console for details.');
       } finally {
+        combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
         cleanupRecorder();
-        setIsRecording(false);
       }
     };
 
-    recorderRef.current = { mediaRecorder, chunks, stream };
+    recorderRef.current = { mediaRecorder, stream: combinedStream };
 
-    try {
-      mediaRecorder.start();
-    } catch (err) {
-      console.warn('MediaRecorder.start failed', err);
-      window.alert('Unable to start recording: MediaRecorder start failed.');
-      cleanupRecorder();
-      setIsRecording(false);
-      return;
-    }
+	    try {
+	      mediaRecorder.start(1000);
+	    } catch (error) {
+	      console.warn('MediaRecorder.start failed', error);
+	      window.alert('Unable to start recording: MediaRecorder start failed.');
+	      combinedStream.getTracks()?.forEach(track => { try { track.stop(); } catch { /* noop */ }; });
+	      cleanupRecorder();
+	      if (!wasSuppressing) setSuppressEphemeralOverlays(false);
+	      return;
+	    }
 
-    setIsRecording(true);
-  }, [canvasRef, cleanupRecorder, isRecording]);
+	    setIsRecording(true);
+	  }, [cleanupRecorder, isRecording, suppressEphemeralOverlays, timelineContext]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
     if (!mediaRecorder) {
       cleanupRecorder();
-      setIsRecording(false);
       return;
     }
-    setIsRecording(false);
     if (mediaRecorder.state !== 'inactive') {
       try {
         mediaRecorder.stop();
@@ -244,8 +403,34 @@ const MainApp = () => {
 
   // Keyboard Shortcuts overlay
   const [showShortcuts, setShowShortcuts] = useState(false);
+  
+  // Panel layout sizes (persisted to localStorage)
+  const [leftPanelRatio, setLeftPanelRatio] = useState(() => {
+    try {
+      const saved = localStorage.getItem('artapp-left-panel-ratio');
+      return saved ? parseFloat(saved) : 0.25;
+    } catch { return 0.25; }
+  });
+  const [topPanelRatio, setTopPanelRatio] = useState(() => {
+    try {
+      const saved = localStorage.getItem('artapp-top-panel-ratio');
+      return saved ? parseFloat(saved) : 0.5;
+    } catch { return 0.5; }
+  });
+  const TOP_BAR_HEIGHT = 40;
+  const availableHeightExpr = `calc(100vh - ${TOP_BAR_HEIGHT}px)`; // exclude fixed top bar
+  const topPanelHeightExpr = `calc(${availableHeightExpr} * ${topPanelRatio})`;
+  const timelineHeightExpr = `calc(${availableHeightExpr} * ${1 - topPanelRatio})`;
+  
+  // Persist panel ratios
+  useEffect(() => {
+    try { localStorage.setItem('artapp-left-panel-ratio', String(leftPanelRatio)); } catch { /* noop */ }
+  }, [leftPanelRatio]);
+  useEffect(() => {
+    try { localStorage.setItem('artapp-top-panel-ratio', String(topPanelRatio)); } catch { /* noop */ }
+  }, [topPanelRatio]);
   // Keep latest values accessible to hotkeys without re-binding listeners
-  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false });
+  const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false, isolateMode: false });
   useEffect(() => {
     hotkeyRef.current = {
       selectedIndex: Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1))),
@@ -255,13 +440,31 @@ const MainApp = () => {
       zIgnore: !!zIgnore,
       parameterTargetMode,
       showLayerOutlines: !!showLayerOutlines,
+      isolateMode: !!isolateMode,
     };
-  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore, parameterTargetMode, showLayerOutlines]);
+  }, [selectedLayerIndex, layers, isOverlayVisible, isNodeEditMode, zIgnore, parameterTargetMode, showLayerOutlines, isolateMode]);
 
   const layersRef = useRef(layers);
   useEffect(() => {
     layersRef.current = layers;
   }, [layers]);
+
+  // Animated layers are produced by useAnimation without touching React state (prevents UI re-render thrash).
+  const animatedLayersRef = useRef(layers);
+  // Throttled snapshot of layers for UI (avoid re-rendering Global tab every animation frame)
+  const [uiLayers, setUiLayers] = useState(layers);
+  const lastUiLayersUpdateRef = useRef(0);
+  useEffect(() => {
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (now - lastUiLayersUpdateRef.current > 120) {
+      lastUiLayersUpdateRef.current = now;
+      setUiLayers(layers);
+    }
+  }, [layers]);
+  const selectedLayerIndexRef = useRef(selectedLayerIndex);
+  useEffect(() => {
+    selectedLayerIndexRef.current = selectedLayerIndex;
+  }, [selectedLayerIndex]);
 
   // Suppress animation briefly during direct user edits to avoid state races
   const [, setSuppressAnimation] = useState(false);
@@ -320,8 +523,287 @@ const MainApp = () => {
     applyImportAdjust,
   } = useImportAdjust({ setLayers });
 
+  // Audio reactive context (for useAudioHandlers)
+  const audioReactive = useAudioReactive();
+  const { getAudioSnapshot, applyAudioSnapshot } = audioReactive || {};
+  
+  // BPM context
+  const bpmForAnimation = useBPM();
+  const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
+
+  // Timeline context helpers
+  const {
+    getTimelineSnapshot,
+    applyTimelineSnapshot,
+    visible: timelineVisible,
+    setVisible: setTimelineVisible,
+    isPlaying: timelineIsPlaying,
+    positionSeconds: timelinePositionSeconds,
+    startPreset: timelineStartPreset,
+  } = timelineContext || {};
+
+  // Modulation store - centralizes Audio/BPM/Timeline modulations so they can be applied
+  // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
+  const modulationStore = useModulationStore();
+
+  const { timelineMode, setTimelineMode } = appStateCtx;
+
+  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
+  // Memoized to provide a stable function identity to child components/hooks
+  const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
+
+  const [customPalettes, setCustomPalettes] = useState(() => loadCustomPalettes());
+  useEffect(() => {
+    saveCustomPalettes(customPalettes);
+  }, [customPalettes]);
+
+  const addCustomPalette = useCallback(({ name, colors }) => {
+    const entry = createCustomPaletteEntry({ name, colors });
+    if (!entry) return null;
+    setCustomPalettes(prev => [...prev, entry]);
+    return entry;
+  }, []);
+
+  const mergeCustomPaletteList = useCallback((incoming) => {
+    if (!incoming) return;
+    setCustomPalettes(prev => mergeCustomPalettes(prev, incoming));
+  }, []);
+
+  const palettesWithCustom = useMemo(() => {
+    const builtinList = Array.isArray(palettes) ? palettes : [];
+    const builtins = builtinList.map((p, idx) => ({ ...p, __source: 'builtin', __index: idx }));
+    const customs = (Array.isArray(customPalettes) ? customPalettes : []).map(p => ({ ...p, __source: 'custom' }));
+    return [...builtins, ...customs];
+  }, [customPalettes]);
+
+  const generationPaletteColors = useMemo(() => {
+    try {
+      const snapshot = Array.isArray(layersRef?.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
+      if (!snapshot.length) return [];
+
+      if (globalPaletteIndex === 'custom' && typeof globalPaletteRef === 'string') {
+        const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
+        if (pick && Array.isArray(pick.colors) && pick.colors.length) {
+          return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
+        }
+      }
+
+      const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
+      if (Number.isFinite(idx) && idx != null && (palettes || [])[idx]) {
+        const pick = (palettes || [])[idx];
+        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+        return (Array.isArray(src) ? src : []).filter(c => typeof c === 'string' && c.length > 0);
+      }
+
+      const out = [];
+      const seen = new Set();
+      snapshot.forEach(l => {
+        (Array.isArray(l?.colors) ? l.colors : []).forEach(c => {
+          if (typeof c !== 'string' || !c) return;
+          const k = c.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          out.push(c);
+        });
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  }, [layers, layersRef, palettes, globalPaletteIndex, globalPaletteRef, customPalettes]);
+
+
+	  const { overlayLayersRef: audioSpawnOverlayLayersRef } = useAudioSpawnLayers({
+	    enabled: !!audioSpawnEnabled && !timelineMode,
+	    paused: !!suppressEphemeralOverlays || !!isRecording,
+      zIgnore: !!zIgnore,
+      getIsRnd: (id) => !!includeRndRef.current?.[id],
+	    layers,
+	    selectedLayerIndex,
+	    energyInfluence,
+	    useGlobalPalette: !!audioSpawnUseGlobalPalette,
+	    paletteColors: generationPaletteColors,
+	    triggerMode: audioSpawnTriggerMode,
+	    band: audioSpawnBand,
+	    threshold: audioSpawnThreshold,
+	    cooldownMs: audioSpawnCooldownMs,
+	    halfLifeMs: audioSpawnHalfLifeMs,
+	    halfLifeEnergyFactor: audioSpawnHalfLifeEnergyFactor,
+	    maxLayers: audioSpawnMaxLayers,
+	    repeatWhileAbove: audioSpawnRepeatWhileAbove,
+	    hysteresis: audioSpawnHysteresis,
+	  });
+
+  // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
+  useEffect(() => {
+    if (typeof setTimelineVisible !== 'function') return;
+    setTimelineVisible(!!timelineMode);
+  }, [timelineMode, setTimelineVisible]);
+
+  // When Timeline mode is active, disable competing automation sources (BPM + Audio),
+  // and restore previous runtime state when switching back to Free mode.
+  const automationRestoreRef = useRef({ audioEnabled: null, bpmWasPlaying: null });
+  const lastTimelineModeRef = useRef(false);
+  useEffect(() => {
+    const was = lastTimelineModeRef.current;
+    const now = !!timelineMode;
+    if (was === now) return;
+    lastTimelineModeRef.current = now;
+
+    if (now) {
+      automationRestoreRef.current = {
+        audioEnabled: !!audioReactive?.settings?.enabled,
+        bpmWasPlaying: !!bpmForAnimation?.isPlaying,
+      };
+
+      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
+      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
+      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
+      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
+
+      try { modulationStore?.clearAllMods?.('bpm'); } catch { /* noop */ }
+      try { modulationStore?.clearAllMods?.('audio'); } catch { /* noop */ }
+      return;
+    }
+
+    // Restoring Free mode
+    const { audioEnabled, bpmWasPlaying } = automationRestoreRef.current || {};
+    if (audioEnabled) {
+      try { audioReactive?.setAudioEnabled?.(true); } catch { /* noop */ }
+    }
+    if (bpmWasPlaying) {
+      try { bpmForAnimation?.play?.(); } catch { /* noop */ }
+    }
+  }, [timelineMode, audioReactive, bpmForAnimation, modulationStore]);
+
+  // Enforce "Timeline mode disables BPM + Audio" even if the user toggles them on.
+  useEffect(() => {
+    if (!timelineMode) return;
+    if (bpmForAnimation?.isPlaying) {
+      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
+    }
+    if (audioReactive?.settings?.enabled) {
+      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
+      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
+      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
+    }
+  }, [timelineMode, bpmForAnimation?.isPlaying, audioReactive?.settings?.enabled, audioReactive, bpmForAnimation]);
+
+  // When timeline playback starts from t=0 and a timeline start preset exists,
+  // recall that preset app state before timeline automation is applied.
+  const lastTimelinePlayingRef = useRef(false);
+  useEffect(() => {
+    if (!timelineStartPreset || !timelineStartPreset.appState || !loadAppState) {
+      lastTimelinePlayingRef.current = !!timelineIsPlaying;
+      return;
+    }
+
+    const wasPlaying = lastTimelinePlayingRef.current;
+    const nowPlaying = !!timelineIsPlaying;
+    const pos = typeof timelinePositionSeconds === 'number' ? timelinePositionSeconds : 0;
+
+    // Rising edge of play while at (or very near) t=0
+    if (!wasPlaying && nowPlaying && pos <= 0.001) {
+      loadAppState(timelineStartPreset.appState);
+    }
+
+    lastTimelinePlayingRef.current = nowPlaying;
+  }, [
+    timelineIsPlaying,
+    timelinePositionSeconds,
+    timelineStartPreset,
+    loadAppState,
+  ]);
+
+  // Wrapper for setIsNodeEditMode that sets context with layer info and timeline position
+  // When entering node edit mode, first sync animated positions to React state so Canvas
+  // (which switches to using `layers` in node edit mode) shows the correct positions
+  const handleSetNodeEditMode = useCallback((value) => {
+    if (value) {
+      // CRITICAL: Sync the currently-rendered (animated) snapshot into React state before entering node edit mode.
+      // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode.
+      // Without this sync, entering node edit mode causes a visual jump (often to a timeline-evaluated shape).
+      const animatedLayers = animatedLayersRef.current;
+      const selectedIndex = selectedLayerIndexRef.current || 0;
+      if (Array.isArray(animatedLayers) && animatedLayers.length > 0) {
+        setLayers(prev => {
+          if (!Array.isArray(prev)) return prev;
+          return prev.map((layer, i) => {
+            const animated = animatedLayers[i];
+            if (!animated || !animated.position) return layer;
+            const next = {
+              ...layer,
+              position: {
+                ...layer.position,
+                x: animated.position.x ?? layer.position?.x ?? 0.5,
+                y: animated.position.y ?? layer.position?.y ?? 0.5,
+                scale: animated.position.scale ?? layer.position?.scale ?? 1,
+              },
+              // Also sync orbit/spin angles if present
+              orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
+              spinAngle: animated.spinAngle ?? layer.spinAngle,
+            };
+
+            // Also sync the currently-rendered geometry + key shape params for the active layer
+            // so entering node edit mode does not snap to a different evaluated timeline shape.
+            if (i === selectedIndex) {
+              // Geometry (nodes OR subpaths)
+              if (Array.isArray(animated.subpaths) && animated.subpaths.length > 0) {
+                next.subpaths = JSON.parse(JSON.stringify(animated.subpaths));
+                next.nodes = undefined;
+              } else if (Array.isArray(animated.nodes) && animated.nodes.length >= 3) {
+                next.nodes = animated.nodes.map(n => ({ ...n }));
+                next.subpaths = undefined;
+                next.syncNodesToNumSides = false;
+              }
+
+              // Shape tab params (keep what the user is currently seeing)
+              if (typeof animated.numSides !== 'undefined') next.numSides = animated.numSides;
+              if (typeof animated.curviness !== 'undefined') next.curviness = animated.curviness;
+              if (typeof animated.radiusFactor !== 'undefined') next.radiusFactor = animated.radiusFactor;
+              if (typeof animated.radiusFactorX !== 'undefined') next.radiusFactorX = animated.radiusFactorX;
+              if (typeof animated.radiusFactorY !== 'undefined') next.radiusFactorY = animated.radiusFactorY;
+              if (typeof animated.rotation !== 'undefined') next.rotation = animated.rotation;
+
+              // Offsets + colors (optional but helps prevent visible snapping)
+              if (typeof animated.xOffset !== 'undefined') next.xOffset = animated.xOffset;
+              if (typeof animated.yOffset !== 'undefined') next.yOffset = animated.yOffset;
+              if (Array.isArray(animated.colors)) next.colors = [...animated.colors];
+              if (typeof animated.numColors !== 'undefined') next.numColors = animated.numColors;
+            }
+
+            return next;
+          });
+        });
+      }
+
+      const layersNow = animatedLayersRef.current || layersRef.current || [];
+      const timelineNow = timelineContextRef.current;
+
+      // Entering node edit mode - capture context
+      const layer = layersNow[selectedIndex];
+      
+      // Use getPositionSeconds() if available to get the most up-to-date time from the ref
+      // This avoids using stale state which updates less frequently
+      const positionSeconds = timelineNow?.getPositionSeconds?.() ?? timelineNow?.positionSeconds ?? 0;
+      
+      const context = {
+        layerId: layer?.id || null,
+        layerName: layer?.name || null,
+        timelinePosition: positionSeconds,
+      };
+
+      setIsNodeEditMode(true, context);
+    } else {
+      // Exiting node edit mode - clear context
+      setIsNodeEditMode(false);
+    }
+  }, [setIsNodeEditMode, setLayers]);
+
   // Start animation loop (position, bounce/drift, z-scale)
-  useAnimation(setLayers, isFrozen, globalSpeedMultiplier, zIgnore);
+  // Modulations are now read from the store and applied in a single pass
+  // Shape track updates are evaluated directly during playback for frame-accurate interpolation
+  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
 
   // Config save/load from contexts
   const {
@@ -330,28 +812,21 @@ const MainApp = () => {
     /* unused: saveFullConfiguration */
     loadFullConfiguration,
     getSavedConfigList,
-  } = useParameters();
-  const { getCurrentAppState, loadAppState } = useAppState();
+  } = parametersCtx;
 
-  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
-  const [includeRnd, setIncludeRnd] = useState({
-    backgroundColor: true,
-    globalSpeedMultiplier: true,
-    globalBlendMode: true,
-    globalOpacity: true,
-    layersCount: true,
-    // Split variation include flags
-    variationPosition: true,
-    variationShape: true,
-    variationAnim: true,
-    variationColor: true,
-    // legacy key kept for backward compat with saved states; not used by new UI
-    variation: true,
-  });
-  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
-  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
+	  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
+	  const [includeRnd, setIncludeRnd] = useState(DEFAULT_INCLUDE_RND);
+    useEffect(() => { includeRndRef.current = includeRnd; }, [includeRnd]);
+	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
+	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
 
   // No local popovers; inline checkboxes next to controls
+
+  // Keep frequently-changing data in refs so handlers stay stable
+  const parametersRef = useRef(parameters);
+  const midiMappingsRef = useRef(midiMappings);
+  useEffect(() => { parametersRef.current = parameters; }, [parameters]);
+  useEffect(() => { midiMappingsRef.current = midiMappings; }, [midiMappings]);
 
   // Download helper for exporting JSON
   const downloadJson = useCallback((filename, obj) => {
@@ -370,11 +845,43 @@ const MainApp = () => {
     }
   }, []);
 
-  // Clamp selection and expose currentLayer for Controls
+  // Clamps selection and expose currentLayer for Controls (use throttled UI snapshot)
+  // When a group is selected, show the first layer in that group
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
-  const currentLayer = (Array.isArray(layers) && layers.length > 0)
-    ? (layers[clampedSelectedIndex] || layers[0])
-    : DEFAULT_LAYER;
+  const currentLayer = useMemo(() => {
+    const layerSource = (Array.isArray(uiLayers) && uiLayers.length > 0)
+      ? uiLayers
+      : layers;
+    if (!Array.isArray(layerSource) || layerSource.length === 0) return DEFAULT_LAYER;
+
+    // If a group is selected, find the first layer in that group (match by id from snapshot)
+    if (editTarget?.type === 'group' && editTarget.groupId) {
+      const group = (layerGroups || []).find(g => g.id === editTarget.groupId);
+      if (group && Array.isArray(group.memberIds) && group.memberIds.length > 0) {
+        const firstLayerId = group.memberIds[0];
+        const firstLayer = layerSource.find(l => l?.id === firstLayerId);
+        if (firstLayer) return firstLayer;
+      }
+    }
+
+    // Default: use the selected layer index
+    return layerSource[clampedSelectedIndex] || layerSource[0];
+  }, [uiLayers, layers, clampedSelectedIndex, editTarget, layerGroups]);
+
+  const baseColors = useMemo(() => (
+    Array.isArray(uiLayers?.[0]?.colors) ? uiLayers[0].colors : []
+  ), [uiLayers]);
+
+  const baseNumColors = useMemo(() => {
+    const first = uiLayers?.[0];
+    if (Number.isFinite(first?.numColors)) return first.numColors;
+    if (Array.isArray(first?.colors)) return first.colors.length;
+    return 1;
+  }, [uiLayers]);
+
+  const uiLayerNames = useMemo(() => (
+    (Array.isArray(uiLayers) ? uiLayers : []).map((l, i) => l?.name || `Layer ${i + 1}`)
+  ), [uiLayers]);
 
   const getExportMeta = useCallback(() => {
     const handle = canvasRef.current;
@@ -392,21 +899,78 @@ const MainApp = () => {
     };
   }, []);
 
+  const getCurrentAppStateRef = useRef(getCurrentAppState);
+  useEffect(() => { getCurrentAppStateRef.current = getCurrentAppState; }, [getCurrentAppState]);
+
   const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
     if (!baseName) return;
     const includeState = window.confirm('Include app state (layers, background, animation)?');
     const exportMeta = getExportMeta();
     const payload = {
-      parameters,
-      appState: includeState ? getCurrentAppState() : null,
-      midiMappings: midiMappings || {},
+      parameters: parametersRef.current,
+      appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
+      customPalettes: Array.isArray(customPalettes) ? customPalettes : [],
+      midiMappings: midiMappingsRef.current || {},
+      audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+      bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+      timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
       savedAt: new Date().toISOString(),
-      version: '2.0',
+      version: '2.2',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getCurrentAppState, getExportMeta, midiMappings, parameters]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, customPalettes]);
+
+  const handleRamPresetSave = useCallback(() => {
+    if (typeof setQuickPresetSnapshot !== 'function') return;
+    try {
+      const snapshot = {
+        parameters: Array.isArray(parameters) ? parameters : [],
+        appState: typeof getCurrentAppState === 'function' ? getCurrentAppState() : null,
+        audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+        bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
+        timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
+        exportMeta: getExportMeta(),
+        savedAt: new Date().toISOString(),
+      };
+      setQuickPresetSnapshot(snapshot);
+    } catch (error) {
+      console.warn('[RAM Preset] Failed to capture snapshot', error);
+    }
+  }, [getCurrentAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
+
+  const handleRamPresetRecall = useCallback(() => {
+    if (!quickPreset) {
+      console.info('[RAM Preset] No snapshot stored yet');
+      return;
+    }
+    try {
+      if (Array.isArray(quickPreset.parameters) && typeof applyParametersSnapshot === 'function') {
+        applyParametersSnapshot(quickPreset.parameters);
+      }
+      if (quickPreset.appState && typeof loadAppState === 'function') {
+        loadAppState(quickPreset.appState);
+      }
+      if (quickPreset.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = quickPreset.exportMeta;
+      }
+      // Apply audio config if present
+      if (quickPreset.audioConfig && applyAudioSnapshot) {
+        applyAudioSnapshot(quickPreset.audioConfig);
+      }
+      // Apply BPM config if present
+      if (quickPreset.bpmConfig && applyBPMSnapshot) {
+        applyBPMSnapshot(quickPreset.bpmConfig);
+      }
+      // Apply Timeline config if present
+      if (quickPreset.timelineConfig && applyTimelineSnapshot) {
+        applyTimelineSnapshot(quickPreset.timelineConfig);
+      }
+    } catch (error) {
+      console.warn('[RAM Preset] Failed to recall snapshot', error);
+    }
+  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot]);
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -425,9 +989,27 @@ const MainApp = () => {
   };
   /* eslint-enable no-unused-vars */
 
-  // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
-  // Memoized to provide a stable function identity to child components/hooks
-  const sampleColorsEven = useCallback((base = [], count = 0) => sampleColorsEvenUtil(base, count), []);
+  // Timeline modulation - applies timeline track values to the modulation store
+  // Uses shapeTrackUpdatesRef for animation loop to consume shape track data
+  useTimelineModulation({
+    modulationStore,
+    layers,
+    bpmContext: bpmForAnimation,
+    audioContext: audioReactive,
+    midiContext: useMidi(),
+    setGlobalSpeedMultiplier,
+    setGlobalOpacity: undefined,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    blendModes,
+    palettes,
+    sampleColorsEven,
+    setLayers,
+    getPresetSlot,
+    morphRoute,
+    morphNodes,
+    shapeTrackUpdatesRef, // Pass ref for shape track updates
+  });
 
   // Assign exactly ONE colour per layer (cycled) so Global palette preset can be detected reliably
   // Memoized to provide a stable function identity to child components/hooks
@@ -439,10 +1021,31 @@ const MainApp = () => {
     }));
   }, [setLayers]);
 
+  // Parameter-level "Include in Randomize All" toggles live on ParameterContext parameters (`param.isRandomizable`).
+  // Use current render values (not a post-render effect) so generation immediately respects changes.
+  const randomizableParamMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((p) => {
+      if (p && p.id) map.set(p.id, !!p.isRandomizable);
+    });
+    return map;
+  }, [parameters]);
+  const isParamRandomizable = useCallback((id) => {
+    if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
+    return undefined;
+  }, [randomizableParamMap]);
+
   // Build a new layer by varying from a previous layer using split variation weights
   const buildVariedLayerFrom = useCallback(
-    (prev, nameIndex, baseVar) => buildVariedLayerFromUtil(prev, nameIndex, baseVar, { DEFAULT_LAYER, palettes }),
-    [],
+    (prev, nameIndex, baseVar, options = {}) => buildVariedLayerFromUtil(prev, nameIndex, baseVar, {
+      DEFAULT_LAYER,
+      palettes: palettesWithCustom,
+      isParamRandomizable,
+      randomizeColorsPerLayer,
+      uniformColorCount,
+      ...options,
+    }),
+    [DEFAULT_LAYER, palettesWithCustom, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
   );
 
   const handleImportFile = useCallback(async (e) => {
@@ -451,38 +1054,94 @@ const MainApp = () => {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
+      if (data?.customPalettes) {
+        mergeCustomPaletteList(data.customPalettes);
+      }
       // Apply MIDI mappings immediately if present
-      try { if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings); } catch { /* noop */ }
-      // Save imported JSON into localStorage under a unique name, then load via existing loaders
+      try {
+        if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
+      } catch { /* noop */ }
+
+      // Apply audio config if present
+      try {
+        if (data && data.audioConfig && applyAudioSnapshot) applyAudioSnapshot(data.audioConfig);
+      } catch { /* noop */ }
+
+      // Apply BPM config if present
+      try {
+        if (data && data.bpmConfig && applyBPMSnapshot) applyBPMSnapshot(data.bpmConfig);
+      } catch { /* noop */ }
+
+      // Apply Timeline config if present
+      try {
+        if (data && data.timelineConfig && applyTimelineSnapshot) applyTimelineSnapshot(data.timelineConfig);
+      } catch { /* noop */ }
+
+      // Build a unique name for this import
       const base = file.name.replace(/\.json$/i, '') || 'imported';
       const existing = new Set(getSavedConfigList());
       let name = base;
       let i = 1;
       while (existing.has(name)) { name = `${base}-${i++}`; }
-      const key = `artapp-config-${name}`;
-      localStorage.setItem(key, JSON.stringify(data));
-      // update list
-      const list = getSavedConfigList();
-      if (!list.includes(name)) {
-        localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+
+      // Try to persist to localStorage, but treat quota errors as non-fatal
+      let persistedName = null;
+      try {
+        const key = `artapp-config-${name}`;
+        localStorage.setItem(key, JSON.stringify(data));
+        const list = getSavedConfigList();
+        if (!list.includes(name)) {
+          localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+        }
+        persistedName = name;
+      } catch (storageError) {
+        // QuotaExceededError or similar: log and continue without saving to localStorage
+        console.warn('[Import] Failed to persist config to localStorage; proceeding without saving', storageError);
       }
+
       const loadState = window.confirm('Load app state if available?');
-      const res = loadState ? loadFullConfiguration(name) : loadParameters(name);
+      let res = null;
+
+      if (persistedName) {
+        // Normal path: use existing loaders
+        res = loadState ? loadFullConfiguration(persistedName) : loadParameters(persistedName);
+        if (res?.success && loadState && res.appState && typeof loadAppState === 'function') {
+          loadAppState(res.appState);
+        }
+      } else {
+        // Fallback path: apply directly from the imported JSON without persisting
+        if (loadState) {
+          if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
+            try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
+          }
+          if (data?.appState && typeof loadAppState === 'function') {
+            try { loadAppState(data.appState); } catch { /* noop */ }
+          }
+        } else if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
+          try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
+        }
+
+        // Synthesize minimal result object so exportMeta can still be propagated
+        res = { success: true, exportMeta: data?.exportMeta, appState: data?.appState };
+      }
+
       if (res?.exportMeta && typeof window !== 'undefined') {
         window.__artapp_lastImportMeta = res.exportMeta;
       }
-      if (res?.success && loadState && res.appState) {
-        loadAppState(res.appState);
+
+      if (persistedName) {
+        alert(`Imported '${persistedName}'`);
+      } else {
+        alert('Imported (local save skipped: storage is full)');
       }
-      alert(`Imported '${name}'`);
-  } catch (err) {
+    } catch (err) {
       console.warn('Failed to import JSON', err);
       alert('Failed to import JSON');
     } finally {
       // reset input to allow re-selecting the same file later
       e.target.value = '';
     }
-  }, [getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, mergeCustomPaletteList]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
@@ -502,7 +1161,8 @@ const MainApp = () => {
       // Use enhanced SVG import
       const { layers: newLayers, errors } = await importSVGFiles(fileList, {
         targetScale: 0.4,  // Sensible default scale (40% of canvas)
-        distributePositions: fileList.length > 1,  // Auto-distribute multiple files
+        // Preserve original relative positions for multi-file imports
+        distributePositions: false,
         applyAnimation: false,  // Let user apply animation after import
         extractColors: true  // Extract and apply colors from SVG
       });
@@ -619,7 +1279,7 @@ const MainApp = () => {
 
       // Select the first of the newly added layers
       setSelectedLayerIndex(layersSnapshot.length);
-      setIsNodeEditMode(true);
+      handleSetNodeEditMode(true);
       
       // Success log
       console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layers.length} existing layer(s)`);
@@ -638,7 +1298,7 @@ const MainApp = () => {
     setImportAdjust,
     setImportDebug,
     setImportFitEnabled,
-    setIsNodeEditMode,
+    handleSetNodeEditMode,
     setLayers,
     setSelectedLayerIndex,
     setShowImportAdjust,
@@ -657,6 +1317,8 @@ const MainApp = () => {
     moveSelectedLayerDown,
   } = useLayerManagement({
     layers,
+    layersRef,
+    selectedLayerIndexRef,
     setLayers,
     selectedLayerIndex,
     setSelectedLayerIndex,
@@ -683,12 +1345,14 @@ const MainApp = () => {
   } = useRandomization({
     parameters,
     DEFAULT_LAYER,
-    palettes,
+    palettes: palettesWithCustom,
     blendModes,
     layers,
     selectedLayerIndex,
     randomizePalette,
     randomizeNumColors,
+    randomizeColorsPerLayer,
+    uniformColorCount,
     colorCountMin,
     colorCountMax,
     classicMode,
@@ -702,6 +1366,18 @@ const MainApp = () => {
     setBackgroundColor,
     setGlobalBlendMode,
     setGlobalSpeedMultiplier,
+  });
+
+  useAutosave({
+    isDirty,
+    setIsDirty,
+    lastSavedAt,
+    setLastSavedAt,
+    getCurrentAppState,
+    parameters,
+    isFrozen,
+    getAudioSnapshot,
+    getBPMSnapshot,
   });
 
   const randomizeCurrentLayer = useCallback((randomizePaletteFlag = false) => {
@@ -732,7 +1408,7 @@ const MainApp = () => {
     // NOTE: This path intentionally uses true entropy for quick exploration
     // Deterministic flows are handled inside useRandomization via seeded RNG
     const srcPalette = randomizePalette
-      ? pickPaletteColors(palettes, Math.random, baseColors)
+      ? pickPaletteColors(palettesWithCustom, Math.random, baseColors)
       : baseColors;
     const cMin = Math.max(1, Math.floor(colorCountMin));
     const cMaxCap = Math.max(cMin, Math.floor(colorCountMax));
@@ -749,7 +1425,7 @@ const MainApp = () => {
       if (same) {
         if ((baseColors?.length || 0) <= 1) {
           // Single colour: pick a different colour from a palette
-          const pool = pickPaletteColors(palettes, Math.random, baseColors.length ? baseColors : ['#ffffff']);
+          const pool = pickPaletteColors(palettesWithCustom, Math.random, baseColors.length ? baseColors : ['#ffffff']);
           if (pool.length) {
             // Try to pick a colour that's different
             let pick = pool[Math.floor(Math.random() * pool.length)];
@@ -782,14 +1458,390 @@ const MainApp = () => {
     else modernRandomizeAll();
   }, [classicMode, classicRandomizeAll, modernRandomizeAll]);
 
+  useEffect(() => {
+    variationBaseRef.current.clear();
+  }, [selectedLayerIndex]);
+
+  // --- Variation Keyframe Generation Handlers ---
+
+  // Generate a single variation keyframe at current playhead position
+  // Supports both single-layer shape tracks and global shape tracks
+  const handleGenerateVariationKeyframe = useCallback(() => {
+    if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    
+    if (globalShapeTrack) {
+      // Global shape track: generate variation for ALL layers
+      const firstLayer = layers[0];
+      const variationWeights = {
+        shape: firstLayer?.variationShape ?? firstLayer?.variation ?? 0.2,
+        anim: firstLayer?.variationAnim ?? firstLayer?.variation ?? 0.2,
+        color: firstLayer?.variationColor ?? firstLayer?.variation ?? 0.2,
+        position: firstLayer?.variationPosition ?? firstLayer?.variation ?? 0.2,
+        scale: firstLayer?.variationScale ?? 0,
+      };
+
+      const time = timelineContext.generateGlobalVariationKeyframe?.(globalShapeTrack.id, layers, {
+        variationWeights,
+        isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
+      });
+      if (time != null) {
+        console.log('Generated global variation keyframe at', time);
+      }
+      return;
+    }
+
+    // Fall back to single-layer shape track
+    const layer = layers[selectedLayerIndex];
+    if (!layer) return;
+
+    const layerId = layer.id || layer.name;
+    const shapeTrack = timelineContext.tracks?.find(
+      t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+    );
+
+    if (!shapeTrack) {
+      console.warn('No shape track found for selected layer');
+      return;
+    }
+
+    const baseKey = layer.id || layer.name;
+    let baseLayer = variationBaseRef.current.get(baseKey);
+    if (!baseLayer) {
+      baseLayer = JSON.parse(JSON.stringify(layer));
+      variationBaseRef.current.set(baseKey, baseLayer);
+    }
+
+    const variationWeights = {
+      shape: layer.variationShape ?? layer.variation ?? 0.2,
+      anim: layer.variationAnim ?? layer.variation ?? 0.2,
+      color: layer.variationColor ?? layer.variation ?? 0.2,
+      position: layer.variationPosition ?? layer.variation ?? 0.2,
+      scale: layer.variationScale ?? 0,
+    };
+
+    const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, {
+      variationWeights,
+      isParamRandomizable,
+      constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+      paletteColors: generationPaletteColors,
+    });
+    if (keyframeId) {
+      console.log('Generated variation keyframe:', keyframeId);
+    }
+}, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors]);
+
+  // Generate random keyframes (prompts for count)
+  // Supports both single-layer shape tracks and global shape tracks
+  const handleGenerateRandomKeyframes = useCallback(() => {
+    if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    const isGlobal = !!globalShapeTrack;
+    
+    // For single-layer mode, get the selected layer's track
+    let shapeTrack = globalShapeTrack;
+    let layer = layers[selectedLayerIndex];
+    
+    if (!isGlobal) {
+      if (!layer) return;
+      const layerId = layer.id || layer.name;
+      shapeTrack = timelineContext.tracks?.find(
+        t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+      );
+
+      if (!shapeTrack) {
+        console.warn('No shape track found for selected layer');
+        return;
+      }
+    }
+
+    // For single-layer, cache base layer
+    let baseLayer = layer;
+    if (!isGlobal && layer) {
+      const baseKey = layer.id || layer.name;
+      baseLayer = variationBaseRef.current.get(baseKey);
+      if (!baseLayer) {
+        baseLayer = JSON.parse(JSON.stringify(layer));
+        variationBaseRef.current.set(baseKey, baseLayer);
+      }
+    }
+
+    const countStr = window.prompt(`Number of ${isGlobal ? 'global ' : ''}keyframes to generate:`, '5');
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+
+    const playheadSeconds = timelineContext?.getPositionSeconds?.()
+      ?? timelineContext?.positionSeconds
+      ?? timelinePositionSeconds
+      ?? 0;
+    const defaultStartTime = Number.isFinite(playheadSeconds) ? Math.max(0, playheadSeconds) : 0;
+
+    const sortedKeyframes = Array.isArray(shapeTrack.keyframes)
+      ? [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds)
+      : [];
+    const TIME_EPSILON = 0.01;
+    const nextKeyframe = sortedKeyframes.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > defaultStartTime + TIME_EPSILON);
+    const timelineEndSeconds =
+      timelineContext?.audio?.durationSeconds
+      ?? timelineContext?.lengthSeconds
+      ?? 0;
+    const defaultEndTime = nextKeyframe?.timeSeconds
+      ?? (Number.isFinite(timelineEndSeconds) ? timelineEndSeconds : 0);
+
+    const startStr = window.prompt('Start time (seconds):', defaultStartTime.toFixed(2));
+    if (startStr == null) return;
+    const startTime = parseFloat(startStr);
+
+    const endStr = window.prompt('End time (seconds):', defaultEndTime.toFixed(2));
+    if (endStr == null) return;
+    const endTime = parseFloat(endStr);
+
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
+      window.alert('Invalid time range. Start time must be less than end time.');
+      return;
+    }
+
+    // Get variation weights from first layer (for global) or selected layer
+    const refLayer = isGlobal ? layers[0] : layer;
+    const variationWeights = {
+      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
+      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
+      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
+      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
+      scale: refLayer?.variationScale ?? 0,
+    };
+
+    const useTransients = timelineContext.transients?.length > 0 &&
+      window.confirm('Use transient markers for keyframe times?');
+
+    // Node modulation only for single-layer tracks (not global)
+    let nodeMod = null;
+    if (!isGlobal && enableBreathing) {
+      const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+      if (useNodeMod) {
+        const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+        const amount = parseFloat(amountStr);
+        const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+        const cycles = parseFloat(cyclesStr);
+        nodeMod = {
+          enabled: true,
+          mode: 'sineRadial',
+          amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+          cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+          mask: 'all',
+          phaseSpread: 0.5,
+        };
+      }
+    }
+
+    let energyInfluenceValue = 0;
+    if (enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+      energyInfluenceValue = Number.isFinite(energyInfluence)
+        ? Math.max(0, Math.min(2, energyInfluence))
+        : 0.5;
+    }
+
+    let keyframeIds;
+    if (isGlobal) {
+      // Global shape track: generate for all layers
+      keyframeIds = timelineContext.generateGlobalRandomKeyframes?.(globalShapeTrack.id, layers, count, {
+        useTransients,
+        startTime,
+        endTime,
+        energyInfluence: energyInfluenceValue,
+        variationWeights,
+        isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
+      });
+    } else {
+      // Single-layer shape track
+      keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, baseLayer, count, {
+        useTransients,
+        startTime,
+        endTime,
+        nodeMod,
+        energyInfluence: energyInfluenceValue,
+        variationWeights,
+        isParamRandomizable,
+        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+        paletteColors: generationPaletteColors,
+      });
+    }
+
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'random keyframes',
+        nodeMod ? 'with node modulation' : '',
+        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
+    }
+}, [timelineContext, layers, selectedLayerIndex, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
+
+  // Fill keyframes between nearest keyframes around playhead (prompts for count)
+  // Supports both single-layer shape tracks and global shape tracks
+  const handleFillKeyframesBetween = useCallback(() => {
+    if (!timelineContext?.visible) return;
+
+    // First check for a global shape track
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    const isGlobal = !!globalShapeTrack;
+    
+    // For single-layer mode, get the selected layer's track
+    let shapeTrack = globalShapeTrack;
+    let layer = layers[selectedLayerIndex];
+    
+    if (!isGlobal) {
+      if (!layer) return;
+      const layerId = layer.id || layer.name;
+      shapeTrack = timelineContext.tracks?.find(
+        t => t.type === 'shape' && (t.targetId?.includes(layerId) || t.targetId?.includes(layer.name))
+      );
+
+      if (!shapeTrack || !shapeTrack.keyframes?.length) {
+        console.warn('No shape track or keyframes found for selected layer');
+        return;
+      }
+    }
+
+    if (!shapeTrack?.keyframes?.length) {
+      console.warn('No keyframes found on track');
+      return;
+    }
+
+    const sorted = [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
+    if (sorted.length < 2) {
+      window.alert('Need at least 2 keyframes to fill between');
+      return;
+    }
+
+    const playheadSeconds = timelineContext?.getPositionSeconds?.()
+      ?? timelineContext?.positionSeconds
+      ?? timelinePositionSeconds
+      ?? 0;
+    const pos = Number.isFinite(playheadSeconds) ? playheadSeconds : 0;
+    const TIME_EPSILON = 0.01;
+
+    const left = [...sorted].reverse().find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds < pos - TIME_EPSILON);
+    const right = sorted.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > pos + TIME_EPSILON);
+
+    if (!left || !right) {
+      window.alert('Need a keyframe on both sides of the playhead to fill between.');
+      return;
+    }
+
+    const startTime = left.timeSeconds;
+    const endTime = right.timeSeconds;
+
+    const countStr = window.prompt(
+      `Fill ${isGlobal ? 'global ' : ''}keyframes between ${startTime.toFixed(2)}s and ${endTime.toFixed(2)}s.\nNumber of keyframes to generate:`,
+      '3'
+    );
+    const count = parseInt(countStr, 10);
+    if (!Number.isFinite(count) || count < 1) return;
+
+    // Get variation weights from first layer (for global) or selected layer
+    const refLayer = isGlobal ? layers[0] : layer;
+    const variationWeights = {
+      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
+      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
+      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
+      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
+      scale: refLayer?.variationScale ?? 0,
+    };
+
+    // Node modulation only for single-layer tracks (not global)
+    let nodeMod = null;
+    if (!isGlobal && enableBreathing) {
+      const useNodeMod = window.confirm('Apply node modulation (radial breathing effect)?');
+      if (useNodeMod) {
+        const amountStr = window.prompt('Modulation amount (0.05-0.5):', '0.15');
+        const amount = parseFloat(amountStr);
+        const cyclesStr = window.prompt('Number of breathing cycles:', '1');
+        const cycles = parseFloat(cyclesStr);
+        nodeMod = {
+          enabled: true,
+          mode: 'sineRadial',
+          amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
+          cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
+          mask: 'all',
+          phaseSpread: 0.5,
+        };
+      }
+    }
+
+    let energyInfluenceValue = 0;
+    if (enableEnergyScaling && timelineContext.energyMap?.length > 0) {
+      energyInfluenceValue = Number.isFinite(energyInfluence)
+        ? Math.max(0, Math.min(2, energyInfluence))
+        : 0.5;
+    }
+
+    let keyframeIds;
+    if (isGlobal) {
+      // Global shape track: generate for all layers
+      keyframeIds = timelineContext.generateGlobalKeyframesBetween?.(
+        globalShapeTrack.id,
+        layers,
+        startTime,
+        endTime,
+        count,
+        {
+          energyInfluence: energyInfluenceValue,
+          variationWeights,
+          isParamRandomizable,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: generationPaletteColors,
+        }
+      );
+    } else {
+      // Single-layer shape track
+      keyframeIds = timelineContext.generateKeyframesBetween?.(
+        shapeTrack.id,
+        layer,
+        startTime,
+        endTime,
+        count,
+        {
+          nodeMod,
+          energyInfluence: energyInfluenceValue,
+          variationWeights,
+          isParamRandomizable,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: generationPaletteColors,
+        }
+      );
+    }
+
+    if (keyframeIds?.length) {
+      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'keyframes between', startTime, 'and', endTime,
+        nodeMod ? 'with node modulation' : '',
+        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
+    }
+}, [timelineContext, layers, selectedLayerIndex, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
+
+  // Shift+C: capture current layers to a global shape keyframe (if global track exists)
+  const handleCaptureGlobalKeyframe = useCallback(() => {
+    if (!timelineContext?.visible) return;
+    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
+    if (!globalShapeTrack) return;
+    const time = timelineContext.captureGlobalShapeKeyframe?.(globalShapeTrack.id, layers, {});
+    if (time != null) {
+      console.log('Captured global shape keyframe at', time);
+    }
+  }, [timelineContext, layers]);
+
   // Keyboard shortcuts
-  useKeyboardShortcuts({
+		  useKeyboardShortcuts({
     setIsFrozen,
     toggleFullscreen,
     handleRandomizeAll,
-    setShowGlobalMidi,
     setIsOverlayVisible,
-    setIsNodeEditMode,
+    setIsNodeEditMode: handleSetNodeEditMode,
     setSelectedLayerIndex,
     hotkeyRef,
     setZIgnore,
@@ -797,8 +1849,24 @@ const MainApp = () => {
     clearSelection,
     setParameterTargetMode,
     setShowLayerOutlines,
+    setIsolateMode,
     deleteLayer,
-  });
+    saveQuickPresetToMemory: handleRamPresetSave,
+    recallQuickPresetFromMemory: handleRamPresetRecall,
+    toggleBPM: bpmForAnimation?.togglePlay,
+	    toggleAudio: audioReactive?.toggleAudio,
+	    // Timeline controls
+	    toggleTimeline: () => setTimelineMode?.((v) => !v),
+	    toggleTimelinePlay: timelineContext?.togglePlay,
+	    stopTimeline: timelineContext?.stop,
+	    timelineVisible: timelineContext?.visible,
+	    timelineIsPlaying: timelineContext?.isPlaying,
+    // Variation keyframe generation
+	    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
+	    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
+	    onFillKeyframesBetween: handleFillKeyframesBetween,
+      onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
+	  });
 
   // MIDI helper refs and handlers integration
   const rndAllPrevRef = useRef(0);
@@ -825,6 +1893,97 @@ const MainApp = () => {
     clampedSelectedIndex: selectedIdxForMidi,
     layersCountParam,
   });
+
+  // Centralize all Audio handlers (mirrors MIDI pattern)
+  const audioRndAllPrevRef = useRef(0);
+  const { registerAudioHandler } = audioReactive || {};
+  useAudioHandlers({
+    registerAudioHandler,
+    setGlobalSpeedMultiplier,
+    setGlobalBlendMode,
+    blendModes,
+    layers,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    palettes,
+    sampleColorsEven,
+    backgroundColor,
+    setBackgroundColor,
+    rndAllPrevRef: audioRndAllPrevRef,
+    handleRandomizeAll,
+    clampedSelectedIndex: selectedIdxForMidi,
+  });
+
+  // Register Audio handlers for individual layer parameters
+  // NEW: Handlers write to modulation store instead of calling setLayers directly
+  useAudioLayerHandlers({
+    registerAudioHandler,
+    layers,
+    modulationStore,
+    palettes,
+    parameterTargetMode,
+  });
+
+  // Centralize all BPM handlers (mirrors MIDI/Audio pattern)
+  const bpmContext = useBPM();
+  const bpmRndAllPrevRef = useRef(0);
+  const { registerBPMHandler } = bpmContext || {};
+  useBPMHandlers({
+    registerBPMHandler,
+    setGlobalSpeedMultiplier,
+    setGlobalBlendMode,
+    blendModes,
+    layers,
+    setLayers,
+    DEFAULT_LAYER,
+    buildVariedLayerFrom,
+    setSelectedLayerIndex,
+    palettes,
+    sampleColorsEven,
+    backgroundColor,
+    setBackgroundColor,
+    rndAllPrevRef: bpmRndAllPrevRef,
+    handleRandomizeAll,
+    clampedSelectedIndex: selectedIdxForMidi,
+  });
+
+  // Register BPM handlers for individual layer parameters
+  // NEW: Handlers write to modulation store instead of calling setLayers directly
+  useBPMLayerHandlers({
+    registerBPMHandler,
+    layers,
+    modulationStore,
+    palettes,
+    parameterTargetMode,
+  });
+
+  // When switching from global to individual mode, clear modulations for non-selected layers
+  const prevTargetModeRef = useRef(parameterTargetMode);
+  useEffect(() => {
+    const prevMode = prevTargetModeRef.current;
+    prevTargetModeRef.current = parameterTargetMode;
+    
+    if (prevMode === 'global' && parameterTargetMode === 'individual') {
+      // Get the currently selected layer's ID
+      const selectedLayer = layers[selectedLayerIndex];
+      const keepIds = selectedLayer?.id ? [selectedLayer.id] : [];
+      
+      // Clear modulations for all other layers
+      if (modulationStore?.clearModsExcept) {
+        modulationStore.clearModsExcept('audio', keepIds);
+        modulationStore.clearModsExcept('bpm', keepIds);
+      }
+    }
+  }, [parameterTargetMode, layers, selectedLayerIndex, modulationStore]);
+
+  // Remove orphaned modulations when layers are deleted or replaced
+  useEffect(() => {
+    if (!modulationStore?.pruneLayerMods) return;
+    const ids = Array.isArray(layers) ? layers.map(layer => layer?.id).filter(Boolean) : [];
+    modulationStore.pruneLayerMods(ids);
+  }, [layers, modulationStore]);
 
   // randomizeScene provided by hook
 
@@ -878,12 +2037,18 @@ const MainApp = () => {
 
   // Download helper – choose resolution, freeze time during export
   const downloadImage = useCallback(async () => {
+    const wasFrozen = isFrozen;
+    const wasSuppressing = suppressEphemeralOverlays;
     try {
-      // 1. Freeze animation to capture exact frame
-      const wasFrozen = isFrozen;
-      if (!wasFrozen) setIsFrozen(true);
-      // Wait one animation frame to ensure freeze applied and Canvas has repainted
-      await new Promise(res => requestAnimationFrame(() => res()));
+      if (!wasSuppressing) {
+        setSuppressEphemeralOverlays(true);
+      }
+      if (!wasFrozen) {
+        setIsFrozen(true);
+      }
+
+      // Wait one frame so the freeze is reflected in the canvas output
+      await new Promise(resolve => requestAnimationFrame(resolve));
 
       const canvasHandle = canvasRef.current;
       if (!canvasHandle) return;
@@ -892,12 +2057,15 @@ const MainApp = () => {
 
       const viewW = src.width || 1;
       const viewH = src.height || 1;
-      // 2. Ask user for resolution choice
-      const choiceRaw = (window.prompt('Export size (A4, A3, A2, VIEW):', 'A3') || '').trim().toUpperCase();
-      const choice = ['A4','A3','A2','VIEW'].includes(choiceRaw) ? choiceRaw : 'A3';
-      const MAX_DIM = (choice === 'VIEW') ? Math.max(viewW, viewH) : (choice === 'A4' ? 3508 : (choice === 'A2' ? 7016 : 4961));
 
-      let targetW, targetH;
+      const choiceRaw = (window.prompt('Export size (A4, A3, A2, VIEW):', 'A3') || '').trim().toUpperCase();
+      const choice = ['A4', 'A3', 'A2', 'VIEW'].includes(choiceRaw) ? choiceRaw : 'A3';
+      const MAX_DIM = choice === 'VIEW'
+        ? Math.max(viewW, viewH)
+        : (choice === 'A4' ? 3508 : (choice === 'A2' ? 7016 : 4961));
+
+      let targetW;
+      let targetH;
       if (viewW >= viewH) {
         targetW = MAX_DIM;
         targetH = Math.round(MAX_DIM * viewH / viewW);
@@ -912,70 +2080,46 @@ const MainApp = () => {
       const ctx = off.getContext('2d');
       if (!ctx) return;
 
-      // Fill background
-      ctx.fillStyle = backgroundColor || '#ffffff';
-      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, targetW, targetH);
 
-      const animTime = (canvasHandle.getAnimationTime ? canvasHandle.getAnimationTime() : 0) || 0;
-      // Render each layer exactly once at high resolution
-      const snapshot = layersRef.current || [];
-      snapshot.forEach(layer => {
-        if (!layer?.visible) return;
-        drawLayerWithWrap(ctx, layer, off, (c, l, cv) => {
-          if (l.image && l.image.src) {
-            drawImage(c, l, cv, globalBlendMode);
-          } else {
-            drawShape(c, l, cv, globalSeed, animTime, false, globalBlendMode);
-          }
-        });
-      });
+      const blob = await new Promise(resolve => off.toBlob(resolve, 'image/png'));
+      if (!blob) return;
 
-      off.toBlob(blob => {
-        if (!blob) return;
-        const link = document.createElement('a');
-        link.download = `layered-shape-${choice.toLowerCase()}-${targetW}x${targetH}.png`;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-        // 4. Restore previous frozen state
-        if (!wasFrozen) setIsFrozen(false);
-      }, 'image/png');
+      const link = document.createElement('a');
+      link.download = `layered-shape-${choice.toLowerCase()}-${targetW}x${targetH}.png`;
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (err) {
       console.warn('High-res export failed', err);
-      try { if (!isFrozen) setIsFrozen(false); } catch { /* noop */ }
+    } finally {
+      if (!wasFrozen) {
+        try {
+          setIsFrozen(false);
+        } catch {
+          /* noop */
+        }
+      }
+      if (!wasSuppressing) {
+        try {
+          setSuppressEphemeralOverlays(false);
+        } catch {
+          /* noop */
+        }
+      }
     }
-  }, [backgroundColor, globalBlendMode, globalSeed, isFrozen, setIsFrozen]);
+  }, [isFrozen, setIsFrozen, suppressEphemeralOverlays]);
 
   return (
-    <div className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
+    <div ref={containerRef} className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
       <main className="main-layout">
-        {/* Keyboard Shortcuts Overlay */}
-        {showShortcuts && (
-          <div className="shortcuts-overlay" aria-live="polite" aria-modal="true" role="dialog">
-            <div className="shortcuts-card">
-              <div className="shortcuts-title">Keyboard Shortcuts</div>
-              <div className="shortcuts-grid">
-                <div><kbd>1</kbd><span>Global tab</span></div>
-                <div><kbd>2</kbd><span>Layer Shape tab</span></div>
-                <div><kbd>3</kbd><span>Layer Animation tab</span></div>
-                <div><kbd>4</kbd><span>Layer Colour tab</span></div>
-                <div><kbd>5</kbd><span>Presets tab</span></div>
-                <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
-                <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
-                <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
-                <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
-                <div><kbd>M</kbd><span>Toggle MIDI panel</span></div>
-                <div><kbd>Space</kbd><span>Freeze / Unfreeze</span></div>
-                <div><kbd>Delete</kbd><span>Delete selected layer (Node Edit mode)</span></div>
-                <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
-                <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
-                <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
-                <div><kbd>Esc</kbd><span>Close dialogs/overlays</span></div>
-              </div>
-              <div className="shortcuts-hint">Press Esc or K to close</div>
-            </div>
-          </div>
-        )}
+        <KeyboardShortcutsOverlay
+          visible={showShortcuts}
+          onClose={() => setShowShortcuts(false)}
+        />
         {/* Quick save/load buttons in top bar */}
         <div className="top-bar" style={{ 
           position: 'fixed', 
@@ -1013,134 +2157,590 @@ const MainApp = () => {
           onChange={handleImportFile}
         />
 
-        {/* Main Canvas Area - Full screen */}
-        <div 
-          className="canvas-container" 
-          ref={containerRef}
-          style={{ 
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100%',
-            height: '100%'
-          }}
-        >
-          <Canvas
-            ref={canvasRef}
-            layers={layers}
-            isFrozen={isFrozen}
-            colorFadeWhileFrozen={colorFadeWhileFrozen}
-            backgroundColor={backgroundColor}
-            globalSeed={globalSeed}
-            globalBlendMode={globalBlendMode}
-            isNodeEditMode={isNodeEditMode}
-            selectedLayerIndex={selectedLayerIndex}
-            setLayers={setLayers}
-            setSelectedLayerIndex={setSelectedLayerIndex}
-            classicMode={classicMode}
-          />
-          
-          {/* Import Adjust Panel (multi-file SVG import) */}
-          {showImportAdjust && (
-            <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
-              <ImportAdjustPanel
-                importAdjust={importAdjust}
-                onChange={(adj)=> applyImportAdjust(adj)}
-                fitEnabled={importFitEnabled}
-                onToggleFit={()=> setImportFitEnabled(v=>!v)}
-                debug={importDebug}
-                onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
-                onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
-                onClose={()=> setShowImportAdjust(false)}
+        {/* Full canvas mode when timeline is hidden */}
+        {!isFullscreen && !timelineMode && (
+          <div
+            className="canvas-container"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+            }}
+          >
+	            <Canvas
+	              ref={canvasRef}
+	              layers={layers}
+	              layersRef={animatedLayersRef}
+	              overlayLayersRef={audioSpawnOverlayLayersRef}
+	              renderOverlayLayers={!suppressEphemeralOverlays}
+	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
+	              isFrozen={isFrozen}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              backgroundColor={backgroundColor}
+	              globalSeed={globalSeed}
+              globalBlendMode={globalBlendMode}
+              isNodeEditMode={isNodeEditMode}
+              selectedLayerIndex={selectedLayerIndex}
+              setLayers={setLayers}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              classicMode={classicMode}
+	              isolateMode={isolateMode}
+	              getActiveTargetLayerIds={getActiveTargetLayerIds}
+	            />
+            
+            {showImportAdjust && (
+              <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
+                <ImportAdjustPanel
+                  importAdjust={importAdjust}
+                  onChange={(adj)=> applyImportAdjust(adj)}
+                  fitEnabled={importFitEnabled}
+                  onToggleFit={()=> setImportFitEnabled(v=>!v)}
+                  debug={importDebug}
+                  onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
+                  onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
+                  onClose={()=> setShowImportAdjust(false)}
+                />
+              </div>
+            )}
+            
+            <FloatingActionButtons
+              onDownload={downloadImage}
+              onRandomize={randomizeScene}
+              onToggleFullscreen={toggleFullscreen}
+              isFullscreen={isFullscreen}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              isRecording={isRecording}
+              onToggleTargetMode={toggleParameterTargetMode}
+              parameterTargetMode={parameterTargetMode}
+            />
+            
+            <button
+              type="button"
+              onClick={() => setTimelineMode?.((v) => !v)}
+              style={{
+                position: 'absolute',
+                bottom: 16,
+                left: 16,
+                background: 'rgba(0, 0, 0, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: 8,
+                padding: '8px 16px',
+                color: 'white',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                zIndex: 50,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title="Toggle Timeline (T)"
+            >
+              🎬 Timeline
+            </button>
+            
+            {/* Bottom Panel with controls - shown when timeline is hidden */}
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                maxHeight: '55vh',
+                overflowY: 'auto',
+                background: 'rgba(20, 20, 30, 0.95)',
+                borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+	              <BottomPanel
+	              backgroundColor={backgroundColor}
+	              setBackgroundColor={setBackgroundColor}
+	              backgroundImage={backgroundImage}
+	              setBackgroundImage={setBackgroundImage}
+              isFrozen={isFrozen}
+              setIsFrozen={setIsFrozen}
+              enableBreathing={enableBreathing}
+              setEnableBreathing={setEnableBreathing}
+              colorFadeWhileFrozen={colorFadeWhileFrozen}
+              setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+              classicMode={classicMode}
+              setClassicMode={setClassicMode}
+              zIgnore={zIgnore}
+              setZIgnore={setZIgnore}
+              globalSeed={globalSeed}
+              setGlobalSeed={setGlobalSeed}
+              globalSpeedMultiplier={globalSpeedMultiplier}
+              setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+	              getIsRnd={getIsRnd}
+	              setIsRnd={setIsRnd}
+	                palettes={palettesWithCustom}
+                  automationPalettes={palettes}
+                  globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={addCustomPalette}
+	              blendModes={blendModes}
+	              globalBlendMode={globalBlendMode}
+	              setGlobalBlendMode={setGlobalBlendMode}
+              parameterTargetMode={parameterTargetMode}
+              setParameterTargetMode={setParameterTargetMode}
+	              onQuickSave={handleQuickSave}
+	              onQuickLoad={handleQuickLoad}
+	              energyInfluence={energyInfluence}
+	              setEnergyInfluence={setEnergyInfluence}
+		              audioSpawnEnabled={audioSpawnEnabled}
+		              setAudioSpawnEnabled={setAudioSpawnEnabled}
+		              audioSpawnTriggerMode={audioSpawnTriggerMode}
+		              setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+		              audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+		              setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+		              audioSpawnHysteresis={audioSpawnHysteresis}
+		              setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+		              audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+		              setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+		              audioSpawnBand={audioSpawnBand}
+		              setAudioSpawnBand={setAudioSpawnBand}
+	              audioSpawnThreshold={audioSpawnThreshold}
+	              setAudioSpawnThreshold={setAudioSpawnThreshold}
+	              audioSpawnCooldownMs={audioSpawnCooldownMs}
+	              setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+	              audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+	              setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+	              audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+	              setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+	              audioSpawnMaxLayers={audioSpawnMaxLayers}
+	              setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+	              timelineMode={timelineMode}
+	              setTimelineMode={setTimelineMode}
+	              layers={uiLayers}
+	              selectedLayerIds={selectedLayerIds}
+              toggleLayerSelection={toggleLayerSelection}
+              clearSelection={clearSelection}
+              layerGroups={layerGroups}
+              editTarget={editTarget}
+              setEditTarget={setEditTarget}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+              sampleColorsEven={sampleColorsEven}
+              assignOneColorPerLayer={assignOneColorPerLayer}
+              setLayers={setLayers}
+              DEFAULT_LAYER={DEFAULT_LAYER}
+              buildVariedLayerFrom={buildVariedLayerFrom}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              handleRandomizeAll={handleRandomizeAll}
+              currentLayer={currentLayer}
+              updateCurrentLayer={updateCurrentLayer}
+              randomizeCurrentLayer={randomizeCurrentLayer}
+              randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
+              randomizeCurrentLayerColors={randomizeCurrentLayerColors}
+              baseColors={baseColors}
+              baseNumColors={baseNumColors}
+              isNodeEditMode={isNodeEditMode}
+              setIsNodeEditMode={handleSetNodeEditMode}
+              randomizePalette={randomizePalette}
+              setRandomizePalette={setRandomizePalette}
+              randomizeNumColors={randomizeNumColors}
+              setRandomizeNumColors={setRandomizeNumColors}
+              syncLayerColorsToFirst={syncLayerColorsToFirst}
+              setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
+              colorCountMin={colorCountMin}
+              colorCountMax={colorCountMax}
+              setColorCountMin={setColorCountMin}
+              setColorCountMax={setColorCountMax}
+              layerNames={uiLayerNames}
+              selectedLayerIndex={clampedSelectedIndex}
+              selectLayer={selectLayer}
+              addNewLayer={addNewLayer}
+              deleteLayer={deleteLayer}
+              moveSelectedLayerUp={moveSelectedLayerUp}
+              moveSelectedLayerDown={moveSelectedLayerDown}
+              handleImportSVGClick={handleImportSVGClick}
+              presetSlots={presetSlots}
+              getPresetSlot={getPresetSlot}
+              loadAppState={loadAppState}
+              morphEnabled={morphEnabled}
+              morphRoute={morphRoute}
+              morphDurationPerLeg={morphDurationPerLeg}
+              morphEasing={morphEasing}
+              morphLoopMode={morphLoopMode}
+              setMorphEnabled={setMorphEnabled}
+              setMorphRoute={setMorphRoute}
+              setMorphDurationPerLeg={setMorphDurationPerLeg}
+              setMorphEasing={setMorphEasing}
+              setMorphLoopMode={setMorphLoopMode}
+              morphMode={morphMode}
+              setMorphMode={setMorphMode}
+              applyVariationInstantly={applyVariationInstantly}
+              setApplyVariationInstantly={setApplyVariationInstantly}
+              randomizeColorsPerLayer={randomizeColorsPerLayer}
+              setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+              uniformColorCount={uniformColorCount}
+              setUniformColorCount={setUniformColorCount}
+            />
+            </div>
+          </div>
+        )}
+
+        {/* Split layout when timeline is visible */}
+        {!isFullscreen && timelineMode && timelineVisible && (
+          <div
+            style={{
+              position: 'fixed',
+              top: `${TOP_BAR_HEIGHT}px`,
+              left: 0,
+              right: 0,
+              height: topPanelHeightExpr,
+              display: 'flex',
+              flexDirection: 'row',
+              zIndex: 150,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Left Panel - Controls */}
+            <div
+              style={{
+                width: `${leftPanelRatio * 100}%`,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                background: 'rgba(20, 20, 30, 0.95)',
+                borderRight: '1px solid rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%', // match top panel height
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                  padding: '0 12px 0 12px',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <BottomPanel
+                // GlobalControls props
+                backgroundColor={backgroundColor}
+                setBackgroundColor={setBackgroundColor}
+                backgroundImage={backgroundImage}
+                setBackgroundImage={setBackgroundImage}
+                isFrozen={isFrozen}
+                setIsFrozen={setIsFrozen}
+                enableBreathing={enableBreathing}
+                setEnableBreathing={setEnableBreathing}
+                energyInfluence={energyInfluence}
+                setEnergyInfluence={setEnergyInfluence}
+	                audioSpawnEnabled={audioSpawnEnabled}
+	                setAudioSpawnEnabled={setAudioSpawnEnabled}
+	                audioSpawnTriggerMode={audioSpawnTriggerMode}
+	                setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+	                audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+	                setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+	                audioSpawnHysteresis={audioSpawnHysteresis}
+	                setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+	                audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
+	                setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
+	                audioSpawnBand={audioSpawnBand}
+	                setAudioSpawnBand={setAudioSpawnBand}
+                audioSpawnThreshold={audioSpawnThreshold}
+                setAudioSpawnThreshold={setAudioSpawnThreshold}
+                audioSpawnCooldownMs={audioSpawnCooldownMs}
+                setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+                audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+                setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+                audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+                setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+                audioSpawnMaxLayers={audioSpawnMaxLayers}
+                setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+                colorFadeWhileFrozen={colorFadeWhileFrozen}
+                setColorFadeWhileFrozen={setColorFadeWhileFrozen}
+                classicMode={classicMode}
+                setClassicMode={setClassicMode}
+                zIgnore={zIgnore}
+                setZIgnore={setZIgnore}
+                globalSeed={globalSeed}
+                setGlobalSeed={setGlobalSeed}
+                globalSpeedMultiplier={globalSpeedMultiplier}
+                setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
+	                getIsRnd={getIsRnd}
+	                setIsRnd={setIsRnd}
+	                palettes={palettesWithCustom}
+                  automationPalettes={palettes}
+                  customPalettes={customPalettes}
+                  onSaveCustomPalette={addCustomPalette}
+                  globalPaletteIndex={globalPaletteIndex}
+                  globalPaletteRef={globalPaletteRef}
+                  setGlobalPaletteRef={setGlobalPaletteRef}
+                  setGlobalPaletteIndex={setGlobalPaletteIndex}
+	                blendModes={blendModes}
+	                globalBlendMode={globalBlendMode}
+	                setGlobalBlendMode={setGlobalBlendMode}
+                parameterTargetMode={parameterTargetMode}
+                setParameterTargetMode={setParameterTargetMode}
+                onQuickSave={handleQuickSave}
+                onQuickLoad={handleQuickLoad}
+                timelineMode={timelineMode}
+                setTimelineMode={setTimelineMode}
+                layers={uiLayers}
+                selectedLayerIds={selectedLayerIds}
+                toggleLayerSelection={toggleLayerSelection}
+                clearSelection={clearSelection}
+                layerGroups={layerGroups}
+                editTarget={editTarget}
+                setEditTarget={setEditTarget}
+                getActiveTargetLayerIds={getActiveTargetLayerIds}
+                sampleColorsEven={sampleColorsEven}
+                assignOneColorPerLayer={assignOneColorPerLayer}
+                setLayers={setLayers}
+                DEFAULT_LAYER={DEFAULT_LAYER}
+                buildVariedLayerFrom={buildVariedLayerFrom}
+                setSelectedLayerIndex={setSelectedLayerIndex}
+                handleRandomizeAll={handleRandomizeAll}
+                // Controls props
+                currentLayer={currentLayer}
+                updateCurrentLayer={updateCurrentLayer}
+                randomizeCurrentLayer={randomizeCurrentLayer}
+                randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
+                randomizeCurrentLayerColors={randomizeCurrentLayerColors}
+                baseColors={baseColors}
+                baseNumColors={baseNumColors}
+                isNodeEditMode={isNodeEditMode}
+                setIsNodeEditMode={handleSetNodeEditMode}
+                randomizePalette={randomizePalette}
+                setRandomizePalette={setRandomizePalette}
+                randomizeNumColors={randomizeNumColors}
+                setRandomizeNumColors={setRandomizeNumColors}
+                syncLayerColorsToFirst={syncLayerColorsToFirst}
+                setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
+                colorCountMin={colorCountMin}
+                colorCountMax={colorCountMax}
+                setColorCountMin={setColorCountMin}
+                setColorCountMax={setColorCountMax}
+                layerNames={uiLayerNames}
+                selectedLayerIndex={clampedSelectedIndex}
+                selectLayer={selectLayer}
+                addNewLayer={addNewLayer}
+                deleteLayer={deleteLayer}
+                moveSelectedLayerUp={moveSelectedLayerUp}
+                moveSelectedLayerDown={moveSelectedLayerDown}
+                handleImportSVGClick={handleImportSVGClick}
+                // Morph props for GlobalControls
+                presetSlots={presetSlots}
+                getPresetSlot={getPresetSlot}
+                loadAppState={loadAppState}
+                morphEnabled={morphEnabled}
+                morphRoute={morphRoute}
+                morphDurationPerLeg={morphDurationPerLeg}
+                morphEasing={morphEasing}
+                morphLoopMode={morphLoopMode}
+                setMorphEnabled={setMorphEnabled}
+                setMorphRoute={setMorphRoute}
+                setMorphDurationPerLeg={setMorphDurationPerLeg}
+                setMorphEasing={setMorphEasing}
+                setMorphLoopMode={setMorphLoopMode}
+                morphMode={morphMode}
+                setMorphMode={setMorphMode}
+                applyVariationInstantly={applyVariationInstantly}
+                setApplyVariationInstantly={setApplyVariationInstantly}
+                randomizeColorsPerLayer={randomizeColorsPerLayer}
+                setRandomizeColorsPerLayer={setRandomizeColorsPerLayer}
+                uniformColorCount={uniformColorCount}
+                setUniformColorCount={setUniformColorCount}
+              />
+              </div>
+            </div>
+            
+            {/* Horizontal Divider */}
+            <DraggableDivider
+              direction="horizontal"
+              onResize={setLeftPanelRatio}
+              initialRatio={leftPanelRatio}
+              minRatio={0.15}
+              maxRatio={0.5}
+            />
+            
+            {/* Right Panel - Canvas */}
+            <div
+              className="canvas-container"
+              style={{
+                flex: 1,
+                height: '100%',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+	            <Canvas
+	              ref={canvasRef}
+	              layers={layers}
+	              layersRef={animatedLayersRef}
+	              overlayLayersRef={audioSpawnOverlayLayersRef}
+	              renderOverlayLayers={!suppressEphemeralOverlays}
+	              hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
+	              isFrozen={isFrozen}
+	              colorFadeWhileFrozen={colorFadeWhileFrozen}
+	              backgroundColor={backgroundColor}
+	              globalSeed={globalSeed}
+                globalBlendMode={globalBlendMode}
+                isNodeEditMode={isNodeEditMode}
+                selectedLayerIndex={selectedLayerIndex}
+                setLayers={setLayers}
+                setSelectedLayerIndex={setSelectedLayerIndex}
+                classicMode={classicMode}
+	              isolateMode={isolateMode}
+	              getActiveTargetLayerIds={getActiveTargetLayerIds}
+	            />
+              
+              {/* Import Adjust Panel (multi-file SVG import) */}
+              {showImportAdjust && (
+                <div style={{ position: 'absolute', right: 16, bottom: 80, zIndex: 10 }}>
+                  <ImportAdjustPanel
+                    importAdjust={importAdjust}
+                    onChange={(adj)=> applyImportAdjust(adj)}
+                    fitEnabled={importFitEnabled}
+                    onToggleFit={()=> setImportFitEnabled(v=>!v)}
+                    debug={importDebug}
+                    onToggleDebug={()=> { const v = !importDebug; setImportDebug(v); window.__artapp_debug_import = v; }}
+                    onReset={()=> applyImportAdjust({ dx:0, dy:0, s:1 })}
+                    onClose={()=> setShowImportAdjust(false)}
+                  />
+                </div>
+              )}
+              
+              {/* Floating Action Buttons */}
+              <FloatingActionButtons
+                onDownload={downloadImage}
+                onRandomize={randomizeScene}
+                onToggleFullscreen={toggleFullscreen}
+                isFullscreen={isFullscreen}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
+                isRecording={isRecording}
+                onToggleTargetMode={toggleParameterTargetMode}
+                parameterTargetMode={parameterTargetMode}
+              />
+              
+              {/* Timeline toggle button */}
+              <button
+                type="button"
+                onClick={() => setTimelineMode?.((v) => !v)}
+                style={{
+                  position: 'absolute',
+                  bottom: 16,
+                  left: 16,
+                  background: 'rgba(79, 195, 247, 0.3)',
+                  border: '1px solid rgba(79, 195, 247, 0.5)',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  color: '#4fc3f7',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  zIndex: 50,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Toggle Timeline (T)"
+              >
+                🎬 Timeline
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Fullscreen mode - canvas only */}
+        {isFullscreen && (
+          <div
+            className="canvas-container"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100%',
+              height: '100%',
+            }}
+          >
+	              <Canvas
+	                ref={canvasRef}
+	                layers={layers}
+	                layersRef={animatedLayersRef}
+	                overlayLayersRef={audioSpawnOverlayLayersRef}
+	                renderOverlayLayers={!suppressEphemeralOverlays}
+	                hideLayerIndex={audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1}
+                  hideLayerId={audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null}
+	                isFrozen={isFrozen}
+	                colorFadeWhileFrozen={colorFadeWhileFrozen}
+	                backgroundColor={backgroundColor}
+	                globalSeed={globalSeed}
+                globalBlendMode={globalBlendMode}
+              isNodeEditMode={isNodeEditMode}
+              selectedLayerIndex={selectedLayerIndex}
+              setLayers={setLayers}
+              setSelectedLayerIndex={setSelectedLayerIndex}
+              classicMode={classicMode}
+              isolateMode={isolateMode}
+              getActiveTargetLayerIds={getActiveTargetLayerIds}
+            />
+            <FloatingActionButtons
+              onDownload={downloadImage}
+              onRandomize={randomizeScene}
+              onToggleFullscreen={toggleFullscreen}
+              isFullscreen={isFullscreen}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              isRecording={isRecording}
+              onToggleTargetMode={toggleParameterTargetMode}
+              parameterTargetMode={parameterTargetMode}
+            />
+          </div>
+        )}
+        
+        {/* Timeline Panel - shown in lower portion when visible */}
+        {!isFullscreen && timelineMode && timelineVisible && (
+          <>
+            {/* Vertical Divider between top and timeline */}
+            <DraggableDivider
+              direction="vertical"
+              onResize={setTopPanelRatio}
+              initialRatio={topPanelRatio}
+              minRatio={0.2}
+              maxRatio={0.8}
+              style={{
+                position: 'fixed',
+                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
+                left: 0,
+                right: 0,
+                zIndex: 201,
+              }}
+            />
+            <div
+              style={{
+                position: 'fixed',
+                top: `calc(${TOP_BAR_HEIGHT}px + ${topPanelHeightExpr})`,
+                left: 0,
+                right: 0,
+                height: timelineHeightExpr,
+                zIndex: 200,
+              }}
+            >
+              <TimelinePanel
+                layers={layers}
+                animatedLayersRef={animatedLayersRef}
+                onClose={() => setTimelineMode?.(false)}
+                isRecording={isRecording}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
               />
             </div>
-          )}
-          
-          {/* Floating Action Buttons */}
-          <FloatingActionButtons
-            onDownload={downloadImage}
-            onRandomize={randomizeScene}
-            onToggleFullscreen={toggleFullscreen}
-            isFullscreen={isFullscreen}
-            onStartRecording={startRecording}
-            onStopRecording={stopRecording}
-            isRecording={isRecording}
-            onToggleTargetMode={toggleParameterTargetMode}
-            parameterTargetMode={parameterTargetMode}
-          />
-        </div>
-        
-        {/* Bottom Panel with tabs - Hidden in fullscreen */}
-        {!isFullscreen && (
-          <BottomPanel
-            // GlobalControls props
-            backgroundColor={backgroundColor}
-            setBackgroundColor={setBackgroundColor}
-            backgroundImage={backgroundImage}
-            setBackgroundImage={setBackgroundImage}
-            isFrozen={isFrozen}
-            setIsFrozen={setIsFrozen}
-            colorFadeWhileFrozen={colorFadeWhileFrozen}
-            setColorFadeWhileFrozen={setColorFadeWhileFrozen}
-            classicMode={classicMode}
-            setClassicMode={setClassicMode}
-            zIgnore={zIgnore}
-            setZIgnore={setZIgnore}
-            showGlobalMidi={showGlobalMidi}
-            setShowGlobalMidi={setShowGlobalMidi}
-            globalSeed={globalSeed}
-            setGlobalSeed={setGlobalSeed}
-            globalSpeedMultiplier={globalSpeedMultiplier}
-            setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-            getIsRnd={getIsRnd}
-            setIsRnd={setIsRnd}
-            palettes={palettes}
-            blendModes={blendModes}
-            globalBlendMode={globalBlendMode}
-            setGlobalBlendMode={setGlobalBlendMode}
-            parameterTargetMode={parameterTargetMode}
-            setParameterTargetMode={setParameterTargetMode}
-            onQuickSave={handleQuickSave}
-            onQuickLoad={handleQuickLoad}
-            layers={layers}
-            sampleColorsEven={sampleColorsEven}
-            assignOneColorPerLayer={assignOneColorPerLayer}
-            setLayers={setLayers}
-            DEFAULT_LAYER={DEFAULT_LAYER}
-            buildVariedLayerFrom={buildVariedLayerFrom}
-            setSelectedLayerIndex={setSelectedLayerIndex}
-            handleRandomizeAll={handleRandomizeAll}
-            // Controls props
-            currentLayer={currentLayer}
-            updateCurrentLayer={updateCurrentLayer}
-            randomizeCurrentLayer={randomizeCurrentLayer}
-            randomizeAnimationForCurrentLayer={randomizeAnimationForCurrentLayer}
-            randomizeCurrentLayerColors={randomizeCurrentLayerColors}
-            baseColors={Array.isArray(layers?.[0]?.colors) ? layers[0].colors : []}
-            baseNumColors={Number.isFinite(layers?.[0]?.numColors) ? layers[0].numColors : (Array.isArray(layers?.[0]?.colors) ? layers[0].colors.length : 1)}
-            isNodeEditMode={isNodeEditMode}
-            setIsNodeEditMode={setIsNodeEditMode}
-            randomizePalette={randomizePalette}
-            setRandomizePalette={setRandomizePalette}
-            randomizeNumColors={randomizeNumColors}
-            setRandomizeNumColors={setRandomizeNumColors}
-            syncLayerColorsToFirst={syncLayerColorsToFirst}
-            setSyncLayerColorsToFirst={setSyncLayerColorsToFirst}
-            colorCountMin={colorCountMin}
-            colorCountMax={colorCountMax}
-            setColorCountMin={setColorCountMin}
-            setColorCountMax={setColorCountMax}
-            layerNames={(layers || []).map((l, i) => l?.name || `Layer ${i + 1}`)}
-            selectedLayerIndex={clampedSelectedIndex}
-            selectLayer={selectLayer}
-            addNewLayer={addNewLayer}
-            deleteLayer={deleteLayer}
-            moveSelectedLayerUp={moveSelectedLayerUp}
-            moveSelectedLayerDown={moveSelectedLayerDown}
-            handleImportSVGClick={handleImportSVGClick}
-          />
+          </>
         )}
       </main>
     </div>
@@ -1152,7 +2752,13 @@ const App = () => (
   <AppStateProvider>
     <ParameterProvider>
       <MidiProvider>
-        <MainApp />
+        <AudioProvider>
+          <BPMProvider>
+            <TimelineProvider>
+              <MainApp />
+            </TimelineProvider>
+          </BPMProvider>
+        </AudioProvider>
       </MidiProvider>
     </ParameterProvider>
   </AppStateProvider>

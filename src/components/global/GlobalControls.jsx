@@ -1,16 +1,1059 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { useAppState } from '../../context/AppStateContext.jsx';
+// NOTE: useAppState removed to prevent context subscription causing re-renders on every frame
+// Morph-related values are now passed as props from BottomPanel
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
+import { useAudioReactive } from '../../context/AudioContext.jsx';
+import { useBPM } from '../../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../../utils/colorUtils.js';
 import BackgroundColorPicker from '../BackgroundColorPicker.jsx';
 import PresetControls from './PresetControls.jsx';
+import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
+import AutosaveRecovery from './AutosaveRecovery.jsx';
+import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../common/BPMEnvelopeEditor.jsx';
+import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/settingsDebug.js';
+import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
+import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
+const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
+const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
+const AUTOSAVE_SLOT_COUNT = 3;
+
+// Range mapping editor sub-component
+const RangeMappingEditor = ({ label, range, band, onRangeChange, onBandChange }) => {
+  const [expanded, setExpanded] = useState(false);
+  const bands = ['rms', 'bass', 'mids', 'highs'];
+  
+  return (
+    <div style={{ marginBottom: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+      <div 
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <span className="compact-label" style={{ fontSize: '0.75rem' }}>{label}</span>
+        <span style={{ fontSize: '0.7rem', opacity: 0.6 }}>{expanded ? '▼' : '▶'}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: '0.25rem', paddingLeft: '0.25rem' }}>
+          {/* Band selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>Band:</span>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', flex: 1 }}
+              value={band}
+              onChange={(e) => onBandChange(e.target.value)}
+            >
+              {bands.map(b => <option key={b} value={b}>{b.toUpperCase()}</option>)}
+            </select>
+          </div>
+          {/* Input range (audio level threshold) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>In:</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={range.inputMin}
+              onChange={(e) => onRangeChange({ inputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={range.inputMax}
+              onChange={(e) => onRangeChange({ inputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+          {/* Output range (parameter value) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, width: '2.5rem' }}>Out:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={range.outputMin}
+              onChange={(e) => onRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.1"
+              value={range.outputMax}
+              onChange={(e) => onRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.7rem', padding: '2px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Audio Reactive Section Component - Global audio settings only
+// Per-parameter audio mappings are shown alongside MIDI controls on each parameter
+const AudioReactiveSection = ({ isActiveTab = true }) => {
+  const audio = useAudioReactive();
+  const [showSettings, setShowSettings] = useState(false);
+  const [features, setFeatures] = useState({ rms: 0, bass: 0, mids: 0, highs: 0 });
+
+  // Destructure with defaults to avoid conditional hook issues
+  const {
+    isActive = false,
+    error = null,
+    getFeatures = null,
+    settings = { enabled: false, sensitivity: 1, smoothing: 0.7, release: 0.85 },
+    availableDevices = [],
+    currentDeviceId = null,
+    toggleAudio = null,
+    setSensitivity = null,
+    setSmoothing = null,
+    setRelease = null,
+    setDeviceId = null,
+    // File playback
+    isFileMode = false,
+    isFilePlaying = false,
+    fileInfo = null,
+    fileProgress = 0,
+    hasStoredFile = false,
+    loadAudioFile = null,
+    toggleFilePlayback = null,
+    seekFile = null,
+    stopFilePlayback = null,
+  } = audio || {};
+  
+  // File input ref
+  const fileInputRef = useRef(null);
+  
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (file && loadAudioFile) {
+      await loadAudioFile(file);
+    }
+    // Reset input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const formatTime = (seconds) => {
+    if (!seconds || !Number.isFinite(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+  
+  // Poll audio features for visual meters when active and tab is visible
+  // This hook must be called unconditionally (before any early returns)
+  useEffect(() => {
+    // Only run when tab is active and audio is active
+    if (!isActiveTab || !isActive || !getFeatures) return;
+    
+    let intervalId;
+    const updateMeters = () => {
+      const f = getFeatures();
+      setFeatures(f);
+    };
+    
+    // Run at ~20fps instead of RAF
+    intervalId = setInterval(updateMeters, 50);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isActiveTab, isActive, getFeatures]);
+
+  if (!audio) {
+    return null;
+  }
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>🎵 Audio Input</span>
+        <button
+          type="button"
+          className="icon-btn sm"
+          title="Audio settings"
+          aria-label="Audio settings"
+          onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }}
+        >⚙</button>
+      </div>
+
+      {/* Enable/Disable toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={() => toggleAudio()}
+          />
+          {settings.enabled 
+            ? (isActive ? (isFileMode ? 'Playing File' : 'Listening') : 'Starting...') 
+            : (hasStoredFile ? 'Enable Audio (file saved)' : 'Enable Audio')}
+        </label>
+        {error && <span style={{ color: '#ff6b6b', fontSize: '0.75rem' }}>{error}</span>}
+      </div>
+
+      {/* Device selector (shown when enabled and not in file mode) */}
+      {settings.enabled && !isFileMode && (
+        <div style={{ marginTop: '0.25rem' }}>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.75rem', width: '100%' }}
+            value={currentDeviceId || ''}
+            onChange={(e) => setDeviceId(e.target.value || null)}
+          >
+            <option value="">Default Input Device</option>
+            {availableDevices.map(device => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Device ${device.deviceId.slice(0, 8)}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* File playback controls */}
+      {isFileMode && fileInfo && (
+        <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>🎵</span>
+            <span style={{ fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {fileInfo.name}
+            </span>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.7rem', padding: '2px 6px' }}
+              onClick={stopFilePlayback}
+              title="Close file and return to mic input"
+            >
+              ✕
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.8rem', padding: '4px 8px', minWidth: '2rem' }}
+              onClick={toggleFilePlayback}
+              title={isFilePlaying ? 'Pause' : 'Play'}
+            >
+              {isFilePlaying ? '⏸' : '▶'}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={fileProgress}
+              onChange={(e) => seekFile(parseFloat(e.target.value))}
+              style={{ flex: 1, height: 4 }}
+              className="compact-range"
+            />
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, minWidth: '3rem', textAlign: 'right' }}>
+              {formatTime(fileProgress * fileInfo.duration)} / {formatTime(fileInfo.duration)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Load file button (shown when enabled) */}
+      {settings.enabled && (
+        <div style={{ marginTop: '0.25rem' }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <button
+            type="button"
+            className="btn-compact-secondary"
+            style={{ fontSize: '0.75rem', width: '100%' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isFileMode ? '🎵 Load Different File' : '📁 Play from File'}
+          </button>
+        </div>
+      )}
+
+      {/* Audio level meters */}
+      {isActive && (
+        <div style={{ marginTop: '0.5rem', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.25rem 0.5rem', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Level</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.rms * 100}%`, background: '#4fc3f7', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Bass</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.bass * 100}%`, background: '#ff6b6b', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Mids</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.mids * 100}%`, background: '#ffd93d', transition: 'width 0.05s' }} />
+          </div>
+          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>Highs</span>
+          <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${features.highs * 100}%`, background: '#6bcb77', transition: 'width 0.05s' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Settings panel */}
+      {showSettings && (
+        <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+          {/* Sensitivity slider */}
+          <div style={{ marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Sensitivity</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.sensitivity.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0}
+              max={3}
+              step={0.05}
+              value={settings.sensitivity}
+              onChange={(e) => setSensitivity(parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* Smoothing slider */}
+          <div style={{ marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Smoothing (Attack)</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.smoothing.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={settings.smoothing}
+              onChange={(e) => setSmoothing(parseFloat(e.target.value))}
+            />
+          </div>
+
+          {/* Release slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span className="compact-label">Release (Falloff)</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.release.toFixed(2)}</span>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={0.05}
+              max={0.98}
+              step={0.05}
+              value={settings.release}
+              onChange={(e) => setRelease(parseFloat(e.target.value))}
+            />
+          </div>
+
+          <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
+            Higher smoothing = faster response. Higher release = slower decay. Map audio to parameters using the Audio dropdown on each control.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AudioSpawnSection = ({
+  isActiveTab = true,
+  timelineMode = false,
+  energyInfluence = 0,
+  setEnergyInfluence = null,
+  audioSpawnEnabled = false,
+  setAudioSpawnEnabled = null,
+  audioSpawnTriggerMode = 'level',
+  setAudioSpawnTriggerMode = null,
+  audioSpawnRepeatWhileAbove = true,
+  setAudioSpawnRepeatWhileAbove = null,
+  audioSpawnHysteresis = 0.08,
+  setAudioSpawnHysteresis = null,
+  audioSpawnBand = 'rms',
+  setAudioSpawnBand = null,
+  audioSpawnThreshold = 0.6,
+  setAudioSpawnThreshold = null,
+  audioSpawnCooldownMs = 250,
+  setAudioSpawnCooldownMs = null,
+  audioSpawnHalfLifeMs = 1500,
+  setAudioSpawnHalfLifeMs = null,
+  audioSpawnHalfLifeEnergyFactor = 1.0,
+  setAudioSpawnHalfLifeEnergyFactor = null,
+  audioSpawnMaxLayers = 12,
+  setAudioSpawnMaxLayers = null,
+} = {}) => {
+  const audio = useAudioReactive();
+  const [bandValue, setBandValue] = useState(0);
+
+  const enabled = !!audio?.settings?.enabled;
+  const getFeatures = audio?.getFeatures;
+
+  useEffect(() => {
+    if (!isActiveTab || !enabled || typeof getFeatures !== 'function') {
+      setBandValue(0);
+      return undefined;
+    }
+
+    let intervalId;
+    const tick = () => {
+      const features = getFeatures?.() || {};
+      const v = typeof features?.[audioSpawnBand] === 'number' ? features[audioSpawnBand] : 0;
+      setBandValue(v);
+    };
+    intervalId = setInterval(tick, 50);
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isActiveTab, enabled, getFeatures, audioSpawnBand]);
+
+  const disabledByTimeline = !!timelineMode;
+  const canRun = !disabledByTimeline && enabled;
+  const mode = (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level';
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>⚡ Audio Spawn (Live)</span>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Spawn temporary layers on audio threshold crossings (not exported)">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnEnabled}
+            disabled={!setAudioSpawnEnabled || disabledByTimeline}
+            onChange={(e) => setAudioSpawnEnabled?.(!!e.target.checked)}
+          />
+          Enabled
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+        <span className="compact-label" style={{ width: 58 }}>Band</span>
+        <select
+          className="compact-select"
+          style={{ fontSize: '0.75rem', flex: 1 }}
+          value={audioSpawnBand || 'rms'}
+          disabled={!setAudioSpawnBand || disabledByTimeline}
+          onChange={(e) => setAudioSpawnBand?.(e.target.value)}
+        >
+          <option value="rms">Level</option>
+          <option value="bass">Bass</option>
+          <option value="mids">Mids</option>
+          <option value="highs">Highs</option>
+        </select>
+        <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7, minWidth: 48, textAlign: 'right' }}>
+          {Number.isFinite(bandValue) ? bandValue.toFixed(2) : '0.00'}
+        </span>
+      </div>
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+          <span className="compact-label" style={{ width: 58 }}>Mode</span>
+          <select
+            className="compact-select"
+            style={{ fontSize: '0.75rem', flex: 1 }}
+            value={mode}
+            disabled={!setAudioSpawnTriggerMode || disabledByTimeline}
+            onChange={(e) => setAudioSpawnTriggerMode?.(e.target.value)}
+          >
+            <option value="level">Threshold</option>
+            <option value="transient">Transients</option>
+          </select>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">{mode === 'transient' ? 'Sensitivity' : 'Threshold'}</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number(audioSpawnThreshold || 0).toFixed(2)}</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6}
+          disabled={!setAudioSpawnThreshold || disabledByTimeline}
+          onChange={(e) => setAudioSpawnThreshold?.(Number(e.target.value))}
+          title={mode === 'transient'
+            ? 'Lower = more sensitive (triggers on smaller transients)'
+            : 'Spawn when the selected band reaches this level'}
+        />
+      </div>
+
+      {mode === 'level' && (
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="If the audio stays above the threshold, spawn repeatedly using the cooldown interval">
+            <input
+              type="checkbox"
+              checked={!!audioSpawnRepeatWhileAbove}
+              disabled={!setAudioSpawnRepeatWhileAbove || disabledByTimeline}
+              onChange={(e) => setAudioSpawnRepeatWhileAbove?.(!!e.target.checked)}
+            />
+            Repeat While Above
+          </label>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span className="compact-label" title="Hysteresis reduces chatter when hovering near the threshold">Hyst</span>
+            <BufferedNumberInput
+              value={Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08}
+              step={0.01}
+              min={0}
+              max={0.5}
+              onCommit={setAudioSpawnHysteresis}
+              className="compact-number"
+              style={{ width: '5.5rem' }}
+              disabled={!setAudioSpawnHysteresis || disabledByTimeline}
+            />
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: '0.35rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="compact-label">Energy → Variance</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number.isFinite(energyInfluence) ? Number(energyInfluence).toFixed(2) : '0.00'}</span>
+        </div>
+        <input
+          className="compact-range"
+          type="range"
+          min="0"
+          max="2"
+          step="0.01"
+          value={Number.isFinite(energyInfluence) ? energyInfluence : 0}
+          disabled={!setEnergyInfluence || disabledByTimeline}
+          onChange={(e) => setEnergyInfluence?.(Number(e.target.value))}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 6rem', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem' }}>
+        <span className="compact-label">Cooldown (ms)</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnCooldownMs) ? audioSpawnCooldownMs : 250}
+          step={25}
+          min={0}
+          max={10000}
+          onCommit={setAudioSpawnCooldownMs}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnCooldownMs || disabledByTimeline}
+        />
+
+        <span className="compact-label">Half-life (ms)</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnHalfLifeMs) ? audioSpawnHalfLifeMs : 1500}
+          step={50}
+          min={50}
+          max={60000}
+          onCommit={setAudioSpawnHalfLifeMs}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnHalfLifeMs || disabledByTimeline}
+        />
+
+        <span className="compact-label">Half-life Energy Factor</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0}
+          step={0.1}
+          min={0}
+          max={4}
+          onCommit={setAudioSpawnHalfLifeEnergyFactor}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnHalfLifeEnergyFactor || disabledByTimeline}
+        />
+
+        <span className="compact-label">Max Layers</span>
+        <BufferedNumberInput
+          value={Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12}
+          step={1}
+          min={0}
+          max={200}
+          onCommit={setAudioSpawnMaxLayers}
+          className="compact-number"
+          style={{ width: '6rem' }}
+          disabled={!setAudioSpawnMaxLayers || disabledByTimeline}
+        />
+      </div>
+
+      {!enabled && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', opacity: 0.7 }}>
+          Enable Audio Input above to use live spawning.
+        </div>
+      )}
+      {disabledByTimeline && (
+        <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', opacity: 0.7 }}>
+          Disabled while Timeline mode is active.
+        </div>
+      )}
+    </div>
+  );
+};
+
+// BPM/Beat Sync Section Component - Master BPM controls
+const BPMSection = ({ showBeatCounter = false }) => {
+  const bpm = useBPM();
+
+  if (!bpm) {
+    return null;
+  }
+
+  const {
+    bpm: currentBPM,
+    isPlaying,
+    setBPM,
+    togglePlay,
+    reset,
+    tap,
+  } = bpm;
+
+  return (
+    <div className="compact-field" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span className="compact-label" style={{ fontWeight: 600 }}>♪ BPM / Beat Sync</span>
+      </div>
+
+      {/* BPM and controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          <span className="compact-label" style={{ fontSize: '0.75rem' }}>BPM:</span>
+          <BufferedNumberInput
+            value={currentBPM}
+            min={20}
+            max={300}
+            step={1}
+            onCommit={(next) => {
+              const v = Number(next);
+              if (!Number.isFinite(v)) return;
+              setBPM(Math.max(20, Math.min(300, Math.round(v))));
+            }}
+            className="compact-number"
+            style={{ width: '4rem', fontSize: '0.75rem', padding: '2px 4px' }}
+            inputMode="numeric"
+          />
+        </div>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={togglePlay}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+        >
+          {isPlaying ? '⏸ Pause' : '▶ Play'}
+        </button>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={reset}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+        >
+          ⏹ Reset
+        </button>
+        
+        <button
+          className="btn-compact-secondary"
+          onClick={tap}
+          style={{ fontSize: '0.75rem', padding: '2px 6px' }}
+          title="Tap tempo - tap 2-4 times to set BPM"
+        >
+          Tap
+        </button>
+        
+      </div>
+
+      <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', opacity: 0.6 }}>
+        Map parameters to beats using the BPM checkbox on each control (when "BPM Learn" is enabled above).
+      </div>
+    </div>
+  );
+};
+
+// Audio control row component - shown per parameter in settings panel
+const AudioControlRow = ({ paramId, label }) => {
+  const audio = useAudioReactive();
+  const bpm = useBPM();
+  const midi = useMidi();
+  const [showRange, setShowRange] = useState(false);
+  
+  if (!audio) return null;
+  
+  const { 
+    isActive, 
+    mappings, 
+    setMapping, 
+    clearMapping,
+    learnParamId,
+    beginLearn,
+    cancelLearn,
+    AUDIO_BANDS,
+    DEFAULT_RANGE,
+  } = audio;
+  
+  const mapping = mappings?.[paramId];
+  const currentBand = mapping?.band || 'none';
+  const fallbackRange = mapping?.range || DEFAULT_RANGE;
+  const currentRange = fallbackRange;
+  const isLearning = learnParamId === paramId;
+  
+  const handleBandChange = (band) => {
+    if (band === 'none') {
+      // Preserve the last-used range so re-enabling keeps the same min/max
+      setMapping(paramId, { band: 'none', range: currentRange });
+    } else {
+      // Enable Audio and disable MIDI/BPM for this parameter (mutual exclusivity)
+      const nextRange = mapping?.range || DEFAULT_RANGE;
+      setMapping(paramId, { band, range: nextRange });
+      // Clear MIDI mapping
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      // Clear BPM mapping
+      if (bpm?.setMapping) bpm.setMapping(paramId, { enabled: false, speed: 1, loopMode: 'forward', range: bpm.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+    if (isLearning) cancelLearn();
+  };
+  
+  const handleRangeChange = (update) => {
+    if (currentBand === 'none') return;
+    setMapping(paramId, { band: currentBand, range: { ...currentRange, ...update } });
+  };
+  
+  return (
+    <div style={{ marginTop: '0.25rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>Audio:</span>
+        <select
+          className="compact-select"
+          style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+          value={currentBand}
+          onChange={(e) => handleBandChange(e.target.value)}
+        >
+          {AUDIO_BANDS.map(b => (
+            <option key={b} value={b}>
+              {b === 'none' ? 'None' : b === 'rms' ? 'Level' : b.charAt(0).toUpperCase() + b.slice(1)}
+            </option>
+          ))}
+        </select>
+        {currentBand !== 'none' && (
+          <>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => setShowRange(r => !r)}
+              title="Edit range mapping"
+            >
+              Range
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => clearMapping(paramId)}
+              title="Clear audio mapping"
+            >
+              Clear
+            </button>
+          </>
+        )}
+        {isActive && currentBand !== 'none' && (
+          <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>●</span>
+        )}
+      </div>
+      
+      {/* Range editor - simplified to just output min/max */}
+      {showRange && currentBand !== 'none' && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>Min:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMin}
+              onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, marginLeft: '0.5rem' }}>Max:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMax}
+              onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '3rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// BPM control row component - shown per parameter in settings panel
+const BPMControlRow = React.memo(({ paramId }) => {
+  const bpm = useBPM();
+  const audio = useAudioReactive();
+  const midi = useMidi();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showEnvelope, setShowEnvelope] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const stored = window.localStorage.getItem(`bpm-env-open-${paramId}`);
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [playheadPosition, setPlayheadPosition] = useState(null);
+  const [indicatorPhase, setIndicatorPhase] = useState(0);
+  
+  if (!bpm) return null;
+  
+  const { 
+    isPlaying,
+    mappings, 
+    setMapping, 
+    clearMapping,
+    getPhaseForParam,
+    BEAT_SPEEDS,
+    LOOP_MODES,
+    DEFAULT_RANGE,
+    beatsPerBar,
+  } = bpm;
+  
+  // Poll for playhead position when envelope is shown and playing
+  useEffect(() => {
+    if (!showEnvelope || !isPlaying || !getPhaseForParam) return;
+    
+    let frameId;
+    const updatePlayhead = () => {
+      const phase = getPhaseForParam(paramId);
+      setPlayheadPosition(phase);
+      frameId = requestAnimationFrame(updatePlayhead);
+    };
+    frameId = requestAnimationFrame(updatePlayhead);
+    
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+    };
+  }, [showEnvelope, isPlaying, getPhaseForParam, paramId]);
+  // Persist envelope open state so remounts don't auto-close it
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`bpm-env-open-${paramId}`, showEnvelope ? 'true' : 'false');
+    } catch { /* ignore */ }
+  }, [showEnvelope, paramId]);
+  
+  const mapping = mappings?.[paramId];
+  const isEnabled = mapping?.enabled || false;
+  const currentSpeed = mapping?.speed || 1;
+  const currentLoopMode = mapping?.loopMode || 'forward';
+  const currentRange = mapping?.range || DEFAULT_RANGE;
+  const currentEnvelope = mapping?.envelope || DEFAULT_ENVELOPE;
+  
+  const handleToggle = () => {
+    if (isEnabled) {
+      setMapping(paramId, { enabled: false, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
+    } else {
+      // Enable BPM and disable MIDI/Audio for this parameter (mutual exclusivity)
+      setMapping(paramId, { enabled: true, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
+      // Clear MIDI mapping
+      if (midi?.clearMapping) midi.clearMapping(paramId);
+      // Clear Audio mapping
+      if (audio?.setMapping) audio.setMapping(paramId, { band: 'none', range: audio.DEFAULT_RANGE || { outputMin: 0, outputMax: 1 } });
+    }
+  };
+  
+  const handleSpeedChange = (speed) => {
+    setMapping(paramId, { enabled: isEnabled, speed: Number(speed), loopMode: currentLoopMode, range: currentRange, envelope: currentEnvelope });
+  };
+  
+  const handleLoopModeChange = (loopMode) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode, range: currentRange, envelope: currentEnvelope });
+  };
+  
+  const handleRangeChange = (update) => {
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: { ...currentRange, ...update }, envelope: currentEnvelope });
+  };
+  
+  const handleEnvelopeChange = (newEnvelope) => {
+    console.debug('[GlobalControls] handleEnvelopeChange', { paramId, newEnvelope });
+    setMapping(paramId, { enabled: isEnabled, speed: currentSpeed, loopMode: currentLoopMode, range: currentRange, envelope: newEnvelope });
+  };
+
+  // Lightweight indicator (does not mutate actual slider values):
+  // show current phase so users can see BPM automation is active even if UI controls are not animated.
+  useEffect(() => {
+    if (!isEnabled || typeof getPhaseForParam !== 'function') {
+      setIndicatorPhase(0);
+      return undefined;
+    }
+
+    let frameId = null;
+    let last = 0;
+    const THROTTLE_MS = 50; // ~20fps
+
+    const tick = () => {
+      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      if (now - last >= THROTTLE_MS) {
+        last = now;
+        const phase = getPhaseForParam(paramId);
+        setIndicatorPhase(Number.isFinite(phase) ? phase : 0);
+      }
+      frameId = requestAnimationFrame(tick);
+    };
+
+    // Only animate when playing; otherwise keep a static snapshot.
+    if (isPlaying) {
+      frameId = requestAnimationFrame(tick);
+      return () => { if (frameId) cancelAnimationFrame(frameId); };
+    }
+
+    const phase = getPhaseForParam(paramId);
+    setIndicatorPhase(Number.isFinite(phase) ? phase : 0);
+    return undefined;
+  }, [isEnabled, isPlaying, getPhaseForParam, paramId]);
+  
+  return (
+    <div style={{ marginTop: '0.25rem' }}>
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+        <span className="compact-label" style={{ opacity: 0.8, fontSize: '0.7rem' }}>BPM:</span>
+        <input
+          type="checkbox"
+          checked={isEnabled}
+          onChange={handleToggle}
+          style={{ cursor: 'pointer' }}
+        />
+        {isEnabled && (
+          <>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '3rem' }}
+              value={currentSpeed}
+              onChange={(e) => handleSpeedChange(e.target.value)}
+            >
+              {BEAT_SPEEDS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <select
+              className="compact-select"
+              style={{ fontSize: '0.7rem', padding: '2px 4px', minWidth: '4rem' }}
+              value={currentLoopMode}
+              onChange={(e) => handleLoopModeChange(e.target.value)}
+            >
+              {LOOP_MODES.map(mode => (
+                <option key={mode} value={mode}>
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => setShowSettings(s => !s)}
+              title="Edit range"
+            >
+              Range
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px', background: showEnvelope ? 'rgba(79, 195, 247, 0.3)' : undefined }}
+              onClick={() => setShowEnvelope(s => !s)}
+              title="Edit envelope curve"
+            >
+              Env
+            </button>
+            <button
+              className="btn-compact-secondary"
+              style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+              onClick={() => clearMapping(paramId)}
+              title="Clear BPM mapping"
+            >
+              Clear
+            </button>
+          </>
+        )}
+        {isPlaying && isEnabled && (
+          <span style={{ fontSize: '0.65rem', color: '#4fc3f7' }}>♪</span>
+        )}
+        {isEnabled && (
+          <span
+            title={isPlaying ? 'BPM automation active' : 'BPM automation enabled (paused)'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              width: 44,
+              height: 6,
+              borderRadius: 6,
+              background: 'rgba(255,255,255,0.12)',
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.12)',
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 6,
+                background: isPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.55)',
+                transform: `translateX(${Math.max(0, Math.min(1, indicatorPhase)) * 38}px)`,
+                transition: isPlaying ? 'none' : 'transform 150ms ease',
+              }}
+            />
+          </span>
+        )}
+      </div>
+      
+      {/* Range editor */}
+      {showSettings && isEnabled && (
+        <div style={{ marginTop: '0.25rem', marginLeft: '0.5rem', padding: '0.25rem', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <span style={{ fontSize: '0.65rem', opacity: 0.7, width: '2rem' }}>Out:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMin}
+              onChange={(e) => handleRangeChange({ outputMin: parseFloat(e.target.value) || 0 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+            <span style={{ fontSize: '0.65rem', opacity: 0.5 }}>→</span>
+            <input
+              type="number"
+              step="0.1"
+              value={currentRange.outputMax}
+              onChange={(e) => handleRangeChange({ outputMax: parseFloat(e.target.value) || 1 })}
+              style={{ width: '2.5rem', fontSize: '0.65rem', padding: '2px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 3, color: 'white' }}
+            />
+          </div>
+        </div>
+      )}
+      
+      {/* Envelope editor */}
+      {showEnvelope && isEnabled && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <BPMEnvelopeEditor
+            envelope={currentEnvelope}
+            onChange={handleEnvelopeChange}
+            beatsPerBar={beatsPerBar || 4}
+            playheadPosition={playheadPosition}
+          />
+        </div>
+      )}
+    </div>
+  );
+});
 
 // A full-featured Global Controls panel, mirroring the original inline UI
 const GlobalControls = ({
+  // Tab visibility for gating animations
+  isActiveTab = true,
+  timelineMode = false,
   // State and actions
   backgroundColor,
   setBackgroundColor,
@@ -18,12 +1061,36 @@ const GlobalControls = ({
   setBackgroundImage,
   isFrozen,
   setIsFrozen,
+  enableBreathing,
+  setEnableBreathing,
+  energyInfluence,
+  setEnergyInfluence,
+  audioSpawnEnabled,
+  setAudioSpawnEnabled,
+  audioSpawnTriggerMode,
+  setAudioSpawnTriggerMode,
+  audioSpawnRepeatWhileAbove,
+  setAudioSpawnRepeatWhileAbove,
+  audioSpawnHysteresis,
+  setAudioSpawnHysteresis,
+  audioSpawnUseGlobalPalette,
+  setAudioSpawnUseGlobalPalette,
+  audioSpawnBand,
+  setAudioSpawnBand,
+  audioSpawnThreshold,
+  setAudioSpawnThreshold,
+  audioSpawnCooldownMs,
+  setAudioSpawnCooldownMs,
+  audioSpawnHalfLifeMs,
+  setAudioSpawnHalfLifeMs,
+  audioSpawnHalfLifeEnergyFactor,
+  setAudioSpawnHalfLifeEnergyFactor,
+  audioSpawnMaxLayers,
+  setAudioSpawnMaxLayers,
   zIgnore,
   setZIgnore,
   classicMode,
   setClassicMode,
-  showGlobalMidi,
-  setShowGlobalMidi,
   globalSeed,
   setGlobalSeed,
   globalSpeedMultiplier,
@@ -44,6 +1111,12 @@ const GlobalControls = ({
   learnParamId,
   // Palettes/Blend
   palettes,
+  globalPaletteIndex = 'custom',
+  globalPaletteRef = null,
+  setGlobalPaletteIndex = null,
+  setGlobalPaletteRef = null,
+  customPalettes = [],
+  onSaveCustomPalette,
   blendModes,
   globalBlendMode,
   setGlobalBlendMode,
@@ -64,10 +1137,54 @@ const GlobalControls = ({
   handleRandomizeAll,
   // UI options
   hidePresets = false,
-  // Quick save/load handlers (injected from App)
-  onQuickSave,
-  onQuickLoad,
+  autosaveToggleToken = 0,
+  // Morph props (passed from BottomPanel to avoid useAppState subscription)
+  presetSlots,
+  getPresetSlot,
+  loadAppState,
+  morphEnabled,
+  morphRoute,
+  morphDurationPerLeg,
+  morphEasing,
+  morphLoopMode,
+  setMorphEnabled,
+  setMorphRoute,
+  setMorphDurationPerLeg,
+  setMorphEasing,
+  setMorphLoopMode,
+  morphMode,
+  setMorphMode,
+  applyVariationInstantly,
+  setApplyVariationInstantly,
+  // Randomize colors per layer setting
+  randomizeColorsPerLayer,
+  setRandomizeColorsPerLayer,
+  uniformColorCount,
+  setUniformColorCount,
 }) => {
+  const layerSeedNonceRef = useRef(0);
+  const generateLayerSeed = useCallback(() => {
+    const MOD = 2147483646;
+    let randomValue = 0;
+    try {
+      if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+        const arr = new Uint32Array(1);
+        window.crypto.getRandomValues(arr);
+        randomValue = arr[0] % MOD;
+      }
+    } catch {
+      // noop — fallback to Math.random below
+    }
+    if (!randomValue) {
+      randomValue = Math.floor(Math.random() * MOD);
+    }
+    if (randomValue === 0) randomValue = 1;
+    layerSeedNonceRef.current = (layerSeedNonceRef.current + 1013904223) % MOD;
+    let seed = (randomValue + layerSeedNonceRef.current) % MOD;
+    if (seed <= 0) seed += MOD - 1;
+    return seed;
+  }, []);
+
   // Keep Canvas background image renderer in sync
   useEffect(() => {
     try {
@@ -80,27 +1197,219 @@ const GlobalControls = ({
       }
     } catch { /* noop */ }
   }, [backgroundImage]);
-  // Presets: contexts
-  const {
-    presetSlots,
-    getPresetSlot,
-    loadAppState,
-    // Morph state
-    morphEnabled,
-    morphRoute,
-    morphDurationPerLeg,
-    morphEasing,
-    morphLoopMode,
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    morphMode,
-    setMorphMode,
-  } = useAppState() || {};
-  const { loadFullConfiguration } = useParameters() || {};
+  // Presets: these values are now passed as props to avoid useAppState() subscription
+  // which causes re-renders on every animation frame
+  const { loadFullConfiguration, applyParametersSnapshot } = useParameters() || {};
   const { registerParamHandler } = useMidi() || {};
+  const audioContext = useAudioReactive() || {};
+  const { applyAudioSnapshot } = audioContext;
+  const bpmContext = useBPM() || {};
+  const { applyBPMSnapshot } = bpmContext;
+
+  const [canvasFps, setCanvasFpsState] = useState(() => getCanvasFps());
+  useEffect(() => subscribeCanvasFps(setCanvasFpsState), []);
+
+  const renderAutomationBadge = useCallback((paramId) => {
+    const bpmEnabled = !!bpmContext?.mappings?.[paramId]?.enabled;
+    const audioMapping = audioContext?.mappings?.[paramId];
+    const audioEnabled = !!(audioMapping && audioMapping.band && audioMapping.band !== 'none');
+    if (!bpmEnabled && !audioEnabled) return null;
+    const bpmPlaying = !!bpmContext?.isPlaying;
+    const audioActive = !!audioContext?.settings?.enabled;
+    return (
+      <span
+        title={
+          audioEnabled
+            ? (audioActive ? 'Audio automation mapped' : 'Audio automation mapped (disabled)')
+            : (bpmPlaying ? 'BPM automation mapped' : 'BPM automation mapped (paused)')
+        }
+        aria-label={audioEnabled ? 'Audio automation mapped' : 'BPM automation mapped'}
+        style={{
+          fontSize: '0.85rem',
+          color: audioEnabled
+            ? (audioActive ? '#4ade80' : 'rgba(74,222,128,0.6)')
+            : (bpmPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.6)'),
+          lineHeight: 1,
+          marginLeft: 6,
+        }}
+      >
+        ♪
+      </span>
+    );
+  }, [bpmContext, audioContext]);
+
+  // Autosave recovery state
+  const [showAutosaveRecovery, setShowAutosaveRecovery] = useState(false);
+  const [autosaveSlots, setAutosaveSlots] = useState([]);
+  const [autosaveMessage, setAutosaveMessage] = useState('');
+  const [autosaveError, setAutosaveError] = useState('');
+
+  const refreshAutosaveSlots = useCallback(() => {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveSlots([]);
+      setAutosaveError('Autosave storage is unavailable in this environment.');
+      return;
+    }
+    try {
+      const metaRaw = window.localStorage.getItem(AUTOSAVE_META_KEY);
+      const meta = metaRaw ? JSON.parse(metaRaw) : {};
+      const slotsMeta = Array.isArray(meta?.slots) ? meta.slots : [];
+      const map = new Map();
+
+      const ensureSlotEntry = (key, timestamp) => {
+        if (!key) return;
+        if (!map.has(key)) {
+          map.set(key, { key, timestamp: timestamp || null, hasData: false });
+        } else if (timestamp && !map.get(key).timestamp) {
+          map.set(key, { ...map.get(key), timestamp });
+        }
+      };
+
+      slotsMeta.forEach((slot, idx) => {
+        const key = slot?.key || `${AUTOSAVE_SLOT_PREFIX}${idx}`;
+        ensureSlotEntry(key, slot?.timestamp || null);
+      });
+
+      for (let i = 0; i < AUTOSAVE_SLOT_COUNT; i += 1) {
+        const key = `${AUTOSAVE_SLOT_PREFIX}${i}`;
+        ensureSlotEntry(key, null);
+      }
+
+      const entries = Array.from(map.values()).map((entry) => {
+        let timestamp = entry.timestamp;
+        let hasData = false;
+        try {
+          const raw = window.localStorage.getItem(entry.key);
+          if (raw) {
+            hasData = true;
+            if (!timestamp) {
+              const payload = JSON.parse(raw);
+              if (payload?.savedAt) {
+                timestamp = payload.savedAt;
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('[Autosave] Failed to inspect slot', entry.key, error);
+        }
+        return { key: entry.key, timestamp, hasData };
+      }).filter((entry) => entry.hasData);
+
+      entries.sort((a, b) => {
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return tb - ta;
+      });
+
+      setAutosaveSlots(entries);
+      if (!entries.length) {
+        setAutosaveMessage('');
+      }
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to load autosave metadata', error);
+      setAutosaveSlots([]);
+      setAutosaveError('Failed to read autosave metadata.');
+    }
+  }, []);
+
+  const handleRestoreAutosave = useCallback((slotKey) => {
+    if (!slotKey) return;
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveError('Autosave storage is unavailable.');
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(slotKey);
+      if (!raw) {
+        setAutosaveError('Selected autosave could not be found.');
+        refreshAutosaveSlots();
+        return;
+      }
+      const data = JSON.parse(raw);
+      if (data?.parameters && applyParametersSnapshot) {
+        applyParametersSnapshot(data.parameters);
+      }
+      if (data?.appState && loadAppState) {
+        loadAppState(data.appState);
+      }
+      // Restore audio config if present
+      if (data?.audioConfig && applyAudioSnapshot) {
+        applyAudioSnapshot(data.audioConfig);
+      }
+      // Restore BPM config if present
+      if (data?.bpmConfig && applyBPMSnapshot) {
+        applyBPMSnapshot(data.bpmConfig);
+      }
+      setAutosaveMessage('Autosave restored successfully.');
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to restore autosave', slotKey, error);
+      setAutosaveError('Failed to restore autosave. Check console for details.');
+    }
+  }, [applyParametersSnapshot, loadAppState, refreshAutosaveSlots, applyAudioSnapshot, applyBPMSnapshot]);
+
+  const handleClearAutosaves = useCallback(() => {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      setAutosaveError('Autosave storage is unavailable.');
+      return;
+    }
+    if (!window.confirm('Clear all autosave snapshots? This cannot be undone.')) {
+      return;
+    }
+    try {
+      for (let i = 0; i < AUTOSAVE_SLOT_COUNT; i += 1) {
+        window.localStorage.removeItem(`${AUTOSAVE_SLOT_PREFIX}${i}`);
+      }
+      window.localStorage.removeItem(AUTOSAVE_META_KEY);
+      setAutosaveSlots([]);
+      setAutosaveMessage('Autosaves cleared.');
+      setAutosaveError('');
+    } catch (error) {
+      console.warn('[Autosave] Failed to clear autosaves', error);
+      setAutosaveError('Failed to clear autosaves.');
+    }
+  }, []);
+
+  const handleRefreshAutosaves = useCallback(() => {
+    setAutosaveMessage('');
+    refreshAutosaveSlots();
+  }, [refreshAutosaveSlots]);
+
+  const handleToggleAutosaveRecovery = useCallback(() => {
+    setAutosaveMessage('');
+    setAutosaveError('');
+    setShowAutosaveRecovery((prev) => {
+      const next = !prev;
+      if (!prev && !next) {
+        return next;
+      }
+      if (!prev && next) {
+        refreshAutosaveSlots();
+      }
+      return next;
+    });
+  }, [refreshAutosaveSlots]);
+
+  const handleCloseAutosaveRecovery = useCallback(() => {
+    setShowAutosaveRecovery(false);
+    setAutosaveMessage('');
+    setAutosaveError('');
+  }, []);
+
+  useEffect(() => {
+    if (showAutosaveRecovery) {
+      refreshAutosaveSlots();
+    }
+  }, [showAutosaveRecovery, refreshAutosaveSlots]);
+
+  const autosaveSignalRef = useRef(autosaveToggleToken);
+  useEffect(() => {
+    if (autosaveToggleToken !== autosaveSignalRef.current) {
+      autosaveSignalRef.current = autosaveToggleToken;
+      handleToggleAutosaveRecovery();
+    }
+  }, [autosaveToggleToken, handleToggleAutosaveRecovery]);
 
   const getExportMeta = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -122,19 +1431,169 @@ const GlobalControls = ({
     };
   }, []);
 
+  const paletteOptions = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const builtins = [];
+    const customs = [];
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        customs.push({
+          value: `custom:${p.id}`,
+          label: p?.name || 'Custom Palette',
+        });
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        builtins.push({
+          value: `builtin:${builtinIndex}`,
+          label: p?.name || `Palette ${builtinIndex + 1}`,
+        });
+      }
+    });
+    return { builtins, customs };
+  }, [palettes]);
+
+  const paletteValueMap = useMemo(() => {
+    const list = Array.isArray(palettes) ? palettes : [];
+    const map = new Map();
+    list.forEach((p, idx) => {
+      const source = p?.__source === 'custom' ? 'custom' : 'builtin';
+      const colors = Array.isArray(p) ? p : p?.colors;
+      if (!Array.isArray(colors) || !colors.length) return;
+      if (source === 'custom' && p?.id) {
+        map.set(`custom:${p.id}`, colors);
+      } else {
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        map.set(`builtin:${builtinIndex}`, colors);
+      }
+    });
+    return map;
+  }, [palettes]);
+
+  const hasCustomPaletteRef = useMemo(() => (
+    typeof globalPaletteRef === 'string'
+      && (Array.isArray(customPalettes) ? customPalettes : []).some(p => p?.id === globalPaletteRef)
+  ), [globalPaletteRef, customPalettes]);
+
   const paletteValue = useMemo(() => {
     try {
       const colorsNow = (layers || []).map(l => (Array.isArray(l?.colors) && l.colors[0]) ? l.colors[0].toLowerCase() : '#000000');
-      const idx = palettes.findIndex(p => {
+      const list = Array.isArray(palettes) ? palettes : [];
+      for (let idx = 0; idx < list.length; idx += 1) {
+        const p = list[idx];
+        const source = p?.__source === 'custom' ? 'custom' : 'builtin';
         const src = Array.isArray(p) ? p : (p?.colors || []);
         const sampled = sampleColorsEven(src, Math.max(1, layers.length));
-        return sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
-      });
-      return idx === -1 ? 'custom' : String(idx);
+        const matches = sampled.length === colorsNow.length && sampled.every((c, i) => (c || '').toLowerCase() === (colorsNow[i] || ''));
+        if (!matches) continue;
+        if (source === 'custom' && p?.id) return `custom:${p.id}`;
+        const builtinIndex = Number.isFinite(p?.__index) ? p.__index : idx;
+        return `builtin:${builtinIndex}`;
+      }
+      return 'custom';
     } catch {
       return 'custom';
     }
   }, [palettes, layers, sampleColorsEven]);
+
+  const selectedPaletteValue = useMemo(() => {
+    if (hasCustomPaletteRef) {
+      return `custom:${globalPaletteRef}`;
+    }
+    if (globalPaletteIndex !== 'custom') {
+      return `builtin:${globalPaletteIndex}`;
+    }
+    return paletteValue;
+  }, [globalPaletteIndex, globalPaletteRef, hasCustomPaletteRef, paletteValue]);
+
+  // Back-compat: older scenes inferred the "selected palette" by matching current layer colors.
+  // If the user hasn't explicitly chosen a palette yet, initialize it from the inferred paletteValue.
+  useEffect(() => {
+    if (globalPaletteRef && hasCustomPaletteRef) return;
+    if (globalPaletteIndex !== 'custom') return;
+    if (paletteValue === 'custom') return;
+    if (paletteValue.startsWith('custom:')) {
+      const id = paletteValue.slice('custom:'.length);
+      if (id) setGlobalPaletteRef?.(id);
+      return;
+    }
+    if (paletteValue.startsWith('builtin:')) {
+      const idx = parseInt(paletteValue.slice('builtin:'.length), 10);
+      if (!Number.isFinite(idx)) return;
+      setGlobalPaletteIndex?.(idx);
+    }
+  }, [globalPaletteIndex, globalPaletteRef, hasCustomPaletteRef, paletteValue, setGlobalPaletteIndex, setGlobalPaletteRef]);
+
+  const generationPaletteColors = useMemo(() => {
+    try {
+      if (globalPaletteIndex === 'custom' && typeof globalPaletteRef === 'string') {
+        const pick = (Array.isArray(customPalettes) ? customPalettes : []).find(p => p?.id === globalPaletteRef);
+        if (pick && Array.isArray(pick.colors) && pick.colors.length) {
+          return pick.colors.filter(c => typeof c === 'string' && c.length > 0);
+        }
+      }
+
+      const idx = (globalPaletteIndex === 'custom') ? null : Number(globalPaletteIndex);
+      if (Number.isFinite(idx) && idx != null && palettes?.[idx]) {
+        const pick = palettes[idx];
+        const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+        return (Array.isArray(src) ? src : []).filter(c => typeof c === 'string' && c.length > 0);
+      }
+
+      const out = [];
+      const seen = new Set();
+      (Array.isArray(layers) ? layers : []).forEach(l => {
+        (Array.isArray(l?.colors) ? l.colors : []).forEach(c => {
+          if (typeof c !== 'string' || !c) return;
+          const k = c.toLowerCase();
+          if (seen.has(k)) return;
+          seen.add(k);
+          out.push(c);
+        });
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  }, [globalPaletteIndex, globalPaletteRef, customPalettes, palettes, layers]);
+
+  const paletteColorsForVariation = useMemo(() => {
+    if (!audioSpawnUseGlobalPalette) return generationPaletteColors;
+    const direct = paletteValueMap.get(selectedPaletteValue);
+    if (Array.isArray(direct) && direct.length > 0) return direct;
+    if (Array.isArray(generationPaletteColors) && generationPaletteColors.length > 0) {
+      return generationPaletteColors;
+    }
+    const inferred = paletteValueMap.get(paletteValue);
+    return Array.isArray(inferred) ? inferred : [];
+  }, [audioSpawnUseGlobalPalette, generationPaletteColors, paletteValueMap, paletteValue, selectedPaletteValue]);
+
+  useEffect(() => {
+    if (!audioSpawnUseGlobalPalette) return;
+    if (Array.isArray(paletteColorsForVariation) && paletteColorsForVariation.length > 0) return;
+    try {
+      console.warn('[Palette Variation] Empty palette pool', {
+        selectedPaletteValue,
+        globalPaletteIndex,
+        globalPaletteRef,
+        paletteValue,
+        generationPaletteColorsCount: Array.isArray(generationPaletteColors) ? generationPaletteColors.length : 0,
+        paletteMapHasSelected: paletteValueMap.has(selectedPaletteValue),
+      });
+    } catch { /* noop */ }
+  }, [
+    audioSpawnUseGlobalPalette,
+    paletteColorsForVariation,
+    selectedPaletteValue,
+    globalPaletteIndex,
+    globalPaletteRef,
+    paletteValue,
+    generationPaletteColors,
+    paletteValueMap,
+  ]);
+
 
   const targetMode = parameterTargetMode === 'global' ? 'global' : 'individual';
 
@@ -148,12 +1607,15 @@ const GlobalControls = ({
 
   // Settings panel visibility toggles
   const [showSpeedSettings, setShowSpeedSettings] = useState(false);
+  const [showPaletteSettings, setShowPaletteSettings] = useState(false);
+  const [showBlendModeSettings, setShowBlendModeSettings] = useState(false);
   const [showOpacitySettings, setShowOpacitySettings] = useState(false);
   const [showLayersSettings, setShowLayersSettings] = useState(false);
   const [showVariationPositionSettings, setShowVariationPositionSettings] = useState(false);
   const [showVariationShapeSettings, setShowVariationShapeSettings] = useState(false);
   const [showVariationAnimSettings, setShowVariationAnimSettings] = useState(false);
   const [showVariationColorSettings, setShowVariationColorSettings] = useState(false);
+  const [showVariationScaleSettings, setShowVariationScaleSettings] = useState(false);
 
   const numericSeed = Number(globalSeed);
   const seedValue = Number.isFinite(numericSeed)
@@ -189,11 +1651,19 @@ const GlobalControls = ({
   const [layersMin, setLayersMin] = useState(1);
   const [layersMax, setLayersMax] = useState(1000);
   const [layersStep, setLayersStep] = useState(1);
+  const [layerCountDraft, setLayerCountDraft] = useState(() => layers.length);
+  const layerCountDraggingRef = useRef(false);
+
+  useEffect(() => {
+    if (layerCountDraggingRef.current) return;
+    setLayerCountDraft(layers.length);
+  }, [layers.length]);
 
   // Helper to set layer count uniformly from slider or number box
   const setLayerCount = (targetRaw) => {
-    let target = parseInt(targetRaw, 10);
+    let target = Number(targetRaw);
     if (!Number.isFinite(target)) return;
+    target = Math.round(target);
     target = Math.max(layersMin, Math.min(layersMax, target));
     setLayers(prev => {
       let next = prev;
@@ -205,15 +1675,40 @@ const GlobalControls = ({
           color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
           position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
         };
-        const last = prev[prev.length - 1] || DEFAULT_LAYER;
-        const toAdd = Array.from({ length: addCount }, (_, i) => buildVariedLayerFrom((i === 0 ? last : next[next.length - 1]), prev.length + i + 1, baseVar));
-        next = [...prev, ...toAdd];
+        const additions = [];
+        let prevLayerRef = prev[prev.length - 1] || DEFAULT_LAYER;
+        for (let i = 0; i < addCount; i += 1) {
+          const randomSeed = generateLayerSeed();
+          const nameIndex = prev.length + additions.length + 1;
+          const layer = buildVariedLayerFrom(prevLayerRef, nameIndex, baseVar, {
+            randomSeed,
+            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+            paletteColors: paletteColorsForVariation,
+          });
+          additions.push(layer);
+          prevLayerRef = layer;
+        }
+        next = [...prev, ...additions];
       } else if (target < prev.length) {
         next = prev.slice(0, target).map((l, i) => ({ ...l, name: `Layer ${i + 1}` }));
+        if (target === 1) {
+          const [first] = next;
+          const reseeded = {
+            ...first,
+            seed: generateLayerSeed(),
+            noiseSeed: generateLayerSeed(),
+          };
+          next[0] = reseeded;
+        }
       }
       return next;
     });
   };
+
+  const commitLayerCountDraft = useCallback((nextValue) => {
+    setLayerCount(nextValue);
+    setLayerCountDraft(nextValue);
+  }, [setLayerCount]);
 
   // Independent ranges for each Variation slider
   const [variationPositionMin, setVariationPositionMin] = useState(0);
@@ -228,6 +1723,203 @@ const GlobalControls = ({
   const [variationColorMin, setVariationColorMin] = useState(0);
   const [variationColorMax, setVariationColorMax] = useState(3);
   const [variationColorStep, setVariationColorStep] = useState(0.01);
+  const [variationScaleMin, setVariationScaleMin] = useState(-3);
+  const [variationScaleMax, setVariationScaleMax] = useState(3);
+  const [variationScaleStep, setVariationScaleStep] = useState(0.01);
+
+  const applyVariationValue = useCallback((prop, rawValue) => {
+    setLayers(prev => {
+      if (!Array.isArray(prev) || !prev.length) return prev;
+
+      let anyChange = false;
+      const updated = prev.map((layer, idx) => {
+        const shouldApply = applyVariationInstantly || idx === 0;
+        const nextValue = shouldApply ? rawValue : layer?.[prop];
+        if (layer?.[prop] === nextValue) return layer;
+        anyChange = true;
+        return { ...layer, [prop]: nextValue };
+      });
+
+      if (!anyChange) return prev;
+      if (!applyVariationInstantly || updated.length <= 1) {
+        return updated;
+      }
+
+      const firstLayer = updated[0];
+      const baseVar = {
+        shape: Number(firstLayer?.variationShape ?? DEFAULT_LAYER.variationShape),
+        anim: Number(firstLayer?.variationAnim ?? DEFAULT_LAYER.variationAnim),
+        color: Number(firstLayer?.variationColor ?? DEFAULT_LAYER.variationColor),
+        position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
+        scale: Number(firstLayer?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0),
+      };
+
+      const rebuilt = [firstLayer];
+      let prevLayer = firstLayer;
+      const categoryMap = {
+        variationPosition: ['position'],
+        variationShape: ['shape'],
+        variationAnim: ['anim'],
+        variationColor: ['color'],
+        variationScale: ['scale'],
+      };
+      const affectCategories = categoryMap[prop] || null;
+      for (let i = 1; i < updated.length; i += 1) {
+        const original = updated[i];
+        const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
+          affectCategories,
+          preserveSeeds: true,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: paletteColorsForVariation,
+        }) || original;
+        const merged = {
+          ...original,
+          ...varied,
+          id: original.id ?? varied.id,
+          name: original.name || varied.name,
+        };
+        const categorySet = affectCategories ? new Set(affectCategories) : null;
+        if (categorySet) {
+          if (!categorySet.has('color')) {
+            if (Array.isArray(original.colors)) {
+              merged.colors = [...original.colors];
+            } else {
+              merged.colors = original.colors;
+            }
+            if (typeof original.numColors !== 'undefined') {
+              merged.numColors = original.numColors;
+            }
+          }
+          if (!categorySet.has('position') && !categorySet.has('scale')) {
+            if (typeof original.xOffset !== 'undefined') merged.xOffset = original.xOffset;
+            if (typeof original.yOffset !== 'undefined') merged.yOffset = original.yOffset;
+            if (original.position && typeof original.position === 'object') {
+              merged.position = { ...original.position };
+            }
+          }
+          if (!categorySet.has('shape')) {
+            const shapeFields = [
+              'numSides',
+              'curviness',
+              'wobble',
+              'noiseAmount',
+              'width',
+              'height',
+              'radiusFactor',
+              'radiusFactorX',
+              'radiusFactorY',
+              'nodes',
+              'syncNodesToNumSides',
+              'viewBoxMapped',
+            ];
+            shapeFields.forEach((field) => {
+              if (field in original) {
+                merged[field] = Array.isArray(original[field])
+                  ? [...original[field]]
+                  : (original[field] && typeof original[field] === 'object'
+                    ? { ...original[field] }
+                    : original[field]);
+              }
+            });
+          }
+          if (!categorySet.has('anim')) {
+            const animFields = [
+              'movementStyle',
+              'movementSpeed',
+              'movementAngle',
+              'scaleSpeed',
+              'scaleMin',
+              'scaleMax',
+              'imageBlur',
+              'imageBrightness',
+              'imageContrast',
+              'imageHue',
+              'imageSaturation',
+              'imageDistortion',
+              'vx',
+              'vy',
+              'orbitCenterX',
+              'orbitCenterY',
+              'orbitAngle',
+              'orbitRadiusX',
+              'orbitRadiusY',
+            ];
+            animFields.forEach((field) => {
+              if (field in original) {
+                merged[field] = original[field];
+              }
+            });
+          }
+          if (!categorySet.has('scale')) {
+            if (typeof original.variationScale !== 'undefined') {
+              merged.variationScale = original.variationScale;
+            }
+            if (original.position && typeof original.position === 'object') {
+              const originalScale = original.position.scale;
+              const originalScaleDirection = original.position.scaleDirection;
+              merged.position = {
+                ...(merged.position || {}),
+                ...(original.position || {}),
+                scale: originalScale,
+                scaleDirection: originalScaleDirection,
+              };
+            }
+          } else {
+            // When scale IS in the category set, compute scale variation relative to ORIGINAL layer's scale
+            // (not prevLayer's scale, which would cause cumulative scaling)
+            const rawScaleVar = Number(baseVar.scale || 0);
+            const originalScale = original.position?.scale ?? 1.0;
+            
+            if (rawScaleVar !== 0) {
+              // Use seeded random based on layer index for consistent results
+              const layerSeed = (firstLayer?.seed ?? 1) + (i * 1013904223);
+              const rng = () => {
+                const x = Math.sin(layerSeed * 9999) * 10000;
+                return x - Math.floor(x);
+              };
+              
+              const absWeight = Math.min(Math.abs(rawScaleVar) / 3, 1);
+              const minScale = 0.05;
+              const maxScale = 5;
+              
+              let newScale;
+              if (rawScaleVar < 0) {
+                // Negative variation shrinks relative to original scale
+                const shrinkIntensity = 0.95 * absWeight;
+                const ratio = Math.max(0.05, 1 - rng() * shrinkIntensity);
+                newScale = Math.max(minScale, Math.min(maxScale, originalScale * ratio));
+              } else {
+                // Positive variation grows relative to original scale
+                const growthIntensity = 1.2 * absWeight;
+                const ratio = 1 + rng() * growthIntensity;
+                newScale = Math.max(minScale, Math.min(maxScale, originalScale * ratio));
+              }
+              
+              merged.position = {
+                ...(original.position || {}),
+                scale: newScale,
+              };
+            }
+          }
+        }
+        rebuilt.push(merged);
+        prevLayer = merged;
+      }
+
+      return rebuilt;
+    });
+  }, [
+    applyVariationInstantly,
+    buildVariedLayerFrom,
+    DEFAULT_LAYER.variationAnim,
+    DEFAULT_LAYER.variationColor,
+    DEFAULT_LAYER.variationPosition,
+    DEFAULT_LAYER.variationShape,
+    DEFAULT_LAYER.variationScale,
+    audioSpawnUseGlobalPalette,
+    paletteColorsForVariation,
+    setLayers,
+  ]);
 
   // Presets: helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
@@ -413,7 +2105,15 @@ const GlobalControls = ({
           </div>
           <label className="compact-label" title="Seconds per leg">
             Duration
-            <input type="number" step={0.1} min={0.2} max={120} value={Number(morphDurationPerLeg || 5)} onChange={(e) => setMorphDurationPerLeg && setMorphDurationPerLeg(e.target.value)} className="compact-input" />
+            <BufferedNumberInput
+              value={Number.isFinite(morphDurationPerLeg) ? morphDurationPerLeg : 5}
+              min={0.2}
+              max={120}
+              step={0.1}
+              onCommit={(next) => setMorphDurationPerLeg?.(next)}
+              className="compact-input"
+              inputMode="decimal"
+            />
           </label>
           <label className="compact-label" title="Easing">
             Easing
@@ -672,36 +2372,19 @@ const GlobalControls = ({
             aria-label="Adjust global seed"
             style={{ flex: '1 1 auto' }}
           />
-          <input
-            className="compact-number"
-            type="number"
+          <BufferedNumberInput
+            value={seedValue}
             min={GLOBAL_SEED_MIN}
             max={GLOBAL_SEED_MAX}
-            value={seedValue}
-            onChange={handleSeedInputChange}
+            step={1}
+            onCommit={updateSeed}
             title="Global seed value"
-            aria-label="Global seed value"
+            className="compact-number"
             style={{ width: 80 }}
+            inputMode="numeric"
           />
         </div>
-        {/* Quick Save/Load configuration */}
-        <button
-          className="icon-btn sm"
-          onClick={(e) => { e.stopPropagation(); typeof onQuickSave === 'function' && onQuickSave(); }}
-          title="Save configuration"
-          aria-label="Save configuration"
-        >
-          💾
-        </button>
-        <button
-          className="icon-btn sm"
-          onClick={(e) => { e.stopPropagation(); typeof onQuickLoad === 'function' && onQuickLoad(); }}
-          title="Load configuration"
-          aria-label="Load configuration"
-        >
-          📂
-        </button>
-        {showGlobalMidi && (
+        {(
           <>
             <button
               className="btn-compact-secondary"
@@ -734,10 +2417,44 @@ const GlobalControls = ({
           setLayers={setLayers}
           setBackgroundColor={setBackgroundColor}
           setGlobalSpeedMultiplier={setGlobalSpeedMultiplier}
-          showGlobalMidi={showGlobalMidi}
+        />
+      )}
+      {showAutosaveRecovery && (
+        <AutosaveRecovery
+          slots={autosaveSlots}
+          onRestore={handleRestoreAutosave}
+          onClearAll={handleClearAutosaves}
+          onRefresh={handleRefreshAutosaves}
+          onClose={handleCloseAutosaveRecovery}
+          message={autosaveMessage}
+          error={autosaveError}
         />
       )}
       <div className="control-group" style={{ margin: 0 }}>
+        <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <label className="compact-label">Canvas FPS</label>
+            <label className="compact-label" title="Helps performance by limiting draw rate">
+              <input
+                type="checkbox"
+                checked={canvasFps <= 30}
+                onChange={(e) => setCanvasFps(e.target.checked ? 30 : 60)}
+              /> 30fps limit
+            </label>
+          </div>
+          <select
+            className="compact-select"
+            value={canvasFps}
+            onChange={(e) => setCanvasFps(Number(e.target.value))}
+            title="Canvas draw rate (lower = more responsive UI)"
+          >
+            <option value={15}>15 fps</option>
+            <option value={24}>24 fps</option>
+            <option value={30}>30 fps</option>
+            <option value={60}>60 fps</option>
+          </select>
+        </div>
+
         <div className="compact-field" style={{ marginBottom: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
             <label className="compact-label" htmlFor="global-target-mode">Target</label>
@@ -759,7 +2476,7 @@ const GlobalControls = ({
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.25rem', gap: '0.5rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: '1 1 auto', minWidth: 0, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 600 }}>Background</span>
-            <BackgroundColorPicker compact inline hideLabel showMidi={showGlobalMidi} color={backgroundColor} onChange={setBackgroundColor} />
+            <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
             <label className="compact-label" title="Enable background image">
               <input
                 type="checkbox"
@@ -844,13 +2561,10 @@ const GlobalControls = ({
           <label className="compact-label">
             <input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic Mode
           </label>
-          <label className="compact-label" title="Show/Hide MIDI Learn controls in this section">
-            <input type="checkbox" checked={!!showGlobalMidi} onChange={(e) => setShowGlobalMidi(!!e.target.checked)} /> MIDI Learn
-          </label>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}</span>
+              <span className="compact-label">Global Speed: {globalSpeedMultiplier.toFixed(2)}{renderAutomationBadge('globalSpeedMultiplier')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -863,23 +2577,44 @@ const GlobalControls = ({
               </label>
             </div>
             <input className="compact-range" type="range" min={speedMin} max={speedMax} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} />
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
-              </div>
-            )}
             {showSpeedSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalSpeedMultiplier ? (mappingLabel ? mappingLabel(midiMappings.globalSpeedMultiplier) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'globalSpeedMultiplier' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
+                </div>
+                <AudioControlRow paramId="globalSpeedMultiplier" />
+                <BPMControlRow paramId="globalSpeedMultiplier" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={speedMin} onChange={(e) => setSpeedMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={speedMax} onChange={(e) => setSpeedMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={speedMin}
+                    step={0.01}
+                    min={0}
+                    onCommit={setSpeedMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('globalSpeedMultiplier')}`}</label>
+                  <BufferedNumberInput
+                    value={speedMax}
+                    step={0.01}
+                    min={0}
+                    onCommit={setSpeedMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={speedStep} onChange={(e) => setSpeedStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={speedStep}
+                    step={0.001}
+                    min={0.001}
+                    onCommit={(next) => setSpeedStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -887,44 +2622,101 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Palette</label>
+              <label className="compact-label">Palette{renderAutomationBadge('globalPaletteIndex')}</label>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Palette settings"
+                aria-label="Palette settings"
+                onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Allow Randomize All to change the palette">
                 <input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /> Include
               </label>
             </div>
             <select
               className="compact-select"
-              value={paletteValue}
+              value={selectedPaletteValue}
               onChange={(e) => {
                 const val = e.target.value;
-                if (val === 'custom') return;
-                const idx = parseInt(val, 10);
-                if (!Number.isFinite(idx) || !palettes[idx]) return;
-                const pick = palettes[idx];
-                const src = Array.isArray(pick) ? pick : (pick?.colors || []);
+                if (val === 'custom') {
+                  setGlobalPaletteIndex?.('custom');
+                  setGlobalPaletteRef?.(null);
+                  return;
+                }
+                if (val.startsWith('custom:')) {
+                  const id = val.slice('custom:'.length);
+                  if (!id) return;
+                  setGlobalPaletteRef?.(id);
+                } else if (val.startsWith('builtin:')) {
+                  const idx = parseInt(val.slice('builtin:'.length), 10);
+                  if (!Number.isFinite(idx) || !palettes[idx]) return;
+                  setGlobalPaletteRef?.(null);
+                  setGlobalPaletteIndex?.(idx);
+                }
+                const src = paletteValueMap.get(val) || [];
                 const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
                 assignOneColorPerLayer(nextColors);
               }}
             >
               <option value="custom">Custom</option>
-              {palettes.map((p, i) => (
-                <option key={i} value={i}>{p.name || `Palette ${i+1}`}</option>
-              ))}
+              {paletteOptions.builtins.length > 0 && (
+                <optgroup label="Built-in">
+                  {paletteOptions.builtins.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </optgroup>
+              )}
+              {paletteOptions.customs.length > 0 && (
+                <optgroup label="Custom">
+                  {paletteOptions.customs.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
+            <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={() => {
+                  if (typeof onSaveCustomPalette !== 'function') return;
+                  const base = Array.isArray(generationPaletteColors) ? generationPaletteColors : [];
+                  const safe = base.filter(c => typeof c === 'string' && c.trim().length > 0);
+                  if (!safe.length) return;
+                  const name = (window.prompt('Name this custom palette:', 'Custom Palette') || '').trim();
+                  if (!name) return;
+                  const created = onSaveCustomPalette({ name, colors: safe });
+                  if (created?.id) setGlobalPaletteRef?.(created.id);
+                }}
+              >
+                Save as custom
+              </button>
+            </div>
+            {showPaletteSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalPaletteIndex ? (mappingLabel ? mappingLabel(midiMappings.globalPaletteIndex) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'globalPaletteIndex' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported} title="MIDI Learn: Palette Preset (applies to selected layer)">Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex} title="Clear MIDI for Palette Preset">Clear</button>
+                </div>
+                <AudioControlRow paramId="globalPaletteIndex" />
+                <BPMControlRow paramId="globalPaletteIndex" />
               </div>
             )}
-            {/* No settings panel for Palette (non-numeric) */}
           </div>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label className="compact-label">Style</label>
+              <label className="compact-label">Style{renderAutomationBadge('globalBlendMode')}</label>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Style settings"
+                aria-label="Style settings"
+                onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }}
+              >⚙</button>
               <label className="compact-label" title="Include Style in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /> Include
               </label>
@@ -932,15 +2724,18 @@ const GlobalControls = ({
             <select className="compact-select" value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
               {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
             </select>
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
+            {showBlendModeSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalBlendMode ? (mappingLabel ? mappingLabel(midiMappings.globalBlendMode) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'globalBlendMode' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
+                </div>
+                <AudioControlRow paramId="globalBlendMode" />
+                <BPMControlRow paramId="globalBlendMode" />
               </div>
             )}
-            {/* No settings panel for Style (non-numeric) */}
           </div>
 
           <div className="compact-field">
@@ -958,9 +2753,43 @@ const GlobalControls = ({
             {/* No settings panel for MIDI Input (non-numeric) */}
           </div>
 
+          {/* Audio Reactive Section */}
+          <AudioReactiveSection isActiveTab={isActiveTab} />
+
+          {/* Live audio spawn (non-export overlays) */}
+	          <AudioSpawnSection
+	            isActiveTab={isActiveTab}
+	            timelineMode={timelineMode}
+	            energyInfluence={energyInfluence}
+	            setEnergyInfluence={setEnergyInfluence}
+	            audioSpawnEnabled={audioSpawnEnabled}
+	            setAudioSpawnEnabled={setAudioSpawnEnabled}
+	            audioSpawnTriggerMode={audioSpawnTriggerMode}
+	            setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
+	            audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
+	            setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
+	            audioSpawnHysteresis={audioSpawnHysteresis}
+	            setAudioSpawnHysteresis={setAudioSpawnHysteresis}
+	            audioSpawnBand={audioSpawnBand}
+	            setAudioSpawnBand={setAudioSpawnBand}
+            audioSpawnThreshold={audioSpawnThreshold}
+            setAudioSpawnThreshold={setAudioSpawnThreshold}
+            audioSpawnCooldownMs={audioSpawnCooldownMs}
+            setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
+            audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
+            setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
+            audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
+            setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
+            audioSpawnMaxLayers={audioSpawnMaxLayers}
+            setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
+          />
+
+          {/* BPM/Beat Sync Section */}
+          <BPMSection />
+
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Global Opacity</span>
+              <span className="compact-label">Global Opacity{renderAutomationBadge('globalOpacity')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -984,23 +2813,46 @@ const GlobalControls = ({
                 setLayers(prev => prev.map(l => ({ ...l, opacity: v })));
               }}
             />
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
-              </div>
-            )}
             {showOpacitySettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.globalOpacity ? (mappingLabel ? mappingLabel(midiMappings.globalOpacity) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'globalOpacity' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
+                </div>
+                <AudioControlRow paramId="globalOpacity" />
+                <BPMControlRow paramId="globalOpacity" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={opacityMin} onChange={(e) => setOpacityMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={opacityMax} onChange={(e) => setOpacityMax(parseFloat(e.target.value) || 1)} />
+                  <BufferedNumberInput
+                    value={opacityMin}
+                    step={0.01}
+                    min={0}
+                    max={1}
+                    onCommit={setOpacityMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('globalOpacity')}`}</label>
+                  <BufferedNumberInput
+                    value={opacityMax}
+                    step={0.01}
+                    min={0}
+                    max={1}
+                    onCommit={setOpacityMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={opacityStep} onChange={(e) => setOpacityStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={opacityStep}
+                    step={0.001}
+                    min={0.001}
+                    onCommit={(next) => setOpacityStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1008,7 +2860,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Layers</span>
+              <span className="compact-label">Layers{renderAutomationBadge('layersCount')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -1027,60 +2879,155 @@ const GlobalControls = ({
                 min={layersMin}
                 max={layersMax}
                 step={layersStep}
-                value={layers.length}
-                onChange={(e) => setLayerCount(e.target.value)}
+                value={layerCountDraft}
+                onChange={(e) => {
+                  setLayerCountDraft(Number(e.target.value));
+                }}
+                onPointerDown={() => { layerCountDraggingRef.current = true; }}
+                onPointerUp={() => {
+                  layerCountDraggingRef.current = false;
+                  commitLayerCountDraft(layerCountDraft);
+                }}
+                onPointerCancel={() => {
+                  layerCountDraggingRef.current = false;
+                  commitLayerCountDraft(layerCountDraft);
+                }}
               />
-              <input
-                type="number"
+              <BufferedNumberInput
+                value={layerCountDraft}
                 min={layersMin}
                 max={layersMax}
                 step={layersStep}
-                value={layers.length}
-                onChange={(e) => setLayerCount(e.target.value)}
-                onBlur={(e) => setLayerCount(e.target.value)}
-                style={{ width: '100%', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                onCommit={commitLayerCountDraft}
+                className="compact-number"
+                style={{ width: '5.5rem', padding: '2px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                inputMode="numeric"
               />
             </div>
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
-              </div>
-            )}
             {showLayersSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.layersCount ? (mappingLabel ? mappingLabel(midiMappings.layersCount) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'layersCount' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
+                </div>
+                <AudioControlRow paramId="layersCount" />
+                <BPMControlRow paramId="layersCount" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={1} value={layersMin} onChange={(e) => setLayersMin(parseInt(e.target.value, 10) || 1)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={1} value={layersMax} onChange={(e) => setLayersMax(parseInt(e.target.value, 10) || 1)} />
+                  <BufferedNumberInput
+                    value={layersMin}
+                    step={1}
+                    min={1}
+                    onCommit={(next) => setLayersMin(Math.max(1, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('layersCount')}`}</label>
+                  <BufferedNumberInput
+                    value={layersMax}
+                    step={1}
+                    min={layersMin}
+                    onCommit={(next) => setLayersMax(Math.max(layersMin, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={1} value={layersStep} onChange={(e) => setLayersStep(parseInt(e.target.value, 10) || 1)} />
+                  <BufferedNumberInput
+                    value={layersStep}
+                    step={1}
+                    min={1}
+                    onCommit={(next) => setLayersStep(Math.max(1, Math.round(next)))}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                  />
                 </div>
               </div>
             )}
           </div>
 
           <div className="compact-field">
-            <label
-              className="compact-label"
-              title="When enabled, every layer copies Layer 1 colours"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
-            >
-              <span>Match colours to Layer 1</span>
-              <input
-                type="checkbox"
-                checked={!!syncLayerColorsToFirst}
-                onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
-              />
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <label
+                className="compact-label"
+                title="When enabled, every layer copies Layer 1 colours"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>Match colours to Layer 1</span>
+                <input
+                  type="checkbox"
+                  checked={!!syncLayerColorsToFirst}
+                  onChange={(e) => setSyncLayerColorsToFirst?.(e.target.checked)}
+                />
+              </label>
+              <label
+                className="compact-label"
+                title="Apply variation sliders to every layer in real time"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <span>Instant variation</span>
+                <input
+                  type="checkbox"
+                  checked={!!applyVariationInstantly}
+                  onChange={(e) => setApplyVariationInstantly?.(!!e.target.checked)}
+                />
+              </label>
+            </div>
+          </div>
+
+	          {/* Randomize Colors Per Layer */}
+	          <div className="compact-field">
+	            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+	              <label
+	                className="compact-label"
+	                title="When checked, each layer gets a random number of colours. When unchecked, all layers use the same colour count."
+	                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+	              >
+	                <input
+	                  type="checkbox"
+	                  checked={!!randomizeColorsPerLayer}
+	                  onChange={(e) => setRandomizeColorsPerLayer?.(e.target.checked)}
+	                />
+	                <span>Randomise colours per layer</span>
+	              </label>
+                <label
+                  className="compact-label"
+                  title="When enabled, generated layers/keyframes pick colours only from the current Global palette selection."
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!audioSpawnUseGlobalPalette}
+                    disabled={!setAudioSpawnUseGlobalPalette}
+                    onChange={(e) => setAudioSpawnUseGlobalPalette?.(!!e.target.checked)}
+                  />
+                  <span>Use global palette for generation</span>
+                </label>
+	              {!randomizeColorsPerLayer && (
+	                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+	                  <span className="compact-label" style={{ opacity: 0.7 }}>Uniform count:</span>
+	                  <BufferedNumberInput
+	                    value={uniformColorCount ?? 3}
+                    min={1}
+                    max={32}
+                    step={1}
+                    onCommit={(next) => setUniformColorCount?.(Math.max(1, Math.min(32, Math.round(next))))}
+                    className="compact-number"
+                    style={{ width: '3.5rem', padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)', color: 'white', border: '1px solid rgba(255,255,255,0.12)' }}
+                    inputMode="numeric"
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}</span>
+              <span className="compact-label">Position Variation: {Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition).toFixed(2)}{renderAutomationBadge('variationPosition')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -1101,18 +3048,45 @@ const GlobalControls = ({
               value={Number(layers?.[0]?.variationPosition ?? DEFAULT_LAYER.variationPosition)}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
-                setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: v } : l)));
+                applyVariationValue('variationPosition', v);
               }}
             />
             {showVariationPositionSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationPosition ? (mappingLabel ? mappingLabel(midiMappings.variationPosition) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'variationPosition' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationPosition'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationPosition'); }} disabled={!midiSupported || !midiMappings?.variationPosition}>Clear</button>
+                </div>
+                <AudioControlRow paramId="variationPosition" />
+                <BPMControlRow paramId="variationPosition" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationPositionMin} onChange={(e) => setVariationPositionMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationPositionMax} onChange={(e) => setVariationPositionMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationPositionMin}
+                    step={0.01}
+                    onCommit={setVariationPositionMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationPosition')}`}</label>
+                  <BufferedNumberInput
+                    value={variationPositionMax}
+                    step={0.01}
+                    onCommit={setVariationPositionMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationPositionStep} onChange={(e) => setVariationPositionStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationPositionStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationPositionStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1120,22 +3094,60 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}</span>
+              <span className="compact-label">Shape Variation: {Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape).toFixed(2)}{renderAutomationBadge('variationShape')}</span>
               <button type="button" className="icon-btn sm" title="Variation settings" aria-label="Variation settings" onClick={(e) => { e.stopPropagation(); setShowVariationShapeSettings(s => !s); }}>⚙</button>
               <label className="compact-label" title="Include Shape Variation in Randomize All">
                 <input type="checkbox" checked={!!getIsRnd('variationShape')} onChange={(e) => setIsRnd('variationShape', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationShapeMin} max={variationShapeMax} step={variationShapeStep} value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: v } : l))); }} />
+            <input
+              className="compact-range"
+              type="range"
+              min={variationShapeMin}
+              max={variationShapeMax}
+              step={variationShapeStep}
+              value={Number(layers?.[0]?.variationShape ?? DEFAULT_LAYER.variationShape)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationShape', v);
+              }}
+            />
             {showVariationShapeSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationShape ? (mappingLabel ? mappingLabel(midiMappings.variationShape) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'variationShape' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationShape'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationShape'); }} disabled={!midiSupported || !midiMappings?.variationShape}>Clear</button>
+                </div>
+                <AudioControlRow paramId="variationShape" />
+                <BPMControlRow paramId="variationShape" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationShapeMin} onChange={(e) => setVariationShapeMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationShapeMax} onChange={(e) => setVariationShapeMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationShapeMin}
+                    step={0.01}
+                    onCommit={setVariationShapeMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationShape')}`}</label>
+                  <BufferedNumberInput
+                    value={variationShapeMax}
+                    step={0.01}
+                    onCommit={setVariationShapeMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationShapeStep} onChange={(e) => setVariationShapeStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationShapeStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationShapeStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1143,7 +3155,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}</span>
+              <span className="compact-label">Animation Variation: {Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim).toFixed(2)}{renderAutomationBadge('variationAnim')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -1155,16 +3167,54 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('variationAnim')} onChange={(e) => setIsRnd('variationAnim', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationAnimMin} max={variationAnimMax} step={variationAnimStep} value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: v } : l))); }} />
+            <input
+              className="compact-range"
+              type="range"
+              min={variationAnimMin}
+              max={variationAnimMax}
+              step={variationAnimStep}
+              value={Number(layers?.[0]?.variationAnim ?? DEFAULT_LAYER.variationAnim)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationAnim', v);
+              }}
+            />
             {showVariationAnimSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationAnim ? (mappingLabel ? mappingLabel(midiMappings.variationAnim) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'variationAnim' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationAnim'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationAnim'); }} disabled={!midiSupported || !midiMappings?.variationAnim}>Clear</button>
+                </div>
+                <AudioControlRow paramId="variationAnim" />
+                <BPMControlRow paramId="variationAnim" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
                   <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationAnimMin} onChange={(e) => setVariationAnimMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationAnimMax} onChange={(e) => setVariationAnimMax(parseFloat(e.target.value) || 0)} />
+                  <BufferedNumberInput
+                    value={variationAnimMin}
+                    step={0.01}
+                    onCommit={setVariationAnimMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationAnim')}`}</label>
+                  <BufferedNumberInput
+                    value={variationAnimMax}
+                    step={0.01}
+                    onCommit={setVariationAnimMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                   <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationAnimStep} onChange={(e) => setVariationAnimStep(parseFloat(e.target.value) || 0.01)} />
+                  <BufferedNumberInput
+                    value={variationAnimStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationAnimStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
                 </div>
               </div>
             )}
@@ -1172,7 +3222,7 @@ const GlobalControls = ({
 
           <div className="compact-field">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}</span>
+              <span className="compact-label">Colour Variation: {Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor).toFixed(2)}{renderAutomationBadge('variationColor')}</span>
               <button
                 type="button"
                 className="icon-btn sm"
@@ -1184,25 +3234,122 @@ const GlobalControls = ({
                 <input type="checkbox" checked={!!getIsRnd('variationColor')} onChange={(e) => setIsRnd('variationColor', e.target.checked)} /> Include
               </label>
             </div>
-            <input className="compact-range" type="range" min={variationColorMin} max={variationColorMax} step={variationColorStep} value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)} onChange={(e) => { const v = parseFloat(e.target.value); setLayers(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: v } : l))); }} />
-            {showGlobalMidi && (
-              <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.25rem' }}>
-                <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
-                {learnParamId === 'variationColor' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationColor'); }} disabled={!midiSupported}>Learn</button>
-                <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
-              </div>
-            )}
+            <input
+              className="compact-range"
+              type="range"
+              min={variationColorMin}
+              max={variationColorMax}
+              step={variationColorStep}
+              value={Number(layers?.[0]?.variationColor ?? DEFAULT_LAYER.variationColor)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationColor', v);
+              }}
+            />
             {showVariationColorSettings && (
               <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center' }}>
-                  <label className="compact-label">Min</label>
-                  <input type="number" step={0.01} value={variationColorMin} onChange={(e) => setVariationColorMin(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Max</label>
-                  <input type="number" step={0.01} value={variationColorMax} onChange={(e) => setVariationColorMax(parseFloat(e.target.value) || 0)} />
-                  <label className="compact-label">Step</label>
-                  <input type="number" step={0.001} value={variationColorStep} onChange={(e) => setVariationColorStep(parseFloat(e.target.value) || 0.01)} />
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationColor ? (mappingLabel ? mappingLabel(midiMappings.variationColor) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'variationColor' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationColor'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationColor'); }} disabled={!midiSupported || !midiMappings?.variationColor}>Clear</button>
                 </div>
+                <AudioControlRow paramId="variationColor" />
+                <BPMControlRow paramId="variationColor" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                  <label className="compact-label">Min</label>
+                  <BufferedNumberInput
+                    value={variationColorMin}
+                    step={0.01}
+                    onCommit={setVariationColorMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationColor')}`}</label>
+                  <BufferedNumberInput
+                    value={variationColorMax}
+                    step={0.01}
+                    onCommit={setVariationColorMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">Step</label>
+                  <BufferedNumberInput
+                    value={variationColorStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationColorStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="compact-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span className="compact-label">Scale Variation: {Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0).toFixed(2)}{renderAutomationBadge('variationScale')}</span>
+              <button
+                type="button"
+                className="icon-btn sm"
+                title="Variation settings"
+                aria-label="Variation settings"
+                onClick={(e) => { e.stopPropagation(); setShowVariationScaleSettings(s => !s); }}
+              >⚙</button>
+              <label className="compact-label" title="Include Scale Variation in Randomize All">
+                <input type="checkbox" checked={!!getIsRnd('variationScale')} onChange={(e) => setIsRnd('variationScale', e.target.checked)} /> Include
+              </label>
+            </div>
+            <input
+              className="compact-range"
+              type="range"
+              min={variationScaleMin}
+              max={variationScaleMax}
+              step={variationScaleStep}
+              value={Number(layers?.[0]?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                applyVariationValue('variationScale', v);
+              }}
+            />
+            {showVariationScaleSettings && (
+              <div className="dc-settings" style={{ marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
+                <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>MIDI: {midiSupported ? (midiMappings?.variationScale ? (mappingLabel ? mappingLabel(midiMappings.variationScale) : 'Mapped') : 'Not mapped') : 'Not supported'}</span>
+                  {learnParamId === 'variationScale' && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('variationScale'); }} disabled={!midiSupported}>Learn</button>
+                  <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('variationScale'); }} disabled={!midiSupported || !midiMappings?.variationScale}>Clear</button>
+                </div>
+                <AudioControlRow paramId="variationScale" />
+                <BPMControlRow paramId="variationScale" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
+                  <label className="compact-label">Min</label>
+                  <BufferedNumberInput
+                    value={variationScaleMin}
+                    step={0.01}
+                    onCommit={setVariationScaleMin}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">{`Max${getOperationalMaxHint('variationScale')}`}</label>
+                  <BufferedNumberInput
+                    value={variationScaleMax}
+                    step={0.01}
+                    onCommit={setVariationScaleMax}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  <label className="compact-label">Step</label>
+                  <BufferedNumberInput
+                    value={variationScaleStep}
+                    step={0.001}
+                    min={0.0001}
+                    onCommit={(next) => setVariationScaleStep(next || 0.01)}
+                    className="compact-number"
+                    style={{ width: '5rem' }}
+                  />
+                  </div>
               </div>
             )}
           </div>
@@ -1212,28 +3359,107 @@ const GlobalControls = ({
   );
 };
 
-const areGlobalPropsEqual = (prev, next) => {
-  const prevBGI = prev.backgroundImage || {};
-  const nextBGI = next.backgroundImage || {};
-  return (
-    prev.backgroundColor === next.backgroundColor &&
-    prev.getIsRnd === next.getIsRnd &&
-    prevBGI.enabled === nextBGI.enabled &&
-    prevBGI.src === nextBGI.src &&
-    prevBGI.opacity === nextBGI.opacity &&
-    prevBGI.fit === nextBGI.fit &&
-    prev.isFrozen === next.isFrozen &&
-    prev.zIgnore === next.zIgnore &&
-    prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
-    prev.syncLayerColorsToFirst === next.syncLayerColorsToFirst &&
-    prev.classicMode === next.classicMode &&
-    prev.showGlobalMidi === next.showGlobalMidi &&
-    prev.globalSeed === next.globalSeed &&
-    prev.globalSpeedMultiplier === next.globalSpeedMultiplier &&
-    prev.globalBlendMode === next.globalBlendMode &&
-    prev.midiInputId === next.midiInputId &&
-    prev.layers === next.layers
-  );
+const isLayerEqualForUI = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ignoreTop = new Set(['position', 'movementAngle', 'orbitAngle', 'spinAngle']);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => { if (ignoreTop.has(k)) keys.delete(k); });
+  for (const key of keys) {
+    if (!Object.is(a[key], b[key])) return false;
+  }
+  const posA = a.position || {};
+  const posB = b.position || {};
+  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection']);
+  const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
+  posKeys.forEach(k => { if (ignorePos.has(k)) posKeys.delete(k); });
+  for (const key of posKeys) {
+    if (!Object.is(posA[key], posB[key])) return false;
+  }
+  const ignoreRotation = a.movementStyle === 'spin' || b.movementStyle === 'spin';
+  if (!ignoreRotation && !Object.is(a.rotation, b.rotation)) return false;
+  return true;
 };
 
-export default React.memo(GlobalControls, areGlobalPropsEqual);
+const areLayersEqualForUI = (prevLayers, nextLayers) => {
+  if (prevLayers === nextLayers) return true;
+  if (!Array.isArray(prevLayers) || !Array.isArray(nextLayers)) return false;
+  if (prevLayers.length !== nextLayers.length) return false;
+  for (let i = 0; i < prevLayers.length; i += 1) {
+    if (!isLayerEqualForUI(prevLayers[i], nextLayers[i])) return false;
+  }
+  return true;
+};
+
+// Simple render profiler for the Global tab (opt-in via window.__artapp_debugSettings = true)
+const useGlobalRenderDebug = (props) => {
+  const debug = isSettingsDebugEnabled();
+  const renderCountRef = useRef(0);
+  const lastMarkRef = useRef(0);
+  useEffect(() => {
+    if (!debug) return;
+    renderCountRef.current += 1;
+    const now = performance.now ? performance.now() : Date.now();
+    if (now - lastMarkRef.current > 1000) {
+      lastMarkRef.current = now;
+      const log = throttledSettingsDebugLog;
+      log(`[global-debug] render #${renderCountRef.current}`, {
+        layersLen: Array.isArray(props.layers) ? props.layers.length : 'n/a',
+        isFrozen: props.isFrozen,
+      });
+    }
+  });
+};
+
+const areGlobalPropsEqual = (prev, next) => {
+  const debug = isSettingsDebugEnabled();
+  const log = throttledSettingsDebugLog;
+  const prevBGI = prev.backgroundImage || {};
+  const nextBGI = next.backgroundImage || {};
+  const diff = (reason) => {
+    if (debug) {
+      log(`[global-debug] re-render: ${reason}`);
+    }
+    return false;
+  };
+
+  // isActiveTab is only used for visibility, not for rendering content changes
+  // Do NOT force re-render just because the tab is active - that causes stutter
+
+  if (prev.backgroundColor !== next.backgroundColor) return diff('backgroundColor');
+  if (prev.getIsRnd !== next.getIsRnd) return diff('getIsRnd changed');
+  if (prevBGI.enabled !== nextBGI.enabled) return diff('backgroundImage.enabled');
+  if (prevBGI.src !== nextBGI.src) return diff('backgroundImage.src');
+  if (!Object.is(prevBGI.opacity, nextBGI.opacity)) return diff('backgroundImage.opacity');
+  if (prevBGI.fit !== nextBGI.fit) return diff('backgroundImage.fit');
+  if (prev.isFrozen !== next.isFrozen) return diff('isFrozen');
+  if (!Object.is(prev.energyInfluence, next.energyInfluence)) return diff('energyInfluence');
+  if (prev.zIgnore !== next.zIgnore) return diff('zIgnore');
+  if (prev.colorFadeWhileFrozen !== next.colorFadeWhileFrozen) return diff('colorFadeWhileFrozen');
+  if (prev.syncLayerColorsToFirst !== next.syncLayerColorsToFirst) return diff('syncLayerColorsToFirst');
+  if (prev.classicMode !== next.classicMode) return diff('classicMode');
+  if (!Object.is(prev.globalSeed, next.globalSeed)) return diff('globalSeed');
+  if (!Object.is(prev.globalSpeedMultiplier, next.globalSpeedMultiplier)) return diff('globalSpeedMultiplier');
+  if (prev.globalBlendMode !== next.globalBlendMode) return diff('globalBlendMode');
+  if (!Object.is(prev.globalPaletteIndex, next.globalPaletteIndex)) return diff('globalPaletteIndex');
+  if (prev.midiInputId !== next.midiInputId) return diff('midiInputId');
+  if (prev.audioSpawnEnabled !== next.audioSpawnEnabled) return diff('audioSpawnEnabled');
+  if (prev.audioSpawnTriggerMode !== next.audioSpawnTriggerMode) return diff('audioSpawnTriggerMode');
+  if (prev.audioSpawnRepeatWhileAbove !== next.audioSpawnRepeatWhileAbove) return diff('audioSpawnRepeatWhileAbove');
+  if (!Object.is(prev.audioSpawnHysteresis, next.audioSpawnHysteresis)) return diff('audioSpawnHysteresis');
+  if (prev.audioSpawnUseGlobalPalette !== next.audioSpawnUseGlobalPalette) return diff('audioSpawnUseGlobalPalette');
+  if (prev.audioSpawnBand !== next.audioSpawnBand) return diff('audioSpawnBand');
+  if (!Object.is(prev.audioSpawnThreshold, next.audioSpawnThreshold)) return diff('audioSpawnThreshold');
+  if (!Object.is(prev.audioSpawnCooldownMs, next.audioSpawnCooldownMs)) return diff('audioSpawnCooldownMs');
+  if (!Object.is(prev.audioSpawnHalfLifeMs, next.audioSpawnHalfLifeMs)) return diff('audioSpawnHalfLifeMs');
+  if (!Object.is(prev.audioSpawnHalfLifeEnergyFactor, next.audioSpawnHalfLifeEnergyFactor)) return diff('audioSpawnHalfLifeEnergyFactor');
+  if (!Object.is(prev.audioSpawnMaxLayers, next.audioSpawnMaxLayers)) return diff('audioSpawnMaxLayers');
+  if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
+
+  return true;
+};
+
+export default React.memo((props) => {
+  useGlobalRenderDebug(props);
+  return <GlobalControls {...props} />;
+}, areGlobalPropsEqual);

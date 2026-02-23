@@ -40,9 +40,9 @@ const mergeWithDefaults = (savedParams) => {
         merged.defaultValue = Math.min(hi, Math.max(lo, dv));
       }
 
-      // Force hardcoded options for movementStyle to ensure 'still' and 'orbit' are present regardless of saved metadata
+      // Force hardcoded options for movementStyle to ensure all modern styles are present regardless of saved metadata
       if (merged.id === 'movementStyle') {
-        merged = { ...merged, options: ['bounce','drift','still','orbit'] };
+        merged = { ...merged, options: ['bounce','drift','still','orbit','spin'] };
       }
 
       return merged;
@@ -243,6 +243,17 @@ export const ParameterProvider = ({ children }) => {
     return { success: true, message: 'Parameters reset to defaults' };
   };
 
+  const applyParametersSnapshot = React.useCallback((snapshot) => {
+    try {
+      const merged = mergeWithDefaults(snapshot);
+      setParameters(merged);
+      return true;
+    } catch (error) {
+      console.warn('Failed to apply parameter snapshot:', error);
+      return false;
+    }
+  }, []);
+
   const value = {
     parameters,
     updateParameter,
@@ -253,6 +264,7 @@ export const ParameterProvider = ({ children }) => {
     deleteConfiguration,
     getSavedConfigList,
     resetToDefaults,
+    applyParametersSnapshot,
   };
 
   return (

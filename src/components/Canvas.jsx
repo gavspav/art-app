@@ -4,14 +4,46 @@ import { createSeededRandom } from '../utils/random';
 import { calculateCompactVisualHash } from '../utils/layerHash';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
+import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
+const wrapDebugLastLogMsByLayerId = new Map();
+
+const DEFAULT_PIXEL_RATIO = 1;
+
+const getCanvasPixelRatio = (canvas) => {
+    if (!canvas) {
+        return DEFAULT_PIXEL_RATIO;
+    }
+    const declared = Number(canvas.dataset?.pixelRatio);
+    if (Number.isFinite(declared) && declared > 0) {
+        return declared;
+    }
+    if (typeof window !== 'undefined') {
+        const dpr = window.devicePixelRatio || DEFAULT_PIXEL_RATIO;
+        return Number.isFinite(dpr) && dpr > 0 ? dpr : DEFAULT_PIXEL_RATIO;
+    }
+    return DEFAULT_PIXEL_RATIO;
+};
+
+const getCanvasLogicalDimensions = (canvas) => {
+    if (!canvas) {
+        return { width: 0, height: 0, ratio: DEFAULT_PIXEL_RATIO };
+    }
+    const ratio = getCanvasPixelRatio(canvas);
+    const rawWidth = canvas.width || 0;
+    const rawHeight = canvas.height || 0;
+    return {
+        width: Number.isFinite(rawWidth) ? rawWidth / ratio : 0,
+        height: Number.isFinite(rawHeight) ? rawHeight / ratio : 0,
+        ratio,
+    };
+};
 
 // Map fractional positions to a centered square artboard of size min(width,height)
 const getArtboardMapping = (canvas) => {
-    const w = canvas?.width || 0;
-    const h = canvas?.height || 0;
+    const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
     const size = Math.max(0, Math.min(w, h));
     const offsetX = (w - size) / 2;
     const offsetY = (h - size) / 2;
@@ -19,30 +51,119 @@ const getArtboardMapping = (canvas) => {
 };
 
 // Resolve how a layer should map its normalized [0,1] coordinates onto the canvas space.
-// Drift mode uses the full canvas extents so shapes can traverse the entire viewport; other
-// movement styles stay constrained to the square artboard for symmetrical scaling.
+// - 'bounce' + 'drift' use the full canvas (so movement spans the entire viewport).
+// - Other styles use the centered-square artboard (so layouts remain consistent across aspect ratios).
 const getLayerCanvasMapping = (canvas, layer) => {
     if (!canvas) {
         return { spanX: 0, spanY: 0, offsetX: 0, offsetY: 0, refSize: 0 };
     }
+    const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
     const art = getArtboardMapping(canvas);
-    const isDrift = layer?.movementStyle === 'drift';
-    const spanX = isDrift ? canvas.width : art.size;
-    const spanY = isDrift ? canvas.height : art.size;
-    const offsetX = isDrift ? 0 : art.offsetX;
-    const offsetY = isDrift ? 0 : art.offsetY;
+
+    const movementStyle = layer?.movementStyle || 'bounce';
+    const usesFullCanvas = (movementStyle === 'drift' || movementStyle === 'bounce');
+
+    const spanX = usesFullCanvas ? w : art.size;
+    const spanY = usesFullCanvas ? h : art.size;
+    const offsetX = usesFullCanvas ? 0 : art.offsetX;
+    const offsetY = usesFullCanvas ? 0 : art.offsetY;
+    // Keep size tied to the smaller dimension even when position uses full canvas,
+    // so size sliders behave consistently across aspect ratios.
     const refSize = art.size;
+
     return { spanX, spanY, offsetX, offsetY, refSize };
+};
+
+// Helper to convert position between coordinate systems when movementStyle changes
+const convertPositionBetweenCoordinateSystems = (layer, canvas, oldMovementStyle) => {
+    try {
+        if (!layer || !canvas) return layer;
+        const pos = layer.position || {};
+        const oldStyle = oldMovementStyle || 'bounce';
+        const newStyle = layer.movementStyle || 'bounce';
+
+        const oldUsesFullCanvas = (oldStyle === 'drift' || oldStyle === 'bounce');
+        const newUsesFullCanvas = (newStyle === 'drift' || newStyle === 'bounce');
+        if (oldUsesFullCanvas === newUsesFullCanvas) return layer;
+
+        const { width: w, height: h } = getCanvasLogicalDimensions(canvas);
+        const art = getArtboardMapping(canvas);
+
+        const oldSpanX = oldUsesFullCanvas ? w : art.size;
+        const oldSpanY = oldUsesFullCanvas ? h : art.size;
+        const oldOffsetX = oldUsesFullCanvas ? 0 : art.offsetX;
+        const oldOffsetY = oldUsesFullCanvas ? 0 : art.offsetY;
+
+        const newSpanX = newUsesFullCanvas ? w : art.size;
+        const newSpanY = newUsesFullCanvas ? h : art.size;
+        const newOffsetX = newUsesFullCanvas ? 0 : art.offsetX;
+        const newOffsetY = newUsesFullCanvas ? 0 : art.offsetY;
+
+        const x = Number.isFinite(Number(pos.x)) ? Number(pos.x) : 0.5;
+        const y = Number.isFinite(Number(pos.y)) ? Number(pos.y) : 0.5;
+        const px = oldOffsetX + x * oldSpanX;
+        const py = oldOffsetY + y * oldSpanY;
+
+        let nx = newSpanX > 0 ? (px - newOffsetX) / newSpanX : 0.5;
+        let ny = newSpanY > 0 ? (py - newOffsetY) / newSpanY : 0.5;
+
+        if (newStyle === 'drift') {
+            nx = ((nx % 1) + 1) % 1;
+            ny = ((ny % 1) + 1) % 1;
+        } else {
+            nx = Math.max(0, Math.min(1, nx));
+            ny = Math.max(0, Math.min(1, ny));
+        }
+
+        const xo = Number(layer.xOffset) || 0;
+        const yo = Number(layer.yOffset) || 0;
+        const pxo = xo * oldSpanX;
+        const pyo = yo * oldSpanY;
+        const nxo = newSpanX > 0 ? (pxo / newSpanX) : xo;
+        const nyo = newSpanY > 0 ? (pyo / newSpanY) : yo;
+
+        const next = {
+            ...layer,
+            position: { ...pos, x: nx, y: ny },
+            xOffset: nxo,
+            yOffset: nyo,
+        };
+
+        if (Number.isFinite(Number(layer?.orbitCenterX)) || Number.isFinite(Number(layer?.orbitCenterY))) {
+            const ocx = Number.isFinite(Number(layer?.orbitCenterX)) ? Number(layer.orbitCenterX) : 0.5;
+            const ocy = Number.isFinite(Number(layer?.orbitCenterY)) ? Number(layer.orbitCenterY) : 0.5;
+            const opx = oldOffsetX + ocx * oldSpanX;
+            const opy = oldOffsetY + ocy * oldSpanY;
+            let nocx = newSpanX > 0 ? (opx - newOffsetX) / newSpanX : ocx;
+            let nocy = newSpanY > 0 ? (opy - newOffsetY) / newSpanY : ocy;
+            if (newStyle === 'drift') {
+                nocx = ((nocx % 1) + 1) % 1;
+                nocy = ((nocy % 1) + 1) % 1;
+            } else {
+                nocx = Math.max(0, Math.min(1, nocx));
+                nocy = Math.max(0, Math.min(1, nocy));
+            }
+            next.orbitCenterX = nocx;
+            next.orbitCenterY = nocy;
+        }
+
+        return next;
+    } catch {
+        return layer;
+    }
 };
 
 const getLayerGeometry = (layer, canvas) => {
     if (!layer || !canvas) return null;
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: artOffsetX, offsetY: artOffsetY, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
     if (spanX <= 0 || spanY <= 0 || artSize <= 0) return null;
     const { position = {} } = layer;
     const { x = 0.5, y = 0.5, scale = 1 } = position;
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    // Offsets are relative to the artboard mapping (not the full canvas) so they remain stable
+    // across aspect-ratio/layout changes (fullscreen vs timeline layout).
+    const offsetXPx = (Number(layer.xOffset) || 0) * spanX;
+    const offsetYPx = (Number(layer.yOffset) || 0) * spanY;
     const centerX = artOffsetX + x * spanX + offsetXPx;
     const centerY = artOffsetY + y * spanY + offsetYPx;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
@@ -84,6 +205,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         curviness,
         wobble = 0.5,
         colors = [],
+        numColors,
+        selectedColor = 0,
         /*blendMode,*/
         opacity = 1,
         noiseAmount = 0,
@@ -106,6 +229,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     if (!Number.isFinite(ps)) ps = 1;
     const x = px, y = py, scale = ps;
     const random = createSeededRandom((Number(globalSeed) || 1) + (Number(noiseSeed) || 0));
+    // In node edit mode we render the *editable* base geometry, not the time/noise-deformed result,
+    // otherwise dragging a handle (which inverts an undeformed transform) can cause large jumps.
+    const effectiveNoiseAmount = _isNodeEditMode ? 0 : noiseAmount;
 
     // Precompute frequencies and symmetry factor for noise deformation (shared between node and procedural shapes)
     const actualFreq1 = freq1 + (random() - 0.5) * 3;
@@ -118,10 +244,11 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
     ctx.globalCompositeOperation = globalBlendMode;
 
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
 
     // Radius mapping (fully relative): use radiusFactor against reference artboard size
@@ -179,7 +306,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         const n3 = Math.sin(angle * actualFreq3 + time * 1.5 + phase) * Math.sin(time * 0.6 * amplitudeFactor);
         // Canvas-relative deformation
         const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075; // 7.5% of current radius
-        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
+        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
         const dx = baseX - centerX;
         const dy = baseY - centerY;
         const dist = Math.hypot(dx, dy) || 1;
@@ -346,7 +473,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
 
             // Apply noise to radius in radial direction
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
-            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
+            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
             
             // Base position on circle/ellipse (scale then rotate)
             const sx = Math.cos(angle) * radiusX;
@@ -407,11 +534,16 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         gRadius = Math.max(1, maxDist);
     }
 
+    const paletteStops = Array.isArray(colors) ? colors : [];
+    const requestedColors = Number.isFinite(Number(numColors))
+        ? Math.max(1, Math.round(Number(numColors)))
+        : paletteStops.length;
+
     // Color fill: if animating colours, fill with a single blended colour (no gradient)
     // Otherwise, use the existing radial gradient from the palette.
-    const baseStops = (Array.isArray(colors) && colors.length >= 2)
-        ? colors
-        : (Array.isArray(colors) && colors.length === 1 ? [colors[0], colors[0]] : ['#000000', '#000000']);
+    const baseStops = (paletteStops.length >= 2)
+        ? paletteStops
+        : (paletteStops.length === 1 ? [paletteStops[0], paletteStops[0]] : ['#000000', '#000000']);
 
     if (colorFadeEnabled && baseStops.length >= 2 && (Number(colorFadeSpeed) || 0) > 0) {
         const n = baseStops.length;
@@ -432,6 +564,19 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         return;
     }
 
+    // Respect "Num Colours": when it's 1, render a solid fill (even if paletteStops contains a full palette).
+    if (requestedColors <= 1) {
+        const idx = Math.max(0, Math.min(paletteStops.length - 1, Math.round(Number(selectedColor) || 0)));
+        const solid = paletteStops[idx] || paletteStops[0] || '#000000';
+        ctx.fillStyle = solid;
+        ctx.fill();
+        ctx.restore();
+        return;
+    }
+
+    // For gradients, use only the requested number of palette stops.
+    const gradientStops = baseStops.slice(0, Math.max(2, requestedColors));
+
     // Non-animated: use gradient between palette stops
     const safeGX = Number.isFinite(gCenterX) ? gCenterX : centerX;
     const safeGY = Number.isFinite(gCenterY) ? gCenterY : centerY;
@@ -440,9 +585,9 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         safeGX, safeGY, 0,
         safeGX, safeGY, safeGR
     );
-    const denom = (baseStops.length - 1) || 1;
-    for (let i = 0; i < baseStops.length; i++) {
-        gradient.addColorStop(i / denom, baseStops[i]);
+    const denom = (gradientStops.length - 1) || 1;
+    for (let i = 0; i < gradientStops.length; i++) {
+        gradient.addColorStop(i / denom, gradientStops[i]);
     }
     ctx.fillStyle = gradient;
     ctx.fill();
@@ -450,20 +595,181 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     ctx.restore();
 };
 
-// --- Toroidal Wrapping Helpers ---
+const ZERO_WRAP_OFFSET = { ox: 0, oy: 0 };
+
+const applyWrapToPoints = (points, wrap) => {
+    if (!Array.isArray(points) || points.length === 0 || !wrap || (wrap.ox === 0 && wrap.oy === 0)) {
+        return points || [];
+    }
+    return points.map(p => ({ x: p.x + wrap.ox, y: p.y + wrap.oy }));
+};
+
+const resolveDriftWrapOffset = (layer, canvas, basePoints, baseCenterX, baseCenterY) => {
+    if (!layer || layer?.movementStyle !== 'drift' || !canvas) return ZERO_WRAP_OFFSET;
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    if (!(canvasWidth > 0) || !(canvasHeight > 0)) return ZERO_WRAP_OFFSET;
+
+    // Wrap in the same coordinate system used for rendering this layer.
+    const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
+    const left = ax;
+    const right = ax + spanX;
+    const top = ay;
+    const bottom = ay + spanY;
+
+    const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: basePoints });
+    const negX = extentInfo.extentsX?.neg ?? extentInfo.rx;
+    const posX = extentInfo.extentsX?.pos ?? extentInfo.rx;
+    const negY = extentInfo.extentsY?.neg ?? extentInfo.ry;
+    const posY = extentInfo.extentsY?.pos ?? extentInfo.ry;
+
+    const offsetsX = [0];
+    const offsetsY = [0];
+    // Determine which neighbor offsets are needed based on canvas bounds.
+    if ((baseCenterX - negX) < left) offsetsX.push(spanX);
+    if ((baseCenterX + posX) > right) offsetsX.push(-spanX);
+    if ((baseCenterY - negY) < top) offsetsY.push(spanY);
+    if ((baseCenterY + posY) > bottom) offsetsY.push(-spanY);
+
+    const combos = [];
+    offsetsY.forEach(oy => {
+        offsetsX.forEach(ox => {
+            if (!combos.some(c => c.ox === ox && c.oy === oy)) {
+                combos.push({ ox, oy });
+            }
+        });
+    });
+
+    const hasPoints = Array.isArray(basePoints) && basePoints.length > 0;
+    if (hasPoints) {
+        for (const combo of combos) {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (const p of basePoints) {
+                const px = p.x + combo.ox;
+                const py = p.y + combo.oy;
+                if (px < minX) minX = px;
+                if (px > maxX) maxX = px;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+            }
+            if (maxX >= 0 && minX <= canvasWidth && maxY >= 0 && minY <= canvasHeight) {
+                return combo;
+            }
+        }
+    }
+
+    for (const combo of combos) {
+        const cx = baseCenterX + combo.ox;
+        const cy = baseCenterY + combo.oy;
+        if (cx >= 0 && cx <= canvasWidth && cy >= 0 && cy <= canvasHeight) {
+            return combo;
+        }
+    }
+
+    return ZERO_WRAP_OFFSET;
+};
+
+// Back-compat wrapper used by legacy hit-testing logic (takes fewer args)
+const getDriftWrapOffset = (layer, canvas, options = {}) => {
+    if (!layer || layer?.movementStyle !== 'drift' || !canvas) return ZERO_WRAP_OFFSET;
+    const { basePoints = null, baseCenterX = null, baseCenterY = null } = options || {};
+    let points = basePoints;
+    let centerX = baseCenterX;
+    let centerY = baseCenterY;
+
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+        const geometry = getLayerGeometry(layer, canvas);
+        if (!geometry) return ZERO_WRAP_OFFSET;
+        centerX = geometry.centerX;
+        centerY = geometry.centerY;
+        if (!Array.isArray(points)) {
+            points = buildBaseNodePoints(layer, geometry, null);
+        }
+    }
+
+    return resolveDriftWrapOffset(layer, canvas, points, centerX, centerY);
+};
+
+const buildBaseNodePoints = (layer, geometry, renderedPoints) => {
+    if (!layer || !geometry || !Array.isArray(layer.nodes) || layer.nodes.length === 0) {
+        return [];
+    }
+    if (Array.isArray(renderedPoints) && renderedPoints.length === layer.nodes.length) {
+        return renderedPoints;
+    }
+    const {
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        sinR,
+        cosR,
+    } = geometry;
+    return layer.nodes.map((n) => ({
+        x: centerX + (n.x * cosR - n.y * sinR) * radiusX,
+        y: centerY + (n.x * sinR + n.y * cosR) * radiusY,
+    }));
+};
+
 // Estimate half-extents of the drawn content for a layer in pixels
-export const estimateLayerHalfExtents = (layer, canvas) => {
+const buildExtentResult = (rx, ry, extra = {}) => {
+    const safeRX = Math.max(0, Number(rx) || 0);
+    const safeRY = Math.max(0, Number(ry) || 0);
+    const extentsX = extra.extentsX || { pos: safeRX, neg: safeRX };
+    const extentsY = extra.extentsY || { pos: safeRY, neg: safeRY };
+    return { rx: safeRX, ry: safeRY, extentsX, extentsY };
+};
+
+export const estimateLayerHalfExtents = (layer, canvas, opts = {}) => {
     try {
-        const { refSize: minWH } = getLayerCanvasMapping(canvas, layer);
+        const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: minWH } = getLayerCanvasMapping(canvas, layer);
         const scale = Number(layer?.position?.scale ?? 1);
+        const { x = 0.5, y = 0.5 } = layer?.position || {};
+        const offsetXPx = (Number(layer?.xOffset) || 0) * spanX;
+        const offsetYPx = (Number(layer?.yOffset) || 0) * spanY;
+        const centerX = ax + x * spanX + offsetXPx;
+        const centerY = ay + y * spanY + offsetYPx;
         if (layer?.image?.src) {
             const cache = imageCache.get(layer.image.src);
             const img = cache?.img;
             const iw = (img?.naturalWidth || img?.width || 0) * scale;
             const ih = (img?.naturalHeight || img?.height || 0) * scale;
-            return { rx: iw / 2, ry: ih / 2 };
+            return buildExtentResult(iw / 2, ih / 2);
         }
-        // Shape: mirror radius computation from drawShape (fully relative)
+
+        const points = Array.isArray(opts?.renderedPoints) ? opts.renderedPoints : null;
+        if (points && points.length >= 3) {
+            let maxPosX = 0, maxNegX = 0;
+            let maxPosY = 0, maxNegY = 0;
+            for (const p of points) {
+                const px = Number(p?.x);
+                const py = Number(p?.y);
+                if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+                const dx = px - centerX;
+                const dy = py - centerY;
+                if (dx >= 0) {
+                    if (dx > maxPosX) maxPosX = dx;
+                } else {
+                    if (-dx > maxNegX) maxNegX = -dx;
+                }
+                if (dy >= 0) {
+                    if (dy > maxPosY) maxPosY = dy;
+                } else {
+                    if (-dy > maxNegY) maxNegY = -dy;
+                }
+            }
+            const rx = Math.max(maxPosX, maxNegX);
+            const ry = Math.max(maxPosY, maxNegY);
+            if (Number.isFinite(rx) && Number.isFinite(ry)) {
+                return buildExtentResult(rx, ry, {
+                    extentsX: { pos: maxPosX, neg: maxNegX },
+                    extentsY: { pos: maxPosY, neg: maxNegY },
+                });
+            }
+        }
+
         const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
         const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
@@ -473,16 +779,17 @@ export const estimateLayerHalfExtents = (layer, canvas) => {
         const bump = rb * (minWH * 0.02) * Math.max(0, scale);
         const radiusX = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusX + bump);
         const radiusY = layer?.viewBoxMapped ? (minWH / 2) * Math.max(0, scale) : Math.max(0, baseRadiusY + bump);
-        return { rx: Math.max(0, radiusX), ry: Math.max(0, radiusY) };
+        return buildExtentResult(radiusX, radiusY);
     } catch {
-        return { rx: 0, ry: 0 };
+        return buildExtentResult(0, 0);
     }
 };
 
 // Draw a layer with toroidal wrapping for 'drift' movement
-const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
-    const w = canvas.width;
-    const h = canvas.height;
+const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = [], opts = {}) => {
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+    const w = canvasWidth;
+    const h = canvasHeight;
     // Only wrap when drifting; otherwise a single draw is sufficient
     const isDrift = (layer?.movementStyle === 'drift');
     if (!isDrift) {
@@ -492,19 +799,58 @@ const drawLayerWithWrap = (ctx, layer, canvas, drawFn, args = []) => {
 
     const { x = 0.5, y = 0.5 } = layer?.position || {};
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx = (Number(layer.xOffset) || 0) * canvas.width;
-    const offsetYPx = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetXPx = (Number(layer.xOffset) || 0) * spanX;
+    const offsetYPx = (Number(layer.yOffset) || 0) * spanY;
     const cx = ax + x * spanX + offsetXPx;
     const cy = ay + y * spanY + offsetYPx;
-    const { rx, ry } = estimateLayerHalfExtents(layer, canvas);
+    const extentInfo = estimateLayerHalfExtents(layer, canvas, { renderedPoints: opts?.renderedPoints });
+    const rx = extentInfo.rx;
+    const ry = extentInfo.ry;
+    const posX = extentInfo.extentsX?.pos ?? rx;
+    const negX = extentInfo.extentsX?.neg ?? rx;
+    const posY = extentInfo.extentsY?.pos ?? ry;
+    const negY = extentInfo.extentsY?.neg ?? ry;
 
     // Determine which neighbor offsets are needed
+    // Wrap within the same coordinate mapping used for this layer (ax..ax+spanX etc).
     const offsetsX = [0];
     const offsetsY = [0];
-    if (cx - rx < 0) offsetsX.push(w);      // needs +W copy
-    if (cx + rx > w) offsetsX.push(-w);     // needs -W copy
-    if (cy - ry < 0) offsetsY.push(h);      // needs +H copy
-    if (cy + ry > h) offsetsY.push(-h);     // needs -H copy
+    const left = ax;
+    const right = ax + spanX;
+    const top = ay;
+    const bottom = ay + spanY;
+
+    // Check if shape extends beyond canvas boundaries and needs wrapping
+    if (cx - negX < left) offsetsX.push(spanX);      // needs +spanX copy (wrap from left to right)
+    if (cx + posX > right) offsetsX.push(-spanX);    // needs -spanX copy (wrap from right to left)
+    if (cy - negY < top) offsetsY.push(spanY);       // needs +spanY copy (wrap from top to bottom)
+    if (cy + posY > bottom) offsetsY.push(-spanY);   // needs -spanY copy (wrap from bottom to top)
+
+    if (typeof window !== 'undefined' && window.__artapp_debug_wrap) {
+        const copies = offsetsX.length * offsetsY.length;
+        if (copies > 1) {
+            const key = layer?.id || layer?.name || 'layer';
+            const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const last = wrapDebugLastLogMsByLayerId.get(key) || 0;
+            if (now - last > 1000) {
+                wrapDebugLastLogMsByLayerId.set(key, now);
+                // eslint-disable-next-line no-console
+                console.log('[wrap-debug] drawing wrapped copies', {
+                    id: layer?.id,
+                    name: layer?.name,
+                    movementStyle: layer?.movementStyle,
+                    copies,
+                    offsetsX,
+                    offsetsY,
+                    x,
+                    y,
+                    center: { cx, cy },
+                    extents: { posX, negX, posY, negY },
+                    bounds: { left, right, top, bottom, spanX, spanY, w, h },
+                });
+            }
+        }
+    }
 
     for (let oy of offsetsY) {
         for (let ox of offsetsX) {
@@ -535,6 +881,8 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     ctx.globalAlpha = opacity;
     ctx.globalCompositeOperation = globalBlendMode;
 
+    const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+
     const filters = [];
     if (imageBlur > 0) filters.push(`blur(${imageBlur}px)`);
     if (imageBrightness !== 100) filters.push(`brightness(${imageBrightness}%)`);
@@ -558,9 +906,9 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
     const img = cache.img;
 
     const { spanX, spanY, offsetX: ax, offsetY: ay } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
     const iw0 = img.naturalWidth || img.width || 0;
     const ih0 = img.naturalHeight || img.height || 0;
@@ -597,9 +945,9 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
         const minWH = artSize;
-        const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+        const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
         const centerX = ax + x * spanX + offsetXPx2;
-        const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+        const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
         const centerY = ay + y * spanY + offsetYPx2;
         const rfBase = Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4);
         const rfX = Number.isFinite(layer.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
@@ -666,25 +1014,50 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
-    const offsetXPx2 = (Number(layer.xOffset) || 0) * canvas.width;
+    const offsetXPx2 = (Number(layer.xOffset) || 0) * spanX;
     const centerX = ax + x * spanX + offsetXPx2;
-    const offsetYPx2 = (Number(layer.yOffset) || 0) * canvas.height;
+    const offsetYPx2 = (Number(layer.yOffset) || 0) * spanY;
     const centerY = ay + y * spanY + offsetYPx2;
     const minWH = artSize;
     const rfBase = Number(layer?.radiusFactor ?? layer?.baseRadiusFactor ?? 0.4);
     const rfX = Number.isFinite(layer?.radiusFactorX) ? Number(layer.radiusFactorX) : rfBase;
     const rfY = Number.isFinite(layer?.radiusFactorY) ? Number(layer.radiusFactorY) : rfBase;
     const rb = Number(layer?.radiusBump ?? 0);
-    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-        const radiusX = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
-        const radiusY = layer?.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
+    const safeScale = Math.max(0, scale);
+    const baseRadiusX = Math.max(0, rfX) * minWH * safeScale;
+    const baseRadiusY = Math.max(0, rfY) * minWH * safeScale;
+    const bump = rb * (minWH * 0.02) * safeScale;
+    const radiusX = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusX + bump);
+    const radiusY = layer?.viewBoxMapped ? (artSize / 2) * safeScale : Math.max(0, baseRadiusY + bump);
 
     const rotDeg = ((((Number(layer?.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
     const rotRad = (rotDeg * Math.PI) / 180;
     const sinR = Math.sin(rotRad);
     const cosR = Math.cos(rotRad);
+    const geometry = { centerX, centerY, radiusX, radiusY, sinR, cosR };
+
+    let nodePoints = null;
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        if (Array.isArray(renderedPoints) && renderedPoints.length >= 3) {
+            nodePoints = renderedPoints;
+        } else {
+            const computed = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+            if (Array.isArray(computed) && computed.length >= 3) {
+                nodePoints = computed;
+            }
+        }
+    }
+
+    let basePoints = null;
+    if (Array.isArray(nodePoints) && nodePoints.length >= 3) {
+        basePoints = nodePoints;
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+        basePoints = buildBaseNodePoints(layer, geometry, renderedPoints);
+    }
+
+    const wrapOffset = resolveDriftWrapOffset(layer, canvas, basePoints, geometry.centerX, geometry.centerY);
+    const wrapOx = wrapOffset.ox;
+    const wrapOy = wrapOffset.oy;
 
     const writePolygon = (pts) => {
         if (!Array.isArray(pts) || pts.length < 3) return;
@@ -705,8 +1078,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
                 const tx = sx * cosR - sy * sinR;
                 const ty = sx * sinR + sy * cosR;
                 return {
-                    x: centerX + tx,
-                    y: centerY + ty,
+                    x: centerX + wrapOx + tx,
+                    y: centerY + wrapOy + ty,
                 };
             });
             writePolygon(pts);
@@ -715,17 +1088,18 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     }
 
     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-        const pts = Array.isArray(renderedPoints) && renderedPoints.length >= 3
-            ? renderedPoints
-            : computeDeformedNodePoints(layer, canvas, globalSeed, time);
-        writePolygon(pts);
+        let pts = nodePoints;
+        if (!Array.isArray(pts) || pts.length < 3) {
+            pts = buildBaseNodePoints(layer, geometry, renderedPoints);
+        }
+        writePolygon(applyWrapToPoints(pts, wrapOffset));
         return path;
     }
 
     const sides = Number(layer?.numSides);
     const count = Number.isFinite(sides) ? Math.max(3, Math.floor(sides)) : 0;
     if (!count) {
-        path.ellipse(centerX, centerY, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
+        path.ellipse(centerX + wrapOx, centerY + wrapOy, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
         path.closePath();
         return path;
     }
@@ -738,8 +1112,8 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
         const tx = sx * cosR - sy * sinR;
         const ty = sx * sinR + sy * cosR;
         pts.push({
-            x: centerX + tx,
-            y: centerY + ty,
+            x: centerX + wrapOx + tx,
+            y: centerY + wrapOy + ty,
         });
     }
     writePolygon(pts);
@@ -747,15 +1121,70 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
 };
 
 // --- Canvas Component ---
-const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMode, isNodeEditMode, isFrozen = false, colorFadeWhileFrozen = true, selectedLayerIndex, setLayers, setSelectedLayerIndex, classicMode = false }, ref) => {
+const Canvas = forwardRef(({
+    layers,
+    layersRef,
+    overlayLayersRef,
+    renderOverlayLayers = true,
+    hideLayerIndex = -1,
+    hideLayerId = null,
+    backgroundColor,
+    globalSeed,
+    globalBlendMode,
+    isNodeEditMode,
+    isFrozen = false,
+    colorFadeWhileFrozen = true,
+    selectedLayerIndex,
+    setLayers,
+    setSelectedLayerIndex,
+    classicMode = false,
+    isolateMode = false,
+    getActiveTargetLayerIds: getActiveTargetLayerIdsProp,
+}, ref) => {
     const {
         toggleLayerSelection,
         selectedLayerIds: selectedLayerIdsCtx,
         clearSelection,
         setEditTarget,
-        getActiveTargetLayerIds,
+        getActiveTargetLayerIds: getActiveTargetLayerIdsCtx,
         showLayerOutlines,
     } = useAppState() || {};
+
+    const getActiveTargetLayerIdsLatest = useMemo(() => {
+        if (typeof getActiveTargetLayerIdsProp === 'function') return getActiveTargetLayerIdsProp;
+        if (typeof getActiveTargetLayerIdsCtx === 'function') return getActiveTargetLayerIdsCtx;
+        return null;
+    }, [getActiveTargetLayerIdsProp, getActiveTargetLayerIdsCtx]);
+
+    const isolateIdSet = useMemo(() => {
+        if (!isolateMode) return null;
+        let ids = [];
+        if (typeof getActiveTargetLayerIdsLatest === 'function') {
+            try {
+                const got = getActiveTargetLayerIdsLatest();
+                if (Array.isArray(got)) ids = got;
+            } catch {
+                ids = [];
+            }
+        }
+        if (!Array.isArray(ids) || ids.length === 0) {
+            const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+            const fallback = layers[idx];
+            if (fallback?.id) {
+                ids = [fallback.id];
+            }
+        }
+        if (!Array.isArray(ids) || ids.length === 0) return new Set();
+        const set = new Set();
+        ids.forEach(id => { if (id) set.add(id); });
+        return set;
+    }, [isolateMode, getActiveTargetLayerIdsLatest, layers, selectedLayerIndex]);
+
+    const isLayerVisible = useCallback((layer) => {
+        if (!isolateMode) return true;
+        if (!isolateIdSet || isolateIdSet.size === 0) return true;
+        return isolateIdSet.has(layer?.id);
+    }, [isolateMode, isolateIdSet]);
     const localCanvasRef = useRef(null);
     const frozenTimeRef = useRef(0);
     // Align wall-time colour fade with accumulated animation time to avoid jumps when freezing/unfreezing
@@ -768,7 +1197,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     const draggingOrbitCenterRef = useRef(false);
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
-    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
     // Drive re-render for color fade while frozen so colours visibly animate
     const [colorTick, setColorTick] = useState(0);
     // Accumulated animation time (seconds), advances only when not frozen
@@ -777,13 +1206,83 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
     const draggingKindRef = useRef(null); // 'node' | 'mid' | null
+    const gestureRef = useRef(null);
+    const dragStartOffsetRef = useRef({ normX: 0, normY: 0 }); // offset from layer center when drag starts
+    const pendingDragUpdateRef = useRef(null); // batched drag update
+    const dragUpdateRafRef = useRef(null); // RAF handle for batched updates
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
+    const lastSlowRenderLogRef = useRef(0); // throttle repeated slow-render warnings
+    const targetFpsRef = useRef(60);
+    const lastRenderMsRef = useRef(0);
+    useEffect(() => {
+        targetFpsRef.current = getCanvasFps();
+        return subscribeCanvasFps((fps) => {
+            targetFpsRef.current = fps;
+        });
+    }, []);
+
+    const clearDragState = () => {
+        draggingNodeIndexRef.current = null;
+        draggingMidIndexRef.current = null;
+        draggingCenterRef.current = false;
+        draggingOrbitCenterRef.current = false;
+        draggingKindRef.current = null;
+        gestureRef.current = null;
+        dragStartOffsetRef.current = { normX: 0, normY: 0 };
+        pendingDragUpdateRef.current = null;
+        if (dragUpdateRafRef.current) {
+            cancelAnimationFrame(dragUpdateRafRef.current);
+            dragUpdateRafRef.current = null;
+        }
+    };
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
 
     // Cache of last rendered edge-points per layer index
     const renderedPointsRef = useRef(new Map()); // Map<number, Array<{x,y}>>
+
+    useEffect(() => {
+        const canvasEl = localCanvasRef.current;
+        if (!canvasEl) return;
+
+        const flagged = [];
+        layers.forEach((layer, index) => {
+            if (layer?._coordinateSystemChanged) {
+                flagged.push({ index, oldStyle: layer._previousMovementStyle });
+            }
+        });
+
+        if (!flagged.length) return;
+
+        const oldStyleByIndex = new Map(flagged.map(({ index, oldStyle }) => [index, oldStyle]));
+
+        setLayers(prev => {
+            let mutated = false;
+            const next = prev.map((layer, index) => {
+                if (!layer?._coordinateSystemChanged) {
+                    return layer;
+                }
+
+                const oldStyle = oldStyleByIndex.has(index)
+                    ? oldStyleByIndex.get(index)
+                    : layer._previousMovementStyle;
+
+                const converted = convertPositionBetweenCoordinateSystems(layer, canvasEl, oldStyle || 'bounce');
+                let baseLayer = (converted === layer) ? { ...layer } : { ...converted };
+
+                if (baseLayer.position) {
+                    baseLayer = { ...baseLayer, position: { ...baseLayer.position } };
+                }
+
+                const { _coordinateSystemChanged: _ignoreFlag, _previousMovementStyle: _ignorePrev, ...cleanedLayer } = baseLayer;
+                mutated = mutated || cleanedLayer !== prev[index];
+                return cleanedLayer;
+            });
+
+            return mutated ? next : prev;
+        });
+    }, [layers, setLayers, canvasSize]);
 
     // Helper utilities for node-edit history
     const cloneNodes = (nodes = []) => (Array.isArray(nodes) ? nodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : []);
@@ -877,17 +1376,41 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
         const applySize = () => {
             const rect = container.getBoundingClientRect();
-            const w = Math.max(1, Math.floor(rect.width));
-            const h = Math.max(1, Math.floor(rect.height));
-            if (canvas.width !== w || canvas.height !== h) {
-                canvas.width = w;
-                canvas.height = h;
-                setCanvasSize({ width: w, height: h });
+            const displayWidth = Math.max(1, Math.floor(rect.width));
+            const displayHeight = Math.max(1, Math.floor(rect.height));
+            const dpr = (typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio))
+                ? Math.max(DEFAULT_PIXEL_RATIO, window.devicePixelRatio)
+                : DEFAULT_PIXEL_RATIO;
+            const pixelWidth = Math.max(1, Math.round(displayWidth * dpr));
+            const pixelHeight = Math.max(1, Math.round(displayHeight * dpr));
+
+            if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+                canvas.width = pixelWidth;
+                canvas.height = pixelHeight;
             }
+
+            if (canvas.style.width !== `${displayWidth}px`) {
+                canvas.style.width = `${displayWidth}px`;
+            }
+            if (canvas.style.height !== `${displayHeight}px`) {
+                canvas.style.height = `${displayHeight}px`;
+            }
+
+            if (canvas.dataset.pixelRatio !== String(dpr)) {
+                canvas.dataset.pixelRatio = String(dpr);
+            }
+            setCanvasSize(prev => {
+                if (prev.width === displayWidth && prev.height === displayHeight && prev.pixelRatio === dpr) {
+                    return prev;
+                }
+                return { width: displayWidth, height: displayHeight, pixelRatio: dpr };
+            });
+
             if (typeof window !== 'undefined') {
                 window.__artapp_canvasMeta = {
-                    width: canvas.width,
-                    height: canvas.height,
+                    width: displayWidth,
+                    height: displayHeight,
+                    pixelRatio: dpr,
                 };
             }
         };
@@ -989,6 +1512,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
 
     // While frozen with color-fade enabled, drive a lightweight RAF to animate colours visibly
     useEffect(() => {
+        // In ref-driven animation mode, Canvas is already driven by a RAF loop; avoid extra React state churn.
+        if (layersRef) return;
         if (!(isFrozen && colorFadeWhileFrozen)) return;
         let rafId;
         const loop = () => {
@@ -998,21 +1523,62 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         };
         rafId = requestAnimationFrame(loop);
         return () => { if (rafId) cancelAnimationFrame(rafId); };
-    }, [isFrozen, colorFadeWhileFrozen]);
+    }, [isFrozen, colorFadeWhileFrozen, layersRef]);
 
     // Optimized render effect with selective updates
-    useEffect(() => {
+    const renderFrame = useCallback(() => {
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const { width, height } = canvas;
+        if (!ctx) return;
+        const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
+        // In node edit mode, we need to use `layers` (React state) for node geometry,
+        // but we should preserve animated positions from `layersRef` to avoid position jumps.
+        // Merge: use layers for geometry/nodes, but layersRef for positions.
+        let layersForRender;
+        if (isNodeEditMode) {
+            const animatedLayers = (layersRef && layersRef.current) ? layersRef.current : null;
+            if (animatedLayers && Array.isArray(animatedLayers) && animatedLayers.length === layers.length) {
+                // Merge: use React state layers but with animated positions
+                layersForRender = layers.map((layer, i) => {
+                    const animated = animatedLayers[i];
+                    if (!animated || !animated.position) return layer;
+                    return {
+                        ...layer,
+                        position: {
+                            ...layer.position,
+                            x: animated.position.x ?? layer.position?.x ?? 0.5,
+                            y: animated.position.y ?? layer.position?.y ?? 0.5,
+                            scale: animated.position.scale ?? layer.position?.scale ?? 1,
+                        },
+                        orbitAngle: animated.orbitAngle ?? layer.orbitAngle,
+                        spinAngle: animated.spinAngle ?? layer.spinAngle,
+                    };
+                });
+            } else {
+                layersForRender = layers;
+            }
+        } else {
+            layersForRender = (layersRef && layersRef.current) ? layersRef.current : layers;
+        }
+        
+        // Store canvas dimensions globally for bounce detection in useAnimation
+        if (typeof window !== 'undefined') {
+            window.__artapp_canvasMeta = window.__artapp_canvasMeta || {};
+            window.__artapp_canvasMeta.width = width;
+            window.__artapp_canvasMeta.height = height;
+        }
 
-        const renderStart = performance.now();
+        ctx.save();
+        ctx.setTransform(canvasPixelRatio, 0, 0, canvasPixelRatio, 0, 0);
 
-        // Force a render when node edit mode toggles or selected layer changes
-        const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
+        try {
+            const renderStart = performance.now();
 
-        const countChanged = prevLayersCountRef.current !== layers.length;
+            // Force a render when node edit mode toggles or selected layer changes
+            const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
+
+        const countChanged = prevLayersCountRef.current !== (layersForRender?.length || 0);
         // Always repaint the background so color changes show immediately (even when frozen)
         ctx.clearRect(0, 0, width, height);
         ctx.fillStyle = backgroundColor;
@@ -1086,15 +1652,42 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : timeNow;
-            layers.forEach((layer) => {
+            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
                 if (!layer || !layer.position || !layer.visible) return;
+                if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
+                    renderedPointsRef.current.delete(index);
+                    return;
+                }
+                if (!isLayerVisible(layer)) {
+                    renderedPointsRef.current.delete(index);
+                    return;
+                }
+                let renderedPoints = null;
+                if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
+                    renderedPointsRef.current.set(index, renderedPoints);
+                } else {
+                    renderedPointsRef.current.delete(index);
+                }
                 if (layer.image && layer.image.src) {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, isNodeEditMode, globalBlendMode, colorTimeNow), [], { renderedPoints });
                 }
             });
+            // Ephemeral overlay layers (non-interactive / non-selectable)
+            if (renderOverlayLayers && overlayLayersRef?.current?.length) {
+                const overlayList = overlayLayersRef.current;
+                overlayList.forEach((layer) => {
+                    if (!layer || !layer.position || !layer.visible) return;
+                    if (layer.image && layer.image.src) {
+                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
+                    } else {
+                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints: null });
+                    }
+                });
+            }
             // Do not return; continue to draw overlays (debug grid, node handles)
         }
 
@@ -1179,29 +1772,58 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
             ? (Date.now() * 0.001 + colorWallOffsetRef.current)
             : nowSec;
-        layers.forEach((layer, index) => {
+        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
             if (!layer || !layer.position) {
                 console.error('Skipping render for malformed layer:', layer);
                 return;
             }
             if (!layer.visible) return;
+            if ((hideLayerId && layer?.id === hideLayerId) || (hideLayerIndex >= 0 && index === hideLayerIndex)) {
+                renderedPointsRef.current.delete(index);
+                return;
+            }
+            if (!isLayerVisible(layer)) {
+                renderedPointsRef.current.delete(index);
+                return;
+            }
 
             const layerChange = layerChanges.get(index);
 
             if (forceFullPass || layerChange?.hasChanged) {
+                let renderedPoints = null;
                 if (layer.image && layer.image.src) {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode));
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable frozen time when frozen; live time otherwise
                     const time = nowSec;
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass));
                     if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-                        const pts = computeDeformedNodePoints(layer, canvas, globalSeed, animationTimeRef.current || 0);
-                        renderedPointsRef.current.set(index, pts);
+                        if (!isNodeEditMode) {
+                            renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
+                            renderedPointsRef.current.set(index, renderedPoints);
+                        } else {
+                            // In node edit mode, keep handles stable and aligned with editable geometry.
+                            renderedPointsRef.current.delete(index);
+                        }
+                    } else {
+                        renderedPointsRef.current.delete(index);
                     }
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, time, isNodeEditMode, globalBlendMode, colorTimeFullPass), [], { renderedPoints });
                 }
             }
         });
+
+        // Ephemeral overlay layers (non-interactive / non-selectable)
+        if (renderOverlayLayers && overlayLayersRef?.current?.length) {
+            const overlayList = overlayLayersRef.current;
+            overlayList.forEach((layer) => {
+                if (!layer || !layer.position || !layer.visible) return;
+                if (layer.image && layer.image.src) {
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
+                } else {
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, nowSec, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints: null });
+                }
+            });
+        }
 
         if (classicMode) {
             ctx.filter = 'none';
@@ -1214,8 +1836,8 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 if (Array.isArray(selectedLayerIdsCtx)) {
                     selectedLayerIdsCtx.forEach(id => { if (id) highlightIds.add(id); });
                 }
-                if (typeof getActiveTargetLayerIds === 'function') {
-                    const targetIdsList = getActiveTargetLayerIds() || [];
+                if (typeof getActiveTargetLayerIdsLatest === 'function') {
+                    const targetIdsList = getActiveTargetLayerIdsLatest() || [];
                     targetIdsList.forEach(id => { if (id) highlightIds.add(id); });
                 }
                 if (Array.isArray(layers) && layers.length > 0) {
@@ -1244,6 +1866,7 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                         if (!info) return;
                         const { layer, index } = info;
                         if (!layer || !layer.visible) return;
+                        if (!isLayerVisible(layer)) return;
                         const path = buildLayerHitPath(layer, canvas, {
                             renderedPoints: renderedPointsRef.current.get(index),
                             globalSeed,
@@ -1271,12 +1894,12 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
             }
-            layers.forEach(l => {
+            (Array.isArray(layersForRender) ? layersForRender : []).forEach(l => {
                 const lx = Number(l?.position?.x);
                 const ly = Number(l?.position?.y);
-                const offsetX = (Number(l?.xOffset) || 0) * width;
-                const offsetY = (Number(l?.yOffset) || 0) * height;
                 const { spanX, spanY, offsetX: mapX, offsetY: mapY } = getLayerCanvasMapping(canvas, l);
+                const offsetX = (Number(l?.xOffset) || 0) * spanX;
+                const offsetY = (Number(l?.yOffset) || 0) * spanY;
                 const x = mapX + (Number.isFinite(lx) ? lx : 0.5) * spanX + offsetX;
                 const y = mapY + (Number.isFinite(ly) ? ly : 0.5) * spanY + offsetY;
                 ctx.beginPath();
@@ -1295,30 +1918,23 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
-                const offsetXPx = (Number(sel.xOffset) || 0) * width;
-                const offsetYPx = (Number(sel.yOffset) || 0) * height;
-                const layerCX = ax + x * spanX + offsetXPx;
-                const layerCY = ay + y * spanY + offsetYPx;
-                // Prefer cached, last-rendered deformed points for exact alignment
-                let points = renderedPointsRef.current.get(clampedIndex);
-                if (!Array.isArray(points) || points.length !== sel.nodes.length) {
-                    // Fallback: rotated base-node positions
-                    const minWH = artSize;
-                    const rfBase = Number(sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4);
-                    const rfX = Number.isFinite(sel.radiusFactorX) ? Number(sel.radiusFactorX) : rfBase;
-                    const rfY = Number.isFinite(sel.radiusFactorY) ? Number(sel.radiusFactorY) : rfBase;
-                    const rb = Number(sel.radiusBump ?? 0);
-                    const baseRadiusX = Math.max(0, rfX) * minWH * Math.max(0, scale);
-                    const baseRadiusY = Math.max(0, rfY) * minWH * Math.max(0, scale);
-                    const bump = rb * (minWH * 0.02) * Math.max(0, scale);
-                    const radiusX = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusX + bump);
-                    const radiusY = sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, baseRadiusY + bump);
-                    const rotDeg = ((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360) - 180;
-                    const rotRad = (rotDeg * Math.PI) / 180;
-                    const sinR = Math.sin(rotRad);
-                    const cosR = Math.cos(rotRad);
-                    points = sel.nodes.map(n => ({ x: layerCX + (n.x * cosR - n.y * sinR) * radiusX, y: layerCY + (n.x * sinR + n.y * cosR) * radiusY }));
-                }
+                const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
+                const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
+                const geometry = {
+                    centerX: ax + x * spanX + offsetXPx,
+                    centerY: ay + y * spanY + offsetYPx,
+                    radiusX: sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, (Number(sel.radiusFactorX ?? sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4)) * artSize * Math.max(0, scale) + (Number(sel.radiusBump ?? 0) * (artSize * 0.02) * Math.max(0, scale))),
+                    radiusY: sel.viewBoxMapped ? (artSize / 2) * scale : Math.max(0, (Number(sel.radiusFactorY ?? sel.radiusFactor ?? sel.baseRadiusFactor ?? 0.4)) * artSize * Math.max(0, scale) + (Number(sel.radiusBump ?? 0) * (artSize * 0.02) * Math.max(0, scale))),
+                    sinR: Math.sin(((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360 - 180) * Math.PI / 180),
+                    cosR: Math.cos(((((Number(sel.rotation) || 0) + 180) % 360 + 360) % 360 - 180) * Math.PI / 180),
+                };
+                let basePoints = buildBaseNodePoints(sel, geometry, renderedPointsRef.current.get(clampedIndex));
+                const baseCenterX = geometry.centerX;
+                const baseCenterY = geometry.centerY;
+                const wrapOffset = resolveDriftWrapOffset(sel, canvas, basePoints, baseCenterX, baseCenterY);
+                const layerCX = baseCenterX + wrapOffset.ox;
+                const layerCY = baseCenterY + wrapOffset.oy;
+                const points = applyWrapToPoints(basePoints, wrapOffset);
                 ctx.save();
                 // Vertex handles (base positions with rotation)
                 ctx.fillStyle = '#ffffff';
@@ -1370,12 +1986,17 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             // Always draw Orbit center handle (white dot with red border)
             {
                 const { spanX, spanY, offsetX: ax, offsetY: ay } = mapping;
-                const offsetXPx = (Number(sel.xOffset) || 0) * width;
-                const offsetYPx = (Number(sel.yOffset) || 0) * height;
+                const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
+                const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
                 const ocx = Number.isFinite(sel?.orbitCenterX) ? sel.orbitCenterX : 0.5;
                 const ocy = Number.isFinite(sel?.orbitCenterY) ? sel.orbitCenterY : 0.5;
-                const ox = ax + ocx * spanX + offsetXPx;
-                const oy = ay + ocy * spanY + offsetYPx;
+                const posX = Number(sel?.position?.x);
+                const posY = Number(sel?.position?.y);
+                const baseCenterX = ax + (Number.isFinite(posX) ? posX : 0.5) * spanX + offsetXPx;
+                const baseCenterY = ay + (Number.isFinite(posY) ? posY : 0.5) * spanY + offsetYPx;
+                const wrapOffset = resolveDriftWrapOffset(sel, canvas, renderedPointsRef.current.get(clampedIndex), baseCenterX, baseCenterY);
+                const ox = ax + ocx * spanX + offsetXPx + wrapOffset.ox;
+                const oy = ay + ocy * spanY + offsetYPx + wrapOffset.oy;
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(ox, oy, 6, 0, Math.PI * 2);
@@ -1392,17 +2013,31 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const renderTime = renderEnd - renderStart;
 
         if (renderTime > 16) {
-            console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
+            // Avoid spamming the console every frame; log at most once every 2 seconds while slow
+            const now = performance.now();
+            if (now - lastSlowRenderLogRef.current > 2000) {
+                lastSlowRenderLogRef.current = now;
+                console.warn(`Canvas render took ${renderTime.toFixed(2)}ms - may impact performance`);
+            }
+        } else if (lastSlowRenderLogRef.current !== 0 && renderTime < 12) {
+            // Reset throttle once things are comfortably fast again
+            lastSlowRenderLogRef.current = 0;
         }
 
         // Update trackers after a pass
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
-        prevLayersCountRef.current = layers.length;
+        prevLayersCountRef.current = (layersForRender?.length || 0);
+        } finally {
+            ctx.restore();
+        }
 
     }, [
         layerChanges,
         backgroundChanged,
         colorTick,
+        hideLayerIndex,
+        hideLayerId,
+        renderOverlayLayers,
         backgroundColor,
         globalSeed,
         globalBlendMode,
@@ -1413,17 +2048,45 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         colorFadeWhileFrozen,
         canvasSize.width,
         canvasSize.height,
+        canvasSize.pixelRatio,
         layers,
+        layersRef,
+        overlayLayersRef,
         selectedLayerIdsCtx,
-        getActiveTargetLayerIds,
+        getActiveTargetLayerIdsProp,
+        getActiveTargetLayerIdsCtx,
+        isolateMode,
+        isolateIdSet,
+        isLayerVisible,
         showLayerOutlines,
     ]);
 
+    // Render on relevant changes (initial paint, resize, selection changes, etc.)
     useEffect(() => {
-        if (ref) {
-            ref.current = localCanvasRef.current;
-        }
-    }, [ref]);
+        renderFrame();
+    }, [renderFrame]);
+
+    // In ref-driven animation mode, render continuously without React state updates.
+    // NOTE: We no longer skip this loop in node edit mode - animation should continue
+    // so that positions stay in sync. The renderFrame function handles merging
+    // animated positions with React state geometry when in node edit mode.
+    useEffect(() => {
+        if (!layersRef) return;
+        if (isFrozen && !colorFadeWhileFrozen) return;
+        let rafId = null;
+        const loop = () => {
+            const nowMs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+            const targetFps = Number(targetFpsRef.current) || 60;
+            const minDeltaMs = targetFps > 0 ? (1000 / targetFps) : (1000 / 60);
+            if ((nowMs - lastRenderMsRef.current) >= minDeltaMs) {
+                lastRenderMsRef.current = nowMs;
+                renderFrame();
+            }
+            rafId = requestAnimationFrame(loop);
+        };
+        rafId = requestAnimationFrame(loop);
+        return () => { if (rafId) cancelAnimationFrame(rafId); };
+    }, [layersRef, isFrozen, colorFadeWhileFrozen, renderFrame]);
 
     // Initialize nodes when entering node edit mode if missing
     useEffect(() => {
@@ -1472,6 +2135,13 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
+        // Avoid fighting the user's drag gesture by re-syncing/resizing nodes mid-drag.
+        if (
+            draggingNodeIndexRef.current != null ||
+            draggingMidIndexRef.current != null ||
+            draggingCenterRef.current ||
+            draggingOrbitCenterRef.current
+        ) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
@@ -1566,8 +2236,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const canvas = localCanvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+        const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
+        const scaleX = rect.width ? logicalWidth / rect.width : 1;
+        const scaleY = rect.height ? logicalHeight / rect.height : 1;
         return {
             x: (evt.clientX - rect.left) * scaleX,
             y: (evt.clientY - rect.top) * scaleY,
@@ -1582,7 +2253,11 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         if (e.metaKey || e.ctrlKey || e.shiftKey) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const layer = layers[selectedLayerIndex];
+
+        clearDragState();
+
+        const layerIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const layer = layers[layerIndex];
         if (!layer) return;
         const geometry = getLayerGeometry(layer, canvas);
         if (!geometry) return;
@@ -1601,15 +2276,33 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             spanY,
         } = geometry;
 
+        const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
         const hitRadius = 10;
+        const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
+        const wrapOx = wrapOffset.ox;
+        const wrapOy = wrapOffset.oy;
+        const gestureGeometry = {
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+            sinR,
+            cosR,
+            artOffsetX,
+            artOffsetY,
+            offsetXPx,
+            offsetYPx,
+            spanX,
+            spanY,
+        };
 
         // Orbit center handle can be dragged regardless of node presence
         {
             const ocxNorm = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
             const ocyNorm = Number.isFinite(layer.orbitCenterY) ? layer.orbitCenterY : 0.5;
-            const ox = artOffsetX + ocxNorm * spanX + offsetXPx;
-            const oy = artOffsetY + ocyNorm * spanY + offsetYPx;
+            const ox = artOffsetX + ocxNorm * spanX + offsetXPx + wrapOx;
+            const oy = artOffsetY + ocyNorm * spanY + offsetYPx + wrapOy;
             const dx = ox - pos.x; const dy = oy - pos.y;
             if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
                 draggingOrbitCenterRef.current = true;
@@ -1617,23 +2310,31 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingMidIndexRef.current = null;
                 draggingCenterRef.current = false;
                 draggingKindRef.current = 'orbitCenter';
+                gestureRef.current = { layerId, layerIndex, type: 'orbitCenter', wrapOffset, geometry: gestureGeometry };
                 return;
             }
         }
 
-        if (!Array.isArray(layer.nodes)) return;
+        if (!Array.isArray(layer.nodes)) {
+            gestureRef.current = null;
+            return;
+        }
         // Prefer deformed points for hit-testing so handles remain clickable under noise
-        const rendered = renderedPointsRef.current.get(selectedLayerIndex);
+        const rendered = renderedPointsRef.current.get(layerIndex);
         let idx = -1;
         if (Array.isArray(rendered) && rendered.length === layer.nodes.length) {
-            idx = rendered.findIndex(p => ((p.x - pos.x) ** 2 + (p.y - pos.y) ** 2) <= hitRadius * hitRadius);
+            idx = rendered.findIndex(p => {
+                const px = p.x + wrapOx;
+                const py = p.y + wrapOy;
+                return ((px - pos.x) ** 2 + (py - pos.y) ** 2) <= hitRadius * hitRadius;
+            });
         }
         if (idx === -1) {
             idx = layer.nodes.findIndex(n => {
                 const rx = n.x * cosR - n.y * sinR;
                 const ry = n.x * sinR + n.y * cosR;
-                const px = centerX + rx * radiusX;
-                const py = centerY + ry * radiusY;
+                const px = centerX + wrapOx + rx * radiusX;
+                const py = centerY + wrapOy + ry * radiusY;
                 const dx = px - pos.x;
                 const dy = py - pos.y;
                 return (dx * dx + dy * dy) <= hitRadius * hitRadius;
@@ -1645,15 +2346,16 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
+            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx, wrapOffset, geometry: gestureGeometry };
             return;
         }
         // Try midpoints next
         const pts = (Array.isArray(rendered) && rendered.length === layer.nodes.length)
-            ? rendered
+            ? rendered.map(p => ({ x: p.x + wrapOx, y: p.y + wrapOy }))
             : layer.nodes.map(n => {
                 const rx = n.x * cosR - n.y * sinR;
                 const ry = n.x * sinR + n.y * cosR;
-                return { x: centerX + rx * radiusX, y: centerY + ry * radiusY };
+                return { x: centerX + wrapOx + rx * radiusX, y: centerY + wrapOy + ry * radiusY };
             });
         const midIdx = pts.findIndex((_, i) => {
             const a = pts[i];
@@ -1669,11 +2371,32 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'mid';
+            const nodes = Array.isArray(layer.nodes) ? layer.nodes : [];
+            const N = nodes.length;
+            const aIdx = midIdx;
+            const bIdx = (midIdx + 1) % (N || 1);
+            const startA = nodes[aIdx] ? { x: nodes[aIdx].x, y: nodes[aIdx].y } : { x: 0, y: 0 };
+            const startB = nodes[bIdx] ? { x: nodes[bIdx].x, y: nodes[bIdx].y } : { x: 0, y: 0 };
+            gestureRef.current = {
+                layerId,
+                layerIndex,
+                type: 'mid',
+                midIndex: midIdx,
+                wrapOffset,
+                geometry: gestureGeometry,
+                midDrag: {
+                    aIdx,
+                    bIdx,
+                    startA,
+                    startB,
+                    startMouse: { x: pos.x, y: pos.y },
+                },
+            };
             return;
         }
         // Try center cross (use centroid to match the drawn crosshair position)
         {
-            let cx = centerX, cy = centerY;
+            let cx = centerX + wrapOx, cy = centerY + wrapOy;
             if (pts.length >= 3) {
                 let sx = 0, sy = 0;
                 for (let i = 0; i < pts.length; i++) { sx += pts[i].x; sy += pts[i].y; }
@@ -1686,9 +2409,24 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
                 draggingOrbitCenterRef.current = false;
-                draggingKindRef.current = null;
+                draggingKindRef.current = 'center';
+                gestureRef.current = { layerId, layerIndex, type: 'center', wrapOffset, geometry: gestureGeometry };
+                // Store initial offset: where the mouse is relative to the actual layer center
+                const currentPosX = layer.position?.x ?? 0.5;
+                const currentPosY = layer.position?.y ?? 0.5;
+                const posBaseX = pos.x - wrapOx;
+                const posBaseY = pos.y - wrapOy;
+                const clickNormX = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
+                const clickNormY = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
+                dragStartOffsetRef.current = {
+                    normX: clickNormX - currentPosX,
+                    normY: clickNormY - currentPosY,
+                };
+                return;
             }
         }
+
+        gestureRef.current = null;
     };
 
     const onMouseMove = (e) => {
@@ -1703,7 +2441,9 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
         if (!layer || !layer.position) return;
-        const geometry = getLayerGeometry(layer, canvas);
+        const gestureGeometry = gestureRef.current?.geometry;
+        const liveGeometry = getLayerGeometry(layer, canvas);
+        const geometry = (gestureGeometry && gestureRef.current?.layerIndex === selIndex) ? gestureGeometry : liveGeometry;
         if (!geometry) return;
         const {
             centerX,
@@ -1721,80 +2461,311 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         } = geometry;
 
         const pos = getMousePos(e);
-        const normX = spanX > 0 ? (pos.x - artOffsetX - offsetXPx) / spanX : 0.5;
-        const normY = spanY > 0 ? (pos.y - artOffsetY - offsetYPx) / spanY : 0.5;
+        const wrapOffset = layer?.movementStyle === 'drift'
+            ? (gestureRef.current?.wrapOffset || getDriftWrapOffset(layer, canvas))
+            : ZERO_WRAP_OFFSET;
+        const wrapOx = wrapOffset.ox;
+        const wrapOy = wrapOffset.oy;
+        const posBaseX = pos.x - wrapOx;
+        const posBaseY = pos.y - wrapOy;
+        // Use base (unwrapped) canvas coordinates when converting back to normalized space
+        // so that dragging the wrapped center crosshair does not introduce a 1.0 offset.
+        const normXBase = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
+        const normYBase = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
 
         if (draggingOrbit) {
-            const nx = Math.max(0, Math.min(1, normX));
-            const ny = Math.max(0, Math.min(1, normY));
-            setLayers(prev => prev.map((l, i) => (
-                i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
-            )));
+            const nx = Math.max(0, Math.min(1, normXBase));
+            const ny = Math.max(0, Math.min(1, normYBase));
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'orbit', selIndex, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => (
+                    i === selIndex ? { ...l, orbitCenterX: nx, orbitCenterY: ny } : l
+                )));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (draggingCenter) {
-            const nx = Math.max(0, Math.min(1, normX));
-            const ny = Math.max(0, Math.min(1, normY));
-            setLayers(prev => prev.map((l, i) => (
-                i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
-            )));
+            // Apply the initial offset so the shape doesn't jump to align its center with the cursor
+            const targetX = normXBase - dragStartOffsetRef.current.normX;
+            const targetY = normYBase - dragStartOffsetRef.current.normY;
+            
+            // For drift layers, allow positions outside 0-1 range (they wrap toroidally)
+            // For other movement styles, clamp to canvas bounds
+            let nx = targetX;
+            let ny = targetY;
+            if (layer.movementStyle !== 'drift') {
+                const { width: canvasWidth, height: canvasHeight } = getCanvasLogicalDimensions(canvas);
+                const minXNorm = spanX > 0 ? (0 - artOffsetX - offsetXPx) / spanX : 0;
+                const maxXNorm = spanX > 0 ? (canvasWidth - artOffsetX - offsetXPx) / spanX : 1;
+                const minYNorm = spanY > 0 ? (0 - artOffsetY - offsetYPx) / spanY : 0;
+                const maxYNorm = spanY > 0 ? (canvasHeight - artOffsetY - offsetYPx) / spanY : 1;
+                nx = Math.max(minXNorm, Math.min(maxXNorm, targetX));
+                ny = Math.max(minYNorm, Math.min(maxYNorm, targetY));
+            }
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'center', selIndex, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => (
+                    i === selIndex ? { ...l, position: { ...(l.position || {}), x: nx, y: ny } } : l
+                )));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (idx != null) {
             // Convert dragged canvas position back to unrotated local node coords
-            const lx = (pos.x - centerX) / radiusX;
-            const ly = (pos.y - centerY) / radiusY;
+            const lx = (posBaseX - centerX) / radiusX;
+            const ly = (posBaseY - centerY) / radiusY;
             const nx = lx * cosR + ly * sinR;
             const ny = -lx * sinR + ly * cosR;
-            setLayers(prev => prev.map((l, i) => {
-                if (i !== selIndex) return l;
-                const nodes = [...(l.nodes || [])];
-                nodes[idx] = { x: nx, y: ny };
-                // Update cache first N entries accordingly
-                const cache = nodesCacheRef.current.get(selIndex);
-                if (Array.isArray(cache) && cache.length >= nodes.length) {
-                    cache[idx] = { x: nx, y: ny };
-                }
-                return { ...l, nodes, syncNodesToNumSides: false };
-            }));
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { type: 'node', selIndex, idx, nx, ny };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => {
+                    if (i !== selIndex) return l;
+                    const nodes = [...(l.nodes || [])];
+                    nodes[idx] = { x: nx, y: ny };
+                    const cache = nodesCacheRef.current.get(selIndex);
+                    if (Array.isArray(cache) && cache.length >= nodes.length) {
+                        cache[idx] = { x: nx, y: ny };
+                    }
+                    return { ...l, nodes, syncNodesToNumSides: false };
+                }));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    }
+                });
+            }
         } else if (mid != null) {
-            setLayers(prev => prev.map((l, i) => {
-                if (i !== selIndex) return l;
-                const nodes = [...(l.nodes || [])];
-                const N = nodes.length;
-                const aIdx = mid;
-                const bIdx = (mid + 1) % N;
-                // current midpoint in canvas space
-                // compute current endpoints with rotation
-                const arx = nodes[aIdx].x * cosR - nodes[aIdx].y * sinR;
-                const ary = nodes[aIdx].x * sinR + nodes[aIdx].y * cosR;
-                const brx = nodes[bIdx].x * cosR - nodes[bIdx].y * sinR;
-                const bry = nodes[bIdx].x * sinR + nodes[bIdx].y * cosR;
-                const ax = centerX + arx * radiusX;
-                const ay = centerY + ary * radiusY;
-                const bx = centerX + brx * radiusX;
-                const by = centerY + bry * radiusY;
-                const mx = (ax + bx) / 2;
-                const my = (ay + by) / 2;
-                // Convert movement delta back into unrotated local space
-                const dxCanvas = pos.x - mx;
-                const dyCanvas = pos.y - my;
-                const dLocalX = (dxCanvas / radiusX);
-                const dLocalY = (dyCanvas / radiusY);
-                // inverse rotate delta
-                const invDx = dLocalX * cosR + dLocalY * sinR;
-                const invDy = -dLocalX * sinR + dLocalY * cosR;
-                nodes[aIdx] = { x: nodes[aIdx].x + invDx, y: nodes[aIdx].y + invDy };
-                nodes[bIdx] = { x: nodes[bIdx].x + invDx, y: nodes[bIdx].y + invDy };
-                const cache = nodesCacheRef.current.get(selIndex);
-                if (Array.isArray(cache) && cache.length >= nodes.length) {
-                    cache[aIdx] = { ...nodes[aIdx] };
-                    cache[bIdx] = { ...nodes[bIdx] };
-                }
-                return { ...l, nodes, syncNodesToNumSides: false };
-            }));
+            // Stable midpoint drag: use delta from the gesture start, not current midpoint,
+            // to avoid feedback oscillation/jitter.
+            const md = gestureRef.current?.midDrag;
+            const aIdx = (md && Number.isInteger(md.aIdx)) ? md.aIdx : mid;
+            const bIdx = (md && Number.isInteger(md.bIdx)) ? md.bIdx : ((mid + 1) % (layer.nodes?.length || 1));
+            const startMouse = md?.startMouse || { x: pos.x, y: pos.y };
+            const dxCanvas = pos.x - startMouse.x;
+            const dyCanvas = pos.y - startMouse.y;
+            const dLocalX = radiusX !== 0 ? (dxCanvas / radiusX) : 0;
+            const dLocalY = radiusY !== 0 ? (dyCanvas / radiusY) : 0;
+            const invDx = dLocalX * cosR + dLocalY * sinR;
+            const invDy = -dLocalX * sinR + dLocalY * cosR;
+            const startA = md?.startA || layer.nodes?.[aIdx] || { x: 0, y: 0 };
+            const startB = md?.startB || layer.nodes?.[bIdx] || { x: 0, y: 0 };
+            const nextA = { x: (Number(startA.x) || 0) + invDx, y: (Number(startA.y) || 0) + invDy };
+            const nextB = { x: (Number(startB.x) || 0) + invDx, y: (Number(startB.y) || 0) + invDy };
+            
+            // Store update for RAF batching
+            pendingDragUpdateRef.current = { 
+                type: 'midDrag', 
+                selIndex, 
+                aIdx,
+                bIdx,
+                a: nextA,
+                b: nextB,
+            };
+            // If no RAF scheduled, apply immediately for responsive feedback
+            if (!dragUpdateRafRef.current) {
+                setLayers(prev => prev.map((l, i) => {
+                    if (i !== selIndex) return l;
+                    const nodes = [...(l.nodes || [])];
+                    if (nodes[aIdx]) nodes[aIdx] = { x: nextA.x, y: nextA.y };
+                    if (nodes[bIdx]) nodes[bIdx] = { x: nextB.x, y: nextB.y };
+                    const cache = nodesCacheRef.current.get(selIndex);
+                    if (Array.isArray(cache) && cache.length >= nodes.length) {
+                        if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
+                        if (nodes[bIdx]) cache[bIdx] = { ...nodes[bIdx] };
+                    }
+                    return { ...l, nodes, syncNodesToNumSides: false };
+                }));
+                // Schedule RAF to batch subsequent rapid updates
+                dragUpdateRafRef.current = requestAnimationFrame(() => {
+                    dragUpdateRafRef.current = null;
+                    const update = pendingDragUpdateRef.current;
+                    if (!update) return;
+                    pendingDragUpdateRef.current = null;
+                    if (update.type === 'orbit') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, orbitCenterX: update.nx, orbitCenterY: update.ny } : l
+                        )));
+                    } else if (update.type === 'center') {
+                        setLayers(prev => prev.map((l, i) => (
+                            i === update.selIndex ? { ...l, position: { ...(l.position || {}), x: update.nx, y: update.ny } } : l
+                        )));
+                    } else if (update.type === 'node') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                cache[update.idx] = { x: update.nx, y: update.ny };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    } else if (update.type === 'mid') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const n1 = nodes[update.mid];
+                            const n2 = nodes[(update.mid + 1) % nodes.length];
+                            const newNode = { x: update.nx, y: update.ny };
+                            nodes.splice(update.mid + 1, 0, newNode);
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length - 1) {
+                                cache.splice(update.mid + 1, 0, newNode);
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                        draggingMidIndexRef.current = null;
+                        draggingNodeIndexRef.current = update.mid + 1;
+                    } else if (update.type === 'midDrag') {
+                        setLayers(prev => prev.map((l, i) => {
+                            if (i !== update.selIndex) return l;
+                            const nodes = [...(l.nodes || [])];
+                            const aIdx = update.aIdx;
+                            const bIdx = update.bIdx;
+                            if (nodes[aIdx] && update.a) nodes[aIdx] = { x: update.a.x, y: update.a.y };
+                            if (nodes[bIdx] && update.b) nodes[bIdx] = { x: update.b.x, y: update.b.y };
+                            const cache = nodesCacheRef.current.get(update.selIndex);
+                            if (Array.isArray(cache) && cache.length >= nodes.length) {
+                                if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
+                                if (nodes[bIdx]) cache[bIdx] = { ...nodes[bIdx] };
+                            }
+                            return { ...l, nodes, syncNodesToNumSides: false };
+                        }));
+                    }
+                });
+            }
         }
     };
 
     const onMouseUp = (e) => {
         const canvas = localCanvasRef.current;
-        const wasDragging = draggingKindRef.current != null;
+        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
 
         if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
@@ -1851,27 +2822,41 @@ const Canvas = forwardRef(({ layers, backgroundColor, globalSeed, globalBlendMod
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingKindRef.current = null;
+        gestureRef.current = null;
 
         // nothing else to do here
     };
 
     // Initialize baseline snapshot when enabling node edit, switching layer,
   // or when the selected layer gains nodes (e.g., after auto-init)
+  // Use refs to track state and avoid re-running on every layers change
+  const prevNodeLenRef = useRef(0);
+  const wasNodeEditModeRef = useRef(false);
   useEffect(() => {
     if (!isNodeEditMode) {
-      // Reset when leaving node edit mode
-      historyRef.current = { stack: [], index: -1, layerIndex: -1 };
-      setHistoryTick(t => t + 1);
+      // Only reset when transitioning FROM node edit mode TO non-node edit mode
+      if (wasNodeEditModeRef.current) {
+        historyRef.current = { stack: [], index: -1, layerIndex: -1 };
+        prevNodeLenRef.current = 0;
+        setHistoryTick(t => t + 1);
+      }
+      wasNodeEditModeRef.current = false;
       return;
     }
+    wasNodeEditModeRef.current = true;
     const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
     const sel = layers[idx];
     const nodeLen = Array.isArray(sel?.nodes) ? sel.nodes.length : 0;
-    // Initialize when switching tracked layer, or if no baseline yet but nodes now exist
-    if (historyRef.current.layerIndex !== idx || (historyRef.current.index < 0 && nodeLen > 0)) {
+    const prevNodeLen = prevNodeLenRef.current;
+    prevNodeLenRef.current = nodeLen;
+    
+    // Initialize when switching tracked layer, or if nodes appeared (0 -> non-zero)
+    if (historyRef.current.layerIndex !== idx || (prevNodeLen === 0 && nodeLen > 0)) {
       initHistoryBaseline(idx);
     }
-  }, [isNodeEditMode, initHistoryBaseline, layers, selectedLayerIndex]);
+    // Only depend on isNodeEditMode and selectedLayerIndex, not layers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNodeEditMode, initHistoryBaseline, selectedLayerIndex]);
 
     return (
         <>
@@ -1917,6 +2902,11 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.selectedLayerIndex === next.selectedLayerIndex &&
     prev.classicMode === next.classicMode &&
+    prev.renderOverlayLayers === next.renderOverlayLayers &&
+    prev.hideLayerIndex === next.hideLayerIndex &&
+    prev.hideLayerId === next.hideLayerId &&
+    prev.isolateMode === next.isolateMode &&
+    prev.getActiveTargetLayerIds === next.getActiveTargetLayerIds &&
     prev.layers === next.layers
   );
 };
