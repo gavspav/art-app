@@ -1523,6 +1523,70 @@ const MainApp = () => {
     setLayers(prev => prev.map((l, i) => (i === idx ? updated : l)));
   }, [colorCountMax, colorCountMin, globalSeed, randomizeNumColors, randomizePalette, palettesWithCustom, sampleColorsEven, selectedLayerIndex, setLayers]);
 
+  const randomizeGlobalPaletteOnly = useCallback(() => {
+    const list = Array.isArray(palettesWithCustom) ? palettesWithCustom : [];
+    if (!list.length) return;
+
+    const currentBuiltinIndex = Number(globalPaletteIndex);
+    const currentPaletteKey = (globalPaletteIndex === 'custom' && typeof globalPaletteRef === 'string' && globalPaletteRef.length)
+      ? `custom:${globalPaletteRef}`
+      : (Number.isFinite(currentBuiltinIndex) ? `builtin:${Math.max(0, Math.floor(currentBuiltinIndex))}` : null);
+
+    const candidates = list
+      .map((palette, fallbackIndex) => {
+        const source = palette?.__source === 'custom' ? 'custom' : 'builtin';
+        const builtinIndex = Number.isFinite(Number(palette?.__index))
+          ? Math.max(0, Math.floor(Number(palette.__index)))
+          : fallbackIndex;
+        const customId = (source === 'custom' && typeof palette?.id === 'string' && palette.id.length)
+          ? palette.id
+          : null;
+        if (source === 'custom' && !customId) return null;
+        const rawColors = Array.isArray(palette) ? palette : palette?.colors;
+        const colors = (Array.isArray(rawColors) ? rawColors : [])
+          .filter((color) => typeof color === 'string' && color.trim().length > 0);
+        if (!colors.length) return null;
+        return {
+          key: source === 'custom' ? `custom:${customId}` : `builtin:${builtinIndex}`,
+          source,
+          builtinIndex,
+          customId,
+          colors,
+        };
+      })
+      .filter(Boolean);
+
+    if (!candidates.length) return;
+    const pool = (currentPaletteKey && candidates.length > 1)
+      ? candidates.filter((entry) => entry.key !== currentPaletteKey)
+      : candidates;
+    const pick = pool[Math.floor(Math.random() * pool.length)] || pool[0];
+    if (!pick) return;
+
+    const liveLayers = Array.isArray(layersRef.current) ? layersRef.current : (Array.isArray(layers) ? layers : []);
+    const layerCount = Math.max(1, liveLayers.length);
+    const distributed = sampleColorsEven(pick.colors, layerCount);
+    assignOneColorPerLayer(distributed.length ? distributed : pick.colors);
+
+    if (pick.source === 'custom') {
+      setGlobalPaletteIndex?.('custom');
+      setGlobalPaletteRef?.(pick.customId);
+      return;
+    }
+    setGlobalPaletteRef?.(null);
+    setGlobalPaletteIndex?.(pick.builtinIndex);
+  }, [
+    assignOneColorPerLayer,
+    globalPaletteIndex,
+    globalPaletteRef,
+    layers,
+    layersRef,
+    palettesWithCustom,
+    sampleColorsEven,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
+  ]);
+
   // randomizeBackgroundColor handled within useRandomization
 
   const handleRandomizeAll = useCallback(() => {
@@ -2456,6 +2520,7 @@ const MainApp = () => {
     classicMode,
     isolateMode,
     getActiveTargetLayerIds,
+    onDoubleTapPalette: randomizeGlobalPaletteOnly,
     feedbackTrailEnabled: !!milkdropFeedbackEnabled,
     feedbackTrailAmount: Math.max(0, Math.min(0.4, (Number(milkdropInfluence) || 0) / 260)),
   };

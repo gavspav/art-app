@@ -1162,6 +1162,7 @@ const Canvas = forwardRef(({
     classicMode = false,
     isolateMode = false,
     getActiveTargetLayerIds: getActiveTargetLayerIdsProp,
+    onDoubleTapPalette = null,
 }, ref) => {
     const {
         toggleLayerSelection,
@@ -1231,6 +1232,8 @@ const Canvas = forwardRef(({
     const dragStartOffsetRef = useRef({ normX: 0, normY: 0 }); // offset from layer center when drag starts
     const pendingDragUpdateRef = useRef(null); // batched drag update
     const dragUpdateRafRef = useRef(null); // RAF handle for batched updates
+    const lastTapRef = useRef({ time: 0, x: 0, y: 0 });
+    const touchGestureRef = useRef({ valid: false, moved: false, startX: 0, startY: 0 });
     const [, setHistoryTick] = useState(0); // trigger re-render when history changes
     const modeHashRef = useRef({ isNodeEditMode: false, selectedLayerIndex: -1 });
     const lastSlowRenderLogRef = useRef(0); // throttle repeated slow-render warnings
@@ -2318,6 +2321,60 @@ const Canvas = forwardRef(({
 
     const mouseDownRef = useRef({ x: 0, y: 0, t: 0 }); // eslint-disable-line no-unused-vars
 
+    const onTouchStart = (e) => {
+        if (e.touches.length !== 1) {
+            touchGestureRef.current = { valid: false, moved: false, startX: 0, startY: 0 };
+            lastTapRef.current.time = 0;
+            return;
+        }
+        const touch = e.touches[0];
+        touchGestureRef.current = {
+            valid: true,
+            moved: false,
+            startX: touch.clientX,
+            startY: touch.clientY,
+        };
+    };
+
+    const onTouchMove = (e) => {
+        if (!touchGestureRef.current.valid || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchGestureRef.current.startX;
+        const dy = touch.clientY - touchGestureRef.current.startY;
+        if ((dx * dx + dy * dy) > (16 * 16)) {
+            touchGestureRef.current.moved = true;
+        }
+    };
+
+    const onTouchEnd = (e) => {
+        if (typeof onDoubleTapPalette !== 'function') return;
+        const gesture = touchGestureRef.current;
+        touchGestureRef.current.valid = false;
+        if (!gesture.valid || gesture.moved || e.changedTouches.length !== 1) return;
+
+        const touch = e.changedTouches[0];
+        const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+        const last = lastTapRef.current;
+        const dt = now - (last.time || 0);
+        const dx = touch.clientX - (last.x || 0);
+        const dy = touch.clientY - (last.y || 0);
+        const distanceSq = dx * dx + dy * dy;
+
+        if (dt > 0 && dt <= 320 && distanceSq <= (36 * 36)) {
+            lastTapRef.current = { time: 0, x: 0, y: 0 };
+            onDoubleTapPalette();
+            return;
+        }
+
+        lastTapRef.current = { time: now, x: touch.clientX, y: touch.clientY };
+    };
+
+    const onTouchCancel = () => {
+        touchGestureRef.current = { valid: false, moved: false, startX: 0, startY: 0 };
+    };
+
     const getNodeEditInteractiveLayer = (layerIndex) => {
         const base = layers[layerIndex];
         if (!base) return base;
@@ -2955,10 +3012,14 @@ const Canvas = forwardRef(({
         <>
           <canvas
               ref={localCanvasRef}
-              style={{ display: 'block', pointerEvents: 'auto' }}
+              style={{ display: 'block', pointerEvents: 'auto', touchAction: isNodeEditMode ? 'none' : 'manipulation' }}
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchCancel}
           />
           {isNodeEditMode && (
             <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', gap: 10, zIndex: 9000 }}>
@@ -3003,6 +3064,7 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.hideLayerId === next.hideLayerId &&
     prev.isolateMode === next.isolateMode &&
     prev.getActiveTargetLayerIds === next.getActiveTargetLayerIds &&
+    prev.onDoubleTapPalette === next.onDoubleTapPalette &&
     prev.layers === next.layers
   );
 };

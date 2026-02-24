@@ -3460,6 +3460,56 @@ const AudioSpawnSection = ({
   const pitchHzText = (Number.isFinite(pitchMeterValue.hz) && pitchMeterValue.hz > 0)
     ? `${pitchMeterValue.hz.toFixed(1)} Hz`
     : '— Hz';
+  const thresholdMeterRef = useRef(null);
+  const thresholdDragPointerIdRef = useRef(null);
+  const thresholdIsDraggingRef = useRef(false);
+  const liveLevelNormalized = clampValue(Number(bandValue) || 0, 0, 1);
+  const thresholdNormalized = clampValue(Number(audioSpawnThreshold) || 0, 0, 1);
+  const thresholdBandColor = (
+    audioSpawnBand === 'bass' ? '#ff6b6b'
+      : audioSpawnBand === 'mids' ? '#ffd93d'
+      : audioSpawnBand === 'highs' ? '#6bcb77'
+      : audioSpawnBand === 'pitch' ? '#90caf9'
+      : audioSpawnBand === 'transient' ? '#ff8a65'
+      : audioSpawnBand === 'beat' ? '#ce93d8'
+      : audioSpawnBand === 'waveformEnergy' ? '#80cbc4'
+      : '#4fc3f7'
+  );
+
+  const applyThresholdFromClientX = useCallback((clientX) => {
+    if (typeof setAudioSpawnThreshold !== 'function') return;
+    const meterNode = thresholdMeterRef.current;
+    if (!meterNode) return;
+    const rect = meterNode.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const normalized = clampValue((clientX - rect.left) / rect.width, 0, 1);
+    setAudioSpawnThreshold(normalized);
+  }, [setAudioSpawnThreshold]);
+
+  const handleThresholdPointerDown = useCallback((event) => {
+    if (disabledByTimeline || typeof setAudioSpawnThreshold !== 'function') return;
+    thresholdIsDraggingRef.current = true;
+    thresholdDragPointerIdRef.current = event.pointerId;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    applyThresholdFromClientX(event.clientX);
+  }, [applyThresholdFromClientX, disabledByTimeline, setAudioSpawnThreshold]);
+
+  const handleThresholdPointerMove = useCallback((event) => {
+    if (!thresholdIsDraggingRef.current) return;
+    if (thresholdDragPointerIdRef.current != null && event.pointerId !== thresholdDragPointerIdRef.current) return;
+    applyThresholdFromClientX(event.clientX);
+  }, [applyThresholdFromClientX]);
+
+  const endThresholdPointerDrag = useCallback((event) => {
+    if (thresholdDragPointerIdRef.current != null && event.pointerId !== thresholdDragPointerIdRef.current) return;
+    thresholdIsDraggingRef.current = false;
+    thresholdDragPointerIdRef.current = null;
+    try {
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   return (
     <div
@@ -3552,6 +3602,74 @@ const AudioSpawnSection = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="compact-label">{mode === 'transient' ? 'Sensitivity' : 'Threshold'}</span>
           <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number(audioSpawnThreshold || 0).toFixed(2)}</span>
+        </div>
+        <div
+          ref={thresholdMeterRef}
+          role="slider"
+          aria-label={mode === 'transient' ? 'Audio spawn sensitivity' : 'Audio spawn threshold'}
+          aria-valuemin={0}
+          aria-valuemax={1}
+          aria-valuenow={thresholdNormalized}
+          onPointerDown={handleThresholdPointerDown}
+          onPointerMove={handleThresholdPointerMove}
+          onPointerUp={endThresholdPointerDrag}
+          onPointerCancel={endThresholdPointerDrag}
+          style={{
+            marginTop: '0.15rem',
+            height: 12,
+            borderRadius: 999,
+            background: 'rgba(255,255,255,0.12)',
+            position: 'relative',
+            overflow: 'hidden',
+            cursor: disabledByTimeline || !setAudioSpawnThreshold ? 'not-allowed' : 'ew-resize',
+            touchAction: 'none',
+            opacity: canRun ? 1 : 0.75,
+          }}
+          title={mode === 'transient'
+            ? 'Drag to set transient sensitivity. Lower values trigger more easily.'
+            : 'Drag to set live threshold against the current band level.'}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: `${(liveLevelNormalized * 100).toFixed(1)}%`,
+              background: thresholdBandColor,
+              opacity: 0.35,
+              transition: 'width 0.08s linear',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: `${(thresholdNormalized * 100).toFixed(1)}%`,
+              top: 0,
+              bottom: 0,
+              width: 2,
+              marginLeft: -1,
+              background: '#ffffff',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.35)',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: `${(thresholdNormalized * 100).toFixed(1)}%`,
+              top: '50%',
+              width: 12,
+              height: 12,
+              marginLeft: -6,
+              marginTop: -6,
+              borderRadius: '50%',
+              background: '#ffffff',
+              boxShadow: '0 0 0 1px rgba(0,0,0,0.55)',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+        <div style={{ marginTop: '0.08rem', display: 'flex', justifyContent: 'space-between', fontSize: '0.62rem', opacity: 0.62 }}>
+          <span>Live {liveLevelNormalized.toFixed(2)}</span>
+          <span>Drag marker</span>
         </div>
         <input
           className="compact-range"
