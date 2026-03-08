@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useParameters } from './ParameterContext.jsx';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime } from '../utils/envelopes.js';
 import {
   computeEnergyFlux,
@@ -267,6 +268,7 @@ const DEFAULT_TRANSIENT_SETTINGS = {
 };
 
 export const TimelineProvider = ({ children }) => {
+  const { parameters } = useParameters() || {};
   // Timeline session state (persisted)
   const [session, setSession] = useState(() => {
     try {
@@ -306,6 +308,28 @@ export const TimelineProvider = ({ children }) => {
   const [transients, setTransients] = useState([]); // Array of { time, strength }
   const audioFluxRef = useRef(null); // Cached flux data for re-detection on threshold change
   const [energyMap, setEnergyMap] = useState({ total: [], low: [], mid: [], high: [] }); // Multi-band: { total, low, mid, high } each Array<{ time, energy, normalized }>
+  const randomizableParamMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, !!param.isRandomizable);
+    });
+    return map;
+  }, [parameters]);
+  const parameterConfigMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, param);
+    });
+    return map;
+  }, [parameters]);
+  const isParamRandomizable = useCallback((id) => {
+    if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
+    return undefined;
+  }, [randomizableParamMap]);
+  const getParamConfig = useCallback((id) => {
+    if (parameterConfigMap.has(id)) return parameterConfigMap.get(id);
+    return null;
+  }, [parameterConfigMap]);
 
   // Refs for RAF loop
   const lastUpdateTimeRef = useRef(null);
@@ -1230,11 +1254,14 @@ export const TimelineProvider = ({ children }) => {
     const categories = track.categories || { shape: true, animation: false, color: false };
 
     // Generate varied layer
+    const resolvedIsParamRandomizable = options.isParamRandomizable || isParamRandomizable;
+    const resolvedGetParamConfig = options.getParamConfig || getParamConfig;
     const variedLayer = generateVariedLayer(layer, {
       seed,
       variationWeights,
       affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'],
-      isParamRandomizable: options.isParamRandomizable,
+      isParamRandomizable: resolvedIsParamRandomizable,
+      getParamConfig: resolvedGetParamConfig,
       constrainColorsToPalette: options.constrainColorsToPalette,
       paletteColors: options.paletteColors,
     });
@@ -1256,7 +1283,7 @@ export const TimelineProvider = ({ children }) => {
     // Add the keyframe
     const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
     return keyframeId;
-  }, [session.tracks, addShapeKeyframe]);
+  }, [session.tracks, addShapeKeyframe, getParamConfig, isParamRandomizable]);
 
   /**
    * Generate multiple variation keyframes at specified times.
@@ -1279,6 +1306,8 @@ export const TimelineProvider = ({ children }) => {
     const categories = track.categories || { shape: true, animation: false, color: false };
     const keyframeIds = [];
     const generatedEntries = [];
+    const resolvedIsParamRandomizable = options.isParamRandomizable || isParamRandomizable;
+    const resolvedGetParamConfig = options.getParamConfig || getParamConfig;
     const existingTimes = (Array.isArray(options.temporalReferenceTimes)
       ? options.temporalReferenceTimes
       : (replaceExistingKeyframes ? [] : (track.keyframes || []).map(kf => kf?.timeSeconds)))
@@ -1341,7 +1370,8 @@ export const TimelineProvider = ({ children }) => {
         seed,
         variationWeights,
         affectCategories: options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'],
-        isParamRandomizable: options.isParamRandomizable,
+        isParamRandomizable: resolvedIsParamRandomizable,
+        getParamConfig: resolvedGetParamConfig,
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       });
@@ -1419,7 +1449,7 @@ export const TimelineProvider = ({ children }) => {
     }
 
     return keyframeIds;
-  }, [session.tracks, addShapeKeyframe, setSession]);
+  }, [session.tracks, addShapeKeyframe, setSession, getParamConfig, isParamRandomizable]);
 
   /**
    * Generate N keyframes between two existing keyframes.
@@ -1549,12 +1579,16 @@ export const TimelineProvider = ({ children }) => {
 
     const categories = track.categories || { shape: true, animation: false, color: false };
     const newSeed = generateRerollSeed(variationMeta.baseSeed);
+    const resolvedIsParamRandomizable = isParamRandomizable;
+    const resolvedGetParamConfig = getParamConfig;
 
     // Generate new varied layer
     const variedLayer = generateVariedLayer(baseLayer, {
       seed: newSeed,
       variationWeights: variationMeta.weights,
       affectCategories: variationMeta.affectCategories,
+      isParamRandomizable: resolvedIsParamRandomizable,
+      getParamConfig: resolvedGetParamConfig,
       constrainColorsToPalette: variationMeta.constrainColorsToPalette,
       paletteColors: variationMeta.paletteColors,
     });
@@ -1577,7 +1611,7 @@ export const TimelineProvider = ({ children }) => {
     });
 
     return true;
-  }, [session.tracks, updateKeyframe]);
+  }, [session.tracks, updateKeyframe, getParamConfig, isParamRandomizable]);
 
   // --- Global Shape Track Keyframe Generation ---
 
@@ -1703,6 +1737,8 @@ export const TimelineProvider = ({ children }) => {
     const variationWeights = scaleVariationWeights(baseWeights, temporalScale);
 
     const affectCategories = options.affectCategories || ['shape', 'anim', 'color', 'position', 'scale'];
+    const resolvedIsParamRandomizable = options.isParamRandomizable || isParamRandomizable;
+    const resolvedGetParamConfig = options.getParamConfig || getParamConfig;
 
     // Generate varied version of each layer
     const layersData = baseLayers.map((layer, index) => {
@@ -1713,7 +1749,8 @@ export const TimelineProvider = ({ children }) => {
         seed: layerSeed,
         variationWeights,
         affectCategories,
-        isParamRandomizable: options.isParamRandomizable,
+        isParamRandomizable: resolvedIsParamRandomizable,
+        getParamConfig: resolvedGetParamConfig,
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       });
@@ -1768,14 +1805,14 @@ export const TimelineProvider = ({ children }) => {
         temporalScale,
         affectCategories,
         layerCount: baseLayers.length,
-        isParamRandomizable: options.isParamRandomizable,
+        isParamRandomizable: resolvedIsParamRandomizable,
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       },
     });
 
     return time;
-  }, [session.tracks, addGlobalShapeKeyframe]);
+  }, [session.tracks, addGlobalShapeKeyframe, getParamConfig, isParamRandomizable]);
 
   /**
    * Regenerate (reroll) a global shape keyframe with new random seed
@@ -1794,6 +1831,8 @@ export const TimelineProvider = ({ children }) => {
     if (!variationMeta) return false;
 
     const newSeed = generateRerollSeed(variationMeta.baseSeed);
+    const resolvedIsParamRandomizable = isParamRandomizable;
+    const resolvedGetParamConfig = getParamConfig;
 
     // Generate new varied layers
     const layersData = baseLayers.map((layer, index) => {
@@ -1803,6 +1842,8 @@ export const TimelineProvider = ({ children }) => {
         seed: layerSeed,
         variationWeights: variationMeta.weights,
         affectCategories: variationMeta.affectCategories,
+        isParamRandomizable: resolvedIsParamRandomizable,
+        getParamConfig: resolvedGetParamConfig,
         constrainColorsToPalette: variationMeta.constrainColorsToPalette,
         paletteColors: variationMeta.paletteColors,
       });
@@ -1857,7 +1898,7 @@ export const TimelineProvider = ({ children }) => {
     });
 
     return true;
-  }, [session.tracks, updateKeyframe]);
+  }, [session.tracks, updateKeyframe, getParamConfig, isParamRandomizable]);
 
   /**
    * Generate or update global shape variation keyframes at explicit times.
@@ -1911,6 +1952,8 @@ export const TimelineProvider = ({ children }) => {
 
     const keyframeIds = [];
     const generatedEntries = [];
+    const resolvedIsParamRandomizable = options.isParamRandomizable || isParamRandomizable;
+    const resolvedGetParamConfig = options.getParamConfig || getParamConfig;
 
     for (let i = 0; i < validTimes.length; i++) {
       const time = validTimes[i];
@@ -1927,7 +1970,8 @@ export const TimelineProvider = ({ children }) => {
           seed: layerSeed,
           variationWeights,
           affectCategories,
-          isParamRandomizable: options.isParamRandomizable,
+          isParamRandomizable: resolvedIsParamRandomizable,
+          getParamConfig: resolvedGetParamConfig,
           constrainColorsToPalette: options.constrainColorsToPalette,
           paletteColors: options.paletteColors,
         });
@@ -1977,7 +2021,7 @@ export const TimelineProvider = ({ children }) => {
         temporalScale,
         affectCategories,
         layerCount: baseLayers.length,
-        isParamRandomizable: options.isParamRandomizable,
+        isParamRandomizable: resolvedIsParamRandomizable,
         constrainColorsToPalette: options.constrainColorsToPalette,
         paletteColors: options.paletteColors,
       };
@@ -2013,7 +2057,7 @@ export const TimelineProvider = ({ children }) => {
     }
 
     return keyframeIds;
-  }, [session.tracks, addGlobalShapeKeyframe, setSession]);
+  }, [session.tracks, addGlobalShapeKeyframe, setSession, getParamConfig, isParamRandomizable]);
 
   /**
    * Generate multiple global shape keyframes at random or transient times

@@ -946,6 +946,11 @@ export const useAnimation = (
                     if (!Number.isFinite(parsed)) return 0;
                     return Math.max(0, Math.min(MAX_VARIATION_MULTIPLIER, parsed));
                 };
+                const clampVariationMagnitude = (n) => {
+                    const parsed = Number(n);
+                    if (!Number.isFinite(parsed)) return 0;
+                    return Math.max(0, Math.min(MAX_VARIATION_MULTIPLIER, Math.abs(parsed)));
+                };
 
                 const getT = (param) => {
                     const val = layer[param] ?? layer.variation ?? 0.2;
@@ -955,6 +960,13 @@ export const useAnimation = (
                     if (!eEnabled) return clampVariationMultiplier(sliderT * timelineDampingMultiplier);
                     const energyT = Math.max(0, Math.min(1, energyFactor));
                     return clampVariationMultiplier(sliderT * energyT * timelineDampingMultiplier);
+                };
+                const getScaleT = () => {
+                    const val = layer?.variationScale ?? 0;
+                    const sliderT = clampVariationMagnitude(val);
+                    if (!eEnabled) return clampVariationMagnitude(sliderT * timelineDampingMultiplier);
+                    const energyT = Math.max(0, Math.min(1, energyFactor));
+                    return clampVariationMagnitude(sliderT * energyT * timelineDampingMultiplier);
                 };
 
                 // Runtime Blending Logic
@@ -1011,10 +1023,8 @@ export const useAnimation = (
                     // 2. Position/Scale Blending
                     if (shapeUpdate.position && shapeUpdate.base.position) {
                         const tPos = getT('variationPosition');
-                        const tScale = getT('variationScale'); // Use scale slider if available? Or Position?
-                        // Actually variationScale defaults to 0 usually, but let's use it if distinct
-                        // If variationScale is not set/used, maybe use variationPosition? 
-                        // Base logic used normalizedWeights for keyframe gen.
+                        const hasExplicitScaleVariation = Math.abs(Number(layer?.variationScale) || 0) > 0;
+                        const tScale = hasExplicitScaleVariation ? getScaleT() : tPos;
 
                         const pBase = shapeUpdate.base.position;
                         const pVar = shapeUpdate.position;
@@ -1024,8 +1034,7 @@ export const useAnimation = (
                             ...curPos,
                             x: lerp(pBase.x ?? 0.5, pVar.x ?? 0.5, tPos),
                             y: lerp(pBase.y ?? 0.5, pVar.y ?? 0.5, tPos),
-                            // Use scale slider for scale, fall back to position slider
-                            scale: lerp(pBase.scale ?? 1, pVar.scale ?? 1, tScale > 0 ? tScale : tPos),
+                            scale: lerp(pBase.scale ?? 1, pVar.scale ?? 1, tScale),
                             xOffset: lerp(pBase.xOffset ?? 0, pVar.xOffset ?? 0, tPos),
                             yOffset: lerp(pBase.yOffset ?? 0, pVar.yOffset ?? 0, tPos),
                         };

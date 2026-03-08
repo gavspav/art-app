@@ -25,6 +25,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   colorCountMax = 8,
   constrainColorsToPalette = false,
   paletteColors = null,
+  getParamConfig,
 } = {}) {
   const normalizeSeed = (seedVal) => {
     const n = Math.abs(Number.isFinite(seedVal) ? Math.floor(seedVal) : 0);
@@ -89,6 +90,50 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     return list[Math.floor(random01() * list.length)];
   };
 
+  const readParamConfig = (paramId) => {
+    if (!paramId || typeof getParamConfig !== 'function') return null;
+    try {
+      const config = getParamConfig(paramId);
+      return (config && typeof config === 'object') ? config : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const resolveParamBounds = (paramId, fallbackMin, fallbackMax) => {
+    const config = readParamConfig(paramId);
+    const rawMin = Number.isFinite(Number(config?.randomMin))
+      ? Number(config.randomMin)
+      : (Number.isFinite(Number(config?.min)) ? Number(config.min) : fallbackMin);
+    const rawMax = Number.isFinite(Number(config?.randomMax))
+      ? Number(config.randomMax)
+      : (Number.isFinite(Number(config?.max)) ? Number(config.max) : fallbackMax);
+    if (!Number.isFinite(rawMin) || !Number.isFinite(rawMax)) {
+      return { min: fallbackMin, max: fallbackMax };
+    }
+    return {
+      min: Math.min(rawMin, rawMax),
+      max: Math.max(rawMin, rawMax),
+    };
+  };
+
+  const mixForParam = (paramId, baseVal, fallbackMin, fallbackMax, weight, integer = false) => {
+    const { min, max } = resolveParamBounds(paramId, fallbackMin, fallbackMax);
+    return mixValue(baseVal, min, max, weight, integer);
+  };
+
+  const getRandomOptions = (paramId, fallbackOptions) => {
+    const config = readParamConfig(paramId);
+    const baseOptions = Array.isArray(config?.options) && config.options.length
+      ? config.options.filter(Boolean)
+      : (Array.isArray(fallbackOptions) ? fallbackOptions.filter(Boolean) : []);
+    if (!baseOptions.length) return [];
+    const allowed = Array.isArray(config?.randomOptions) && config.randomOptions.length
+      ? config.randomOptions.filter((opt) => baseOptions.includes(opt))
+      : baseOptions;
+    return allowed.length ? allowed : baseOptions;
+  };
+
   const mixValue = (baseVal, min, max, weight, integer = false) => {
     if (weight <= 0) return baseVal;
     if (mix && mix !== defaultMixRandom) {
@@ -117,7 +162,6 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   const wPosition = clamp((v.position || 0) / 3, 0, 1);
 
   const varyFlags = (prev?.vary || DEFAULT_LAYER.vary || {});
-  const mixPosition = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wPosition, integer);
   const isAllowed = (paramId) => {
     if (!paramId) return true;
     if (typeof isParamRandomizable !== 'function') return true;
@@ -157,74 +201,75 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
   varied.variationAnim = Number(v.anim);
   varied.variationColor = Number(v.color);
   varied.variationPosition = Number(v.position);
+  varied.variationScale = Number(v.scale);
 
   // Shape and appearance (use wShape)
-  const mixShape = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wShape, integer);
+  const mixShape = (paramId, pv, mn, mx, integer = false) => mixForParam(paramId, pv, mn, mx, wShape, integer);
   if (!lockShape && includeShape) {
-    if (varyFlags.numSides && isAllowed('numSides')) varied.numSides = Math.max(3, Math.round(mixShape(prev.numSides ?? 6, 3, 20, true)));
-    if (varyFlags.curviness && isAllowed('curviness')) varied.curviness = Number(mixShape(prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
-    if (varyFlags.wobble && isAllowed('wobble')) varied.wobble = Number(mixShape(prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
-    if (varyFlags.noiseAmount && isAllowed('noiseAmount')) varied.noiseAmount = Number(mixShape(prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
-    if (varyFlags.width && isAllowed('width')) varied.width = Math.max(10, Math.round(mixShape(prev.width ?? 250, 10, 900, true)));
-    if (varyFlags.height && isAllowed('height')) varied.height = Math.max(10, Math.round(mixShape(prev.height ?? 250, 10, 900, true)));
+    if (varyFlags.numSides && isAllowed('numSides')) varied.numSides = Math.max(3, Math.round(mixShape('numSides', prev.numSides ?? 6, 3, 20, true)));
+    if (varyFlags.curviness && isAllowed('curviness')) varied.curviness = Number(mixShape('curviness', prev.curviness ?? 1.0, 0.0, 1.0).toFixed(3));
+    if (varyFlags.wobble && isAllowed('wobble')) varied.wobble = Number(mixShape('wobble', prev.wobble ?? 0.5, 0.0, 1.0).toFixed(3));
+    if (varyFlags.noiseAmount && isAllowed('noiseAmount')) varied.noiseAmount = Number(mixShape('noiseAmount', prev.noiseAmount ?? 0.5, 0, 8).toFixed(2));
+    if (varyFlags.width && isAllowed('width')) varied.width = Math.max(10, Math.round(mixShape('width', prev.width ?? 250, 10, 900, true)));
+    if (varyFlags.height && isAllowed('height')) varied.height = Math.max(10, Math.round(mixShape('height', prev.height ?? 250, 10, 900, true)));
     if (varyFlags.radiusFactor) {
       const baseRF = Number(prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      if (isAllowed('radiusFactor')) varied.radiusFactor = Number(mixShape(baseRF, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactor')) varied.radiusFactor = Number(mixShape('radiusFactor', baseRF, 0.02, 0.9).toFixed(3));
     }
     if (varyFlags.radiusFactorX) {
       const baseRFX = Number(prev.radiusFactorX ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      if (isAllowed('radiusFactorX')) varied.radiusFactorX = Number(mixShape(baseRFX, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactorX')) varied.radiusFactorX = Number(mixShape('radiusFactorX', baseRFX, 0.02, 0.9).toFixed(3));
     }
     if (varyFlags.radiusFactorY) {
       const baseRFY = Number(prev.radiusFactorY ?? prev.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
-      if (isAllowed('radiusFactorY')) varied.radiusFactorY = Number(mixShape(baseRFY, 0.02, 0.9).toFixed(3));
+      if (isAllowed('radiusFactorY')) varied.radiusFactorY = Number(mixShape('radiusFactorY', baseRFY, 0.02, 0.9).toFixed(3));
     }
   }
   // New: X/Y Offset variation (range -0.5..0.5)
   if (includePosition && varyFlags.xOffset && isAllowed('xOffset')) {
     const baseXO = Number(prev.xOffset ?? 0);
-    varied.xOffset = Number(mixPosition(baseXO, -0.5, 0.5).toFixed(3));
+    varied.xOffset = Number(mixForParam('xOffset', baseXO, -0.5, 0.5, wPosition).toFixed(3));
   }
   if (includePosition && varyFlags.yOffset && isAllowed('yOffset')) {
     const baseYO = Number(prev.yOffset ?? 0);
-    varied.yOffset = Number(mixPosition(baseYO, -0.5, 0.5).toFixed(3));
+    varied.yOffset = Number(mixForParam('yOffset', baseYO, -0.5, 0.5, wPosition).toFixed(3));
   }
 
   // Movement (use wAnim)
-  const mixAnim = (pv, mn, mx, integer = false) => mixValue(pv, mn, mx, wAnim, integer);
+  const mixAnim = (paramId, pv, mn, mx, integer = false) => mixForParam(paramId, pv, mn, mx, wAnim, integer);
   if (includeAnim && varyFlags.movementStyle && isAllowed('movementStyle') && wAnim > 0.7 && random01() < wAnim) {
-    const styles = ['bounce', 'drift', 'still', 'orbit', 'spin'];
+    const styles = getRandomOptions('movementStyle', ['bounce', 'drift', 'still', 'orbit', 'spin']);
     const cur = prev.movementStyle ?? DEFAULT_LAYER.movementStyle;
     const others = styles.filter(s => s !== cur);
     varied.movementStyle = chooseRandom(others.length ? others : styles) || cur;
   }
-  if (includeAnim && varyFlags.movementSpeed && isAllowed('movementSpeed')) varied.movementSpeed = Number(mixAnim(prev.movementSpeed ?? 1, 0, 5).toFixed(3));
+  if (includeAnim && varyFlags.movementSpeed && isAllowed('movementSpeed')) varied.movementSpeed = Number(mixAnim('movementSpeed', prev.movementSpeed ?? 1, 0, 5).toFixed(3));
   if (includeAnim && varyFlags.movementAngle && isAllowed('movementAngle')) {
-    const nextA = mixAnim(prev.movementAngle ?? 45, 0, 360, true);
+    const nextA = mixAnim('movementAngle', prev.movementAngle ?? 45, 0, 360, true);
     varied.movementAngle = ((nextA % 360) + 360) % 360;
   }
-  if (includeAnim && varyFlags.noiseScale && isAllowed('noiseScale')) varied.noiseScale = Number(mixAnim(prev.noiseScale ?? 1, 0.1, 3).toFixed(3));
-  if (includeAnim && varyFlags.wobbleSpeed && isAllowed('wobbleSpeed')) varied.wobbleSpeed = Number(mixAnim(prev.wobbleSpeed ?? 1, 0, 2).toFixed(3));
-  if (includeAnim && varyFlags.symmetry && isAllowed('symmetry')) varied.symmetry = Number(mixAnim(prev.symmetry ?? 0.5, 0, 1).toFixed(3));
-  if (includeAnim && varyFlags.freqJitter && isAllowed('freqJitter')) varied.freqJitter = Number(mixAnim(prev.freqJitter ?? 1, 0, 1).toFixed(3));
-  if (includeAnim && varyFlags.scaleSpeed && isAllowed('scaleSpeed')) varied.scaleSpeed = Number(mixAnim(prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
+  if (includeAnim && varyFlags.noiseScale && isAllowed('noiseScale')) varied.noiseScale = Number(mixAnim('noiseScale', prev.noiseScale ?? 1, 0.1, 3).toFixed(3));
+  if (includeAnim && varyFlags.wobbleSpeed && isAllowed('wobbleSpeed')) varied.wobbleSpeed = Number(mixAnim('wobbleSpeed', prev.wobbleSpeed ?? 1, 0, 2).toFixed(3));
+  if (includeAnim && varyFlags.symmetry && isAllowed('symmetry')) varied.symmetry = Number(mixAnim('symmetry', prev.symmetry ?? 0.5, 0, 1).toFixed(3));
+  if (includeAnim && varyFlags.freqJitter && isAllowed('freqJitter')) varied.freqJitter = Number(mixAnim('freqJitter', prev.freqJitter ?? 1, 0, 1).toFixed(3));
+  if (includeAnim && varyFlags.scaleSpeed && isAllowed('scaleSpeed')) varied.scaleSpeed = Number(mixAnim('scaleSpeed', prev.scaleSpeed ?? 0.05, 0, 0.2).toFixed(3));
   let nextScaleMin = prev.scaleMin ?? 0.2;
   let nextScaleMax = prev.scaleMax ?? 1.5;
-  if (includeAnim && varyFlags.scaleMin && isAllowed('scaleMin')) nextScaleMin = mixAnim(prev.scaleMin ?? 0.2, 0.1, 2);
-  if (includeAnim && varyFlags.scaleMax && isAllowed('scaleMax')) nextScaleMax = mixAnim(prev.scaleMax ?? 1.5, 0.5, 3);
+  if (includeAnim && varyFlags.scaleMin && isAllowed('scaleMin')) nextScaleMin = mixAnim('scaleMin', prev.scaleMin ?? 0.2, 0.1, 2);
+  if (includeAnim && varyFlags.scaleMax && isAllowed('scaleMax')) nextScaleMax = mixAnim('scaleMax', prev.scaleMax ?? 1.5, 0.5, 3);
   varied.scaleMin = Math.min(nextScaleMin, nextScaleMax);
   varied.scaleMax = Math.max(nextScaleMin, nextScaleMax);
 
   // Image effects (treat as animation/appearance; use wAnim)
-  if (includeAnim && varyFlags.imageBlur && isAllowed('imageBlur')) varied.imageBlur = Number(mixAnim(prev.imageBlur ?? 0, 0, 20).toFixed(2));
-  if (includeAnim && varyFlags.imageBrightness && isAllowed('imageBrightness')) varied.imageBrightness = Math.round(mixAnim(prev.imageBrightness ?? 100, 0, 200, true));
-  if (includeAnim && varyFlags.imageContrast && isAllowed('imageContrast')) varied.imageContrast = Math.round(mixAnim(prev.imageContrast ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageBlur && isAllowed('imageBlur')) varied.imageBlur = Number(mixAnim('imageBlur', prev.imageBlur ?? 0, 0, 20).toFixed(2));
+  if (includeAnim && varyFlags.imageBrightness && isAllowed('imageBrightness')) varied.imageBrightness = Math.round(mixAnim('imageBrightness', prev.imageBrightness ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageContrast && isAllowed('imageContrast')) varied.imageContrast = Math.round(mixAnim('imageContrast', prev.imageContrast ?? 100, 0, 200, true));
   if (includeAnim && varyFlags.imageHue && isAllowed('imageHue')) {
-    const nextHue = mixAnim(prev.imageHue ?? 0, 0, 360, true);
+    const nextHue = mixAnim('imageHue', prev.imageHue ?? 0, 0, 360, true);
     varied.imageHue = ((nextHue % 360) + 360) % 360;
   }
-  if (includeAnim && varyFlags.imageSaturation && isAllowed('imageSaturation')) varied.imageSaturation = Math.round(mixAnim(prev.imageSaturation ?? 100, 0, 200, true));
-  if (includeAnim && varyFlags.imageDistortion && isAllowed('imageDistortion')) varied.imageDistortion = Number(mixAnim(prev.imageDistortion ?? 0, 0, 50).toFixed(2));
+  if (includeAnim && varyFlags.imageSaturation && isAllowed('imageSaturation')) varied.imageSaturation = Math.round(mixAnim('imageSaturation', prev.imageSaturation ?? 100, 0, 200, true));
+  if (includeAnim && varyFlags.imageDistortion && isAllowed('imageDistortion')) varied.imageDistortion = Number(mixAnim('imageDistortion', prev.imageDistortion ?? 0, 0, 50).toFixed(2));
 
   // Position jitter (use wPosition weight, triggered by includePosition)
   if (includePosition && wPosition > 0 && isAllowed('position')) {
@@ -348,8 +393,15 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
       } else if (wColor >= 0.6) {
         const nextPalette = pickPaletteColors(palettes, random01, prev.colors) || prev.colors;
         const paletteColors = Array.isArray(nextPalette) && nextPalette.length ? [...nextPalette] : [...prev.colors];
+        const paletteCount = Math.max(
+          minCount,
+          Math.min(maxCount, Math.max(1, paletteColors.length || desiredCount)),
+        );
+        const targetCount = (canVaryColors && canVaryCount && randomizeColorsPerLayer)
+          ? paletteCount
+          : desiredCount;
         const next = canVaryColors ? paletteColors : [...prev.colors];
-        const finalColors = fitColors(next, desiredCount);
+        const finalColors = fitColors(next, targetCount);
         varied.colors = finalColors;
         varied.numColors = finalColors.length;
       } else {

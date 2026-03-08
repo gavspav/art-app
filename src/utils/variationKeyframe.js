@@ -18,6 +18,8 @@ const clamp01 = (value) => Math.max(0, Math.min(1, Number(value) || 0));
  * @param {object} options.variationWeights - Override variation weights { shape, anim, color, position, scale }
  * @param {boolean} options.jitterNodes - Whether to jitter node positions (default: true if shape variation > 0)
  * @param {string[]} options.affectCategories - Which categories to vary: ['shape', 'anim', 'color', 'position', 'scale']
+ * @param {Function} options.isParamRandomizable - Current parameter randomize gating callback
+ * @param {Function} options.getParamConfig - Current parameter metadata lookup callback
  * @returns {object} Varied layer with variation metadata
  */
 export function generateVariedLayer(baseLayer, options = {}) {
@@ -26,6 +28,7 @@ export function generateVariedLayer(baseLayer, options = {}) {
     variationWeights,
     affectCategories = ['shape', 'anim', 'color', 'position'],
     isParamRandomizable,
+    getParamConfig,
     constrainColorsToPalette = false,
     paletteColors = null,
   } = options;
@@ -49,6 +52,7 @@ export function generateVariedLayer(baseLayer, options = {}) {
       affectCategories,
       preserveSeeds: false,
       isParamRandomizable,
+      getParamConfig,
       constrainColorsToPalette: !!constrainColorsToPalette,
       paletteColors,
     }

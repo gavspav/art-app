@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useAudioReactive } from '../context/AudioContext.jsx';
+import { useParameters } from '../context/ParameterContext.jsx';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
 import { clamp } from '../utils/mathUtils.js';
 import { hslToHex } from '../utils/colorUtils.js';
@@ -290,7 +291,30 @@ export function useAudioSpawnLayers({
   milkdropInfluence = DEFAULTS.milkdropInfluence,
 } = {}) {
   const audio = useAudioReactive();
+  const { parameters } = useParameters() || {};
   const overlayLayersRef = useRef([]);
+  const randomizableParamMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, !!param.isRandomizable);
+    });
+    return map;
+  }, [parameters]);
+  const parameterConfigMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, param);
+    });
+    return map;
+  }, [parameters]);
+  const isParamRandomizable = useCallback((id) => {
+    if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
+    return undefined;
+  }, [randomizableParamMap]);
+  const getParamConfig = useCallback((id) => {
+    if (parameterConfigMap.has(id)) return parameterConfigMap.get(id);
+    return null;
+  }, [parameterConfigMap]);
 
   const configRef = useRef({});
   configRef.current = {
@@ -319,6 +343,8 @@ export function useAudioSpawnLayers({
     directionMode: directionMode === 'spread' ? 'spread' : 'template',
     directionSpreadDeg: clamp(Number(directionSpreadDeg) || 0, 0, 180),
     milkdropInfluence: clamp(Number(milkdropInfluence) || 0, 0, 100),
+    isParamRandomizable,
+    getParamConfig,
   };
 
   const rafRef = useRef(null);
@@ -611,7 +637,7 @@ export function useAudioSpawnLayers({
               anim: includeVarAnim ? clamp((Number(base?.variationAnim ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
               color: includeVarColor ? clamp((Number(base?.variationColor ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
               position: includeVarPosition ? clamp((Number(base?.variationPosition ?? base?.variation) || 0) * varianceScale, 0, 3) : 0,
-              scale: includeVarScale ? clamp((Number(base?.variationScale) || 0) * varianceScale, 0, 3) : 0,
+              scale: includeVarScale ? clamp((Number(base?.variationScale) || 0) * varianceScale, -3, 3) : 0,
             };
 
             const hl = cfg.halfLifeMs * (1 + cfg.halfLifeEnergyFactor * energy);
@@ -619,6 +645,8 @@ export function useAudioSpawnLayers({
             const varied = buildVariedLayerFrom(base, spawnIndex, baseVar, {
               randomSeed: (Number.isFinite(base?.seed) ? base.seed : 1) + Math.floor(t) + (spawnIndex * 1013),
               affectCategories,
+              isParamRandomizable: cfg.isParamRandomizable,
+              getParamConfig: cfg.getParamConfig,
               constrainColorsToPalette: !!cfg.useGlobalPalette,
               paletteColors: cfg.paletteColors,
             });

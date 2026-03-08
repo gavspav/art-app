@@ -779,6 +779,7 @@ const GlobalControls = ({
           anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
           color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
           position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
+          scale: (typeof prev?.[0]?.variationScale === 'number') ? prev[0].variationScale : (DEFAULT_LAYER.variationScale ?? 0),
         };
         const additions = [];
         let prevLayerRef = prev[prev.length - 1] || DEFAULT_LAYER;

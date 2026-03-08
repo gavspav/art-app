@@ -56,6 +56,8 @@ export function useLayerManagement({
       shape: (typeof snapshot?.[0]?.variationShape === 'number') ? snapshot[0].variationShape : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationShape),
       anim: (typeof snapshot?.[0]?.variationAnim === 'number') ? snapshot[0].variationAnim : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationAnim),
       color: (typeof snapshot?.[0]?.variationColor === 'number') ? snapshot[0].variationColor : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationColor),
+      position: (typeof snapshot?.[0]?.variationPosition === 'number') ? snapshot[0].variationPosition : (typeof snapshot?.[0]?.variation === 'number' ? snapshot[0].variation : DEFAULT_LAYER.variationPosition),
+      scale: (typeof snapshot?.[0]?.variationScale === 'number') ? snapshot[0].variationScale : (DEFAULT_LAYER.variationScale ?? 0),
     };
     const prev = snapshot[snapshot.length - 1] || DEFAULT_LAYER;
     const nextLayer = buildVariedLayerFrom(prev, snapshot.length + 1, baseVar);

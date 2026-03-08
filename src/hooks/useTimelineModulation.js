@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTimeline } from '../context/TimelineContext.jsx';
 import { useAppState } from '../context/AppStateContext.jsx';
+import { useParameters } from '../context/ParameterContext.jsx';
 import { evaluateTrackAtTime, evaluateShapeTrackAtTime, evaluateColorTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
 import { getEnergyAtTime } from '../utils/audioTransients.js';
 import { buildVariedLayerFrom } from '../utils/layerVariation.js';
@@ -156,7 +157,30 @@ export function useTimelineModulation({
 }) {
   const timeline = useTimeline();
   const appState = useAppState() || {};
+  const { parameters } = useParameters() || {};
   const { isNodeEditMode, nodeEditContext, timelineMode } = appState;
+  const randomizableParamMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, !!param.isRandomizable);
+    });
+    return map;
+  }, [parameters]);
+  const parameterConfigMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((param) => {
+      if (param?.id) map.set(param.id, param);
+    });
+    return map;
+  }, [parameters]);
+  const isParamRandomizable = useCallback((id) => {
+    if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
+    return undefined;
+  }, [randomizableParamMap]);
+  const getParamConfig = useCallback((id) => {
+    if (parameterConfigMap.has(id)) return parameterConfigMap.get(id);
+    return null;
+  }, [parameterConfigMap]);
 
   // Energy data refs for runtime blending (read in RAF loop)
   // energyMap is now { total: [], low: [], mid: [], high: [] }
@@ -592,7 +616,10 @@ export function useTimelineModulation({
                       position: template.variationPosition ?? 0.2,
                       scale: template.variationScale ?? 0.2,
                     };
-                    const varied = buildVariedLayerFrom(template, layerIndex + 1, baseVar);
+                    const varied = buildVariedLayerFrom(template, layerIndex + 1, baseVar, {
+                      isParamRandomizable,
+                      getParamConfig,
+                    });
                     const newLayer = varied ? {
                       ...varied,
                       id: `layer-timeline-${Date.now()}-${layerIndex + 1}-${Math.random().toString(36).slice(2, 8)}`,
@@ -841,6 +868,8 @@ export function useTimelineModulation({
                   const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
                     affectCategories,
                     preserveSeeds: true,
+                    isParamRandomizable,
+                    getParamConfig,
                   }) || original;
 
                   const merged = {
@@ -1150,6 +1179,8 @@ export function useTimelineModulation({
     }
   }, [
     blendModes,
+    getParamConfig,
+    isParamRandomizable,
     palettes,
     sampleColorsEven,
     setBackgroundColor,

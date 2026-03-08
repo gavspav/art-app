@@ -1082,10 +1082,21 @@ const MainApp = () => {
     });
     return map;
   }, [parameters]);
+  const parameterConfigMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(parameters) ? parameters : []).forEach((p) => {
+      if (p && p.id) map.set(p.id, p);
+    });
+    return map;
+  }, [parameters]);
   const isParamRandomizable = useCallback((id) => {
     if (randomizableParamMap.has(id)) return randomizableParamMap.get(id);
     return undefined;
   }, [randomizableParamMap]);
+  const getParamConfig = useCallback((id) => {
+    if (parameterConfigMap.has(id)) return parameterConfigMap.get(id);
+    return null;
+  }, [parameterConfigMap]);
 
   // Build a new layer by varying from a previous layer using split variation weights
   const buildVariedLayerFrom = useCallback(
@@ -1093,11 +1104,12 @@ const MainApp = () => {
       DEFAULT_LAYER,
       palettes: palettesWithCustom,
       isParamRandomizable,
+      getParamConfig,
       randomizeColorsPerLayer,
       uniformColorCount,
       ...options,
     }),
-    [palettesWithCustom, isParamRandomizable, randomizeColorsPerLayer, uniformColorCount],
+    [getParamConfig, isParamRandomizable, palettesWithCustom, randomizeColorsPerLayer, uniformColorCount],
   );
 
   const handleImportFile = useCallback(async (e) => {
