@@ -885,6 +885,7 @@ export const useAnimation = (
             const baseLayerForMod = (layer?.id && baseLayerByIdForFrame.get(layer.id))
                 || baseLayersForFrame[_idx]
                 || layer;
+            const variationSourceLayer = baseLayerForMod || layer;
             // Check if this layer has shape track updates
             // Shape tracks target by layer name (e.g., "Layer 1"), so check both name and id
             const shapeUpdate = shapeUpdatesMap.get(layer?.name) || shapeUpdatesMap.get(layer?.id);
@@ -953,7 +954,11 @@ export const useAnimation = (
                 };
 
                 const getT = (param) => {
-                    const val = layer[param] ?? layer.variation ?? 0.2;
+                    const val = variationSourceLayer?.[param]
+                        ?? layer?.[param]
+                        ?? variationSourceLayer?.variation
+                        ?? layer?.variation
+                        ?? 0.2;
                     const sliderT = clampVariationMultiplier(val);
                     // With energy: slider controls max multiplier, energy drives how much of that multiplier shows.
                     // Without energy: slider value is the blend multiplier directly.
@@ -962,7 +967,7 @@ export const useAnimation = (
                     return clampVariationMultiplier(sliderT * energyT * timelineDampingMultiplier);
                 };
                 const getScaleT = () => {
-                    const val = layer?.variationScale ?? 0;
+                    const val = variationSourceLayer?.variationScale ?? layer?.variationScale ?? 0;
                     const sliderT = clampVariationMagnitude(val);
                     if (!eEnabled) return clampVariationMagnitude(sliderT * timelineDampingMultiplier);
                     const energyT = Math.max(0, Math.min(1, energyFactor));
@@ -1023,7 +1028,7 @@ export const useAnimation = (
                     // 2. Position/Scale Blending
                     if (shapeUpdate.position && shapeUpdate.base.position) {
                         const tPos = getT('variationPosition');
-                        const hasExplicitScaleVariation = Math.abs(Number(layer?.variationScale) || 0) > 0;
+                        const hasExplicitScaleVariation = Math.abs(Number(variationSourceLayer?.variationScale ?? layer?.variationScale) || 0) > 0;
                         const tScale = hasExplicitScaleVariation ? getScaleT() : tPos;
 
                         const pBase = shapeUpdate.base.position;

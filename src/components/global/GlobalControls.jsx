@@ -828,9 +828,8 @@ const GlobalControls = ({
       if (!Array.isArray(prev) || !prev.length) return prev;
 
       let anyChange = false;
-      const updated = prev.map((layer, idx) => {
-        const shouldApply = applyVariationInstantly || idx === 0;
-        const nextValue = shouldApply ? rawValue : layer?.[prop];
+      const updated = prev.map((layer) => {
+        const nextValue = rawValue;
         if (layer?.[prop] === nextValue) return layer;
         anyChange = true;
         return { ...layer, [prop]: nextValue };
