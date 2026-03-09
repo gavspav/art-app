@@ -142,10 +142,11 @@ const TimelinePanel = ({
   const [useNodeMod, setUseNodeMod] = useState(false);
   const [nodeModAmount, setNodeModAmount] = useState(0.15);
   const [nodeModCycles, setNodeModCycles] = useState(1);
-  const [marqueeMode, setMarqueeMode] = useState(false);
   const [selectedKeyframes, setSelectedKeyframes] = useState([]);
   const [cursorTimeSeconds, setCursorTimeSeconds] = useState(null);
   const [marqueeDrag, setMarqueeDrag] = useState(null);
+  const [marqueeInteractionActive, setMarqueeInteractionActive] = useState(false);
+  const marqueeReleaseTimerRef = useRef(null);
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
@@ -542,6 +543,13 @@ const TimelinePanel = ({
     const handleMouseUp = (event) => {
       updateCursorTimeFromPointer(event.clientX);
       setMarqueeDrag(null);
+      if (marqueeReleaseTimerRef.current) {
+        clearTimeout(marqueeReleaseTimerRef.current);
+      }
+      marqueeReleaseTimerRef.current = window.setTimeout(() => {
+        setMarqueeInteractionActive(false);
+        marqueeReleaseTimerRef.current = null;
+      }, 0);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -551,6 +559,13 @@ const TimelinePanel = ({
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [marqueeDrag, updateCursorTimeFromPointer]);
+
+  useEffect(() => () => {
+    if (marqueeReleaseTimerRef.current) {
+      clearTimeout(marqueeReleaseTimerRef.current);
+      marqueeReleaseTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!marqueeRect) return;
@@ -588,7 +603,8 @@ const TimelinePanel = ({
   }, [updateCursorTimeFromPointer]);
 
   const handleTracksMouseDownCapture = useCallback((e) => {
-    if (!marqueeMode || e.button !== 0) return;
+    const wantsMarquee = e.metaKey || e.ctrlKey;
+    if (!wantsMarquee || e.button !== 0) return;
     const target = e.target;
     if (!(target instanceof Element)) return;
     if (target.closest('button, input, select, textarea, summary, label')) return;
@@ -601,6 +617,11 @@ const TimelinePanel = ({
     e.preventDefault();
     e.stopPropagation();
     updateCursorTimeFromPointer(e.clientX);
+    if (marqueeReleaseTimerRef.current) {
+      clearTimeout(marqueeReleaseTimerRef.current);
+      marqueeReleaseTimerRef.current = null;
+    }
+    setMarqueeInteractionActive(true);
     setSelectedKeyframes([]);
     setMarqueeDrag({
       startX: e.clientX,
@@ -608,7 +629,7 @@ const TimelinePanel = ({
       currentX: e.clientX,
       currentY: e.clientY,
     });
-  }, [marqueeMode, updateCursorTimeFromPointer]);
+  }, [updateCursorTimeFromPointer]);
 
   // Timeline transport should behave like a true playback freeze when paused.
   const handlePlay = useCallback(() => {
@@ -968,7 +989,7 @@ const TimelinePanel = ({
         return;
       }
 
-      const shouldHandleMarqueePaste = clipboardIsMultiSelection || selectedKeyframes.length > 0 || marqueeMode;
+      const shouldHandleMarqueePaste = clipboardIsMultiSelection || selectedKeyframes.length > 0;
       if (modKey && key === 'v' && shouldHandleMarqueePaste && keyframeClipboard && typeof pasteKeyframe === 'function') {
         event.preventDefault();
         pasteKeyframe(null, pasteCursorTime);
@@ -978,6 +999,7 @@ const TimelinePanel = ({
       if (key === 'escape') {
         setSelectedKeyframes([]);
         setMarqueeDrag(null);
+        setMarqueeInteractionActive(false);
       }
     };
 
@@ -989,7 +1011,6 @@ const TimelinePanel = ({
     copyKeyframes,
     clipboardIsMultiSelection,
     keyframeClipboard,
-    marqueeMode,
     pasteKeyframe,
     pasteCursorTime,
   ]);
@@ -1286,30 +1307,6 @@ const TimelinePanel = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button
                       type="button"
-                      onClick={() => setMarqueeMode((prev) => !prev)}
-                      aria-pressed={marqueeMode}
-                      aria-label={marqueeMode ? 'Disable marquee selection' : 'Enable marquee selection'}
-                      title="Marquee select keyframes, then use Ctrl/Cmd+C and Ctrl/Cmd+V"
-                      style={{
-                        minWidth: 34,
-                        height: 22,
-                        borderRadius: 11,
-                        border: marqueeMode
-                          ? '2px solid #ffd54f'
-                          : '1px solid rgba(255, 255, 255, 0.25)',
-                        background: marqueeMode
-                          ? 'rgba(255, 213, 79, 0.18)'
-                          : 'transparent',
-                        color: marqueeMode ? '#ffe082' : 'rgba(255, 255, 255, 0.72)',
-                        fontSize: '0.62rem',
-                        padding: '0 8px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Sel
-                    </button>
-                    <button
-                      type="button"
                       onClick={isRecording ? onStopRecording : onStartRecording}
                       aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                       title={isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -1371,7 +1368,7 @@ const TimelinePanel = ({
                 <div style={{ fontSize: '0.6rem', color: selectedKeyframes.length ? '#ffe082' : 'rgba(255,255,255,0.45)' }}>
                   {selectedKeyframes.length
                     ? `${selectedKeyframes.length} selected · paste @ ${pasteCursorTime.toFixed(2)}s`
-                    : (marqueeMode ? 'Marquee drag in track area' : 'Playhead and keyframe tools')}
+                    : 'Ctrl/Cmd+drag to marquee select'}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
@@ -1745,7 +1742,7 @@ const TimelinePanel = ({
                 clipboardSourceTargetId={clipboardSourceTargetId}
                 allShapeTracks={allShapeTracks}
                 onSeek={seekTo}
-                marqueeMode={marqueeMode}
+                marqueeMode={marqueeInteractionActive}
                 selectedKeyframeIds={selectedKeyframesByTrack.get(track.id) || new Set()}
                 pasteTimeSeconds={pasteCursorTime}
               />

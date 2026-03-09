@@ -911,9 +911,10 @@ export const useAnimation = (
                     layer?.name === editContext.layerName
                 );
 
-                // During playback, apply geometry unless user is actively editing THIS layer
-                // (indicated by nodeEditMode being active for this specific layer)
-                const shouldBlockGeometry = nodeEditActive && isEditedLayer;
+                // While the timeline is actively playing, it remains authoritative even in node edit mode.
+                // We only protect the edited layer's geometry when playback is paused/scrubbed.
+                const timelinePlaying = !!timelineContextRef.current?.isPlaying;
+                const shouldBlockGeometry = !timelinePlaying && nodeEditActive && isEditedLayer;
 
                 // Helper for runtime blending
                 const lerp = (a, b, t) => a + (b - a) * t;
