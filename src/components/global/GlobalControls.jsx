@@ -89,10 +89,6 @@ const GlobalControls = ({
   setAudioSpawnDirectionMode,
   audioSpawnDirectionSpread,
   setAudioSpawnDirectionSpread,
-  milkdropInfluence,
-  setMilkdropInfluence,
-  milkdropFeedbackEnabled,
-  setMilkdropFeedbackEnabled,
   zIgnore,
   setZIgnore,
   classicMode,
@@ -1815,10 +1811,6 @@ const GlobalControls = ({
               setAudioSpawnDirectionSpread={setAudioSpawnDirectionSpread}
               audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
               setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-              milkdropInfluence={milkdropInfluence}
-              setMilkdropInfluence={setMilkdropInfluence}
-              milkdropFeedbackEnabled={milkdropFeedbackEnabled}
-              setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
             />
             <AudioSpawnSection
               isActiveTab={isActiveTab}
@@ -1857,10 +1849,6 @@ const GlobalControls = ({
               setAudioSpawnDirectionSpread={setAudioSpawnDirectionSpread}
               audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
               setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-              milkdropInfluence={milkdropInfluence}
-              setMilkdropInfluence={setMilkdropInfluence}
-              milkdropFeedbackEnabled={milkdropFeedbackEnabled}
-              setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
             />
             <BPMSection />
           </div>
@@ -1990,8 +1978,6 @@ const areGlobalPropsEqual = (prev, next) => {
   if (prev.audioSpawnForceContourMode !== next.audioSpawnForceContourMode) return diff('audioSpawnForceContourMode');
   if (prev.audioSpawnDirectionMode !== next.audioSpawnDirectionMode) return diff('audioSpawnDirectionMode');
   if (!Object.is(prev.audioSpawnDirectionSpread, next.audioSpawnDirectionSpread)) return diff('audioSpawnDirectionSpread');
-  if (!Object.is(prev.milkdropInfluence, next.milkdropInfluence)) return diff('milkdropInfluence');
-  if (prev.milkdropFeedbackEnabled !== next.milkdropFeedbackEnabled) return diff('milkdropFeedbackEnabled');
   if (prev.parameterTargetMode !== next.parameterTargetMode) return diff('parameterTargetMode');
   if (!areLayersEqualForUI(prev.layers, next.layers)) return diff('layers changed');
 

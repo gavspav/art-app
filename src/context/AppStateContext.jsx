@@ -101,8 +101,6 @@ export const AppStateProvider = ({ children }) => {
     audioSpawnForceContourMode: false,
     audioSpawnDirectionMode: 'template',
     audioSpawnDirectionSpread: 0,
-    milkdropInfluence: 0,
-    milkdropFeedbackEnabled: true,
     backgroundColor: DEFAULTS.backgroundColor,
     backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
     globalBlendMode: DEFAULTS.globalBlendMode,
@@ -426,23 +424,6 @@ export const AppStateProvider = ({ children }) => {
       ? Math.max(0, Math.min(180, Number(raw)))
       : appStateRef.current.audioSpawnDirectionSpread;
     setAppState(prev => ({ ...prev, audioSpawnDirectionSpread: next }));
-    markDirty();
-  }, [markDirty]);
-
-  const setMilkdropInfluence = useCallback((value) => {
-    const raw = (typeof value === 'function') ? value(appStateRef.current.milkdropInfluence) : value;
-    const next = Number.isFinite(Number(raw)) ? Math.max(0, Math.min(100, Number(raw))) : appStateRef.current.milkdropInfluence;
-    setAppState(prev => ({ ...prev, milkdropInfluence: next }));
-    markDirty();
-  }, [markDirty]);
-
-  const setMilkdropFeedbackEnabled = useCallback((value) => {
-    setAppState(prev => ({
-      ...prev,
-      milkdropFeedbackEnabled: (typeof value === 'function')
-        ? !!value(prev.milkdropFeedbackEnabled)
-        : !!value,
-    }));
     markDirty();
   }, [markDirty]);
 
@@ -837,14 +818,6 @@ export const AppStateProvider = ({ children }) => {
           audioSpawnPresetActive: typeof newState.audioSpawnPresetActive === 'boolean'
             ? newState.audioSpawnPresetActive
             : false,
-          milkdropInfluence: Number.isFinite(Number(newState.milkdropInfluence))
-            ? Math.max(0, Math.min(100, Number(newState.milkdropInfluence)))
-            : (Number.isFinite(Number(prevState.milkdropInfluence))
-              ? Math.max(0, Math.min(100, Number(prevState.milkdropInfluence)))
-              : 0),
-          milkdropFeedbackEnabled: typeof newState.milkdropFeedbackEnabled === 'boolean'
-            ? newState.milkdropFeedbackEnabled
-            : (typeof prevState.milkdropFeedbackEnabled === 'boolean' ? prevState.milkdropFeedbackEnabled : true),
           globalPaletteIndex: normalizedPaletteIndex,
           globalPaletteRef: normalizedPaletteRef,
           syncLayerColorsToFirst: typeof newState.syncLayerColorsToFirst === 'boolean'
@@ -963,8 +936,6 @@ export const AppStateProvider = ({ children }) => {
       audioSpawnForceContourMode: false,
       audioSpawnDirectionMode: 'template',
       audioSpawnDirectionSpread: 0,
-      milkdropInfluence: 0,
-      milkdropFeedbackEnabled: true,
       backgroundColor: DEFAULTS.backgroundColor,
       backgroundImage: { src: null, opacity: 1, fit: 'cover', enabled: false },
       globalSeed: generateSeed(),
@@ -1038,8 +1009,6 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnHalfLifeMs,
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
-    setMilkdropInfluence,
-    setMilkdropFeedbackEnabled,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,
@@ -1134,8 +1103,6 @@ export const AppStateProvider = ({ children }) => {
     setAudioSpawnHalfLifeMs,
     setAudioSpawnHalfLifeEnergyFactor,
     setAudioSpawnMaxLayers,
-    setMilkdropInfluence,
-    setMilkdropFeedbackEnabled,
     setBackgroundColor,
     setBackgroundImage,
     setGlobalBlendMode,

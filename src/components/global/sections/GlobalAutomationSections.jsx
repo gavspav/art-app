@@ -1031,65 +1031,12 @@ const AUDIO_DEMO_PRESETS = [
 ];
 
 const DEFAULT_DEMO_PRESET_ID = AUDIO_DEMO_PRESETS?.[0]?.id || '';
-const AUDIO_PRESET_SLOTS_KEY = 'artapp-audio-preset-slots-v1';
-const AUDIO_PRESET_SLOT_COUNT = 10;
-const AUDIO_PRESET_VERSION = '1.0';
 const AUDIO_DEMO_UI_STATE_KEY = 'artapp-audio-demo-ui-v2';
 const DEMO_PRESET_KIND_MOD = 'mod';
 const DEMO_PRESET_KIND_SPAWN = 'spawn';
 const DEFAULT_COMBINED_PRESET_KEY = DEFAULT_DEMO_PRESET_ID
   ? `${DEMO_PRESET_KIND_SPAWN}:${DEFAULT_DEMO_PRESET_ID}`
   : `${DEMO_PRESET_KIND_MOD}:${DEFAULT_MOD_PRESET_ID || ''}`;
-
-const buildDefaultAudioPresetSlots = () => (
-  Array.from({ length: AUDIO_PRESET_SLOT_COUNT }, (_, index) => ({
-    id: index + 1,
-    name: `A${index + 1}`,
-    savedAt: null,
-    payload: null,
-    version: AUDIO_PRESET_VERSION,
-  }))
-);
-
-const normalizeAudioPresetSlot = (rawSlot, index) => {
-  const fallback = {
-    id: index + 1,
-    name: `A${index + 1}`,
-    savedAt: null,
-    payload: null,
-    version: AUDIO_PRESET_VERSION,
-  };
-  if (!rawSlot || typeof rawSlot !== 'object') return fallback;
-  const payload = (rawSlot.payload && typeof rawSlot.payload === 'object') ? rawSlot.payload : null;
-  const maybeSavedAt = (
-    typeof rawSlot.savedAt === 'string' && rawSlot.savedAt.length > 0
-      ? rawSlot.savedAt
-      : (typeof payload?.savedAt === 'string' ? payload.savedAt : null)
-  );
-  return {
-    id: fallback.id,
-    name: (typeof rawSlot.name === 'string' && rawSlot.name.trim().length > 0)
-      ? rawSlot.name.trim().slice(0, 18)
-      : fallback.name,
-    savedAt: payload ? maybeSavedAt : null,
-    payload,
-    version: typeof rawSlot.version === 'string' ? rawSlot.version : AUDIO_PRESET_VERSION,
-  };
-};
-
-const loadAudioPresetSlots = () => {
-  const defaults = buildDefaultAudioPresetSlots();
-  if (typeof window === 'undefined' || !window.localStorage) return defaults;
-  try {
-    const raw = window.localStorage.getItem(AUDIO_PRESET_SLOTS_KEY);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return defaults;
-    return defaults.map((slot, index) => normalizeAudioPresetSlot(parsed[index] || slot, index));
-  } catch {
-    return defaults;
-  }
-};
 
 const loadAudioDemoUiState = () => {
   const defaults = {
@@ -1351,7 +1298,7 @@ const AudioDemoPresetsSection = ({
   isActiveTab = true,
   timelineMode = false,
   layers = [],
-  parameterTargetMode = 'individual',
+  parameterTargetMode: _parameterTargetMode = 'individual',
   setParameterTargetMode = null,
   setLayers = null,
   DEFAULT_LAYER = null,
@@ -1360,46 +1307,42 @@ const AudioDemoPresetsSection = ({
   setGlobalBlendMode = null,
   setGlobalPaletteIndex = null,
   setGlobalPaletteRef = null,
-  energyInfluence = 0.5,
+  energyInfluence: _energyInfluence = 0.5,
   setEnergyInfluence = null,
-  audioSpawnEnabled = false,
-  audioSpawnPresetActive = false,
+  audioSpawnEnabled: _audioSpawnEnabled = false,
+  audioSpawnPresetActive: _audioSpawnPresetActive = false,
   setAudioSpawnEnabled = null,
   setAudioSpawnPresetActive = null,
-  audioSpawnTriggerMode = 'level',
+  audioSpawnTriggerMode: _audioSpawnTriggerMode = 'level',
   setAudioSpawnTriggerMode = null,
-  audioSpawnRepeatWhileAbove = true,
+  audioSpawnRepeatWhileAbove: _audioSpawnRepeatWhileAbove = true,
   setAudioSpawnRepeatWhileAbove = null,
-  audioSpawnHysteresis = 0.08,
+  audioSpawnHysteresis: _audioSpawnHysteresis = 0.08,
   setAudioSpawnHysteresis = null,
-  audioSpawnBand = 'rms',
+  audioSpawnBand: _audioSpawnBand = 'rms',
   setAudioSpawnBand = null,
-  audioSpawnThreshold = 0.6,
+  audioSpawnThreshold: _audioSpawnThreshold = 0.6,
   setAudioSpawnThreshold = null,
-  audioSpawnCooldownMs = 250,
+  audioSpawnCooldownMs: _audioSpawnCooldownMs = 250,
   setAudioSpawnCooldownMs = null,
-  audioSpawnHalfLifeMs = 1500,
+  audioSpawnHalfLifeMs: _audioSpawnHalfLifeMs = 1500,
   setAudioSpawnHalfLifeMs = null,
-  audioSpawnHalfLifeEnergyFactor = 1.0,
+  audioSpawnHalfLifeEnergyFactor: _audioSpawnHalfLifeEnergyFactor = 1.0,
   setAudioSpawnHalfLifeEnergyFactor = null,
-  audioSpawnMaxLayers = 12,
+  audioSpawnMaxLayers: _audioSpawnMaxLayers = 12,
   setAudioSpawnMaxLayers = null,
-  audioSpawnMicReactive = false,
+  audioSpawnMicReactive: _audioSpawnMicReactive = false,
   setAudioSpawnMicReactive = null,
-  audioSpawnMicReactiveAmount = 100,
+  audioSpawnMicReactiveAmount: _audioSpawnMicReactiveAmount = 100,
   setAudioSpawnMicReactiveAmount = null,
-  audioSpawnForceContourMode = false,
+  audioSpawnForceContourMode: _audioSpawnForceContourMode = false,
   setAudioSpawnForceContourMode = null,
-  audioSpawnDirectionMode = 'template',
+  audioSpawnDirectionMode: _audioSpawnDirectionMode = 'template',
   setAudioSpawnDirectionMode = null,
-  audioSpawnDirectionSpread = 0,
+  audioSpawnDirectionSpread: _audioSpawnDirectionSpread = 0,
   setAudioSpawnDirectionSpread = null,
-  audioSpawnUseGlobalPalette = false,
+  audioSpawnUseGlobalPalette: _audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
-  milkdropInfluence = 0,
-  setMilkdropInfluence = null,
-  milkdropFeedbackEnabled = true,
-  setMilkdropFeedbackEnabled = null,
 } = {}) => {
   const audio = useAudioReactive();
   const initialUiState = useMemo(() => loadAudioDemoUiState(), []);
@@ -1825,476 +1768,9 @@ const AudioDemoPresetsSection = ({
             layers={layers}
           />
 
-          <AudioPresetSlotsSection
-            timelineMode={timelineMode}
-            parameterTargetMode={parameterTargetMode}
-            setParameterTargetMode={setParameterTargetMode}
-            energyInfluence={energyInfluence}
-            setEnergyInfluence={setEnergyInfluence}
-            audioSpawnEnabled={audioSpawnEnabled}
-            audioSpawnPresetActive={audioSpawnPresetActive}
-            setAudioSpawnEnabled={setAudioSpawnEnabled}
-            setAudioSpawnPresetActive={setAudioSpawnPresetActive}
-            audioSpawnTriggerMode={audioSpawnTriggerMode}
-            setAudioSpawnTriggerMode={setAudioSpawnTriggerMode}
-            audioSpawnRepeatWhileAbove={audioSpawnRepeatWhileAbove}
-            setAudioSpawnRepeatWhileAbove={setAudioSpawnRepeatWhileAbove}
-            audioSpawnHysteresis={audioSpawnHysteresis}
-            setAudioSpawnHysteresis={setAudioSpawnHysteresis}
-            audioSpawnUseGlobalPalette={audioSpawnUseGlobalPalette}
-            setAudioSpawnUseGlobalPalette={setAudioSpawnUseGlobalPalette}
-            audioSpawnBand={audioSpawnBand}
-            setAudioSpawnBand={setAudioSpawnBand}
-            audioSpawnThreshold={audioSpawnThreshold}
-            setAudioSpawnThreshold={setAudioSpawnThreshold}
-            audioSpawnCooldownMs={audioSpawnCooldownMs}
-            setAudioSpawnCooldownMs={setAudioSpawnCooldownMs}
-            audioSpawnHalfLifeMs={audioSpawnHalfLifeMs}
-            setAudioSpawnHalfLifeMs={setAudioSpawnHalfLifeMs}
-            audioSpawnHalfLifeEnergyFactor={audioSpawnHalfLifeEnergyFactor}
-            setAudioSpawnHalfLifeEnergyFactor={setAudioSpawnHalfLifeEnergyFactor}
-            audioSpawnMaxLayers={audioSpawnMaxLayers}
-            setAudioSpawnMaxLayers={setAudioSpawnMaxLayers}
-            audioSpawnMicReactive={audioSpawnMicReactive}
-            setAudioSpawnMicReactive={setAudioSpawnMicReactive}
-            audioSpawnMicReactiveAmount={audioSpawnMicReactiveAmount}
-            setAudioSpawnMicReactiveAmount={setAudioSpawnMicReactiveAmount}
-            audioSpawnForceContourMode={audioSpawnForceContourMode}
-            setAudioSpawnForceContourMode={setAudioSpawnForceContourMode}
-            audioSpawnDirectionMode={audioSpawnDirectionMode}
-            setAudioSpawnDirectionMode={setAudioSpawnDirectionMode}
-            audioSpawnDirectionSpread={audioSpawnDirectionSpread}
-            setAudioSpawnDirectionSpread={setAudioSpawnDirectionSpread}
-            milkdropInfluence={milkdropInfluence}
-            setMilkdropInfluence={setMilkdropInfluence}
-            milkdropFeedbackEnabled={milkdropFeedbackEnabled}
-            setMilkdropFeedbackEnabled={setMilkdropFeedbackEnabled}
-          />
-
           {timelineMode && (
             <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.65 }}>
               Timeline mode mutes live Audio + BPM automation; preset values are still saved and will run after leaving Timeline mode.
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-};
-
-const AudioPresetSlotsSection = ({
-  timelineMode = false,
-  parameterTargetMode = 'individual',
-  setParameterTargetMode = null,
-  energyInfluence = 0.5,
-  setEnergyInfluence = null,
-  audioSpawnEnabled = false,
-  audioSpawnPresetActive = false,
-  setAudioSpawnEnabled = null,
-  setAudioSpawnPresetActive = null,
-  audioSpawnTriggerMode = 'level',
-  setAudioSpawnTriggerMode = null,
-  audioSpawnRepeatWhileAbove = true,
-  setAudioSpawnRepeatWhileAbove = null,
-  audioSpawnHysteresis = 0.08,
-  setAudioSpawnHysteresis = null,
-  audioSpawnUseGlobalPalette = false,
-  setAudioSpawnUseGlobalPalette = null,
-  audioSpawnBand = 'rms',
-  setAudioSpawnBand = null,
-  audioSpawnThreshold = 0.6,
-  setAudioSpawnThreshold = null,
-  audioSpawnCooldownMs = 250,
-  setAudioSpawnCooldownMs = null,
-  audioSpawnHalfLifeMs = 1500,
-  setAudioSpawnHalfLifeMs = null,
-  audioSpawnHalfLifeEnergyFactor = 1.0,
-  setAudioSpawnHalfLifeEnergyFactor = null,
-  audioSpawnMaxLayers = 12,
-  setAudioSpawnMaxLayers = null,
-  audioSpawnMicReactive = false,
-  setAudioSpawnMicReactive = null,
-  audioSpawnMicReactiveAmount = 100,
-  setAudioSpawnMicReactiveAmount = null,
-  audioSpawnForceContourMode = false,
-  setAudioSpawnForceContourMode = null,
-  audioSpawnDirectionMode = 'template',
-  setAudioSpawnDirectionMode = null,
-  audioSpawnDirectionSpread = 0,
-  setAudioSpawnDirectionSpread = null,
-  milkdropInfluence = 0,
-  setMilkdropInfluence = null,
-  milkdropFeedbackEnabled = true,
-  setMilkdropFeedbackEnabled = null,
-} = {}) => {
-  const audio = useAudioReactive();
-  const [slots, setSlots] = useState(() => loadAudioPresetSlots());
-  const [selectedSlotId, setSelectedSlotId] = useState(1);
-  const [enableAudioOnLoad, setEnableAudioOnLoad] = useState(true);
-  const [status, setStatus] = useState({ text: '', error: false });
-  const [slotsExpanded, setSlotsExpanded] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    try {
-      window.localStorage.setItem(AUDIO_PRESET_SLOTS_KEY, JSON.stringify(slots));
-    } catch (error) {
-      console.warn('[Audio Presets] Failed to persist audio preset slots', error);
-    }
-  }, [slots]);
-
-  const updateSlot = useCallback((slotId, updater) => {
-    setSlots(prev => prev.map(slot => {
-      if (slot.id !== slotId) return slot;
-      if (typeof updater === 'function') return updater(slot);
-      return { ...slot, ...updater };
-    }));
-  }, []);
-
-  const selectedSlot = useMemo(() => (
-    slots.find(slot => slot.id === selectedSlotId) || slots[0] || null
-  ), [slots, selectedSlotId]);
-
-  const normalizedAppState = useMemo(() => ({
-    parameterTargetMode: (typeof parameterTargetMode === 'string' && parameterTargetMode.length > 0)
-      ? parameterTargetMode
-      : 'individual',
-    energyInfluence: Number.isFinite(energyInfluence) ? energyInfluence : 0.5,
-    audioSpawnEnabled: !!audioSpawnEnabled,
-    audioSpawnPresetActive: !!audioSpawnPresetActive,
-    audioSpawnTriggerMode: (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level',
-    audioSpawnRepeatWhileAbove: !!audioSpawnRepeatWhileAbove,
-    audioSpawnHysteresis: Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08,
-    audioSpawnUseGlobalPalette: !!audioSpawnUseGlobalPalette,
-    audioSpawnBand: (typeof audioSpawnBand === 'string' && audioSpawnBand.length > 0) ? audioSpawnBand : 'rms',
-    audioSpawnThreshold: Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6,
-    audioSpawnCooldownMs: Number.isFinite(audioSpawnCooldownMs) ? audioSpawnCooldownMs : 250,
-    audioSpawnHalfLifeMs: Number.isFinite(audioSpawnHalfLifeMs) ? audioSpawnHalfLifeMs : 1500,
-    audioSpawnHalfLifeEnergyFactor: Number.isFinite(audioSpawnHalfLifeEnergyFactor) ? audioSpawnHalfLifeEnergyFactor : 1.0,
-    audioSpawnMaxLayers: Number.isFinite(audioSpawnMaxLayers) ? audioSpawnMaxLayers : 12,
-    audioSpawnMicReactive: !!audioSpawnMicReactive,
-    audioSpawnMicReactiveAmount: Number.isFinite(audioSpawnMicReactiveAmount)
-      ? Math.max(0, Math.min(100, Number(audioSpawnMicReactiveAmount)))
-      : (audioSpawnMicReactive ? 100 : 0),
-    audioSpawnForceContourMode: !!audioSpawnForceContourMode,
-    audioSpawnDirectionMode: audioSpawnDirectionMode === 'spread' ? 'spread' : 'template',
-    audioSpawnDirectionSpread: Number.isFinite(Number(audioSpawnDirectionSpread))
-      ? Math.max(0, Math.min(180, Number(audioSpawnDirectionSpread)))
-      : 0,
-    milkdropInfluence: Number.isFinite(milkdropInfluence) ? Math.max(0, Math.min(100, milkdropInfluence)) : 0,
-    milkdropFeedbackEnabled: !!milkdropFeedbackEnabled,
-  }), [
-    parameterTargetMode,
-    energyInfluence,
-    audioSpawnEnabled,
-    audioSpawnPresetActive,
-    audioSpawnTriggerMode,
-    audioSpawnRepeatWhileAbove,
-    audioSpawnHysteresis,
-    audioSpawnUseGlobalPalette,
-    audioSpawnBand,
-    audioSpawnThreshold,
-    audioSpawnCooldownMs,
-    audioSpawnHalfLifeMs,
-    audioSpawnHalfLifeEnergyFactor,
-    audioSpawnMaxLayers,
-    audioSpawnMicReactive,
-    audioSpawnMicReactiveAmount,
-    audioSpawnForceContourMode,
-    audioSpawnDirectionMode,
-    audioSpawnDirectionSpread,
-    milkdropInfluence,
-    milkdropFeedbackEnabled,
-  ]);
-
-  const applyPayload = useCallback((payload) => {
-    if (!payload || typeof payload !== 'object') return false;
-    const audioConfig = (
-      payload.audioConfig && typeof payload.audioConfig === 'object'
-        ? payload.audioConfig
-        : ((payload.settings && payload.mappings) ? payload : null)
-    );
-    if (audioConfig && typeof audio?.applyAudioSnapshot === 'function') {
-      audio.applyAudioSnapshot(audioConfig);
-    }
-
-    const state = (payload.appState && typeof payload.appState === 'object')
-      ? payload.appState
-      : {};
-    if (typeof state.parameterTargetMode === 'string' && state.parameterTargetMode.length > 0) {
-      setParameterTargetMode?.(state.parameterTargetMode);
-    }
-    if (Number.isFinite(state.energyInfluence)) setEnergyInfluence?.(state.energyInfluence);
-    if (typeof state.audioSpawnEnabled === 'boolean') setAudioSpawnEnabled?.(state.audioSpawnEnabled);
-    if (typeof state.audioSpawnPresetActive === 'boolean') {
-      setAudioSpawnPresetActive?.(state.audioSpawnPresetActive);
-    } else {
-      setAudioSpawnPresetActive?.(false);
-    }
-    if (typeof state.audioSpawnTriggerMode === 'string') setAudioSpawnTriggerMode?.(state.audioSpawnTriggerMode);
-    if (typeof state.audioSpawnRepeatWhileAbove === 'boolean') setAudioSpawnRepeatWhileAbove?.(state.audioSpawnRepeatWhileAbove);
-    if (Number.isFinite(state.audioSpawnHysteresis)) setAudioSpawnHysteresis?.(state.audioSpawnHysteresis);
-    if (typeof state.audioSpawnUseGlobalPalette === 'boolean') setAudioSpawnUseGlobalPalette?.(state.audioSpawnUseGlobalPalette);
-    if (typeof state.audioSpawnBand === 'string') setAudioSpawnBand?.(state.audioSpawnBand);
-    if (Number.isFinite(state.audioSpawnThreshold)) setAudioSpawnThreshold?.(state.audioSpawnThreshold);
-    if (Number.isFinite(state.audioSpawnCooldownMs)) setAudioSpawnCooldownMs?.(state.audioSpawnCooldownMs);
-    if (Number.isFinite(state.audioSpawnHalfLifeMs)) setAudioSpawnHalfLifeMs?.(state.audioSpawnHalfLifeMs);
-    if (Number.isFinite(state.audioSpawnHalfLifeEnergyFactor)) setAudioSpawnHalfLifeEnergyFactor?.(state.audioSpawnHalfLifeEnergyFactor);
-    if (Number.isFinite(state.audioSpawnMaxLayers)) setAudioSpawnMaxLayers?.(state.audioSpawnMaxLayers);
-    if (typeof state.audioSpawnMicReactive === 'boolean') setAudioSpawnMicReactive?.(state.audioSpawnMicReactive);
-    if (Number.isFinite(state.audioSpawnMicReactiveAmount)) {
-      setAudioSpawnMicReactiveAmount?.(state.audioSpawnMicReactiveAmount);
-    } else if (typeof state.audioSpawnMicReactive === 'boolean') {
-      setAudioSpawnMicReactiveAmount?.(state.audioSpawnMicReactive ? 100 : 0);
-    }
-    if (typeof state.audioSpawnForceContourMode === 'boolean') {
-      setAudioSpawnForceContourMode?.(state.audioSpawnForceContourMode);
-    }
-    if (typeof state.audioSpawnDirectionMode === 'string') {
-      setAudioSpawnDirectionMode?.(state.audioSpawnDirectionMode);
-    }
-    if (Number.isFinite(state.audioSpawnDirectionSpread)) {
-      setAudioSpawnDirectionSpread?.(state.audioSpawnDirectionSpread);
-    }
-    if (Number.isFinite(state.milkdropInfluence)) setMilkdropInfluence?.(state.milkdropInfluence);
-    if (typeof state.milkdropFeedbackEnabled === 'boolean') {
-      setMilkdropFeedbackEnabled?.(state.milkdropFeedbackEnabled);
-    }
-
-    if (enableAudioOnLoad) {
-      audio?.setAudioEnabled?.(true);
-    }
-
-    return !!audioConfig || Object.keys(state).length > 0;
-  }, [
-    audio,
-    enableAudioOnLoad,
-    setParameterTargetMode,
-    setEnergyInfluence,
-    setAudioSpawnEnabled,
-    setAudioSpawnPresetActive,
-    setAudioSpawnTriggerMode,
-    setAudioSpawnRepeatWhileAbove,
-    setAudioSpawnHysteresis,
-    setAudioSpawnUseGlobalPalette,
-    setAudioSpawnBand,
-    setAudioSpawnThreshold,
-    setAudioSpawnCooldownMs,
-    setAudioSpawnHalfLifeMs,
-    setAudioSpawnHalfLifeEnergyFactor,
-    setAudioSpawnMaxLayers,
-    setAudioSpawnMicReactive,
-    setAudioSpawnMicReactiveAmount,
-    setAudioSpawnForceContourMode,
-    setAudioSpawnDirectionMode,
-    setAudioSpawnDirectionSpread,
-    setMilkdropInfluence,
-    setMilkdropFeedbackEnabled,
-  ]);
-
-  const saveSelectedSlot = useCallback(() => {
-    if (!selectedSlot) return;
-    const getAudioSnapshot = audio?.getAudioSnapshot;
-    if (typeof getAudioSnapshot !== 'function') {
-      setStatus({ text: 'Audio engine unavailable.', error: true });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const payload = {
-      version: AUDIO_PRESET_VERSION,
-      savedAt: now,
-      audioConfig: getAudioSnapshot() || null,
-      appState: { ...normalizedAppState },
-    };
-    updateSlot(selectedSlot.id, prev => ({ ...prev, payload, savedAt: now }));
-    setStatus({ text: `Saved ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
-  }, [audio, normalizedAppState, selectedSlot, updateSlot]);
-
-  const loadSelectedSlot = useCallback(() => {
-    if (!selectedSlot) return;
-    if (!selectedSlot.payload) {
-      setStatus({ text: 'Selected slot is empty.', error: true });
-      return;
-    }
-    const applied = applyPayload(selectedSlot.payload);
-    if (!applied) {
-      setStatus({ text: `Could not load ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: true });
-      return;
-    }
-    setStatus({ text: `Loaded ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
-  }, [applyPayload, selectedSlot]);
-
-  const clearSelectedSlot = useCallback(() => {
-    if (!selectedSlot) return;
-    updateSlot(selectedSlot.id, prev => ({ ...prev, payload: null, savedAt: null }));
-    setStatus({ text: `Cleared ${selectedSlot.name || `A${selectedSlot.id}`}.`, error: false });
-  }, [selectedSlot, updateSlot]);
-
-  const updateSelectedSlotName = useCallback((rawName, finalize = false) => {
-    if (!selectedSlot) return;
-    const truncated = String(rawName || '').slice(0, 18);
-    const nextName = finalize
-      ? (truncated.trim().length > 0 ? truncated.trim() : `A${selectedSlot.id}`)
-      : truncated;
-    updateSlot(selectedSlot.id, { name: nextName });
-  }, [selectedSlot, updateSlot]);
-
-  if (!audio) return null;
-
-  return (
-    <div
-      className="compact-field"
-      style={{
-        borderTop: '1px solid rgba(255,255,255,0.1)',
-        paddingTop: '0.5rem',
-        marginTop: '0.5rem',
-        display: 'block',
-        width: '100%',
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-        <button
-          type="button"
-          className="btn-compact-secondary"
-          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-          onClick={() => setSlotsExpanded(v => !v)}
-          title={slotsExpanded ? 'Collapse audio preset slots' : 'Expand audio preset slots'}
-        >
-          {slotsExpanded ? '▾' : '▸'} Audio Preset Slots
-        </button>
-        {slotsExpanded && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <button
-              type="button"
-              className="btn-compact-secondary"
-              style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-              onClick={saveSelectedSlot}
-              title="Save current audio + spawn setup into selected slot"
-            >
-              Save
-            </button>
-            <button
-              type="button"
-              className="btn-compact-secondary"
-              style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-              onClick={loadSelectedSlot}
-              disabled={!selectedSlot?.payload}
-              title="Load selected audio preset slot"
-            >
-              Load
-            </button>
-          </div>
-        )}
-      </div>
-
-      {slotsExpanded && (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.4rem', marginTop: '0.4rem' }}>
-            <select
-              className="compact-select"
-              value={selectedSlot?.id || 1}
-              onChange={(e) => setSelectedSlotId(Number(e.target.value))}
-            >
-              {slots.map(slot => (
-                <option key={slot.id} value={slot.id}>
-                  {`Slot ${slot.id}: ${slot.name || `A${slot.id}`}${slot.payload ? ' (saved)' : ''}`}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn-compact-secondary"
-              style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-              onClick={clearSelectedSlot}
-              disabled={!selectedSlot?.payload}
-              title="Clear selected slot"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.35rem' }}>
-            <span className="compact-label" style={{ minWidth: 40 }}>Name</span>
-            <input
-              type="text"
-              value={selectedSlot?.name || ''}
-              maxLength={18}
-              onChange={(e) => updateSelectedSlotName(e.target.value, false)}
-              onBlur={(e) => updateSelectedSlotName(e.target.value, true)}
-              style={{
-                flex: 1,
-                fontSize: '0.72rem',
-                padding: '2px 6px',
-                borderRadius: 4,
-                border: '1px solid rgba(255,255,255,0.2)',
-                background: 'rgba(255,255,255,0.08)',
-                color: '#fff',
-              }}
-            />
-          </div>
-
-          <div style={{ marginTop: '0.35rem' }}>
-            <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Automatically enable audio input when loading a slot">
-              <input
-                type="checkbox"
-                checked={enableAudioOnLoad}
-                onChange={(e) => setEnableAudioOnLoad(!!e.target.checked)}
-              />
-              Enable audio on load
-            </label>
-          </div>
-
-          <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.72 }}>
-            Saves sensitivity/band sensitivity, smoothing/release, mappings + modes, spawn settings, energy influence, and parameter target mode.
-          </div>
-
-          {selectedSlot?.savedAt ? (
-            <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', opacity: 0.68 }}>
-              Saved: {new Date(selectedSlot.savedAt).toLocaleString()}
-            </div>
-          ) : (
-            <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', opacity: 0.58 }}>
-              Slot is empty.
-            </div>
-          )}
-
-          {status.text && (
-            <div style={{ marginTop: '0.25rem', fontSize: '0.7rem', color: status.error ? '#ff8a80' : '#6bcb77' }}>
-              {status.text}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '0.25rem', marginTop: '0.45rem' }}>
-            {slots.map(slot => {
-              const isSelected = slot.id === selectedSlotId;
-              const hasPayload = !!slot.payload;
-              return (
-                <button
-                  key={slot.id}
-                  type="button"
-                  className="btn-compact-secondary"
-                  onClick={() => setSelectedSlotId(slot.id)}
-                  title={`${slot.name || `A${slot.id}`}${hasPayload ? ' • saved' : ' • empty'}`}
-                  style={{
-                    fontSize: '0.66rem',
-                    padding: '2px 4px',
-                    borderColor: hasPayload ? 'rgba(79,195,247,0.6)' : 'rgba(255,255,255,0.2)',
-                    background: isSelected
-                      ? (hasPayload ? 'rgba(79,195,247,0.25)' : 'rgba(255,255,255,0.12)')
-                      : undefined,
-                  }}
-                >
-                  {slot.name || `A${slot.id}`}
-                </button>
-              );
-            })}
-          </div>
-
-          {timelineMode && (
-            <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', opacity: 0.65 }}>
-              Timeline mode mutes live Audio + BPM automation; slot values are still saved and will run after leaving Timeline mode.
             </div>
           )}
         </>
@@ -3384,10 +2860,6 @@ const AudioSpawnSection = ({
   setAudioSpawnDirectionSpread = null,
   audioSpawnUseGlobalPalette = false,
   setAudioSpawnUseGlobalPalette = null,
-  milkdropInfluence = 0,
-  setMilkdropInfluence = null,
-  milkdropFeedbackEnabled = true,
-  setMilkdropFeedbackEnabled = null,
 } = {}) => {
   const audio = useAudioReactive();
   const [bandValue, setBandValue] = useState(0);
@@ -3446,7 +2918,6 @@ const AudioSpawnSection = ({
     : `Layer ${sourceIndex + 1}`;
   const [showSettingsWhenDisabled, setShowSettingsWhenDisabled] = useState(false);
   const showAdvancedControls = !!audioSpawnEnabled || showSettingsWhenDisabled;
-  const milkdropInfluenceValue = clampValue(Number(milkdropInfluence) || 0, 0, 100);
   const directionModeValue = (audioSpawnDirectionMode === 'spread') ? 'spread' : 'template';
   const directionSpreadValue = clampValue(Number(audioSpawnDirectionSpread) || 0, 0, 180);
   const micReactiveAmountValue = clampValue(
@@ -3681,36 +3152,6 @@ const AudioSpawnSection = ({
           />
           Contour Mode
         </label>
-      </div>
-
-      <div style={{ marginTop: '0.4rem', paddingTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.08)', opacity: canRun ? 1 : 0.8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-          <span className="compact-label" style={{ fontWeight: 600 }}>Milkdrop Influence Pack</span>
-          <span className="compact-label" style={{ fontSize: '0.72rem', opacity: 0.72 }}>{Math.round(milkdropInfluenceValue)}%</span>
-        </div>
-        <input
-          className="compact-range"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value={milkdropInfluenceValue}
-          disabled={!setMilkdropInfluence || disabledByTimeline}
-          onChange={(e) => setMilkdropInfluence?.(Number(e.target.value))}
-          title="0 = original behavior. Higher values add Milkdrop-style equation drive, beat bursts, waveform shaping, and directional fields."
-        />
-        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.2rem' }} title="Adds subtle frame-to-frame trails behind shapes">
-          <input
-            type="checkbox"
-            checked={!!milkdropFeedbackEnabled}
-            disabled={!setMilkdropFeedbackEnabled || disabledByTimeline}
-            onChange={(e) => setMilkdropFeedbackEnabled?.(!!e.target.checked)}
-          />
-          Feedback Trails
-        </label>
-        <div style={{ marginTop: '0.15rem', fontSize: '0.66rem', opacity: 0.62 }}>
-          Adds equation modulation, beat bursts, waveform mode shifts, directional flow, and symmetry pulses while preserving shape style.
-        </div>
       </div>
 
       <div style={{ marginTop: '0.35rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.35rem', opacity: canRun ? 1 : 0.8 }}>
@@ -4517,7 +3958,6 @@ export {
   AudioReactiveSection,
   AudioPatchMatrixSection,
   AudioDemoPresetsSection,
-  AudioPresetSlotsSection,
   AudioSpawnSection,
   BPMSection,
   AudioControlRow,

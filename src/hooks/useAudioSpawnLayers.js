@@ -22,7 +22,6 @@ const DEFAULTS = Object.freeze({
   forceContourMode: false,
   directionMode: 'template', // 'template' | 'spread'
   directionSpreadDeg: 0,
-  milkdropInfluence: 0,
 });
 
 const nowMs = () => (
@@ -92,30 +91,29 @@ const buildFallbackNodes = (count, zeroToOne = false) => {
   return out;
 };
 
-const chooseWaveformMode = (influence = 0, beat = 0, forceContourMode = false) => {
+const chooseWaveformMode = (beat = 0, forceContourMode = false) => {
   if (forceContourMode) return 'contour';
-  const amt = clamp(Number(influence) || 0, 0, 1);
-  if (amt < 0.25) return 'contour';
   if (beat > 0.45) return 'starburst';
-  return 'ribbon';
+  if (beat > 0.2) return 'ribbon';
+  return 'contour';
 };
 
-const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influence = 0, waveformEnergy = 0, reactiveAmount = 1) => {
+const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', waveformEnergy = 0, reactiveAmount = 1) => {
   if (!layer || !waveform || waveform.length < 8) return null;
 
   const modeId = (mode === 'starburst' || mode === 'ribbon') ? mode : 'contour';
-  const influenceAmt = clamp(Number(influence) || 0, 0, 1);
   const waveEnergy = clamp(Number(waveformEnergy) || 0, 0, 1);
   const reactive = clamp(Number(reactiveAmount) || 0, 0, 1);
+  const modulation = clamp((Number(energy) || 0) * 0.6 + waveEnergy * 0.4, 0, 1);
   if (reactive <= 0.001) return null;
   const contourMode = modeId === 'contour';
 
   const currentCount = clamp(Math.round(Number(layer.numSides) || 10), 6, 40);
   const baseCount = modeId === 'ribbon' ? 9 : (modeId === 'starburst' ? 14 : 10);
-  const targetCount = clamp(Math.round(baseCount + (energy * 14) + (influenceAmt * 6)), 8, 40);
+  const targetCount = clamp(Math.round(baseCount + (energy * 14) + (modulation * 6)), 8, 40);
   const count = clamp(Math.round(currentCount + ((targetCount - currentCount) * reactive)), 6, 40);
-  const deformAmount = (0.2 + (energy * 0.35) + (influenceAmt * 0.18)) * reactive * (contourMode ? 0.72 : 1);
-  const spikeGain = contourMode ? 1 : (1 + (influenceAmt * 1.1 * reactive));
+  const deformAmount = (0.2 + (energy * 0.35) + (modulation * 0.18)) * reactive * (contourMode ? 0.72 : 1);
+  const spikeGain = contourMode ? 1 : (1 + (modulation * 1.1 * reactive));
   const sampleSmoothness = contourMode
     ? clamp(0.75 + ((1 - reactive) * 0.2), 0, 1)
     : clamp(0.18 + ((1 - reactive) * 0.15), 0, 1);
@@ -148,7 +146,7 @@ const applyWaveformShape = (layer, waveform, energy = 0, mode = 'contour', influ
     const radiusBase = zeroToOneNodes ? 0.45 : 0.9;
     const radius = radiusBase * (1 + (signedSample * deformAmount * phaseGate));
     const flatten = modeId === 'ribbon'
-      ? (0.22 + waveEnergy * 0.55 + influenceAmt * 0.2) * reactive
+      ? (0.22 + waveEnergy * 0.55 + modulation * 0.2) * reactive
       : 0;
     const rx = radius * (1 + flatten);
     const ry = radius * (1 - flatten * 0.8);
@@ -288,7 +286,6 @@ export function useAudioSpawnLayers({
   forceContourMode = DEFAULTS.forceContourMode,
   directionMode = DEFAULTS.directionMode,
   directionSpreadDeg = DEFAULTS.directionSpreadDeg,
-  milkdropInfluence = DEFAULTS.milkdropInfluence,
 } = {}) {
   const audio = useAudioReactive();
   const { parameters } = useParameters() || {};
@@ -342,7 +339,6 @@ export function useAudioSpawnLayers({
     forceContourMode: !!forceContourMode,
     directionMode: directionMode === 'spread' ? 'spread' : 'template',
     directionSpreadDeg: clamp(Number(directionSpreadDeg) || 0, 0, 180),
-    milkdropInfluence: clamp(Number(milkdropInfluence) || 0, 0, 100),
     isParamRandomizable,
     getParamConfig,
   };
@@ -401,9 +397,7 @@ export function useAudioSpawnLayers({
       const energy = clamp(Number(features[cfg.band]) || 0, 0, 1);
       const beatSignal = clamp(Number(features?.beat) || 0, 0, 1);
       const transientSignal = clamp(Number(features?.transient) || 0, 0, 1);
-      const pitch01 = clamp(Number(features?.pitch) || 0, 0, 1);
       const waveformEnergy = clamp(Number(features?.waveformEnergy) || 0, 0, 1);
-      const influence = clamp((Number(cfg.milkdropInfluence) || 0) / 100, 0, 1);
 
       // Detect enabling edge to avoid carrying trigger state across disables.
       if (!prevEnabledRef.current && cfg.enabled) {
@@ -436,12 +430,8 @@ export function useAudioSpawnLayers({
           const startY = Number.isFinite(spawn.startY) ? spawn.startY : (pos.y ?? 0.5);
           const depthVx = Number.isFinite(spawn.depthVx) ? spawn.depthVx : 0;
           const depthVy = Number.isFinite(spawn.depthVy) ? spawn.depthVy : -1;
-          const fieldAngleRad = Number.isFinite(spawn.fieldAngleRad) ? spawn.fieldAngleRad : Math.atan2(depthVy, depthVx);
-          const fieldBlend = clamp((Number(spawn.milkdropInfluence) || 0) * 0.8, 0, 0.95);
-          const fieldVx = Math.cos(fieldAngleRad);
-          const fieldVy = Math.sin(fieldAngleRad);
-          const dirVx = (depthVx * (1 - fieldBlend)) + (fieldVx * fieldBlend);
-          const dirVy = (depthVy * (1 - fieldBlend)) + (fieldVy * fieldBlend);
+          const dirVx = depthVx;
+          const dirVy = depthVy;
           const depthTravel = Number.isFinite(spawn.depthTravel) ? spawn.depthTravel : 0.25;
           const centerPull = Number.isFinite(spawn.depthCenterPull) ? spawn.depthCenterPull : 0.55;
           const travel = depthTravel * progress;
@@ -457,9 +447,7 @@ export function useAudioSpawnLayers({
           );
           const baseScale = Number.isFinite(spawn.baseScale) ? spawn.baseScale : (pos.scale ?? 1);
           const scaleDecay = clamp(Number(spawn.scaleDecay) || 0.82, 0.1, 0.98);
-          spawn.beatPulse = (Number(spawn.beatPulse) || 0) * Math.pow(0.88, dtSec * 60);
-          const beatBoost = clamp(Number(spawn.beatPulse) || 0, 0, 1) * (Number(spawn.milkdropInfluence) || 0);
-          const nextScale = Math.max(0.04, baseScale * (1 - (progress * scaleDecay)) * (1 + beatBoost * 0.18));
+          const nextScale = Math.max(0.04, baseScale * (1 - (progress * scaleDecay)));
           layer.position = {
             ...pos,
             x: nx,
@@ -472,9 +460,7 @@ export function useAudioSpawnLayers({
           if (Number.isFinite(spawn.symmetryBase)) {
             const currentSym = Number.isFinite(layer.symmetry) ? layer.symmetry : spawn.symmetryBase;
             const targetSym = clamp(
-              spawn.symmetryBase
-                + beatBoost * 0.35
-                + (Number(spawn.waveAsymmetry) || 0) * 0.18 * (Number(spawn.milkdropInfluence) || 0),
+              spawn.symmetryBase + (Number(spawn.waveAsymmetry) || 0) * 0.06,
               0,
               1,
             );
@@ -590,12 +576,7 @@ export function useAudioSpawnLayers({
       if (manualSpawnCount > 0) {
         manualSpawnQueueRef.current = 0;
       }
-      let burstSpawns = 0;
-      if (influence > 0.01 && beatSignal > 0.55 && canSpawn) {
-        shouldSpawn = true;
-        burstSpawns = Math.max(0, Math.round((influence * 2.2) + (beatSignal * 1.6)) - 1);
-      }
-      const totalSpawns = (shouldSpawn ? 1 : 0) + manualSpawnCount + burstSpawns;
+      const totalSpawns = (shouldSpawn ? 1 : 0) + manualSpawnCount;
 
       if (totalSpawns > 0) {
         const sourceLayers = cfg.layers;
@@ -662,13 +643,12 @@ export function useAudioSpawnLayers({
                 forceContourMode: cfg.forceContourMode,
               });
               if (shapeReactiveAmount > 0.001) {
-                const waveformMode = chooseWaveformMode(influence, beatSignal, cfg.forceContourMode);
+                const waveformMode = chooseWaveformMode(beatSignal, cfg.forceContourMode);
                 waveStats = applyWaveformShape(
                   varied,
                   waveform,
                   energy,
                   waveformMode,
-                  influence,
                   waveformEnergy,
                   shapeReactiveAmount,
                 );
@@ -690,19 +670,14 @@ export function useAudioSpawnLayers({
               const jitter = ((jitter01 * 2) - 1) * directionSpreadRad;
               spawnAngleRad += jitter;
             }
-            const fieldAngleRad = (
-              (((pitch01 * 360) + (transientSignal * 120) + (beatSignal * 90)) * Math.PI) / 180
-            );
-            const dirBlend = clamp(influence * 0.85, 0, 0.95);
-            let dirX = (Math.cos(spawnAngleRad) * (1 - dirBlend)) + (Math.cos(fieldAngleRad) * dirBlend);
-            let dirY = (Math.sin(spawnAngleRad) * (1 - dirBlend)) + (Math.sin(fieldAngleRad) * dirBlend);
+            let dirX = Math.cos(spawnAngleRad);
+            let dirY = Math.sin(spawnAngleRad);
             const dirLen = Math.hypot(dirX, dirY) || 1;
             dirX /= dirLen;
             dirY /= dirLen;
             const waveAsymmetry = clamp(Number(waveStats?.asymmetry) || 0, -1, 1);
             const symmetryBase = clamp(
-              (Number(varied?.symmetry) || 0.5) * (1 - influence * 0.28)
-                + ((0.5 + waveAsymmetry * 0.5) * influence * 0.28),
+              (Number(varied?.symmetry) || 0.5) + (waveAsymmetry * 0.06),
               0,
               1,
             );
@@ -728,12 +703,9 @@ export function useAudioSpawnLayers({
               baseScale,
               depthVx: dirX,
               depthVy: dirY,
-              depthTravel: 0.2 + (energy * 0.2) + (influence * 0.16) + (beatSignal * 0.08),
+              depthTravel: 0.2 + (energy * 0.2) + (beatSignal * 0.08),
               depthCenterPull: 0.55,
-              scaleDecay: clamp(0.86 - (influence * 0.16) + (waveformEnergy * 0.06), 0.58, 0.95),
-              milkdropInfluence: influence,
-              beatPulse: beatSignal,
-              fieldAngleRad,
+              scaleDecay: clamp(0.86 + (waveformEnergy * 0.06), 0.58, 0.95),
               symmetryBase,
               waveAsymmetry,
             };

@@ -110,8 +110,6 @@ const MainApp = () => {
 	    audioSpawnForceContourMode,
 	    audioSpawnDirectionMode,
 	    audioSpawnDirectionSpread,
-	    milkdropInfluence,
-	    milkdropFeedbackEnabled,
 	    setAudioSpawnEnabled,
 	    setAudioSpawnPresetActive,
 	    setAudioSpawnTriggerMode,
@@ -129,8 +127,6 @@ const MainApp = () => {
 	    setAudioSpawnForceContourMode,
 	    setAudioSpawnDirectionMode,
 	    setAudioSpawnDirectionSpread,
-	    setMilkdropInfluence,
-	    setMilkdropFeedbackEnabled,
 	    backgroundColor, setBackgroundColor,
 	    backgroundImage, setBackgroundImage,
 	    globalSeed, setGlobalSeed,
@@ -654,7 +650,6 @@ const MainApp = () => {
 	    forceContourMode: audioSpawnForceContourMode,
 	    directionMode: audioSpawnDirectionMode,
 	    directionSpreadDeg: audioSpawnDirectionSpread,
-	    milkdropInfluence,
 	  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
@@ -2470,8 +2465,6 @@ const MainApp = () => {
     classicMode,
     isolateMode,
     getActiveTargetLayerIds,
-    feedbackTrailEnabled: !!milkdropFeedbackEnabled,
-    feedbackTrailAmount: Math.max(0, Math.min(0.4, (Number(milkdropInfluence) || 0) / 260)),
   };
 
   const importAdjustProps = {
@@ -2570,10 +2563,6 @@ const MainApp = () => {
     setAudioSpawnDirectionMode,
     audioSpawnDirectionSpread,
     setAudioSpawnDirectionSpread,
-    milkdropInfluence,
-    setMilkdropInfluence,
-    milkdropFeedbackEnabled,
-    setMilkdropFeedbackEnabled,
     timelineMode,
     setTimelineMode,
     layers: uiLayers,
