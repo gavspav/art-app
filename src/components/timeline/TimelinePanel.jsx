@@ -133,7 +133,8 @@ const TimelinePanel = ({
     setTimelineDamping,
   } = timeline || {};
 
-  const rulerHeight = 44;
+  const rulerHeaderRef = useRef(null);
+  const [rulerHeight, setRulerHeight] = useState(96);
   const [randomCount, setRandomCount] = useState(5);
   const [fillCount, setFillCount] = useState(3);
   const [genStartTime, setGenStartTime] = useState('');
@@ -389,6 +390,21 @@ const TimelinePanel = ({
     updateWidth();
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const header = rulerHeaderRef.current;
+    if (!header) return undefined;
+
+    const updateHeight = () => {
+      const nextHeight = Math.max(44, Math.ceil(header.getBoundingClientRect().height || 0));
+      setRulerHeight((prev) => (Math.abs(prev - nextHeight) > 1 ? nextHeight : prev));
+    };
+
+    updateHeight();
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(header);
     return () => resizeObserver.disconnect();
   }, []);
 
@@ -971,6 +987,16 @@ const TimelinePanel = ({
         return;
       }
 
+      if (modKey && key === 'x' && selectedKeyframes.length > 0 && typeof copyKeyframes === 'function') {
+        event.preventDefault();
+        copyKeyframes(selectedKeyframes);
+        selectedKeyframes.forEach(({ trackId, keyframeId }) => {
+          removeKeyframe?.(trackId, keyframeId);
+        });
+        setSelectedKeyframes([]);
+        return;
+      }
+
       const shouldHandleMarqueePaste = clipboardIsMultiSelection || selectedKeyframes.length > 0;
       if (modKey && key === 'v' && shouldHandleMarqueePaste && keyframeClipboard && typeof pasteKeyframe === 'function') {
         event.preventDefault();
@@ -993,6 +1019,7 @@ const TimelinePanel = ({
     copyKeyframes,
     clipboardIsMultiSelection,
     keyframeClipboard,
+    removeKeyframe,
     pasteKeyframe,
     pastePlayheadTime,
   ]);
@@ -1282,7 +1309,10 @@ const TimelinePanel = ({
             }}
           >
             {/* Track list header + timeline preset button */}
-            <div style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}>
+            <div
+              ref={rulerHeaderRef}
+              style={{ width: 200, minWidth: 200, borderRight: '1px solid rgba(255, 255, 255, 0.1)', padding: '4px 8px', fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)', position: 'sticky', left: 0, background: 'rgba(30, 30, 40, 0.95)', zIndex: 5 }}
+            >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <span>Tracks</span>
