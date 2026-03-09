@@ -123,7 +123,14 @@ export const AudioProvider = ({ children }) => {
   const [settings, setSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(LS_AUDIO_SETTINGS);
-      return saved ? { ...DEFAULT_AUDIO_SETTINGS, ...JSON.parse(saved) } : DEFAULT_AUDIO_SETTINGS;
+      if (!saved) return DEFAULT_AUDIO_SETTINGS;
+      const parsed = JSON.parse(saved);
+      return {
+        ...DEFAULT_AUDIO_SETTINGS,
+        ...parsed,
+        // Always require an explicit user gesture before audio starts.
+        enabled: false,
+      };
     } catch {
       return DEFAULT_AUDIO_SETTINGS;
     }
