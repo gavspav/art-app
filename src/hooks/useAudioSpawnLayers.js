@@ -257,6 +257,46 @@ const applyPitchColor = (layer, pitchHz, pitchConfidence, energy = 0) => {
   layer.selectedColor = clamp(Number(layer.selectedColor) || 0, 0, nextColors.length - 1);
 };
 
+const applyOrganicSpawnBias = ({
+  layer,
+  baseLayer,
+  shapeAmount = 0,
+  energy = 0,
+  waveformEnergy = 0,
+}) => {
+  if (!layer) return;
+  const amt = clamp(Number(shapeAmount) || 0, 0, 1);
+  if (amt <= 0.001) return;
+
+  const base = baseLayer || {};
+  const energyMix = clamp((Number(energy) || 0) * 0.65 + (Number(waveformEnergy) || 0) * 0.35, 0, 1);
+
+  const currentWobble = clamp(Number(layer.wobble ?? base.wobble ?? 0.5), 0, 1);
+  const currentNoise = clamp(Number(layer.noiseAmount ?? base.noiseAmount ?? 0.5), 0, 8);
+  const currentCurviness = clamp(Number(layer.curviness ?? base.curviness ?? 0.75), 0, 1);
+  const currentJitter = clamp(Number(layer.freqJitter ?? base.freqJitter ?? 0.35), 0, 1);
+
+  const targetWobble = clamp(0.3 + amt * 0.38 + energyMix * 0.16, 0, 1);
+  const targetNoise = clamp(0.9 + amt * 2.8 + energyMix * 2.1, 0, 8);
+  const targetCurviness = clamp(0.78 - amt * 0.42 - energyMix * 0.12, 0.08, 1);
+  const targetJitter = clamp(0.18 + amt * 0.42 + energyMix * 0.18, 0, 1);
+
+  layer.wobble = clamp(currentWobble * (1 - amt * 0.5) + targetWobble * (amt * 0.5), 0, 1);
+  layer.noiseAmount = clamp(currentNoise * (1 - amt * 0.55) + targetNoise * (amt * 0.55), 0, 8);
+  layer.curviness = clamp(currentCurviness * (1 - amt * 0.45) + targetCurviness * (amt * 0.45), 0, 1);
+  layer.freqJitter = clamp(currentJitter * (1 - amt * 0.5) + targetJitter * (amt * 0.5), 0, 1);
+
+  if (Number.isFinite(Number(base.radiusFactor)) && Number.isFinite(Number(layer.radiusFactor))) {
+    layer.radiusFactor = clamp((Number(layer.radiusFactor) * 0.68) + (Number(base.radiusFactor) * 0.32), 0.02, 0.9);
+  }
+  if (Number.isFinite(Number(base.width)) && Number.isFinite(Number(layer.width))) {
+    layer.width = Math.max(10, Math.round((Number(layer.width) * 0.72) + (Number(base.width) * 0.28)));
+  }
+  if (Number.isFinite(Number(base.height)) && Number.isFinite(Number(layer.height))) {
+    layer.height = Math.max(10, Math.round((Number(layer.height) * 0.72) + (Number(base.height) * 0.28)));
+  }
+};
+
 /**
  * Spawns ephemeral (non-export) overlay layers from live audio threshold crossings.
  * Returned layers are intended to be drawn separately from the main `layers` state.
@@ -630,6 +670,14 @@ export function useAudioSpawnLayers({
               getParamConfig: cfg.getParamConfig,
               constrainColorsToPalette: !!cfg.useGlobalPalette,
               paletteColors: cfg.paletteColors,
+            });
+            const shapeAmount = clamp(Number(baseVar.shape) || 0, 0, 3) / 3;
+            applyOrganicSpawnBias({
+              layer: varied,
+              baseLayer: base,
+              shapeAmount,
+              energy,
+              waveformEnergy,
             });
 
             let waveStats = null;
