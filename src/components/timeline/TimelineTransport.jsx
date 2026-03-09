@@ -156,10 +156,11 @@ const TimelineTransport = ({
         </label>
         <input
           type="number"
-          value={Math.round(lengthSeconds)}
+          value={Number.isFinite(lengthSeconds) ? lengthSeconds : 60}
           onChange={(e) => onSetLength?.(Number(e.target.value) || 60)}
           min={1}
           max={3600}
+          step={0.01}
           aria-label="Timeline length in seconds"
           style={{
             width: 60,
@@ -190,7 +191,7 @@ const TimelineTransport = ({
           <>
             <input
               type="number"
-              value={Math.round(loop.startSeconds || 0)}
+              value={Number.isFinite(loop.startSeconds) ? loop.startSeconds : 0}
               onChange={(e) => {
                 const nextStart = Math.max(0, Number(e.target.value) || 0);
                 const currentEnd = Number(loop?.endSeconds ?? lengthSeconds) || lengthSeconds;
@@ -198,6 +199,7 @@ const TimelineTransport = ({
               }}
               min={0}
               max={lengthSeconds - 1}
+              step={0.01}
               aria-label="Loop start in seconds"
               style={{
                 width: 50,
@@ -213,7 +215,7 @@ const TimelineTransport = ({
             <span style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.3)' }}>→</span>
             <input
               type="number"
-              value={Math.round(loop.endSeconds || lengthSeconds)}
+              value={Number.isFinite(loop.endSeconds) ? loop.endSeconds : lengthSeconds}
               onChange={(e) => {
                 const currentStart = Number(loop?.startSeconds ?? 0) || 0;
                 const nextEnd = Number(e.target.value);
@@ -222,6 +224,7 @@ const TimelineTransport = ({
               }}
               min={1}
               max={lengthSeconds}
+              step={0.01}
               aria-label="Loop end in seconds"
               style={{
                 width: 50,

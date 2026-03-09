@@ -1241,7 +1241,7 @@ const TimelineCurveEditor = ({
                 textAlign: 'left',
               }}
             >
-              📄 Paste at Cursor (⌘V)
+              📄 Paste at Playhead (⌘V)
             </button>
           )}
           
