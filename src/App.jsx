@@ -1675,6 +1675,7 @@ const MainApp = () => {
   // Ref that TimelinePanel populates with its settings-aware random handler
   // so the keyboard shortcut (Shift+R) uses the panel's Random N, transients, etc.
   const panelGenerateRandomRef = useRef(null);
+  const panelOverwriteSelectedKeyframeRef = useRef(null);
 
   // Generate random keyframes (option-driven, no modal prompts)
   // Supports both single-layer shape tracks and global shape tracks
@@ -2193,6 +2194,7 @@ const MainApp = () => {
 	      }
 	    },
 	    onFillKeyframesBetween: handleFillKeyframesBetween,
+      overwriteSelectedTimelineKeyframe: () => panelOverwriteSelectedKeyframeRef.current?.() || false,
       onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
 	  });
 
@@ -2651,6 +2653,7 @@ const MainApp = () => {
     onFillKeyframesBetween: handleFillKeyframesBetween,
     onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
     panelGenerateRandomRef,
+    panelOverwriteSelectedKeyframeRef,
   };
 
   return (

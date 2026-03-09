@@ -33,6 +33,7 @@ export function useKeyboardShortcuts({
   onGenerateRandomKeyframes,
   onFillKeyframesBetween,
   // Timeline global track capture
+  overwriteSelectedTimelineKeyframe,
   onCaptureGlobalKeyframe,
 }) {
   useEffect(() => {
@@ -226,6 +227,9 @@ export function useKeyboardShortcuts({
       // Shift+C -> Capture current layers to global shape track (when present)
       if (e.shiftKey && key === 'c' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
+        if (overwriteSelectedTimelineKeyframe?.()) {
+          return;
+        }
         onCaptureGlobalKeyframe?.();
         return;
       }
@@ -262,6 +266,7 @@ export function useKeyboardShortcuts({
     onGenerateVariationKeyframe,
     onGenerateRandomKeyframes,
     onFillKeyframesBetween,
+    overwriteSelectedTimelineKeyframe,
     onCaptureGlobalKeyframe,
   ]);
 }

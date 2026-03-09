@@ -40,6 +40,7 @@ const TimelineTrackRow = ({
   clipboardSourceTargetId = null,
   allShapeTracks = [],
   onSeek,
+  onSelectKeyframe,
   height = 100,
   marqueeMode = false,
   selectedKeyframeIds = new Set(),
@@ -656,6 +657,7 @@ const TimelineTrackRow = ({
           clipboardSourceTargetId={clipboardSourceTargetId}
           allShapeTracks={allShapeTracks}
           onSeek={onSeek}
+          onSelectKeyframe={onSelectKeyframe}
           collapsed={!isExpanded}
           marqueeMode={marqueeMode}
           selectedKeyframeIds={selectedKeyframeIds}

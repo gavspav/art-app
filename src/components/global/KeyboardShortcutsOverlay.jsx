@@ -48,7 +48,7 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           <div><kbd>C</kbd><span>Capture active layer to shape keyframe (when timeline visible)</span></div>
           <div><kbd>Ctrl/Cmd</kbd> + <kbd>Drag</kbd><span>Marquee-select timeline keyframes</span></div>
           <div><kbd>Ctrl/Cmd</kbd> + <kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd><span>Copy, cut, or paste timeline keyframes at the playhead</span></div>
-          <div><kbd>Shift</kbd> + <kbd>C</kbd><span>Capture current scene to global keyframe (Global Shape track)</span></div>
+          <div><kbd>Shift</kbd> + <kbd>C</kbd><span>Overwrite the selected timeline keyframe, or capture the current scene to a global keyframe</span></div>
           <div><kbd>Shift</kbd> + <kbd>V</kbd><span>Generate variation keyframe at playhead (active layer&apos;s shape track)</span></div>
           <div><kbd>Shift</kbd> + <kbd>R</kbd><span>Generate N random keyframes (variation scaled by audio energy if enabled)</span></div>
           <div><kbd>Shift</kbd> + <kbd>F</kbd><span>Fill variation keyframes between first and last keyframe on active shape track</span></div>

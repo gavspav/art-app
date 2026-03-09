@@ -62,6 +62,7 @@ const TimelinePanel = ({
   onFillKeyframesBetween,
   onCaptureGlobalKeyframe,
   panelGenerateRandomRef,
+  panelOverwriteSelectedKeyframeRef,
 }) => {
   const timeline = useTimeline();
   const {
@@ -196,6 +197,7 @@ const TimelinePanel = ({
     });
     return next;
   }, [selectedKeyframes]);
+  const selectedTimelineKeyframe = selectedKeyframes.length === 1 ? selectedKeyframes[0] : null;
   const marqueeRect = useMemo(() => {
     if (!marqueeDrag) return null;
     return normalizeClientRect(
@@ -874,6 +876,85 @@ const TimelinePanel = ({
     addShapeKeyframe(trackId, time, clonedNodes, clonedSubpaths, '', extras);
   }, [addShapeKeyframe, animatedLayersRef, layers, tracks, positionSeconds]);
 
+  const handleSelectTimelineKeyframe = useCallback((trackId, keyframeId) => {
+    if (!trackId || !keyframeId) return;
+    setSelectedKeyframes([{ trackId, keyframeId }]);
+  }, []);
+
+  const handleOverwriteSelectedKeyframe = useCallback(() => {
+    if (!selectedTimelineKeyframe) return false;
+
+    const { trackId, keyframeId } = selectedTimelineKeyframe;
+    const track = tracks?.find((candidate) => candidate.id === trackId);
+    const keyframe = track?.keyframes?.find((candidate) => candidate.id === keyframeId);
+    if (!track || !keyframe) return false;
+
+    const targetParts = String(track.targetId || '').split(':');
+    const targetType = targetParts[0] || null;
+    const targetLayerIdOrName = targetType === 'layer' ? targetParts[1] : null;
+    const targetParamId = targetType === 'global' ? targetParts[1] : (targetParts[2] || null);
+    const appState = getCurrentAppState?.() || null;
+
+    if (track.type === 'shape') {
+      if (!targetLayerIdOrName) return false;
+      handleCaptureShapeKeyframe(track.id, targetLayerIdOrName, keyframe.timeSeconds);
+      return true;
+    }
+
+    if (track.type === 'globalShape') {
+      const animatedLayers = animatedLayersRef?.current;
+      const sourceLayers = (Array.isArray(animatedLayers) && animatedLayers.length > 0)
+        ? animatedLayers
+        : layers;
+      if (!sourceLayers?.length) return false;
+      captureGlobalShapeKeyframe?.(track.id, sourceLayers, { timeSecondsOverride: keyframe.timeSeconds });
+      return true;
+    }
+
+    if (track.type === 'color') {
+      let nextColor = null;
+      if (targetType === 'global' && targetParamId === 'backgroundColor') {
+        nextColor = appState?.backgroundColor || null;
+      } else if (targetType === 'layer' && targetParamId === 'color' && targetLayerIdOrName) {
+        const layer = layers.find((candidate) => candidate?.name === targetLayerIdOrName || candidate?.id === targetLayerIdOrName);
+        nextColor = Array.isArray(layer?.colors) && layer.colors.length ? layer.colors[0] : null;
+      }
+      if (typeof nextColor !== 'string') return false;
+      updateKeyframe?.(track.id, keyframe.id, { color: nextColor });
+      return true;
+    }
+
+    if (targetParamId) {
+      let nextValue = null;
+      if (targetType === 'global') {
+        nextValue = appState?.[targetParamId];
+      } else if (targetType === 'layer' && targetLayerIdOrName) {
+        const layer = layers.find((candidate) => candidate?.name === targetLayerIdOrName || candidate?.id === targetLayerIdOrName);
+        nextValue = layer?.[targetParamId];
+      }
+
+      if (!Number.isFinite(nextValue)) return false;
+
+      const min = track?.range?.outputMin ?? 0;
+      const max = track?.range?.outputMax ?? 1;
+      const denom = Math.max(0.0001, max - min);
+      const value01 = Math.max(0, Math.min(1, (nextValue - min) / denom));
+      updateKeyframe?.(track.id, keyframe.id, { value01 });
+      return true;
+    }
+
+    return false;
+  }, [
+    selectedTimelineKeyframe,
+    tracks,
+    getCurrentAppState,
+    handleCaptureShapeKeyframe,
+    animatedLayersRef,
+    layers,
+    captureGlobalShapeKeyframe,
+    updateKeyframe,
+  ]);
+
   // Handle rerolling a variation keyframe
   const handleRerollVariation = useCallback((trackId, keyframeId) => {
     if (!timeline?.rerollVariationKeyframe) return;
@@ -1072,6 +1153,13 @@ const TimelinePanel = ({
     if (panelGenerateRandomRef) panelGenerateRandomRef.current = handleGenerateRandomFromPanel;
     return () => { if (panelGenerateRandomRef) panelGenerateRandomRef.current = null; };
   }, [panelGenerateRandomRef, handleGenerateRandomFromPanel]);
+
+  useEffect(() => {
+    if (panelOverwriteSelectedKeyframeRef) panelOverwriteSelectedKeyframeRef.current = handleOverwriteSelectedKeyframe;
+    return () => {
+      if (panelOverwriteSelectedKeyframeRef) panelOverwriteSelectedKeyframeRef.current = null;
+    };
+  }, [panelOverwriteSelectedKeyframeRef, handleOverwriteSelectedKeyframe]);
 
   const handleFillBetweenFromPanel = useCallback(() => {
     if (typeof onFillKeyframesBetween !== 'function') return;
@@ -1378,9 +1466,11 @@ const TimelinePanel = ({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.6rem', color: selectedKeyframes.length ? '#ffe082' : 'rgba(255,255,255,0.45)' }}>
-                  {selectedKeyframes.length
-                    ? `${selectedKeyframes.length} selected · paste @ playhead ${pastePlayheadTime.toFixed(2)}s`
-                    : 'Ctrl/Cmd+drag to marquee select'}
+                  {selectedKeyframes.length === 1
+                    ? `1 keyframe selected · Shift+C overwrites · paste @ playhead ${pastePlayheadTime.toFixed(2)}s`
+                    : selectedKeyframes.length > 1
+                      ? `${selectedKeyframes.length} selected · paste @ playhead ${pastePlayheadTime.toFixed(2)}s`
+                      : 'Ctrl/Cmd+drag to marquee select'}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
@@ -1754,6 +1844,7 @@ const TimelinePanel = ({
                 clipboardSourceTargetId={clipboardSourceTargetId}
                 allShapeTracks={allShapeTracks}
                 onSeek={seekTo}
+                onSelectKeyframe={handleSelectTimelineKeyframe}
                 marqueeMode={marqueeInteractionActive}
                 selectedKeyframeIds={selectedKeyframesByTrack.get(track.id) || new Set()}
                 pasteTimeSeconds={pastePlayheadTime}

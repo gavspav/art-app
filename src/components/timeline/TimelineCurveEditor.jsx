@@ -24,6 +24,7 @@ const TimelineCurveEditor = ({
   onUpdateKeyframe,
   onRemoveKeyframe,
   onSeek,
+  onSelectKeyframe,
   onCopyKeyframe,
   onPasteKeyframe,
   onPasteKeyframeToTrack,
@@ -502,8 +503,9 @@ const TimelineCurveEditor = ({
     if (kf && onSeek) {
       onSeek(kf.timeSeconds);
     }
+    onSelectKeyframe?.(track?.id, kfId);
     setShowCurveMenu(false);
-  }, [keyframes, onSeek]);
+  }, [keyframes, onSeek, onSelectKeyframe, track?.id]);
 
   // Close curve menu on click outside
   useEffect(() => {
