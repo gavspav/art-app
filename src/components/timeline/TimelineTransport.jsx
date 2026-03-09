@@ -1,8 +1,9 @@
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { Minus, Music4, Pause, Play, Plus, Square, X } from 'lucide-react';
 
 /**
  * TimelineTransport - Transport controls for the timeline
- * 
+ *
  * Contains play/pause/stop buttons, time display, loop controls,
  * audio file loading, zoom controls, and close button.
  */
@@ -26,21 +27,18 @@ const TimelineTransport = ({
   onClose,
 }) => {
   const fileInputRef = useRef(null);
-  const zoomSliderRef = useRef(null);
   const [isDraggingZoom, setIsDraggingZoom] = useState(false);
   const zoomStartRef = useRef({ x: 0, zoom: 1 });
 
-  // Draggable zoom handler
-  const handleZoomMouseDown = useCallback((e) => {
-    e.preventDefault();
+  const handleZoomMouseDown = useCallback((event) => {
+    event.preventDefault();
     setIsDraggingZoom(true);
-    zoomStartRef.current = { x: e.clientX, zoom: zoom || 1 };
+    zoomStartRef.current = { x: event.clientX, zoom: zoom || 1 };
   }, [zoom]);
 
-  const handleZoomMouseMove = useCallback((e) => {
+  const handleZoomMouseMove = useCallback((event) => {
     if (!isDraggingZoom) return;
-    const dx = e.clientX - zoomStartRef.current.x;
-    // 100px drag = 2x zoom change
+    const dx = event.clientX - zoomStartRef.current.x;
     const factor = Math.pow(2, dx / 100);
     const newZoom = Math.max(0.1, Math.min(4000, zoomStartRef.current.zoom * factor));
     onZoomChange?.(newZoom);
@@ -51,23 +49,22 @@ const TimelineTransport = ({
   }, []);
 
   useEffect(() => {
-    if (isDraggingZoom) {
-      window.addEventListener('mousemove', handleZoomMouseMove);
-      window.addEventListener('mouseup', handleZoomMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleZoomMouseMove);
-        window.removeEventListener('mouseup', handleZoomMouseUp);
-      };
-    }
-  }, [isDraggingZoom, handleZoomMouseMove, handleZoomMouseUp]);
+    if (!isDraggingZoom) return undefined;
 
-  const handleFileSelect = useCallback((e) => {
-    const file = e.target.files?.[0];
+    window.addEventListener('mousemove', handleZoomMouseMove);
+    window.addEventListener('mouseup', handleZoomMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleZoomMouseMove);
+      window.removeEventListener('mouseup', handleZoomMouseUp);
+    };
+  }, [handleZoomMouseMove, handleZoomMouseUp, isDraggingZoom]);
+
+  const handleFileSelect = useCallback((event) => {
+    const file = event.target.files?.[0];
     if (file && onLoadAudio) {
       onLoadAudio(file);
     }
-    // Reset input to allow re-selecting same file
-    e.target.value = '';
+    event.target.value = '';
   }, [onLoadAudio]);
 
   const handleLoadAudioClick = useCallback(() => {
@@ -82,234 +79,136 @@ const TimelineTransport = ({
   };
 
   return (
-    <div
-      className="timeline-transport"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        padding: '8px 12px',
-        background: 'rgba(30, 30, 40, 0.95)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        flexWrap: 'wrap',
-      }}
-    >
-      {/* Play/Pause/Stop buttons */}
-      <div style={{ display: 'flex', gap: '4px' }}>
+    <div className="timeline-transport">
+      <div className="timeline-transport__group">
         <button
           type="button"
+          className={`timeline-transport__button ${isPlaying ? 'timeline-transport__button--playing' : 'timeline-transport__button--primary'}`}
           onClick={onTogglePlay}
           aria-label={isPlaying ? 'Pause timeline' : 'Play timeline'}
-          style={{
-            background: isPlaying ? 'rgba(255, 152, 0, 0.3)' : 'rgba(79, 195, 247, 0.3)',
-            border: `1px solid ${isPlaying ? 'rgba(255, 152, 0, 0.5)' : 'rgba(79, 195, 247, 0.5)'}`,
-            borderRadius: 4,
-            padding: '6px 12px',
-            color: isPlaying ? '#ff9800' : '#4fc3f7',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-            minWidth: 60,
-          }}
           title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
         >
-          {isPlaying ? '⏸ Pause' : '▶ Play'}
+          {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+          <span>{isPlaying ? 'Pause' : 'Play'}</span>
         </button>
         <button
           type="button"
+          className="timeline-transport__button"
           onClick={onStop}
           aria-label="Stop timeline"
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: 4,
-            padding: '6px 12px',
-            color: 'rgba(255, 255, 255, 0.7)',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-          }}
           title="Stop (Home)"
         >
-          ⏹ Stop
+          <Square size={16} />
+          <span>Stop</span>
         </button>
       </div>
 
-      {/* Time display */}
-      <div
-        style={{
-          fontFamily: 'monospace',
-          fontSize: '0.9rem',
-          color: '#4fc3f7',
-          background: 'rgba(0, 0, 0, 0.3)',
-          padding: '4px 8px',
-          borderRadius: 4,
-          minWidth: 100,
-          textAlign: 'center',
-        }}
-      >
+      <div className="timeline-transport__time">
         {formatTime(positionSeconds)} / {formatTime(lengthSeconds)}
       </div>
 
-      {/* Length input */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <label style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-          Length:
+      <div className="timeline-transport__group">
+        <label className="timeline-transport__field">
+          <span>Length</span>
+          <input
+            type="number"
+            value={Number.isFinite(lengthSeconds) ? lengthSeconds : 60}
+            onChange={(event) => onSetLength?.(Number(event.target.value) || 60)}
+            min={1}
+            max={3600}
+            step={0.01}
+            aria-label="Timeline length in seconds"
+          />
+          <span>s</span>
         </label>
-        <input
-          type="number"
-          value={Number.isFinite(lengthSeconds) ? lengthSeconds : 60}
-          onChange={(e) => onSetLength?.(Number(e.target.value) || 60)}
-          min={1}
-          max={3600}
-          step={0.01}
-          aria-label="Timeline length in seconds"
-          style={{
-            width: 60,
-            background: 'rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: 4,
-            padding: '4px 6px',
-            color: 'white',
-            fontSize: '0.75rem',
-          }}
-        />
-        <span style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>s</span>
       </div>
 
-      {/* Loop toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <label style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-          Loop:
+      <div className="timeline-transport__group">
+        <label className="timeline-transport__field">
+          <span>Loop</span>
+          <input
+            type="checkbox"
+            checked={loop?.enabled || false}
+            onChange={(event) => onSetLoop?.({ enabled: event.target.checked })}
+            aria-label="Enable loop region"
+          />
         </label>
-        <input
-          type="checkbox"
-          checked={loop?.enabled || false}
-          onChange={(e) => onSetLoop?.({ enabled: e.target.checked })}
-          aria-label="Enable loop region"
-          style={{ cursor: 'pointer' }}
-        />
         {loop?.enabled && (
           <>
-            <input
-              type="number"
-              value={Number.isFinite(loop.startSeconds) ? loop.startSeconds : 0}
-              onChange={(e) => {
-                const nextStart = Math.max(0, Number(e.target.value) || 0);
-                const currentEnd = Number(loop?.endSeconds ?? lengthSeconds) || lengthSeconds;
-                onSetLoop?.({ startSeconds: Math.min(nextStart, Math.max(0, currentEnd - 0.01)) });
-              }}
-              min={0}
-              max={lengthSeconds - 1}
-              step={0.01}
-              aria-label="Loop start in seconds"
-              style={{
-                width: 50,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 4,
-                padding: '2px 4px',
-                color: 'white',
-                fontSize: '0.7rem',
-              }}
-              title="Loop start (seconds)"
-            />
-            <span style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.3)' }}>→</span>
-            <input
-              type="number"
-              value={Number.isFinite(loop.endSeconds) ? loop.endSeconds : lengthSeconds}
-              onChange={(e) => {
-                const currentStart = Number(loop?.startSeconds ?? 0) || 0;
-                const nextEnd = Number(e.target.value);
-                const safeEnd = Number.isFinite(nextEnd) ? nextEnd : lengthSeconds;
-                onSetLoop?.({ endSeconds: Math.max(currentStart + 0.01, safeEnd) });
-              }}
-              min={1}
-              max={lengthSeconds}
-              step={0.01}
-              aria-label="Loop end in seconds"
-              style={{
-                width: 50,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 4,
-                padding: '2px 4px',
-                color: 'white',
-                fontSize: '0.7rem',
-              }}
-              title="Loop end (seconds)"
-            />
+            <label className="timeline-transport__field">
+              <span>Start</span>
+              <input
+                type="number"
+                value={Number.isFinite(loop.startSeconds) ? loop.startSeconds : 0}
+                onChange={(event) => {
+                  const nextStart = Math.max(0, Number(event.target.value) || 0);
+                  const currentEnd = Number(loop?.endSeconds ?? lengthSeconds) || lengthSeconds;
+                  onSetLoop?.({ startSeconds: Math.min(nextStart, Math.max(0, currentEnd - 0.01)) });
+                }}
+                min={0}
+                max={lengthSeconds - 1}
+                step={0.01}
+                aria-label="Loop start in seconds"
+                title="Loop start (seconds)"
+              />
+            </label>
+            <label className="timeline-transport__field">
+              <span>End</span>
+              <input
+                type="number"
+                value={Number.isFinite(loop.endSeconds) ? loop.endSeconds : lengthSeconds}
+                onChange={(event) => {
+                  const currentStart = Number(loop?.startSeconds ?? 0) || 0;
+                  const nextEnd = Number(event.target.value);
+                  const safeEnd = Number.isFinite(nextEnd) ? nextEnd : lengthSeconds;
+                  onSetLoop?.({ endSeconds: Math.max(currentStart + 0.01, safeEnd) });
+                }}
+                min={1}
+                max={lengthSeconds}
+                step={0.01}
+                aria-label="Loop end in seconds"
+                title="Loop end (seconds)"
+              />
+            </label>
           </>
         )}
       </div>
 
-      {/* Zoom control - draggable */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-        <label style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.5)' }}>
-          Zoom:
-        </label>
+      <div className="timeline-transport__group">
+        <span className="timeline-transport__field">Zoom</span>
         <button
           type="button"
+          className="timeline-transport__icon-btn"
           onClick={() => onZoomChange?.((zoom || 1) * 0.8)}
           aria-label="Zoom out timeline"
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: 4,
-            padding: '2px 8px',
-            color: 'white',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-          }}
         >
-          −
+          <Minus size={16} />
         </button>
-        {/* Draggable zoom value */}
         <div
-          ref={zoomSliderRef}
           onMouseDown={handleZoomMouseDown}
           role="slider"
           aria-label="Timeline zoom"
           aria-valuemin={10}
           aria-valuemax={400000}
           aria-valuenow={Math.round((zoom || 1) * 100)}
-          style={{
-            fontSize: '0.7rem',
-            color: isDraggingZoom ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)',
-            minWidth: 50,
-            textAlign: 'center',
-            cursor: 'ew-resize',
-            userSelect: 'none',
-            padding: '4px 8px',
-            background: isDraggingZoom ? 'rgba(79, 195, 247, 0.2)' : 'rgba(0, 0, 0, 0.3)',
-            borderRadius: 4,
-            border: `1px solid ${isDraggingZoom ? 'rgba(79, 195, 247, 0.5)' : 'rgba(255, 255, 255, 0.2)'}`,
-          }}
+          className={`timeline-transport__zoom-value ${isDraggingZoom ? 'is-dragging' : ''}`}
           title="Drag left/right to zoom"
         >
           {Math.round((zoom || 1) * 100)}%
         </div>
         <button
           type="button"
+          className="timeline-transport__icon-btn"
           onClick={() => onZoomChange?.((zoom || 1) * 1.25)}
           aria-label="Zoom in timeline"
-          style={{
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: 4,
-            padding: '2px 8px',
-            color: 'white',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-          }}
         >
-          +
+          <Plus size={16} />
         </button>
       </div>
 
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
+      <div className="timeline-transport__spacer" />
 
-      {/* Audio file controls */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="timeline-transport__group">
         <input
           ref={fileInputRef}
           type="file"
@@ -319,59 +218,36 @@ const TimelineTransport = ({
         />
         <button
           type="button"
+          className={`timeline-transport__button ${hasAudio ? 'timeline-transport__button--primary' : ''}`}
           onClick={handleLoadAudioClick}
           aria-label={hasAudio ? 'Replace audio file' : 'Load audio file'}
-          style={{
-            background: hasAudio ? 'rgba(129, 199, 132, 0.2)' : 'rgba(255, 255, 255, 0.1)',
-            border: `1px solid ${hasAudio ? 'rgba(129, 199, 132, 0.5)' : 'rgba(255, 255, 255, 0.2)'}`,
-            borderRadius: 4,
-            padding: '4px 10px',
-            color: hasAudio ? '#81c784' : 'rgba(255, 255, 255, 0.7)',
-            fontSize: '0.75rem',
-            cursor: 'pointer',
-          }}
           title="Load audio file for waveform display"
         >
-          {hasAudio ? '🎵 Audio Loaded' : '🎵 Load Audio'}
+          <Music4 size={16} />
+          <span>{hasAudio ? 'Audio Loaded' : 'Load Audio'}</span>
         </button>
         {hasAudio && (
           <button
             type="button"
+            className="timeline-transport__icon-btn timeline-transport__button--danger"
             onClick={onClearAudio}
             aria-label="Remove audio file"
-            style={{
-              background: 'rgba(244, 67, 54, 0.2)',
-              border: '1px solid rgba(244, 67, 54, 0.5)',
-              borderRadius: 4,
-              padding: '4px 8px',
-              color: '#f44336',
-              fontSize: '0.7rem',
-              cursor: 'pointer',
-            }}
             title="Remove audio"
           >
-            ✕
+            <X size={16} />
           </button>
         )}
       </div>
 
-      {/* Close button */}
       <button
         type="button"
+        className="timeline-transport__button"
         onClick={onClose}
         aria-label="Close timeline panel"
-        style={{
-          background: 'rgba(255, 255, 255, 0.1)',
-          border: '1px solid rgba(255, 255, 255, 0.2)',
-          borderRadius: 4,
-          padding: '4px 10px',
-          color: 'rgba(255, 255, 255, 0.7)',
-          fontSize: '0.75rem',
-          cursor: 'pointer',
-        }}
         title="Close timeline"
       >
-        ✕ Close
+        <X size={16} />
+        <span>Close</span>
       </button>
     </div>
   );

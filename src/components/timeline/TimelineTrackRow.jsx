@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useMemo } from 'react';
+import { Camera, ChevronDown, ChevronRight, Sparkles, Trash2 } from 'lucide-react';
 import TimelineCurveEditor from './TimelineCurveEditor.jsx';
 
 /**
@@ -179,10 +180,8 @@ const TimelineTrackRow = ({
 
   return (
     <div
-      className="timeline-track-row"
+      className={`timeline-track-row ${track.enabled ? '' : 'is-disabled'}`}
       style={{
-        display: 'flex',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
         background: track.enabled ? 'transparent' : 'rgba(0, 0, 0, 0.2)',
         opacity: track.enabled ? 1 : 0.6,
       }}
@@ -191,32 +190,18 @@ const TimelineTrackRow = ({
       <div
         className="timeline-track-header"
         style={{
-          width: 200,
-          minWidth: 200,
-          position: 'sticky',
-          left: 0,
-          zIndex: 6,
-          background: 'rgba(30, 30, 40, 0.95)',
-          padding: '8px',
-          borderRight: '1px solid rgba(255, 255, 255, 0.1)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px',
+          width: 232,
+          minWidth: 232,
         }}
       >
         {/* Track name and controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div className="timeline-track-header__main">
           {/* Color indicator */}
           <button
             type="button"
+            className="timeline-track-header__color"
             style={{
-              width: 12,
-              height: 12,
-              borderRadius: 2,
               background: track.color || '#4fc3f7',
-              cursor: 'pointer',
-              border: '1px solid rgba(255,255,255,0.35)',
-              padding: 0,
             }}
             onClick={() => {
               // Cycle through colors
@@ -245,16 +230,8 @@ const TimelineTrackRow = ({
             value={track.name || ''}
             onChange={handleNameChange}
             aria-label="Track name"
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              color: 'white',
-              fontSize: '0.75rem',
-              fontWeight: 500,
-              padding: '2px 4px',
-              minWidth: 0,
-            }}
+            className="timeline-track-header__name"
+            style={{ border: 'none' }}
             placeholder="Track name"
           />
           
@@ -262,57 +239,35 @@ const TimelineTrackRow = ({
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'rgba(255, 255, 255, 0.5)',
-              fontSize: '0.7rem',
-              cursor: 'pointer',
-              padding: '2px',
-            }}
+            className="timeline-track-header__toggle"
             title={isExpanded ? 'Collapse' : 'Expand'}
           >
-            {isExpanded ? '▼' : '▶'}
+            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
           
           {/* Delete button */}
           <button
             type="button"
             onClick={onRemoveTrack}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'rgba(244, 67, 54, 0.7)',
-              fontSize: '0.7rem',
-              cursor: 'pointer',
-              padding: '2px',
-            }}
+            className="timeline-track-header__icon timeline-track-header__icon--danger"
             title="Delete track"
           >
-            ✕
+            <Trash2 size={15} />
           </button>
         </div>
 
         {/* Layer/Global selector */}
         {isExpanded && (
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div className="timeline-track-header__row">
             <select
               value={targetType === 'global' ? 'global' : (layerId || '')}
               onChange={(e) => handleLayerChange(e.target.value)}
               aria-label="Track target"
-              style={{
-                flex: 1,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 3,
-                padding: '3px 4px',
-                color: 'white',
-                fontSize: '0.65rem',
-                cursor: 'pointer',
-              }}
+              className="timeline-track-header__select"
+              style={{ flex: 1 }}
             >
               <option value="">Select target...</option>
-              <option value="global">🌐 Global</option>
+              <option value="global">Global</option>
               {/* Use layer NAME as value for stable targeting across layer recreation */}
               {layers.map((layer, i) => {
                 const layerName = layer.name || `Layer ${i + 1}`;
@@ -328,21 +283,13 @@ const TimelineTrackRow = ({
 
         {/* Parameter selector */}
         {isExpanded && (targetType === 'global' || layerId) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <div className="timeline-track-header__row">
             <select
               value={paramId || ''}
               onChange={(e) => handleParamChange(e.target.value)}
               aria-label="Track parameter"
-              style={{
-                flex: 1,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 3,
-                padding: '3px 4px',
-                color: 'white',
-                fontSize: '0.65rem',
-                cursor: 'pointer',
-              }}
+              className="timeline-track-header__select"
+              style={{ flex: 1 }}
             >
               <option value="">Select parameter...</option>
               {(targetType === 'global' ? globalParameters : layerParameters).map((param) => {
@@ -360,14 +307,7 @@ const TimelineTrackRow = ({
             {storedParamCount > 0 && (
               <span
                 title={`${storedParamCount} other param${storedParamCount > 1 ? 's' : ''} with keyframes`}
-                style={{
-                  fontSize: '0.55rem',
-                  color: 'rgba(255, 255, 255, 0.6)',
-                  background: 'rgba(79, 195, 247, 0.25)',
-                  borderRadius: 6,
-                  padding: '1px 5px',
-                  whiteSpace: 'nowrap',
-                }}
+                className="timeline-track-header__badge"
               >
                 +{storedParamCount}
               </span>
@@ -377,61 +317,39 @@ const TimelineTrackRow = ({
 
         {/* Range controls (hidden for shape tracks) */}
         {isExpanded && track.targetId && isNumericTrack && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem' }}>
-            <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>Range:</span>
+          <div className="timeline-track-header__row" style={{ fontSize: '0.6rem' }}>
+            <span className="timeline-track-header__range-label">Range:</span>
             <input
               type="number"
               value={track.range?.outputMin ?? 0}
               onChange={(e) => handleRangeChange('outputMin', e.target.value)}
               step="0.1"
               aria-label="Track minimum output"
-              style={{
-                width: 45,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 3,
-                padding: '2px 4px',
-                color: 'white',
-                fontSize: '0.6rem',
-              }}
+              className="timeline-track-header__range-input"
+              style={{ width: 52 }}
             />
-            <span style={{ color: 'rgba(255, 255, 255, 0.3)' }}>→</span>
+            <span className="timeline-track-header__meta">→</span>
             <input
               type="number"
               value={track.range?.outputMax ?? 1}
               onChange={(e) => handleRangeChange('outputMax', e.target.value)}
               step="0.1"
               aria-label="Track maximum output"
-              style={{
-                width: 45,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 3,
-                padding: '2px 4px',
-                color: 'white',
-                fontSize: '0.6rem',
-              }}
+              className="timeline-track-header__range-input"
+              style={{ width: 52 }}
             />
           </div>
         )}
         {/* Energy band selector */}
         {isExpanded && track.targetId && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem' }}>
-            <span style={{ color: 'rgba(255, 255, 255, 0.4)' }}>Energy:</span>
+          <div className="timeline-track-header__row" style={{ fontSize: '0.6rem' }}>
+            <span className="timeline-track-header__range-label">Energy:</span>
             <select
               value={track.energyBand || 'total'}
               onChange={(e) => onUpdateTrack?.({ energyBand: e.target.value })}
               aria-label="Energy band"
-              style={{
-                flex: 1,
-                background: 'rgba(0, 0, 0, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: 3,
-                padding: '2px 4px',
-                color: 'white',
-                fontSize: '0.6rem',
-                cursor: 'pointer',
-              }}
+              className="timeline-track-header__select"
+              style={{ flex: 1 }}
             >
               <option value="total">Total</option>
               <option value="low">Low (bass)</option>
@@ -459,7 +377,8 @@ const TimelineTrackRow = ({
                 }}
                 title="Capture current shape at playhead position (K)"
               >
-                ⬡ Capture
+                <Camera size={12} style={{ marginRight: 4 }} />
+                Capture
               </button>
               <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic' }}>
                 {track.keyframes?.length || 0} kf
@@ -536,7 +455,8 @@ const TimelineTrackRow = ({
                 }}
                 title="Capture current state of all layers at playhead"
               >
-                ⬡ Capture
+                <Camera size={12} style={{ marginRight: 4 }} />
+                Capture
               </button>
               <button
                 type="button"
@@ -553,7 +473,8 @@ const TimelineTrackRow = ({
                 }}
                 title="Generate new variation of all layers using variation sliders"
               >
-                ✦ Generate
+                <Sparkles size={12} style={{ marginRight: 4 }} />
+                Generate
               </button>
               <span style={{ color: 'rgba(255, 255, 255, 0.5)', fontStyle: 'italic', fontSize: '0.55rem' }}>
                 {track.keyframes?.length || 0} kf · {layers.length} layers

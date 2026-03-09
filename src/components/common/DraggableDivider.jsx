@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useEffect, useState } from 'react';
 
 /**
  * DraggableDivider - A resizable divider between two panels
- * 
+ *
  * @param {string} direction - 'horizontal' (left/right) or 'vertical' (top/bottom)
  * @param {function} onResize - Callback with new size ratio (0-1)
  * @param {number} initialRatio - Initial size ratio (0-1)
@@ -21,48 +21,72 @@ const DraggableDivider = ({
   const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleMouseDown = useCallback((e) => {
-    e.preventDefault();
+  const updateRatio = useCallback((clientX, clientY) => {
+    const parent = dividerRef.current?.parentElement;
+    if (!parent) return;
+
+    const rect = parent.getBoundingClientRect();
+    const rawRatio = direction === 'horizontal'
+      ? (clientX - rect.left) / rect.width
+      : (clientY - rect.top) / rect.height;
+
+    const ratio = Math.max(minRatio, Math.min(maxRatio, rawRatio));
+    onResize?.(ratio);
+  }, [direction, maxRatio, minRatio, onResize]);
+
+  const startDrag = useCallback((event) => {
+    event.preventDefault();
     isDraggingRef.current = true;
     setIsDragging(true);
   }, []);
 
-  const handleMouseMove = useCallback((e) => {
-    if (!isDraggingRef.current) return;
-    
-    const parent = dividerRef.current?.parentElement;
-    if (!parent) return;
-    
-    const rect = parent.getBoundingClientRect();
-    let ratio;
-    
-    if (direction === 'horizontal') {
-      ratio = (e.clientX - rect.left) / rect.width;
-    } else {
-      ratio = (e.clientY - rect.top) / rect.height;
-    }
-    
-    // Clamp to min/max
-    ratio = Math.max(minRatio, Math.min(maxRatio, ratio));
-    
-    onResize?.(ratio);
-  }, [direction, minRatio, maxRatio, onResize]);
+  const handleMouseDown = useCallback((event) => {
+    startDrag(event);
+  }, [startDrag]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleTouchStart = useCallback((event) => {
+    startDrag(event);
+    const touch = event.touches?.[0];
+    if (touch) {
+      updateRatio(touch.clientX, touch.clientY);
+    }
+  }, [startDrag, updateRatio]);
+
+  const handleMouseMove = useCallback((event) => {
+    if (!isDraggingRef.current) return;
+    updateRatio(event.clientX, event.clientY);
+  }, [updateRatio]);
+
+  const handleTouchMove = useCallback((event) => {
+    if (!isDraggingRef.current) return;
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    event.preventDefault();
+    updateRatio(touch.clientX, touch.clientY);
+  }, [updateRatio]);
+
+  const stopDrag = useCallback(() => {
     isDraggingRef.current = false;
     setIsDragging(false);
   }, []);
 
   useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+    if (!isDragging) return undefined;
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', stopDrag);
+    window.addEventListener('touchcancel', stopDrag);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopDrag);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', stopDrag);
+      window.removeEventListener('touchcancel', stopDrag);
+    };
+  }, [handleMouseMove, handleTouchMove, isDragging, stopDrag]);
 
   const isHorizontal = direction === 'horizontal';
 
@@ -70,24 +94,27 @@ const DraggableDivider = ({
     <div
       ref={dividerRef}
       onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
+      role="separator"
+      aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
       style={{
         position: 'relative',
-        background: isDragging ? 'rgba(79, 195, 247, 0.5)' : 'rgba(255, 255, 255, 0.1)',
+        background: isDragging ? 'rgba(79, 195, 247, 0.22)' : 'rgba(255, 255, 255, 0.06)',
         cursor: isHorizontal ? 'col-resize' : 'row-resize',
         flexShrink: 0,
         zIndex: 10,
         transition: isDragging ? 'none' : 'background 0.2s',
+        touchAction: 'none',
         ...(isHorizontal ? {
-          width: 6,
+          width: 10,
           height: '100%',
         } : {
           width: '100%',
-          height: 6,
+          height: 10,
         }),
         ...style,
       }}
     >
-      {/* Visual handle indicator */}
       <div
         style={{
           position: 'absolute',
@@ -96,16 +123,16 @@ const DraggableDivider = ({
             left: '50%',
             transform: 'translate(-50%, -50%)',
             width: 2,
-            height: 30,
+            height: 34,
           } : {
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
-            width: 30,
+            width: 34,
             height: 2,
           }),
-          background: isDragging ? 'rgba(79, 195, 247, 0.8)' : 'rgba(255, 255, 255, 0.3)',
-          borderRadius: 1,
+          background: isDragging ? 'rgba(79, 195, 247, 0.9)' : 'rgba(255, 255, 255, 0.34)',
+          borderRadius: 999,
         }}
       />
     </div>

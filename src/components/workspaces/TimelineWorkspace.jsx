@@ -1,4 +1,5 @@
 import React from 'react';
+import { Clock3 } from 'lucide-react';
 import Canvas from '../Canvas';
 import BottomPanel from '../BottomPanel.jsx';
 import { TimelinePanel } from '../timeline/index.js';
@@ -119,25 +120,11 @@ const TimelineWorkspace = ({
 
           <button
             type="button"
+            className="workspace-toggle-btn"
             onClick={onToggleTimelineMode}
-            style={{
-              position: 'absolute',
-              bottom: 16,
-              left: 16,
-              background: 'rgba(79, 195, 247, 0.3)',
-              border: '1px solid rgba(79, 195, 247, 0.5)',
-              borderRadius: 8,
-              padding: '8px 16px',
-              color: '#4fc3f7',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-              zIndex: 50,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
             title="Toggle Timeline (T)"
           >
+            <Clock3 size={16} />
             Timeline
           </button>
         </div>

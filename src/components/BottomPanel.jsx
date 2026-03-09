@@ -1,4 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  Blocks,
+  ChevronDown,
+  Clock3,
+  FolderOpen,
+  Globe,
+  Hexagon,
+  LifeBuoy,
+  Lock,
+  Music4,
+  Palette,
+  Piano,
+  Play,
+  Save,
+  SlidersHorizontal,
+  Trash2,
+  Unlock,
+  Volume2,
+} from 'lucide-react';
 import { useMidi } from '../context/MidiContext.jsx';
 import { useBPM } from '../context/BPMContext.jsx';
 import { useAudioReactive } from '../context/AudioContext.jsx';
@@ -201,18 +220,7 @@ const ClearMappingsButton = () => {
       aria-label="Clear all audio and BPM mappings"
       style={{ padding: '4px', opacity: totalCount > 0 ? 1 : 0.4 }}
     >
-      <span
-        style={{
-          display: 'inline-block',
-          width: '14px',
-          height: '14px',
-          lineHeight: '14px',
-          textAlign: 'center',
-          fontSize: '12px',
-        }}
-      >
-        🧹
-      </span>
+      <Trash2 size={14} />
     </button>
   );
 };
@@ -268,7 +276,6 @@ const AudioIndicator = ({ panelExpanded = true }) => {
     >
       <span
         style={{
-          display: 'inline-block',
           width: '14px',
           height: '14px',
           lineHeight: '14px',
@@ -281,9 +288,12 @@ const AudioIndicator = ({ panelExpanded = true }) => {
           boxShadow: glow,
           transform: `scale(${pulseScale})`,
           transition: 'background 0.1s ease-out, box-shadow 0.1s ease-out, transform 0.08s ease-out',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        🔊
+        <Volume2 size={11} />
       </span>
       {isListening && <span className="sr-only">Audio listening</span>}
     </button>
@@ -773,13 +783,13 @@ const BottomPanel = ({
   }, [dockH, panelWidthVW]);
 
   const tabs = useMemo(() => ([
-    { id: 'global', label: 'Global', icon: '🌍' },
-    { id: 'layer-shape', label: 'Layer Shape', icon: '⬟' },
-    { id: 'layer-animation', label: 'Layer Animation', icon: '▶️' },
-    { id: 'layer-colour', label: 'Layer Colour', icon: '🎨' },
-    { id: 'audio', label: 'Audio', icon: '🎵' },
-    { id: 'presets', label: 'Presets', icon: '🎛️' },
-    { id: 'groups', label: 'Groups', icon: '🧰' },
+    { id: 'global', label: 'Global', icon: Globe },
+    { id: 'layer-shape', label: 'Layer Shape', icon: Hexagon },
+    { id: 'layer-animation', label: 'Layer Animation', icon: Play },
+    { id: 'layer-colour', label: 'Layer Colour', icon: Palette },
+    { id: 'audio', label: 'Audio', icon: Music4 },
+    { id: 'presets', label: 'Presets', icon: SlidersHorizontal },
+    { id: 'groups', label: 'Groups', icon: Blocks },
   ]), []);
   const showInlineTitleBar = dockV === 'top' && panelState !== 'peek';
   const showFloatingPeekBar = !showInlineTitleBar;
@@ -1256,8 +1266,9 @@ const BottomPanel = ({
                 className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
                 onClick={() => setActiveTab(tab.id)}
                 title={`${tab.label} (${i + 1})`}
+                data-label={tab.label}
               >
-                <span className="tab-icon">{tab.icon}</span>
+                <span className="tab-icon"><tab.icon size={16} strokeWidth={2} /></span>
                 <span className="tab-label">{tab.label}</span>
               </button>
             ))}
@@ -1270,104 +1281,110 @@ const BottomPanel = ({
               onClick={toggleLock}
               title={(isLocked ? 'Unlock panel' : 'Lock panel open') + ' (L)'}
             >
-              {isLocked ? '🔒' : '🔓'}
+              {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
             </button>
             <button 
               className="panel-control-btn"
               onClick={() => setPanelState('peek')}
               title="Minimize panel"
             >
-              ⬇️
+              <ChevronDown size={16} />
             </button>
           </div>
         </div>
 
         {/* Global quick actions toolbar (visible across tabs) */}
         <div className="global-toolbar">
-          <button
-            type="button"
-            className="icon-btn sm"
-            disabled={typeof onQuickSave !== 'function'}
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePanelInteraction();
-              typeof onQuickSave === 'function' && onQuickSave();
-            }}
-            title="Save configuration"
-            aria-label="Save configuration"
-          >
-            💾
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            disabled={typeof onQuickLoad !== 'function'}
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePanelInteraction();
-              typeof onQuickLoad === 'function' && onQuickLoad();
-            }}
-            title="Load configuration"
-            aria-label="Load configuration"
-          >
-            📂
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePanelInteraction();
-              setActiveTab('global');
-              setAutosaveToggleToken((token) => token + 1);
-            }}
-            title="Autosave recovery"
-            aria-label="Autosave recovery"
-          >
-            🛟
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            disabled={typeof setTimelineMode !== 'function'}
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePanelInteraction();
-              setTimelineMode?.((v) => !v);
-            }}
-            title={timelineMode ? 'Timeline mode (BPM + Audio disabled)' : 'Free mode (no timeline)'}
-            aria-label={timelineMode ? 'Disable timeline mode' : 'Enable timeline mode'}
-            style={{ opacity: timelineMode ? 1 : 0.35 }}
-          >
-            {timelineMode ? '🕒' : '⏱️'}
-          </button>
-          <button
-            type="button"
-            className="icon-btn sm"
-            disabled={!midiSupported || !(Array.isArray(midiInputs) && midiInputs.length > 0)}
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePanelInteraction();
-              if (midiInputId) {
-                setMidiInputId?.('');
-                return;
-              }
-              const preferred = lastMidiInputIdRef.current;
-              const candidate = (midiInputs || []).find(inp => inp?.id === preferred)?.id
-                || (midiInputs || [])[0]?.id
-                || '';
-              if (candidate) setMidiInputId?.(candidate);
-            }}
-            title={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
-            aria-label={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
-            style={{ opacity: midiInputId ? 1 : 0.45 }}
-          >
-            🎹
-          </button>
-          <BeatIndicator panelExpanded={panelState === 'expanded'} />
-          <AudioIndicator panelExpanded={panelState === 'expanded'} />
-          <AudioLEDMeter panelExpanded={panelState === 'expanded'} />
-          <ClearMappingsButton />
+          <div className="toolbar-group">
+            <button
+              type="button"
+              className="icon-btn sm toolbar-chip"
+              disabled={typeof onQuickSave !== 'function'}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                typeof onQuickSave === 'function' && onQuickSave();
+              }}
+              title="Save configuration"
+              aria-label="Save configuration"
+            >
+              <Save size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm toolbar-chip"
+              disabled={typeof onQuickLoad !== 'function'}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                typeof onQuickLoad === 'function' && onQuickLoad();
+              }}
+              title="Load configuration"
+              aria-label="Load configuration"
+            >
+              <FolderOpen size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm toolbar-chip"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                setActiveTab('global');
+                setAutosaveToggleToken((token) => token + 1);
+              }}
+              title="Autosave recovery"
+              aria-label="Autosave recovery"
+            >
+              <LifeBuoy size={14} />
+            </button>
+          </div>
+          <div className="toolbar-group">
+            <button
+              type="button"
+              className="icon-btn sm toolbar-chip"
+              disabled={typeof setTimelineMode !== 'function'}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                setTimelineMode?.((v) => !v);
+              }}
+              title={timelineMode ? 'Timeline mode (BPM + Audio disabled)' : 'Free mode (no timeline)'}
+              aria-label={timelineMode ? 'Disable timeline mode' : 'Enable timeline mode'}
+              style={{ opacity: timelineMode ? 1 : 0.45 }}
+            >
+              <Clock3 size={14} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn sm toolbar-chip"
+              disabled={!midiSupported || !(Array.isArray(midiInputs) && midiInputs.length > 0)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                if (midiInputId) {
+                  setMidiInputId?.('');
+                  return;
+                }
+                const preferred = lastMidiInputIdRef.current;
+                const candidate = (midiInputs || []).find(inp => inp?.id === preferred)?.id
+                  || (midiInputs || [])[0]?.id
+                  || '';
+                if (candidate) setMidiInputId?.(candidate);
+              }}
+              title={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
+              aria-label={midiInputId ? 'Disable MIDI Learn' : 'Enable MIDI Learn'}
+              style={{ opacity: midiInputId ? 1 : 0.45 }}
+            >
+              <Piano size={14} />
+            </button>
+          </div>
+          <div className="toolbar-group toolbar-status">
+            <BeatIndicator panelExpanded={panelState === 'expanded'} />
+            <AudioIndicator panelExpanded={panelState === 'expanded'} />
+            <AudioLEDMeter panelExpanded={panelState === 'expanded'} />
+            <ClearMappingsButton />
+          </div>
         </div>
 
         {/* Tab content area */}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Crosshair, Download, Dices, Globe, Maximize2, Radio, Square } from 'lucide-react';
 
 const FloatingActionButtons = ({
   onDownload,
@@ -11,7 +12,7 @@ const FloatingActionButtons = ({
   onToggleTargetMode,
   parameterTargetMode,
 }) => {
-  const modeIcon = parameterTargetMode === 'global' ? '🌐' : '🎯';
+  const ModeIcon = parameterTargetMode === 'global' ? Globe : Crosshair;
   const modeTitle = parameterTargetMode === 'global'
     ? 'Target: Global (switch to Individual)'
     : 'Target: Individual (switch to Global)';
@@ -20,11 +21,8 @@ const FloatingActionButtons = ({
   if (isFullscreen) {
     return (
       <div 
-        className="floating-actions" 
+        className="floating-actions floating-actions--fullscreen" 
         aria-label="Floating Actions"
-        style={{ opacity: 0.3, transition: 'opacity 0.2s' }}
-        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.3'}
       >
         <button 
           className="fab" 
@@ -32,7 +30,7 @@ const FloatingActionButtons = ({
           aria-label="Exit Fullscreen" 
           onClick={onToggleFullscreen}
         >
-          ⤢
+          <Maximize2 size={18} />
         </button>
       </div>
     );
@@ -47,12 +45,13 @@ const FloatingActionButtons = ({
           aria-label="Toggle parameter target scope"
           onClick={onToggleTargetMode}
         >
-          {modeIcon}
+          <ModeIcon size={18} />
         </button>
       )}
-      <button className="fab" title="Download image" aria-label="Download image" onClick={onDownload}>⬇</button>
-      <button className="fab" title="Randomize scene" aria-label="Randomize scene" onClick={onRandomize}>🎲</button>
-      <button className="fab" title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'} aria-label="Toggle Fullscreen" onClick={onToggleFullscreen}>{isFullscreen ? '⤢' : '⤢'}</button>
+      {onToggleTargetMode && <span className="fab-divider" aria-hidden="true" />}
+      <button className="fab" title="Download image" aria-label="Download image" onClick={onDownload}><Download size={18} /></button>
+      <button className="fab" title="Randomize scene" aria-label="Randomize scene" onClick={onRandomize}><Dices size={18} /></button>
+      <button className="fab" title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'} aria-label="Toggle Fullscreen" onClick={onToggleFullscreen}><Maximize2 size={18} /></button>
       <button
         className={`fab${isRecording ? ' recording-active' : ''}`}
         title={isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -61,7 +60,7 @@ const FloatingActionButtons = ({
         data-recording={isRecording ? 'true' : 'false'}
         onClick={isRecording ? onStopRecording : onStartRecording}
       >
-        {isRecording ? '⏹' : '⏺'}
+        {isRecording ? <Square size={18} /> : <Radio size={18} />}
       </button>
     </div>
   );

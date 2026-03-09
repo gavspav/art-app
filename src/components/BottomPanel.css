@@ -41,7 +41,7 @@
   height: 100% !important;
   margin: 0;
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(255,255,255,0.05);
 }
 
 .timeline-workspace-controls .bottom-panel .tab-content-area {
@@ -60,7 +60,7 @@
 }
 
 .bottom-panel.peek {
-  transform: translateY(calc(100% - 20px));
+  transform: translateY(calc(100% - 30px));
 }
 
 .bottom-panel.expanded {
@@ -85,7 +85,7 @@
 
 /* Peek bar */
 .panel-peek-bar {
-  height: 20px;
+  height: 30px;
   background: linear-gradient(180deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
@@ -130,7 +130,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  opacity: 0.7;
+  opacity: 0.82;
   transition: opacity 200ms ease;
 }
 
@@ -145,9 +145,9 @@
 }
 
 .peek-text {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: 0.14em;
   color: rgba(255, 255, 255, 0.8);
   font-weight: 600;
 }
@@ -212,7 +212,7 @@
 }
 
 .panel-title-bar-inline {
-  height: 20px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -240,9 +240,9 @@
 }
 
 .panel-title-inline-text {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: 0.14em;
   color: rgba(255, 255, 255, 0.96);
   font-weight: 600;
 }
@@ -305,14 +305,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 16px;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .tabs-container {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex: 1 1 auto;
   min-width: 0; /* allow overflow container to actually shrink */
   overflow-x: auto;
@@ -322,13 +322,13 @@
 }
 
 .tab-button {
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: rgba(255, 255, 255, 0.6);
+  padding: 7px 12px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.64);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   transition: all 200ms ease;
   display: flex;
@@ -336,29 +336,32 @@
   gap: 6px;
   min-width: fit-content;
   flex: 0 0 auto; /* prevent shrinking so horizontal scroll works */
+  position: relative;
 }
 
 .tab-button:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.94);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .tab-button.active {
-  background: linear-gradient(135deg, var(--accent-dim) 0%, rgba(41, 182, 246, 0.1) 100%);
+  background: linear-gradient(135deg, rgba(79, 195, 247, 0.16) 0%, rgba(41, 182, 246, 0.08) 100%);
   color: var(--accent);
   border-color: var(--accent-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 .tab-icon {
-  font-size: 14px;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tab-label {
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
 }
 
 /* Compact mode: when panel is narrow, hide labels and tighten buttons */
@@ -367,6 +370,23 @@
 }
 .bottom-panel.compact .tab-button {
   padding: 6px 8px;
+}
+
+.bottom-panel.compact .tab-button.active::after {
+  content: attr(data-label);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(8, 12, 18, 0.92);
+  color: rgba(255,255,255,0.86);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* Panel controls */
@@ -401,9 +421,30 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 8px 16px 0 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   margin-top: 4px;
+}
+
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+}
+
+.toolbar-chip {
+  min-height: 28px;
+}
+
+.toolbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .bottom-panel.compact .global-toolbar {

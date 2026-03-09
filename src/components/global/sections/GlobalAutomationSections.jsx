@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { FolderOpen, Music2, Pause, Play, Settings2, Square, X } from 'lucide-react';
 import { useMidi } from '../../../context/MidiContext.jsx';
 import { useAudioReactive } from '../../../context/AudioContext.jsx';
 import { useBPM } from '../../../context/BPMContext.jsx';
@@ -1987,14 +1988,14 @@ const AudioReactiveSection = () => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="compact-label" style={{ fontWeight: 600 }}>🎵 Audio Input</span>
+        <span className="compact-label" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}><Music2 size={14} />Audio Input</span>
         <button
           type="button"
           className="icon-btn sm"
           title="Audio settings"
           aria-label="Audio settings"
           onClick={(e) => { e.stopPropagation(); setShowSettings(s => !s); }}
-        >⚙</button>
+        ><Settings2 size={14} /></button>
       </div>
 
       {/* Enable/Disable toggle */}
@@ -2035,7 +2036,7 @@ const AudioReactiveSection = () => {
       {isFileMode && fileInfo && (
         <div style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-            <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>🎵</span>
+            <span style={{ fontSize: '0.7rem', opacity: 0.7, display: 'inline-flex' }}><Music2 size={12} /></span>
             <span style={{ fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {fileInfo.name}
             </span>
@@ -2046,7 +2047,7 @@ const AudioReactiveSection = () => {
               onClick={stopFilePlayback}
               title="Close file and return to mic input"
             >
-              ✕
+              <X size={12} />
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -2057,7 +2058,7 @@ const AudioReactiveSection = () => {
               onClick={toggleFilePlayback}
               title={isFilePlaying ? 'Pause' : 'Play'}
             >
-              {isFilePlaying ? '⏸' : '▶'}
+              {isFilePlaying ? <Pause size={14} /> : <Play size={14} />}
             </button>
             <input
               type="range"
@@ -2092,7 +2093,10 @@ const AudioReactiveSection = () => {
             style={{ fontSize: '0.75rem', width: '100%' }}
             onClick={() => fileInputRef.current?.click()}
           >
-            {isFileMode ? '🎵 Load Different File' : '📁 Play from File'}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+              {isFileMode ? <Music2 size={14} /> : <FolderOpen size={14} />}
+              {isFileMode ? 'Load Different File' : 'Play from File'}
+            </span>
           </button>
         </div>
       )}
@@ -3388,7 +3392,7 @@ const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span className="compact-label" style={{ fontWeight: 600 }}>♪ BPM / Beat Sync</span>
+        <span className="compact-label" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}><Music2 size={14} />BPM / Beat Sync</span>
       </div>
 
       {/* BPM and controls */}
@@ -3416,7 +3420,7 @@ const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
           onClick={togglePlay}
           style={{ fontSize: '0.75rem', padding: '2px 6px' }}
         >
-          {isPlaying ? '⏸ Pause' : '▶ Play'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>{isPlaying ? <Pause size={14} /> : <Play size={14} />}{isPlaying ? 'Pause' : 'Play'}</span>
         </button>
         
         <button
@@ -3424,7 +3428,7 @@ const BPMSection = ({ showBeatCounter: _showBeatCounter = false }) => {
           onClick={reset}
           style={{ fontSize: '0.75rem', padding: '2px 6px' }}
         >
-          ⏹ Reset
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}><Square size={14} />Reset</span>
         </button>
         
         <button

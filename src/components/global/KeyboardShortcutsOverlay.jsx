@@ -1,3 +1,63 @@
+const SHORTCUT_SECTIONS = [
+  {
+    title: 'Workspace',
+    items: [
+      [['1'], 'Global tab'],
+      [['2'], 'Layer Shape tab'],
+      [['3'], 'Layer Animation tab'],
+      [['4'], 'Layer Colour tab'],
+      [['5'], 'Audio tab'],
+      [['6'], 'Presets tab'],
+      [['7'], 'Groups tab'],
+      [['H'], 'Hide / show control panel'],
+      [['F'], 'Toggle fullscreen'],
+      [['T'], 'Show / hide timeline'],
+      [['K'], 'Toggle this shortcuts panel'],
+    ],
+  },
+  {
+    title: 'Scene',
+    items: [
+      [['G'], 'Toggle target Individual / Global'],
+      [['I'], 'Toggle isolate mode'],
+      [['O'], 'Show / hide layer outlines'],
+      [['R'], 'Randomize all'],
+      [['S'], 'Quick-save RAM preset'],
+      [['Shift', 'A'], 'Recall RAM preset'],
+      [['L'], 'Lock / unlock control panel'],
+      [['N'], 'Toggle node edit mode'],
+      [['Z'], 'Toggle Z-scale ignore'],
+      [['Space'], 'Freeze / unfreeze, or timeline play / pause when visible'],
+    ],
+  },
+  {
+    title: 'Audio',
+    items: [
+      [['B'], 'Toggle BPM play / pause'],
+      [['A'], 'Toggle audio reactive input'],
+      [['P'], 'Timeline play / pause'],
+      [['Home'], 'Stop timeline and go to start'],
+      [['C'], 'Capture active layer to shape keyframe'],
+      [['Delete'], 'Delete selected layer in node edit mode'],
+      [['['], 'Select previous layer'],
+      [[']'], 'Select next layer'],
+      [['Shift', '1..9'], 'Activate Layers 1-9'],
+      [['Esc'], 'Close dialogs and overlays'],
+    ],
+  },
+  {
+    title: 'Timeline',
+    items: [
+      [['Ctrl/Cmd', 'Drag'], 'Marquee-select timeline keyframes'],
+      [['Ctrl/Cmd', 'C/X/V'], 'Copy, cut, or paste keyframes at the playhead'],
+      [['Shift', 'C'], 'Overwrite selected keyframe or capture a global keyframe'],
+      [['Shift', 'V'], 'Generate variation keyframe at playhead'],
+      [['Shift', 'R'], 'Generate N random keyframes'],
+      [['Shift', 'F'], 'Fill variation keyframes between first and last keyframe'],
+    ],
+  },
+];
+
 export default function KeyboardShortcutsOverlay({ visible, onClose }) {
   if (!visible) return null;
 
@@ -16,51 +76,39 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
       onClick={handleBackgroundClick}
     >
       <div className="shortcuts-card">
-        <div className="shortcuts-title">Keyboard Shortcuts</div>
-        <div className="shortcuts-grid">
-          <div><kbd>1</kbd><span>Global tab</span></div>
-          <div><kbd>2</kbd><span>Layer Shape tab</span></div>
-          <div><kbd>3</kbd><span>Layer Animation tab</span></div>
-          <div><kbd>4</kbd><span>Layer Colour tab</span></div>
-          <div><kbd>5</kbd><span>Presets tab</span></div>
-          <div><kbd>6</kbd><span>Groups tab</span></div>
-          <div><kbd>F</kbd><span>Toggle Fullscreen</span></div>
-          <div><kbd>G</kbd><span>Toggle target Individual / Global</span></div>
-          <div><kbd>I</kbd><span>Toggle isolate mode</span></div>
-          <div><kbd>O</kbd><span>Show / Hide layer outlines</span></div>
-          <div><kbd>R</kbd><span>Randomize all</span></div>
-          <div><kbd>S</kbd><span>Quick-save RAM preset</span></div>
-          <div><kbd>Shift</kbd> + <kbd>A</kbd><span>Recall RAM preset</span></div>
-          <div><kbd>L</kbd><span>Lock / Unlock control panel</span></div>
-          <div><kbd>N</kbd><span>Toggle node edit mode</span></div>
-          <div><kbd>Z</kbd><span>Toggle Z-Scale ignore</span></div>
-          <div><kbd>Space</kbd><span>Freeze / Unfreeze (or Timeline Play/Pause when timeline visible)</span></div>
-          <div><kbd>Delete</kbd><span>Delete selected layer (Node Edit mode)</span></div>
-          <div><kbd>[</kbd><span>Select previous layer</span></div>
-          <div><kbd>]</kbd><span>Select next layer</span></div>
-          <div><kbd>Shift</kbd> + <kbd>1</kbd>..<kbd>9</kbd><span>Activate Layers 1–9</span></div>
-          <div><kbd>H</kbd><span>Hide / Show control panel</span></div>
-          <div><kbd>B</kbd><span>Toggle BPM play/pause</span></div>
-          <div><kbd>A</kbd><span>Toggle audio reactive input</span></div>
-          <div><kbd>T</kbd><span>Show / Hide timeline</span></div>
-          <div><kbd>P</kbd><span>Timeline play / pause</span></div>
-          <div><kbd>Home</kbd><span>Stop timeline and go to start</span></div>
-          <div><kbd>C</kbd><span>Capture active layer to shape keyframe (when timeline visible)</span></div>
-          <div><kbd>Ctrl/Cmd</kbd> + <kbd>Drag</kbd><span>Marquee-select timeline keyframes</span></div>
-          <div><kbd>Ctrl/Cmd</kbd> + <kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd><span>Copy, cut, or paste timeline keyframes at the playhead</span></div>
-          <div><kbd>Shift</kbd> + <kbd>C</kbd><span>Overwrite the selected timeline keyframe, or capture the current scene to a global keyframe</span></div>
-          <div><kbd>Shift</kbd> + <kbd>V</kbd><span>Generate variation keyframe at playhead (active layer&apos;s shape track)</span></div>
-          <div><kbd>Shift</kbd> + <kbd>R</kbd><span>Generate N random keyframes (variation scaled by audio energy if enabled)</span></div>
-          <div><kbd>Shift</kbd> + <kbd>F</kbd><span>Fill variation keyframes between first and last keyframe on active shape track</span></div>
-          <div><kbd>K</kbd><span>Toggle this shortcuts panel</span></div>
-          <div><kbd>Esc</kbd><span>Close dialogs/overlays</span></div>
+        <div className="shortcuts-header">
+          <div>
+            <div className="shortcuts-title">Keyboard Shortcuts</div>
+            <div className="shortcuts-subtitle">Core navigation, audio, and timeline controls in one place.</div>
+          </div>
+          {typeof onClose === 'function' && (
+            <button type="button" className="control-button" onClick={onClose}>
+              Close
+            </button>
+          )}
         </div>
-        <div className="shortcuts-hint">Press Esc or K to close</div>
-        {typeof onClose === 'function' && (
-          <button type="button" className="control-button" onClick={onClose}>
-            Close
-          </button>
-        )}
+        <div className="shortcuts-body">
+          {SHORTCUT_SECTIONS.map((section) => (
+            <section key={section.title} className="shortcuts-section">
+              <div className="shortcuts-section-title">{section.title}</div>
+              <div className="shortcuts-grid">
+                {section.items.map(([keys, description]) => (
+                  <div key={`${section.title}-${description}`}>
+                    <span>
+                      {keys.map((key) => (
+                        <kbd key={`${description}-${key}`}>{key}</kbd>
+                      ))}
+                    </span>
+                    <span>{description}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+        <div className="shortcuts-footer">
+          <div className="shortcuts-hint">Press `Esc` or `K` to close.</div>
+        </div>
       </div>
     </div>
   );

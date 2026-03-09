@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { Dices, Music2, Settings2 } from 'lucide-react';
 // NOTE: useAppState removed to prevent context subscription causing re-renders on every frame
 // Morph-related values are now passed as props from BottomPanel
 import { useParameters } from '../../context/ParameterContext.jsx';
@@ -222,6 +223,7 @@ const GlobalControls = ({
     const audioActive = !!audioContext?.settings?.enabled;
     return (
       <span
+        className="automation-badge"
         title={
           audioEnabled
             ? (audioActive ? 'Audio automation mapped' : 'Audio automation mapped (disabled)')
@@ -229,15 +231,12 @@ const GlobalControls = ({
         }
         aria-label={audioEnabled ? 'Audio automation mapped' : 'BPM automation mapped'}
         style={{
-          fontSize: '0.85rem',
           color: audioEnabled
             ? (audioActive ? '#4ade80' : 'rgba(74,222,128,0.6)')
             : (bpmPlaying ? '#4fc3f7' : 'rgba(79,195,247,0.6)'),
-          lineHeight: 1,
-          marginLeft: 6,
         }}
       >
-        ♪
+        <Music2 size={11} />
       </span>
     );
   }, [bpmContext, audioContext]);
@@ -1448,7 +1447,7 @@ const GlobalControls = ({
     <div className="tab-section global-controls-panel">
       <div className="control-card">
         <details style={{ marginBottom: '0.4rem' }}>
-          <summary style={{ cursor: 'pointer', userSelect: 'none', fontSize: '0.9em', opacity: 0.85, padding: '0.2rem 0' }}>Settings</summary>
+          <summary>Settings</summary>
           <div style={{ marginTop: '0.4rem' }}>
             <div className="control-row" style={{ justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem 0.6rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem 0.8rem', flexWrap: 'wrap', flex: '1 1 auto', justifyContent: 'flex-end' }}>
@@ -1456,7 +1455,7 @@ const GlobalControls = ({
                 <label className="compact-label" title="Continue palette colour fading while frozen"><input type="checkbox" checked={!!colorFadeWhileFrozen} onChange={(e) => setColorFadeWhileFrozen(!!e.target.checked)} /> Fade</label>
                 <label className="compact-label" title="Ignore Z movement"><input type="checkbox" checked={!!zIgnore} onChange={(e) => setZIgnore(!!e.target.checked)} /> Z-Ign</label>
                 <label className="compact-label"><input type="checkbox" checked={classicMode} onChange={(e) => setClassicMode(e.target.checked)} /> Classic</label>
-                <button className="icon-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}>🎲</button>
+                <button className="icon-btn settings-toggle-btn" onClick={handleRandomizeAll} title="Randomise everything" aria-label="Randomise everything" style={{ padding: '0 0.4rem' }}><Dices size={16} /></button>
                 {hasSelectedMidiDevice && (
                   <>
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('randomizeAll'); }} disabled={!midiSupported} title="MIDI Learn: Randomize All">Learn</button>
@@ -1485,9 +1484,9 @@ const GlobalControls = ({
                   <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
                 </div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label" title="Include in Randomize All"><input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} /> Incl</label>
+                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
                   <label className="compact-label" title="Enable background image"><input type="checkbox" checked={!!backgroundImage?.enabled} onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))} /> Img</label>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowFpsSettings(s => !s); }} title="FPS settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                  <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowFpsSettings(s => !s); }} title="FPS settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
               {backgroundImage?.enabled && (
@@ -1512,8 +1511,8 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Speed:</span><BufferedNumberInput value={globalSpeedMultiplier} min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} precision={2} onCommit={(next) => setGlobalSpeedMultiplier(next)} className="dc-value-input" />{renderAutomationBadge('globalSpeedMultiplier')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label" title="Include Global Speed in Randomize All"><input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /> Incl</label>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
               <RangeSlider className="dc-slider" min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} value={globalSpeedMultiplier} onChange={(e) => setGlobalSpeedMultiplier(parseFloat(e.target.value))} rangeMin={speedMin} rangeMax={speedMax} onRangeMinChange={setSpeedMin} onRangeMaxChange={setSpeedMax} />
@@ -1571,8 +1570,8 @@ const GlobalControls = ({
                 {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
                 {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
               </select>
-              <label className="compact-label" title="Include Palette in Randomize All" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /> Incl</label>
-              <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
+              <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+              <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}><Settings2 size={16} /></button>
               {showPaletteSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div style={{ marginBottom: '0.5rem' }}>
@@ -1597,8 +1596,8 @@ const GlobalControls = ({
               <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
                 {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
               </select>
-              <label className="compact-label" title="Include Style in Randomize All" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /> Incl</label>
-              <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}>⚙</button>
+              <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+              <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}><Settings2 size={16} /></button>
               {showBlendModeSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
                   <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
@@ -1619,8 +1618,8 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Opacity:</span><BufferedNumberInput value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} precision={2} onCommit={(next) => { const v = Math.max(0, Math.min(1, next)); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} className="dc-value-input" />{renderAutomationBadge('globalOpacity')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label" title="Include Global Opacity in Randomize All"><input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /> Incl</label>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
               <RangeSlider className="dc-slider" min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} onChange={(e) => { const v = Math.max(0, Math.min(1, parseFloat(e.target.value))); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} rangeMin={opacityMin} rangeMax={opacityMax} onRangeMinChange={setOpacityMin} onRangeMaxChange={setOpacityMax} />
@@ -1652,8 +1651,8 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Layers:</span><BufferedNumberInput value={layerCountDraft} min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} precision={0} onCommit={(next) => commitLayerCountDraft(Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(next))))} className="dc-value-input" inputMode="numeric" />{renderAutomationBadge('layersCount')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label" title="Include Layers in Randomize All"><input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /> Incl</label>
-                  <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}>⚙</button>
+                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
               <RangeSlider className="dc-slider" min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} value={layerCountDraft} onChange={(e) => { setLayerCountDraft(Number(e.target.value)); }} onPointerDown={() => { layerCountDraggingRef.current = true; }} onPointerUp={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} onPointerCancel={() => { layerCountDraggingRef.current = false; commitLayerCountDraft(layerCountDraft); }} rangeMin={layersMin} rangeMax={layersMax} onRangeMinChange={(v) => setLayersMin(Math.max(1, Math.round(v)))} onRangeMaxChange={(v) => setLayersMax(Math.max(1, Math.round(v)))} />
@@ -1710,8 +1709,8 @@ const GlobalControls = ({
                 <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>{v.label}:</span><BufferedNumberInput value={Number(v.value)} min={v.sliderMin} max={v.sliderMax} step={v.step} precision={2} onCommit={(next) => applyVariationValue(v.key, next)} className="dc-value-input" />{renderAutomationBadge(v.key)}</div>
                   <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <label className="compact-label" title={`Include ${v.label} Variation in Randomize All`}><input type="checkbox" checked={!!getIsRnd(v.key)} onChange={(e) => setIsRnd(v.key, e.target.checked)} /> Incl</label>
-                    <button type="button" className="icon-btn" onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }} title={`${v.label} settings`} style={{ padding: '0 0.4rem' }}>⚙</button>
+                    <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd(v.key)} onChange={(e) => setIsRnd(v.key, e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                    <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }} title={`${v.label} settings`} style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                   </div>
                 </div>
                 <RangeSlider className="dc-slider" min={v.sliderMin} max={v.sliderMax} step={v.step} value={Number(v.value)} onChange={(e) => applyVariationValue(v.key, parseFloat(e.target.value))} rangeMin={v.min} rangeMax={v.max} onRangeMinChange={v.setMin} onRangeMaxChange={v.setMax} />
