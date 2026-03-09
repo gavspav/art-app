@@ -2919,9 +2919,13 @@ const AudioSpawnSection = ({
     };
   }, [isActiveTab, enabled, getFeatures, audioSpawnBand, pitchMeterEnabled]);
 
+  useEffect(() => {
+    if (audioSpawnTriggerMode === 'level') return;
+    setAudioSpawnTriggerMode?.('level');
+  }, [audioSpawnTriggerMode, setAudioSpawnTriggerMode]);
+
   const disabledByTimeline = !!timelineMode;
   const canRun = !disabledByTimeline && enabled;
-  const mode = (audioSpawnTriggerMode === 'transient') ? 'transient' : 'level';
   const safeLayers = Array.isArray(layers) ? layers : [];
   const sourceIndex = Math.max(0, Math.min(
     Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0,
@@ -3015,43 +3019,70 @@ const AudioSpawnSection = ({
             );
           })}
         </select>
-        <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7, minWidth: 48, textAlign: 'right' }}>
-          {Number.isFinite(bandValue) ? bandValue.toFixed(2) : '0.00'}
-        </span>
       </div>
 
       <div style={{ marginTop: '0.35rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-          <span className="compact-label" style={{ width: 58 }}>Mode</span>
-          <select
-            className="compact-select"
-            style={{ fontSize: '0.75rem', flex: 1 }}
-            value={mode}
-            disabled={!setAudioSpawnTriggerMode || disabledByTimeline}
-            onChange={(e) => setAudioSpawnTriggerMode?.(e.target.value)}
-          >
-            <option value="level">Threshold</option>
-            <option value="transient">Transients</option>
-          </select>
-        </div>
-
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span className="compact-label">{mode === 'transient' ? 'Sensitivity' : 'Threshold'}</span>
-          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number(audioSpawnThreshold || 0).toFixed(2)}</span>
+          <span className="compact-label">Threshold</span>
+          <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>
+            Live {Number.isFinite(bandValue) ? bandValue.toFixed(2) : '0.00'} | Trigger {Number(audioSpawnThreshold || 0).toFixed(2)}
+          </span>
         </div>
-        <input
-          className="compact-range"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6}
-          disabled={!setAudioSpawnThreshold || disabledByTimeline}
-          onChange={(e) => setAudioSpawnThreshold?.(Number(e.target.value))}
-          title={mode === 'transient'
-            ? 'Lower = more sensitive (triggers on smaller transients)'
-            : 'Spawn when the selected band reaches this level'}
-        />
+        <div style={{ position: 'relative', marginTop: '0.18rem', padding: '0.2rem 0 0.1rem' }}>
+          <div
+            aria-hidden="true"
+            style={{
+              height: 18,
+              borderRadius: 999,
+              background: 'rgba(255,255,255,0.1)',
+              overflow: 'hidden',
+              position: 'relative',
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.08)',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: `${clampValue((Number(bandValue) || 0) * 100, 0, 100)}%`,
+                background: 'linear-gradient(90deg, rgba(79,195,247,0.45) 0%, rgba(107,203,119,0.55) 100%)',
+                transition: 'width 0.08s linear',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: `${clampValue((Number(audioSpawnThreshold) || 0.6) * 100, 0, 100)}%`,
+                width: 2,
+                transform: 'translateX(-1px)',
+                background: '#fff',
+                boxShadow: '0 0 0 1px rgba(0,0,0,0.25)',
+              }}
+            />
+          </div>
+          <input
+            className="compact-range"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={Number.isFinite(audioSpawnThreshold) ? audioSpawnThreshold : 0.6}
+            disabled={!setAudioSpawnThreshold || disabledByTimeline}
+            onChange={(e) => setAudioSpawnThreshold?.(Number(e.target.value))}
+            title="Drag the white marker to set the level needed before spawn triggers."
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              margin: 0,
+              opacity: 0,
+              cursor: disabledByTimeline ? 'default' : 'pointer',
+            }}
+          />
+        </div>
       </div>
 
       <div style={{ marginTop: '0.35rem' }}>
@@ -3086,32 +3117,30 @@ const AudioSpawnSection = ({
         />
       </div>
 
-      {mode === 'level' && (
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
-          <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="If the audio stays above the threshold, spawn repeatedly using the cooldown interval">
-            <input
-              type="checkbox"
-              checked={!!audioSpawnRepeatWhileAbove}
-              disabled={!setAudioSpawnRepeatWhileAbove || disabledByTimeline}
-              onChange={(e) => setAudioSpawnRepeatWhileAbove?.(!!e.target.checked)}
-            />
-            Repeat While Above
-          </label>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span className="compact-label" title="Hysteresis reduces chatter when hovering near the threshold">Hyst</span>
-            <BufferedNumberInput
-              value={Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08}
-              step={0.01}
-              min={0}
-              max={0.5}
-              onCommit={setAudioSpawnHysteresis}
-              className="compact-number"
-              style={{ width: '5.5rem' }}
-              disabled={!setAudioSpawnHysteresis || disabledByTimeline}
-            />
-          </div>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
+        <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="If the audio stays above the threshold, spawn repeatedly using the cooldown interval">
+          <input
+            type="checkbox"
+            checked={!!audioSpawnRepeatWhileAbove}
+            disabled={!setAudioSpawnRepeatWhileAbove || disabledByTimeline}
+            onChange={(e) => setAudioSpawnRepeatWhileAbove?.(!!e.target.checked)}
+          />
+          Repeat While Above
+        </label>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span className="compact-label" title="Hysteresis reduces chatter when hovering near the threshold">Hyst</span>
+          <BufferedNumberInput
+            value={Number.isFinite(audioSpawnHysteresis) ? audioSpawnHysteresis : 0.08}
+            step={0.01}
+            min={0}
+            max={0.5}
+            onCommit={setAudioSpawnHysteresis}
+            className="compact-number"
+            style={{ width: '5.5rem' }}
+            disabled={!setAudioSpawnHysteresis || disabledByTimeline}
+          />
         </div>
-      )}
+      </div>
 
       <div style={{ marginTop: '0.25rem', opacity: canRun ? 1 : 0.7 }}>
         <label className="compact-label" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }} title="Constrain spawned layer colours to the active global palette">
