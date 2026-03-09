@@ -1346,6 +1346,7 @@ const AudioDemoPresetsSection = ({
 } = {}) => {
   const audio = useAudioReactive();
   const initialUiState = useMemo(() => loadAudioDemoUiState(), []);
+  const autoApplyPresetKeyRef = useRef(null);
   const [selectedPresetKey, setSelectedPresetKey] = useState(() => (
     initialUiState.selectedPresetKey || DEFAULT_COMBINED_PRESET_KEY
   ));
@@ -1592,6 +1593,13 @@ const AudioDemoPresetsSection = ({
     setAudioSpawnDirectionSpread,
   ]);
 
+  useEffect(() => {
+    if (!selectedPresetEntry) return;
+    if (autoApplyPresetKeyRef.current !== selectedPresetEntry.key) return;
+    autoApplyPresetKeyRef.current = null;
+    applyPreset();
+  }, [selectedPresetEntry, applyPreset]);
+
   if (!audio) return null;
 
   return (
@@ -1616,16 +1624,6 @@ const AudioDemoPresetsSection = ({
         >
           {presetsExpanded ? '▾' : '▸'} Audio Demo Presets
         </button>
-        <button
-          type="button"
-          className="btn-compact-secondary"
-          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-          onClick={applyPreset}
-          disabled={!selectedPresetEntry}
-          title="Apply selected audio demo preset"
-        >
-          Apply
-        </button>
       </div>
 
       {presetsExpanded && (
@@ -1635,7 +1633,11 @@ const AudioDemoPresetsSection = ({
               className="compact-select"
               style={{ width: '100%' }}
               value={selectedPresetEntry?.key || ''}
-              onChange={(e) => setSelectedPresetKey(e.target.value)}
+              onChange={(e) => {
+                const nextKey = e.target.value;
+                autoApplyPresetKeyRef.current = nextKey;
+                setSelectedPresetKey(nextKey);
+              }}
             >
               <optgroup label="Modulation Demo Modes (No Spawn)">
                 {MODULATION_PRESETS.map((preset, index) => (
@@ -2579,6 +2581,7 @@ const PatchMappingCard = ({
 
 const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false, layers = [] } = {}) => {
   const audio = useAudioReactive();
+  const [matrixExpanded, setMatrixExpanded] = useState(false);
   const [liveFeatures, setLiveFeatures] = useState({
     rms: 0,
     bass: 0,
@@ -2710,112 +2713,124 @@ const AudioPatchMatrixSection = ({ isActiveTab = true, timelineMode = false, lay
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <span className="compact-label" style={{ fontWeight: 600 }}>🧩 Audio Patch Matrix</span>
-        <span className="compact-label" style={{ opacity: 0.65, fontSize: '0.68rem' }}>{mappedCount} active</span>
-      </div>
-
-      {/* Live band meters */}
-      <div style={{ marginTop: '0.3rem', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.3rem' }}>
-        {[
-          { id: 'rms', label: 'Level', color: '#4fc3f7' },
-          { id: 'bass', label: 'Bass', color: '#ff6b6b' },
-          { id: 'mids', label: 'Mids', color: '#ffd93d' },
-          { id: 'highs', label: 'Highs', color: '#6bcb77' },
-          { id: 'pitch', label: 'Pitch', color: '#90caf9' },
-          { id: 'transient', label: 'Transient', color: '#ff8a65' },
-          { id: 'beat', label: 'Beat', color: '#ce93d8' },
-          { id: 'waveformEnergy', label: 'Wave', color: '#80cbc4' },
-        ].map(({ id, label, color }) => (
-          <div key={id} style={{ fontSize: '0.62rem', opacity: 0.8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{label}</span>
-              <span style={{ opacity: 0.6 }}>{(liveFeatures[id] || 0).toFixed(2)}</span>
-            </div>
-            <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginTop: '0.08rem' }}>
-              <div style={{ height: '100%', width: `${clampValue((liveFeatures[id] || 0) * 100, 0, 100)}%`, background: color, transition: 'width 0.08s' }} />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Add mapping */}
-      <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <select
-          className="compact-select"
-          value={addParamId}
-          onChange={(e) => { setAddParamId(e.target.value); setAddLayerTarget('all'); }}
-          style={{ flex: 1, minWidth: 0, fontSize: '0.66rem' }}
-        >
-          <option value="">+ Add parameter...</option>
-          {PATCH_MATRIX_PARAM_GROUPS.map(group => {
-            const items = availableParams[group];
-            if (!items || items.length === 0) return null;
-            return (
-              <optgroup key={group} label={group}>
-                {items.map(item => (
-                  <option key={item.id} value={item.id}>{item.label}</option>
-                ))}
-              </optgroup>
-            );
-          })}
-        </select>
-        {isSelectedPerLayer && (
-          <select
-            className="compact-select"
-            value={addLayerTarget}
-            onChange={(e) => setAddLayerTarget(e.target.value)}
-            style={{ width: 'auto', minWidth: '5.5rem', fontSize: '0.66rem' }}
-          >
-            <option value="all">All Layers</option>
-            {Array.from({ length: layerCount }, (_, i) => (
-              <option key={i} value={String(i + 1)}>Layer {i + 1}</option>
-            ))}
-          </select>
-        )}
         <button
           type="button"
           className="btn-compact-secondary"
-          onClick={handleAddMapping}
-          disabled={!addParamId || disabledByTimeline}
-          style={{ fontSize: '0.66rem', padding: '3px 10px', whiteSpace: 'nowrap' }}
+          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+          onClick={() => setMatrixExpanded(v => !v)}
+          title={matrixExpanded ? 'Collapse audio patch matrix' : 'Expand audio patch matrix'}
         >
-          Add
+          {matrixExpanded ? '▾' : '▸'} Audio Patch Matrix
         </button>
+        <span className="compact-label" style={{ opacity: 0.65, fontSize: '0.68rem' }}>{mappedCount} active</span>
       </div>
 
-      {/* Active mapping cards */}
-      <div style={{ marginTop: '0.4rem', display: 'grid', gap: '0.3rem' }}>
-        {activeMappingIds.length === 0 ? (
-          <div style={{ fontSize: '0.7rem', opacity: 0.55, padding: '0.5rem 0' }}>
-            No active mappings. Use the dropdown above to add a parameter.
+      {matrixExpanded && (
+        <>
+          {/* Live band meters */}
+          <div style={{ marginTop: '0.3rem', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.3rem' }}>
+            {[
+              { id: 'rms', label: 'Level', color: '#4fc3f7' },
+              { id: 'bass', label: 'Bass', color: '#ff6b6b' },
+              { id: 'mids', label: 'Mids', color: '#ffd93d' },
+              { id: 'highs', label: 'Highs', color: '#6bcb77' },
+              { id: 'pitch', label: 'Pitch', color: '#90caf9' },
+              { id: 'transient', label: 'Transient', color: '#ff8a65' },
+              { id: 'beat', label: 'Beat', color: '#ce93d8' },
+              { id: 'waveformEnergy', label: 'Wave', color: '#80cbc4' },
+            ].map(({ id, label, color }) => (
+              <div key={id} style={{ fontSize: '0.62rem', opacity: 0.8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{label}</span>
+                  <span style={{ opacity: 0.6 }}>{(liveFeatures[id] || 0).toFixed(2)}</span>
+                </div>
+                <div style={{ height: 4, borderRadius: 3, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginTop: '0.08rem' }}>
+                  <div style={{ height: '100%', width: `${clampValue((liveFeatures[id] || 0) * 100, 0, 100)}%`, background: color, transition: 'width 0.08s' }} />
+                </div>
+              </div>
+            ))}
           </div>
-        ) : (
-          activeMappingIds.map((paramId) => (
-            <PatchMappingCard
-              key={paramId}
-              paramId={paramId}
-              mapping={mappings[paramId]}
-              debugValue={debugValues[paramId]}
-              liveFeatures={liveFeatures}
-              setMapping={setMapping}
-              clearMapping={clearMappingFn}
-              disabledByTimeline={disabledByTimeline}
-              triggerDefaults={triggerDefaults}
-              triggerSourceOptions={triggerSourceOptions}
-            />
-          ))
-        )}
-      </div>
 
-      {!enabled && (
-        <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.6 }}>
-          Enable Audio Input above to audition patch connections.
-        </div>
-      )}
-      {disabledByTimeline && (
-        <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.6 }}>
-          Editing is disabled while Timeline mode is active.
-        </div>
+          {/* Add mapping */}
+          <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              className="compact-select"
+              value={addParamId}
+              onChange={(e) => { setAddParamId(e.target.value); setAddLayerTarget('all'); }}
+              style={{ flex: 1, minWidth: 0, fontSize: '0.66rem' }}
+            >
+              <option value="">+ Add parameter...</option>
+              {PATCH_MATRIX_PARAM_GROUPS.map(group => {
+                const items = availableParams[group];
+                if (!items || items.length === 0) return null;
+                return (
+                  <optgroup key={group} label={group}>
+                    {items.map(item => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+            {isSelectedPerLayer && (
+              <select
+                className="compact-select"
+                value={addLayerTarget}
+                onChange={(e) => setAddLayerTarget(e.target.value)}
+                style={{ width: 'auto', minWidth: '5.5rem', fontSize: '0.66rem' }}
+              >
+                <option value="all">All Layers</option>
+                {Array.from({ length: layerCount }, (_, i) => (
+                  <option key={i} value={String(i + 1)}>Layer {i + 1}</option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              className="btn-compact-secondary"
+              onClick={handleAddMapping}
+              disabled={!addParamId || disabledByTimeline}
+              style={{ fontSize: '0.66rem', padding: '3px 10px', whiteSpace: 'nowrap' }}
+            >
+              Add
+            </button>
+          </div>
+
+          {/* Active mapping cards */}
+          <div style={{ marginTop: '0.4rem', display: 'grid', gap: '0.3rem' }}>
+            {activeMappingIds.length === 0 ? (
+              <div style={{ fontSize: '0.7rem', opacity: 0.55, padding: '0.5rem 0' }}>
+                No active mappings. Use the dropdown above to add a parameter.
+              </div>
+            ) : (
+              activeMappingIds.map((paramId) => (
+                <PatchMappingCard
+                  key={paramId}
+                  paramId={paramId}
+                  mapping={mappings[paramId]}
+                  debugValue={debugValues[paramId]}
+                  liveFeatures={liveFeatures}
+                  setMapping={setMapping}
+                  clearMapping={clearMappingFn}
+                  disabledByTimeline={disabledByTimeline}
+                  triggerDefaults={triggerDefaults}
+                  triggerSourceOptions={triggerSourceOptions}
+                />
+              ))
+            )}
+          </div>
+
+          {!enabled && (
+            <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.6 }}>
+              Enable Audio Input above to audition patch connections.
+            </div>
+          )}
+          {disabledByTimeline && (
+            <div style={{ marginTop: '0.35rem', fontSize: '0.68rem', opacity: 0.6 }}>
+              Editing is disabled while Timeline mode is active.
+            </div>
+          )}
+        </>
       )}
     </div>
   );
