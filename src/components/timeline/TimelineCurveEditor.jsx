@@ -31,9 +31,13 @@ const TimelineCurveEditor = ({
   onRerollAllVariations,
   hasClipboard = false,
   clipboardTrackType = null,
+  clipboardIsMultiSelection = false,
   clipboardSourceTargetId = null,
   allShapeTracks = [],
   collapsed = false,
+  marqueeMode = false,
+  selectedKeyframeIds = new Set(),
+  pasteTimeSeconds = null,
 }) => {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
@@ -70,6 +74,11 @@ const TimelineCurveEditor = ({
     () => keyframes.filter(k => !!k?.variation).length,
     [keyframes],
   );
+  const externalSelection = useMemo(
+    () => (selectedKeyframeIds instanceof Set ? selectedKeyframeIds : new Set(selectedKeyframeIds || [])),
+    [selectedKeyframeIds],
+  );
+  const resolvedPasteTime = Number.isFinite(pasteTimeSeconds) ? pasteTimeSeconds : positionSeconds;
 
   // Padding (no left padding so time 0 aligns with ruler/waveform start)
   const padding = useMemo(() => ({ top: 8, right: 8, bottom: 8, left: 0 }), []);
@@ -168,11 +177,12 @@ const TimelineCurveEditor = ({
 
   // Handle mouse down on keyframe
   const handleKeyframeMouseDown = useCallback((e, kf) => {
+    if (marqueeMode) return;
     e.preventDefault();
     e.stopPropagation();
     setSelectedKeyframe(kf.id);
     setDraggingKeyframe(kf.id);
-  }, []);
+  }, [marqueeMode]);
 
   // Handle mouse move for dragging
   const handleMouseMove = useCallback((e) => {
@@ -227,6 +237,7 @@ const TimelineCurveEditor = ({
 
   // Handle double-click to add keyframe
   const handleDoubleClick = useCallback((e) => {
+    if (marqueeMode) return;
     const svg = svgRef.current;
     if (!svg) return;
     
@@ -241,10 +252,11 @@ const TimelineCurveEditor = ({
     } else {
       onAddKeyframe?.(timeSeconds, value01, 'linear', 0.5);
     }
-  }, [svgToKeyframe, onAddKeyframe, isColorTrack]);
+  }, [marqueeMode, svgToKeyframe, onAddKeyframe, isColorTrack]);
 
   // Handle click on background to seek playhead
   const handleBackgroundClick = useCallback((e) => {
+    if (marqueeMode) return;
     if (!onSeek) return;
     // Ignore if a drag just finished (mousedown was on a keyframe)
     if (draggingKeyframe) return;
@@ -254,10 +266,11 @@ const TimelineCurveEditor = ({
     const svgX = e.clientX - rect.left;
     const clickTime = Math.max(0, Math.min(lengthSeconds, (svgX - padding.left + scrollLeft) / pixelsPerSecond));
     onSeek(clickTime);
-  }, [onSeek, draggingKeyframe, lengthSeconds, padding.left, scrollLeft, pixelsPerSecond]);
+  }, [marqueeMode, onSeek, draggingKeyframe, lengthSeconds, padding.left, scrollLeft, pixelsPerSecond]);
 
   // Handle keyframe double-click to delete
   const handleKeyframeDoubleClick = useCallback((e, kf) => {
+    if (marqueeMode) return;
     e.preventDefault();
     e.stopPropagation();
     
@@ -268,10 +281,11 @@ const TimelineCurveEditor = ({
     if (keyframes.length <= 2) return;
     
     onRemoveKeyframe?.(kf.id);
-  }, [keyframes, onRemoveKeyframe]);
+  }, [marqueeMode, keyframes, onRemoveKeyframe]);
 
   // Handle click on color keyframe to open color picker
   const handleColorKeyframeClick = useCallback((e, kf) => {
+    if (marqueeMode) return;
     e.preventDefault();
     e.stopPropagation();
     setSelectedKeyframe(kf.id);
@@ -283,7 +297,7 @@ const TimelineCurveEditor = ({
         colorInputRef.current.click();
       }
     }, 0);
-  }, []);
+  }, [marqueeMode]);
 
   // Handle color change from picker
   const handleColorChange = useCallback((e) => {
@@ -295,6 +309,11 @@ const TimelineCurveEditor = ({
 
   // Handle right-click for curve menu (on keyframe)
   const handleKeyframeContextMenu = useCallback((e, kf) => {
+    if (marqueeMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     
@@ -321,10 +340,15 @@ const TimelineCurveEditor = ({
     
     setCurveMenuPos({ x: menuX, y: menuY });
     setShowCurveMenu(true);
-  }, []);
+  }, [marqueeMode]);
 
   // Handle right-click on background - find nearest keyframe for curve editing
   const handleBackgroundContextMenu = useCallback((e) => {
+    if (marqueeMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Always prevent the browser context menu in the timeline
     e.preventDefault();
     e.stopPropagation();
@@ -392,7 +416,7 @@ const TimelineCurveEditor = ({
     
     setCurveMenuPos({ x: menuX, y: menuY });
     setShowCurveMenu(true);
-  }, [keyframes, padding.left, scrollLeft, pixelsPerSecond]);
+  }, [marqueeMode, keyframes, padding.left, scrollLeft, pixelsPerSecond]);
 
   // Apply curve type
   const handleApplyCurveType = useCallback((curveType) => {
@@ -515,7 +539,9 @@ const TimelineCurveEditor = ({
 
   // Keyboard shortcuts for copy/paste (Ctrl/Cmd+C, Ctrl/Cmd+V)
   useEffect(() => {
+    if (marqueeMode) return undefined;
     const handleKeyDown = (e) => {
+      if (e.defaultPrevented || externalSelection.size > 0) return;
       // Only handle if this track's editor is focused or has a selected keyframe
       if (!selectedKeyframe && !curveMenuKeyframeId) return;
       
@@ -529,20 +555,20 @@ const TimelineCurveEditor = ({
           e.preventDefault();
           onCopyKeyframe(kfId);
         }
-      } else if (modKey && e.key === 'v') {
+      } else if (modKey && e.key === 'v' && !clipboardIsMultiSelection) {
         // Paste at playhead - only if this track is the source track
         // This prevents multiple tracks from all trying to paste
         const isSourceTrack = clipboardSourceTargetId && track?.targetId === clipboardSourceTargetId;
         if (hasClipboard && onPasteKeyframe && isSourceTrack) {
           e.preventDefault();
-          onPasteKeyframe(positionSeconds);
+          onPasteKeyframe(resolvedPasteTime);
         }
       }
     };
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selectedKeyframe, curveMenuKeyframeId, onCopyKeyframe, onPasteKeyframe, hasClipboard, positionSeconds, clipboardSourceTargetId, track?.targetId]);
+  }, [marqueeMode, externalSelection, selectedKeyframe, curveMenuKeyframeId, onCopyKeyframe, onPasteKeyframe, hasClipboard, clipboardIsMultiSelection, resolvedPasteTime, clipboardSourceTargetId, track?.targetId]);
 
   // Playhead position (align with global line; account for left padding)
   const playheadX = positionSeconds * pixelsPerSecond - scrollLeft;
@@ -553,6 +579,7 @@ const TimelineCurveEditor = ({
   }, [track, positionSeconds]);
 
   const handleSvgKeyDown = useCallback((e) => {
+    if (marqueeMode) return;
     if (!onSeek) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault();
@@ -585,7 +612,7 @@ const TimelineCurveEditor = ({
         onAddKeyframe?.(positionSeconds, value01, 'linear', 0.5);
       }
     }
-  }, [currentValue, isColorTrack, lengthSeconds, onAddKeyframe, onSeek, positionSeconds, track?.range?.outputMax, track?.range?.outputMin]);
+  }, [marqueeMode, currentValue, isColorTrack, lengthSeconds, onAddKeyframe, onSeek, positionSeconds, track?.range?.outputMax, track?.range?.outputMin]);
 
   // Helper to map value -> Y using same scaling as path
   const valueToY = useCallback((value) => {
@@ -764,7 +791,11 @@ const TimelineCurveEditor = ({
             : basePos;
           const isFirst = i === 0;
           const isLast = i === keyframes.length - 1;
-          const isSelected = selectedKeyframe === kf.id;
+          const isLocallySelected = selectedKeyframe === kf.id;
+          const isExternallySelected = externalSelection.has(kf.id);
+          const isSelected = isLocallySelected || isExternallySelected;
+          const selectionFill = isLocallySelected ? '#ff5722' : '#ffd54f';
+          const selectionStroke = isLocallySelected ? '#fff' : '#ffe082';
           
           // Skip if outside visible area
           if (pos.x < -20 || pos.x > containerWidth + 20) return null;
@@ -782,6 +813,9 @@ const TimelineCurveEditor = ({
                   height={24}
                   fill="transparent"
                   style={{ cursor: 'grab' }}
+                  data-timeline-keyframe="true"
+                  data-track-id={track?.id || ''}
+                  data-keyframe-id={kf.id}
                   onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
                   onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
                   onContextMenu={(e) => handleKeyframeContextMenu(e, kf)}
@@ -789,8 +823,8 @@ const TimelineCurveEditor = ({
                 {/* Diamond shape */}
                 <polygon
                   points={`${pos.x},${pos.y - size} ${pos.x + size},${pos.y} ${pos.x},${pos.y + size} ${pos.x - size},${pos.y}`}
-                  fill={isSelected ? '#ff5722' : trackColor}
-                  stroke={isSelected ? '#fff' : '#fff'}
+                  fill={isSelected ? selectionFill : trackColor}
+                  stroke={isSelected ? selectionStroke : '#fff'}
                   strokeWidth={1.5}
                   style={{ pointerEvents: 'none' }}
                 />
@@ -823,6 +857,9 @@ const TimelineCurveEditor = ({
                   r={14}
                   fill="transparent"
                   style={{ cursor: 'pointer' }}
+                  data-timeline-keyframe="true"
+                  data-track-id={track?.id || ''}
+                  data-keyframe-id={kf.id}
                   onClick={(e) => handleColorKeyframeClick(e, kf)}
                   onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
                   onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
@@ -833,7 +870,7 @@ const TimelineCurveEditor = ({
                   cy={pos.y}
                   r={radius}
                   fill={kfColor}
-                  stroke={isSelected ? '#ff5722' : '#fff'}
+                  stroke={isSelected ? selectionFill : '#fff'}
                   strokeWidth={isSelected ? 3 : 2}
                   style={{ pointerEvents: 'none' }}
                 />
@@ -851,6 +888,9 @@ const TimelineCurveEditor = ({
                 r={12}
                 fill="transparent"
                 style={{ cursor: 'grab' }}
+                data-timeline-keyframe="true"
+                data-track-id={track?.id || ''}
+                data-keyframe-id={kf.id}
                 onMouseDown={(e) => handleKeyframeMouseDown(e, kf)}
                 onDoubleClick={(e) => handleKeyframeDoubleClick(e, kf)}
                 onContextMenu={(e) => handleKeyframeContextMenu(e, kf)}
@@ -860,8 +900,8 @@ const TimelineCurveEditor = ({
                 cx={pos.x}
                 cy={pos.y}
                 r={isSelected ? 7 : (isFirst || isLast ? 6 : 5)}
-                fill={isSelected ? '#ff5722' : (isFirst || isLast ? trackColor : '#fff')}
-                stroke={isSelected ? '#fff' : (isFirst || isLast ? '#fff' : trackColor)}
+                fill={isSelected ? selectionFill : (isFirst || isLast ? trackColor : '#fff')}
+                stroke={isSelected ? selectionStroke : (isFirst || isLast ? '#fff' : trackColor)}
                 strokeWidth={2}
                 style={{ pointerEvents: 'none' }}
               />
@@ -1136,7 +1176,7 @@ const TimelineCurveEditor = ({
           )}
           
           {/* Paste option - for shape keyframes, show submenu with track options */}
-          {clipboardTrackType === 'shape' && hasClipboard && allShapeTracks.length > 0 ? (
+          {!clipboardIsMultiSelection && clipboardTrackType === 'shape' && hasClipboard && allShapeTracks.length > 0 ? (
             <>
               <div
                 style={{
@@ -1158,7 +1198,7 @@ const TimelineCurveEditor = ({
                     type="button"
                     onClick={() => {
                       if (onPasteKeyframeToTrack) {
-                        onPasteKeyframeToTrack(shapeTrack.id, positionSeconds);
+                        onPasteKeyframeToTrack(shapeTrack.id, resolvedPasteTime);
                       }
                       setShowCurveMenu(false);
                     }}
@@ -1184,7 +1224,7 @@ const TimelineCurveEditor = ({
               type="button"
               onClick={() => {
                 if (onPasteKeyframe) {
-                  onPasteKeyframe(positionSeconds);
+                  onPasteKeyframe(resolvedPasteTime);
                 }
                 setShowCurveMenu(false);
               }}
@@ -1201,7 +1241,7 @@ const TimelineCurveEditor = ({
                 textAlign: 'left',
               }}
             >
-              📄 Paste at Playhead (⌘V)
+              📄 Paste at Cursor (⌘V)
             </button>
           )}
           

@@ -36,10 +36,14 @@ const TimelineTrackRow = ({
   onRerollAllGlobalShapeKeyframes,
   hasClipboard = false,
   clipboardTrackType = null,
+  clipboardIsMultiSelection = false,
   clipboardSourceTargetId = null,
   allShapeTracks = [],
   onSeek,
   height = 100,
+  marqueeMode = false,
+  selectedKeyframeIds = new Set(),
+  pasteTimeSeconds = null,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const isShapeTrack = track?.type === 'shape' || track?.targetId?.endsWith(':shape');
@@ -648,10 +652,14 @@ const TimelineTrackRow = ({
           }}
           hasClipboard={hasClipboard}
           clipboardTrackType={clipboardTrackType}
+          clipboardIsMultiSelection={clipboardIsMultiSelection}
           clipboardSourceTargetId={clipboardSourceTargetId}
           allShapeTracks={allShapeTracks}
           onSeek={onSeek}
           collapsed={!isExpanded}
+          marqueeMode={marqueeMode}
+          selectedKeyframeIds={selectedKeyframeIds}
+          pasteTimeSeconds={pasteTimeSeconds}
         />
       </div>
     </div>

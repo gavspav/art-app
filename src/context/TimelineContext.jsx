@@ -61,10 +61,45 @@ const TRACK_COLORS = [
   '#ff8a65', // coral
 ];
 
+const TIME_EPSILON = 0.01;
+
 /**
  * Generate a unique ID
  */
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+const cloneClipboardValue = (value) => JSON.parse(JSON.stringify(value));
+
+const isShapeTrackType = (type, targetId = '') => (
+  type === 'shape' ||
+  type === 'globalShape' ||
+  (typeof targetId === 'string' && targetId.endsWith(':shape'))
+);
+
+const isColorTrackType = (type) => type === 'color';
+
+const isClipboardItemCompatible = (track, itemTrackType) => {
+  const trackIsShape = isShapeTrackType(track?.type, track?.targetId);
+  const itemIsShape = isShapeTrackType(itemTrackType);
+  const trackIsColor = isColorTrackType(track?.type);
+  const itemIsColor = isColorTrackType(itemTrackType);
+  return trackIsShape === itemIsShape && trackIsColor === itemIsColor;
+};
+
+const upsertKeyframes = (existingKeyframes = [], incomingKeyframes = [], epsilon = TIME_EPSILON) => {
+  let nextKeyframes = Array.isArray(existingKeyframes) ? [...existingKeyframes] : [];
+  incomingKeyframes.forEach((incoming) => {
+    const existingIndex = nextKeyframes.findIndex(
+      (kf) => Math.abs((kf?.timeSeconds ?? -Infinity) - incoming.timeSeconds) < epsilon
+    );
+    if (existingIndex >= 0) {
+      nextKeyframes[existingIndex] = incoming;
+    } else {
+      nextKeyframes.push(incoming);
+    }
+  });
+  return nextKeyframes.sort((a, b) => a.timeSeconds - b.timeSeconds);
+};
 
 /**
  * Create a default numeric keyframe
@@ -866,20 +901,57 @@ export const TimelineProvider = ({ children }) => {
    * @param {string} trackId - Track ID
    * @param {string} keyframeId - Keyframe ID to copy
    */
-  const copyKeyframe = useCallback((trackId, keyframeId) => {
-    const track = session.tracks.find(t => t.id === trackId);
-    if (!track) return;
+  const copyKeyframes = useCallback((entries) => {
+    const requestedEntries = Array.isArray(entries) ? entries : [];
+    if (!requestedEntries.length) return;
 
-    const keyframe = track.keyframes.find(kf => kf.id === keyframeId);
-    if (!keyframe) return;
+    const trackIndexMap = new Map(session.tracks.map((track, index) => [track.id, index]));
+    const resolvedItems = requestedEntries
+      .map(({ trackId, keyframeId }) => {
+        const track = session.tracks.find((candidate) => candidate.id === trackId);
+        if (!track) return null;
+        const keyframe = track.keyframes.find((candidate) => candidate.id === keyframeId);
+        if (!keyframe) return null;
+        return {
+          trackId: track.id,
+          trackTargetId: track.targetId || null,
+          trackType: track.type || 'numeric',
+          keyframe: cloneClipboardValue(keyframe),
+          sourceTimeSeconds: Number.isFinite(keyframe.timeSeconds) ? keyframe.timeSeconds : 0,
+          trackIndex: trackIndexMap.get(track.id) ?? 0,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (
+        a.sourceTimeSeconds - b.sourceTimeSeconds ||
+        a.trackIndex - b.trackIndex ||
+        String(a.keyframe?.id || '').localeCompare(String(b.keyframe?.id || ''))
+      ));
 
-    // Store a deep copy of the keyframe along with track type info
+    if (!resolvedItems.length) return;
+
+    const anchorTime = resolvedItems.reduce(
+      (minTime, item) => Math.min(minTime, item.sourceTimeSeconds),
+      resolvedItems[0].sourceTimeSeconds,
+    );
+    const singleItem = resolvedItems.length === 1 ? resolvedItems[0] : null;
+    const homogeneousTrackType = new Set(resolvedItems.map((item) => item.trackType)).size === 1
+      ? resolvedItems[0].trackType
+      : null;
+
     setKeyframeClipboard({
-      keyframe: JSON.parse(JSON.stringify(keyframe)),
-      trackType: track.type || 'numeric',
-      trackTargetId: track.targetId,
+      mode: resolvedItems.length > 1 ? 'multi' : 'single',
+      items: resolvedItems.map(({ trackIndex: _trackIndex, ...item }) => item),
+      anchorTime,
+      keyframe: singleItem?.keyframe || null,
+      trackType: singleItem?.trackType || homogeneousTrackType,
+      trackTargetId: singleItem?.trackTargetId || null,
     });
   }, [session.tracks]);
+
+  const copyKeyframe = useCallback((trackId, keyframeId) => {
+    copyKeyframes([{ trackId, keyframeId }]);
+  }, [copyKeyframes]);
 
   /**
    * Paste the clipboard keyframe at a specific time
@@ -893,50 +965,58 @@ export const TimelineProvider = ({ children }) => {
     if (!keyframeClipboard) return;
 
     const pasteTime = timeSeconds ?? positionRef.current;
-    const { keyframe, trackType, trackTargetId } = keyframeClipboard;
-    const TIME_EPSILON = 0.01; // 10ms tolerance for "same time"
+    const clipboardItems = Array.isArray(keyframeClipboard.items) && keyframeClipboard.items.length
+      ? keyframeClipboard.items
+      : (keyframeClipboard.keyframe
+        ? [{
+          trackId: null,
+          trackTargetId: keyframeClipboard.trackTargetId || null,
+          trackType: keyframeClipboard.trackType || 'numeric',
+          keyframe: keyframeClipboard.keyframe,
+          sourceTimeSeconds: Number.isFinite(keyframeClipboard.keyframe?.timeSeconds)
+            ? keyframeClipboard.keyframe.timeSeconds
+            : 0,
+        }]
+        : []);
+    if (!clipboardItems.length) return;
+    const anchorTime = Number.isFinite(keyframeClipboard.anchorTime)
+      ? keyframeClipboard.anchorTime
+      : clipboardItems.reduce(
+        (minTime, item) => Math.min(minTime, Number(item?.sourceTimeSeconds ?? item?.keyframe?.timeSeconds ?? 0)),
+        Number(clipboardItems[0]?.sourceTimeSeconds ?? clipboardItems[0]?.keyframe?.timeSeconds ?? 0),
+      );
 
     setSession(prev => ({
       ...prev,
       tracks: prev.tracks.map(track => {
-        // Only paste into the original source track (matching targetId)
-        if (!trackTargetId || track.targetId !== trackTargetId) return track;
+        const matchingItems = clipboardItems.filter((item) => {
+          if (clipboardItems.length === 1) {
+            return item.trackTargetId && track.targetId === item.trackTargetId;
+          }
+          return item.trackId === track.id;
+        });
+        if (!matchingItems.length) return track;
 
-        // Check track type compatibility
-        const isShapeTrack = track.type === 'shape' || track.type === 'globalShape' || track.targetId?.endsWith(':shape');
-        const isShapeKeyframe = trackType === 'shape' || trackType === 'globalShape';
-        const isColorTrack = track.type === 'color';
-        const isColorKeyframe = trackType === 'color';
-
-        if (isShapeTrack !== isShapeKeyframe || isColorTrack !== isColorKeyframe) {
+        const validItems = matchingItems.filter((item) => isClipboardItemCompatible(track, item.trackType));
+        if (!validItems.length) {
           console.warn('Cannot paste: keyframe type does not match track type');
           return track;
         }
 
-        // Check if a keyframe already exists at this time
-        const existingIndex = track.keyframes.findIndex(
-          kf => Math.abs(kf.timeSeconds - pasteTime) < TIME_EPSILON
-        );
+        const pastedKeyframes = validItems.map((item) => {
+          const sourceTime = Number.isFinite(item.sourceTimeSeconds)
+            ? item.sourceTimeSeconds
+            : Number(item?.keyframe?.timeSeconds ?? anchorTime);
+          const shiftedTime = pasteTime + (sourceTime - anchorTime);
+          const clampedTime = Math.max(0, Math.min(prev.lengthSeconds, shiftedTime));
+          return {
+            ...cloneClipboardValue(item.keyframe),
+            id: generateId(),
+            timeSeconds: clampedTime,
+          };
+        });
 
-        // Create new keyframe with new ID and updated time
-        const newKeyframe = {
-          ...keyframe,
-          id: generateId(),
-          timeSeconds: pasteTime,
-        };
-
-        let keyframes;
-        if (existingIndex >= 0) {
-          // Replace existing keyframe at this time
-          keyframes = track.keyframes.map((kf, i) =>
-            i === existingIndex ? newKeyframe : kf
-          );
-        } else {
-          // Add new keyframe
-          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
-        }
-
-        return { ...track, keyframes };
+        return { ...track, keyframes: upsertKeyframes(track.keyframes, pastedKeyframes) };
       }),
     }));
   }, [keyframeClipboard]);
@@ -950,8 +1030,11 @@ export const TimelineProvider = ({ children }) => {
     if (!keyframeClipboard) return;
 
     const pasteTime = timeSeconds ?? positionRef.current;
-    const { keyframe, trackType } = keyframeClipboard;
-    const TIME_EPSILON = 0.01;
+    const clipboardItems = Array.isArray(keyframeClipboard.items) && keyframeClipboard.items.length
+      ? keyframeClipboard.items
+      : [];
+    if (clipboardItems.length !== 1) return;
+    const [item] = clipboardItems;
 
     setSession(prev => ({
       ...prev,
@@ -959,39 +1042,17 @@ export const TimelineProvider = ({ children }) => {
         // Only paste into the specified target track
         if (track.id !== targetTrackId) return track;
 
-        // Check track type compatibility
-        const isShapeTrack = track.type === 'shape' || track.type === 'globalShape' || track.targetId?.endsWith(':shape');
-        const isShapeKeyframe = trackType === 'shape' || trackType === 'globalShape';
-        const isColorTrack = track.type === 'color';
-        const isColorKeyframe = trackType === 'color';
-
-        if (isShapeTrack !== isShapeKeyframe || isColorTrack !== isColorKeyframe) {
+        if (!isClipboardItemCompatible(track, item.trackType)) {
           console.warn('Cannot paste: keyframe type does not match track type');
           return track;
         }
 
-        // Check if a keyframe already exists at this time
-        const existingIndex = track.keyframes.findIndex(
-          kf => Math.abs(kf.timeSeconds - pasteTime) < TIME_EPSILON
-        );
-
-        // Create new keyframe with new ID and updated time
         const newKeyframe = {
-          ...keyframe,
+          ...cloneClipboardValue(item.keyframe),
           id: generateId(),
           timeSeconds: pasteTime,
         };
-
-        let keyframes;
-        if (existingIndex >= 0) {
-          keyframes = track.keyframes.map((kf, i) =>
-            i === existingIndex ? newKeyframe : kf
-          );
-        } else {
-          keyframes = [...track.keyframes, newKeyframe].sort((a, b) => a.timeSeconds - b.timeSeconds);
-        }
-
-        return { ...track, keyframes };
+        return { ...track, keyframes: upsertKeyframes(track.keyframes, [newKeyframe]) };
       }),
     }));
   }, [keyframeClipboard]);
@@ -2254,6 +2315,7 @@ export const TimelineProvider = ({ children }) => {
 
     // Keyframe clipboard
     keyframeClipboard,
+    copyKeyframes,
     copyKeyframe,
     pasteKeyframe,
     pasteKeyframeToTrack,
@@ -2343,6 +2405,7 @@ export const TimelineProvider = ({ children }) => {
     addShapeKeyframe,
     addGlobalShapeKeyframe,
     keyframeClipboard,
+    copyKeyframes,
     copyKeyframe,
     pasteKeyframe,
     pasteKeyframeToTrack,

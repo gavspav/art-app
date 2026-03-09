@@ -16,6 +16,30 @@ const cloneForKeyframe = (value) => {
   return JSON.parse(JSON.stringify(value));
 };
 
+const TRACK_HEADER_WIDTH = 200;
+
+const isEditableElement = (target) => (
+  target instanceof HTMLElement &&
+  (target.isContentEditable ||
+    target.tagName === 'INPUT' ||
+    target.tagName === 'TEXTAREA' ||
+    target.tagName === 'SELECT')
+);
+
+const normalizeClientRect = (startX, startY, endX, endY) => ({
+  left: Math.min(startX, endX),
+  top: Math.min(startY, endY),
+  right: Math.max(startX, endX),
+  bottom: Math.max(startY, endY),
+});
+
+const rectsIntersect = (a, b) => !(
+  a.right < b.left ||
+  a.left > b.right ||
+  a.bottom < b.top ||
+  a.top > b.bottom
+);
+
 /**
  * TimelinePanel - Main timeline UI component
  * 
@@ -89,6 +113,7 @@ const TimelinePanel = ({
     generateGlobalVariationKeyframe,
     rerollGlobalShapeKeyframe,
     keyframeClipboard,
+    copyKeyframes,
     copyKeyframe,
     pasteKeyframe,
     pasteKeyframeToTrack,
@@ -117,6 +142,10 @@ const TimelinePanel = ({
   const [useNodeMod, setUseNodeMod] = useState(false);
   const [nodeModAmount, setNodeModAmount] = useState(0.15);
   const [nodeModCycles, setNodeModCycles] = useState(1);
+  const [marqueeMode, setMarqueeMode] = useState(false);
+  const [selectedKeyframes, setSelectedKeyframes] = useState([]);
+  const [cursorTimeSeconds, setCursorTimeSeconds] = useState(null);
+  const [marqueeDrag, setMarqueeDrag] = useState(null);
 
   const hasTimelinePreset = !!(startPreset && startPreset.appState);
 
@@ -156,6 +185,25 @@ const TimelinePanel = ({
   // Get clipboard track type and source for paste menu logic
   const clipboardTrackType = keyframeClipboard?.trackType || null;
   const clipboardSourceTargetId = keyframeClipboard?.trackTargetId || null;
+  const clipboardIsMultiSelection = (keyframeClipboard?.items?.length || 0) > 1;
+  const pasteCursorTime = Number.isFinite(cursorTimeSeconds) ? cursorTimeSeconds : positionSeconds;
+  const selectedKeyframesByTrack = useMemo(() => {
+    const next = new Map();
+    selectedKeyframes.forEach(({ trackId, keyframeId }) => {
+      if (!next.has(trackId)) next.set(trackId, new Set());
+      next.get(trackId).add(keyframeId);
+    });
+    return next;
+  }, [selectedKeyframes]);
+  const marqueeRect = useMemo(() => {
+    if (!marqueeDrag) return null;
+    return normalizeClientRect(
+      marqueeDrag.startX,
+      marqueeDrag.startY,
+      marqueeDrag.currentX,
+      marqueeDrag.currentY,
+    );
+  }, [marqueeDrag]);
 
   // While in node edit mode, automatically write node edits back into the active shape keyframe
   // when the playhead is sitting on that keyframe. This matches "edit keyframe in place" behaviour.
@@ -422,6 +470,42 @@ const TimelinePanel = ({
     return Math.max(containerWidth - 200, lengthSeconds * pixelsPerSecond);
   }, [containerWidth, lengthSeconds, pixelsPerSecond]);
 
+  const clientXToTimelineTime = useCallback((clientX) => {
+    const container = tracksContainerRef.current;
+    if (!container) return positionSeconds;
+    const rect = container.getBoundingClientRect();
+    const contentX = clientX - rect.left - TRACK_HEADER_WIDTH + container.scrollLeft;
+    const rawTime = contentX / Math.max(1, pixelsPerSecond);
+    return Math.max(0, Math.min(lengthSeconds, rawTime));
+  }, [lengthSeconds, pixelsPerSecond, positionSeconds]);
+
+  const updateCursorTimeFromPointer = useCallback((clientX) => {
+    setCursorTimeSeconds(clientXToTimelineTime(clientX));
+  }, [clientXToTimelineTime]);
+
+  const collectKeyframesInRect = useCallback((clientRect) => {
+    const container = tracksContainerRef.current;
+    if (!container || !clientRect) return [];
+    const markers = Array.from(container.querySelectorAll('[data-timeline-keyframe="true"]'));
+    const next = [];
+    const seen = new Set();
+
+    markers.forEach((marker) => {
+      if (!(marker instanceof Element)) return;
+      const trackId = marker.getAttribute('data-track-id');
+      const keyframeId = marker.getAttribute('data-keyframe-id');
+      if (!trackId || !keyframeId) return;
+      const selectionKey = `${trackId}:${keyframeId}`;
+      if (seen.has(selectionKey)) return;
+      if (rectsIntersect(clientRect, marker.getBoundingClientRect())) {
+        seen.add(selectionKey);
+        next.push({ trackId, keyframeId });
+      }
+    });
+
+    return next;
+  }, []);
+
   // Handle scroll to sync horizontal scroll between ruler, waveform, and tracks
   const handleScroll = useCallback((e) => {
     if (setScrollLeft) {
@@ -439,6 +523,51 @@ const TimelinePanel = ({
     }
   }, [scrollLeft]);
 
+  useEffect(() => {
+    if (!marqueeDrag) return undefined;
+
+    const handleMouseMove = (event) => {
+      setMarqueeDrag((prev) => (
+        prev
+          ? {
+            ...prev,
+            currentX: event.clientX,
+            currentY: event.clientY,
+          }
+          : prev
+      ));
+      updateCursorTimeFromPointer(event.clientX);
+    };
+
+    const handleMouseUp = (event) => {
+      updateCursorTimeFromPointer(event.clientX);
+      setMarqueeDrag(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [marqueeDrag, updateCursorTimeFromPointer]);
+
+  useEffect(() => {
+    if (!marqueeRect) return;
+    setSelectedKeyframes(collectKeyframesInRect(marqueeRect));
+  }, [collectKeyframesInRect, marqueeRect]);
+
+  useEffect(() => {
+    if (!Array.isArray(tracks) || !tracks.length) {
+      setSelectedKeyframes([]);
+      return;
+    }
+    setSelectedKeyframes((prev) => prev.filter(({ trackId, keyframeId }) => {
+      const track = tracks.find((candidate) => candidate.id === trackId);
+      return !!track?.keyframes?.some((kf) => kf.id === keyframeId);
+    }));
+  }, [tracks]);
+
   // Handle zoom with mouse wheel
   const handleWheel = useCallback((e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -449,6 +578,37 @@ const TimelinePanel = ({
       }
     }
   }, [zoom, setZoom]);
+
+  const handleTracksMouseMoveCapture = useCallback((e) => {
+    const container = tracksContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    if (e.clientX <= rect.left + TRACK_HEADER_WIDTH) return;
+    updateCursorTimeFromPointer(e.clientX);
+  }, [updateCursorTimeFromPointer]);
+
+  const handleTracksMouseDownCapture = useCallback((e) => {
+    if (!marqueeMode || e.button !== 0) return;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('button, input, select, textarea, summary, label')) return;
+
+    const container = tracksContainerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    if (e.clientX <= rect.left + TRACK_HEADER_WIDTH) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    updateCursorTimeFromPointer(e.clientX);
+    setSelectedKeyframes([]);
+    setMarqueeDrag({
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      currentY: e.clientY,
+    });
+  }, [marqueeMode, updateCursorTimeFromPointer]);
 
   // Timeline transport should behave like a true playback freeze when paused.
   const handlePlay = useCallback(() => {
@@ -792,6 +952,48 @@ const TimelinePanel = ({
     handleCaptureShapeKeyframe,
   ]);
 
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleKeyDown = (event) => {
+      if (isEditableElement(event.target)) return;
+
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const modKey = isMac ? event.metaKey : event.ctrlKey;
+      const key = String(event.key || '').toLowerCase();
+
+      if (modKey && key === 'c' && selectedKeyframes.length > 0 && typeof copyKeyframes === 'function') {
+        event.preventDefault();
+        copyKeyframes(selectedKeyframes);
+        return;
+      }
+
+      const shouldHandleMarqueePaste = clipboardIsMultiSelection || selectedKeyframes.length > 0 || marqueeMode;
+      if (modKey && key === 'v' && shouldHandleMarqueePaste && keyframeClipboard && typeof pasteKeyframe === 'function') {
+        event.preventDefault();
+        pasteKeyframe(null, pasteCursorTime);
+        return;
+      }
+
+      if (key === 'escape') {
+        setSelectedKeyframes([]);
+        setMarqueeDrag(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    visible,
+    selectedKeyframes,
+    copyKeyframes,
+    clipboardIsMultiSelection,
+    keyframeClipboard,
+    marqueeMode,
+    pasteKeyframe,
+    pasteCursorTime,
+  ]);
+
   // Handle timeline preset button click (save/recall/clear)
   const handleTimelinePresetClick = useCallback((event) => {
     if (!getCurrentAppState || !loadAppState || !setStartPreset) return;
@@ -927,6 +1129,8 @@ const TimelinePanel = ({
           position: 'relative',
         }}
         onScroll={handleScroll}
+        onMouseDownCapture={handleTracksMouseDownCapture}
+        onMouseMoveCapture={handleTracksMouseMoveCapture}
       >
         <div style={{ minWidth: contentWidth + 200, width: contentWidth + 200 }}>
           {/* Waveform row (acts like first track) */}
@@ -1082,6 +1286,30 @@ const TimelinePanel = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <button
                       type="button"
+                      onClick={() => setMarqueeMode((prev) => !prev)}
+                      aria-pressed={marqueeMode}
+                      aria-label={marqueeMode ? 'Disable marquee selection' : 'Enable marquee selection'}
+                      title="Marquee select keyframes, then use Ctrl/Cmd+C and Ctrl/Cmd+V"
+                      style={{
+                        minWidth: 34,
+                        height: 22,
+                        borderRadius: 11,
+                        border: marqueeMode
+                          ? '2px solid #ffd54f'
+                          : '1px solid rgba(255, 255, 255, 0.25)',
+                        background: marqueeMode
+                          ? 'rgba(255, 213, 79, 0.18)'
+                          : 'transparent',
+                        color: marqueeMode ? '#ffe082' : 'rgba(255, 255, 255, 0.72)',
+                        fontSize: '0.62rem',
+                        padding: '0 8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Sel
+                    </button>
+                    <button
+                      type="button"
                       onClick={isRecording ? onStopRecording : onStartRecording}
                       aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                       title={isRecording ? 'Stop Recording' : 'Start Recording'}
@@ -1139,6 +1367,11 @@ const TimelinePanel = ({
                       TL
                     </button>
                   </div>
+                </div>
+                <div style={{ fontSize: '0.6rem', color: selectedKeyframes.length ? '#ffe082' : 'rgba(255,255,255,0.45)' }}>
+                  {selectedKeyframes.length
+                    ? `${selectedKeyframes.length} selected · paste @ ${pasteCursorTime.toFixed(2)}s`
+                    : (marqueeMode ? 'Marquee drag in track area' : 'Playhead and keyframe tools')}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
@@ -1508,9 +1741,13 @@ const TimelinePanel = ({
                 onRerollAllVariations={handleRerollAllVariations}
                 hasClipboard={!!keyframeClipboard}
                 clipboardTrackType={clipboardTrackType}
+                clipboardIsMultiSelection={clipboardIsMultiSelection}
                 clipboardSourceTargetId={clipboardSourceTargetId}
                 allShapeTracks={allShapeTracks}
                 onSeek={seekTo}
+                marqueeMode={marqueeMode}
+                selectedKeyframeIds={selectedKeyframesByTrack.get(track.id) || new Set()}
+                pasteTimeSeconds={pasteCursorTime}
               />
             ))}
 
@@ -1596,6 +1833,22 @@ const TimelinePanel = ({
           {/* Playhead is now drawn by each component (waveform, ruler, tracks) for perfect alignment */}
         </div>
       </div>
+      {marqueeRect && (
+        <div
+          style={{
+            position: 'fixed',
+            left: marqueeRect.left,
+            top: marqueeRect.top,
+            width: Math.max(1, marqueeRect.right - marqueeRect.left),
+            height: Math.max(1, marqueeRect.bottom - marqueeRect.top),
+            border: '1px solid rgba(255, 213, 79, 0.95)',
+            background: 'rgba(255, 213, 79, 0.14)',
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.15) inset',
+            pointerEvents: 'none',
+            zIndex: 1200,
+          }}
+        />
+      )}
     </div>
   );
 };
