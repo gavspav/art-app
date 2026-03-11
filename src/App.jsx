@@ -882,13 +882,15 @@ const MainApp = () => {
     }
   }, []);
 
-  // Clamps selection and expose currentLayer for Controls (use throttled UI snapshot)
-  // When a group is selected, show the first layer in that group
+  // Clamps selection and expose currentLayer for Controls.
+  // Controls should edit persisted layer state, not the throttled animated UI snapshot,
+  // otherwise booleans like visibility can appear to snap back.
+  // When a group is selected, show the first layer in that group.
   const clampedSelectedIndex = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, (layers?.length || 0) - 1)));
   const currentLayer = useMemo(() => {
-    const layerSource = (Array.isArray(uiLayers) && uiLayers.length > 0)
-      ? uiLayers
-      : layers;
+    const layerSource = (Array.isArray(layers) && layers.length > 0)
+      ? layers
+      : uiLayers;
     if (!Array.isArray(layerSource) || layerSource.length === 0) return DEFAULT_LAYER;
 
     // If a group is selected, find the first layer in that group (match by id from snapshot)
@@ -903,7 +905,7 @@ const MainApp = () => {
 
     // Default: use the selected layer index
     return layerSource[clampedSelectedIndex] || layerSource[0];
-  }, [uiLayers, layers, clampedSelectedIndex, editTarget, layerGroups]);
+  }, [layers, uiLayers, clampedSelectedIndex, editTarget, layerGroups]);
 
   const baseColors = useMemo(() => (
     Array.isArray(uiLayers?.[0]?.colors) ? uiLayers[0].colors : []
