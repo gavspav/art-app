@@ -1836,7 +1836,6 @@ const Controls = forwardRef(({
       updateLayer={updateLayer}
       setLayers={setLayers}
       buildTargetSet={buildTargetSet}
-      applyTargetedUpdate={applyTargetedUpdate}
       targetMode={targetMode}
       debugSettingsEnabled={debugSettingsEnabled}
       randomizeAnimationOnly={randomizeAnimationOnly}

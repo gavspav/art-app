@@ -2,6 +2,7 @@ import React from 'react';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
 import RangeSlider from '../../common/RangeSlider.jsx';
+import { resolveLayerTargets, applyWithVary } from '../../../utils/varyUtils.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -27,7 +28,6 @@ export default function LayerShapeSection({
   updateLayer,
   setLayers,
   buildTargetSet,
-  applyTargetedUpdate,
   targetMode,
   debugSettingsEnabled,
   rotateMin,
@@ -47,6 +47,32 @@ export default function LayerShapeSection({
   const MidiRotationStatus = _MidiRotationStatus;
   const AudioRotationStatus = _AudioRotationStatus;
   const BPMRotationStatus = _BPMRotationStatus;
+  const handleVisibleChange = (nextVisible) => {
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+
+    if (targetMode === 'individual' && targets.size === 1 && typeof updateLayer === 'function') {
+      updateLayer({ visible: nextVisible });
+      return;
+    }
+
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: () => ({ visible: nextVisible }),
+      }));
+      return;
+    }
+
+    if (typeof updateLayer === 'function') {
+      updateLayer({ visible: nextVisible });
+    }
+  };
+
   return (
     <div className="tab-section">
       <div className="control-card">
@@ -62,7 +88,7 @@ export default function LayerShapeSection({
               type="checkbox"
               checked={currentLayer?.visible !== false}
               onChange={(e) => {
-                applyTargetedUpdate?.(() => ({ visible: !!e.target.checked }));
+                handleVisibleChange(!!e.target.checked);
               }}
               onMouseDown={(e) => { e.stopPropagation(); }}
               onClick={(e) => { e.stopPropagation(); }}
