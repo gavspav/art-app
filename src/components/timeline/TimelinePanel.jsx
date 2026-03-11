@@ -737,8 +737,10 @@ const TimelinePanel = ({
       : layers;
 
     if (!sourceLayers?.length) return;
-    captureGlobalShapeKeyframe(trackId, sourceLayers);
-  }, [captureGlobalShapeKeyframe, layers, animatedLayersRef]);
+    captureGlobalShapeKeyframe(trackId, sourceLayers, {
+      backgroundColor: getCurrentAppState?.()?.backgroundColor || null,
+    });
+  }, [captureGlobalShapeKeyframe, layers, animatedLayersRef, getCurrentAppState]);
 
   // Handle generating a global variation keyframe (apply variation to all layers)
   // Use animatedLayersRef to get current rendered geometry for procedural shapes
@@ -752,8 +754,10 @@ const TimelinePanel = ({
       : layers;
 
     if (!sourceLayers?.length) return;
-    generateGlobalVariationKeyframe(trackId, sourceLayers);
-  }, [generateGlobalVariationKeyframe, layers, animatedLayersRef]);
+    generateGlobalVariationKeyframe(trackId, sourceLayers, {
+      backgroundColor: getCurrentAppState?.()?.backgroundColor || null,
+    });
+  }, [generateGlobalVariationKeyframe, layers, animatedLayersRef, getCurrentAppState]);
 
   // Handle rerolling a global shape keyframe
   // Use animatedLayersRef to get current rendered geometry for procedural shapes
@@ -871,10 +875,13 @@ const TimelinePanel = ({
     extras.colors = Array.isArray(layer.colors)
       ? cloneForKeyframe(layer.colors)
       : ['#0000FF'];
+    extras.backgroundColor = typeof getCurrentAppState === 'function'
+      ? (getCurrentAppState()?.backgroundColor || null)
+      : null;
 
     const time = (Number.isFinite(timeSecondsOverride) ? timeSecondsOverride : positionSeconds);
     addShapeKeyframe(trackId, time, clonedNodes, clonedSubpaths, '', extras);
-  }, [addShapeKeyframe, animatedLayersRef, layers, tracks, positionSeconds]);
+  }, [addShapeKeyframe, animatedLayersRef, layers, tracks, positionSeconds, getCurrentAppState]);
 
   const handleSelectTimelineKeyframe = useCallback((trackId, keyframeId) => {
     if (!trackId || !keyframeId) return;
@@ -907,7 +914,10 @@ const TimelinePanel = ({
         ? animatedLayers
         : layers;
       if (!sourceLayers?.length) return false;
-      captureGlobalShapeKeyframe?.(track.id, sourceLayers, { timeSecondsOverride: keyframe.timeSeconds });
+      captureGlobalShapeKeyframe?.(track.id, sourceLayers, {
+        timeSecondsOverride: keyframe.timeSeconds,
+        backgroundColor: appState?.backgroundColor || null,
+      });
       return true;
     }
 

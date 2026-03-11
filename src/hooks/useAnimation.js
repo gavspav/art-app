@@ -455,13 +455,23 @@ export const useAnimation = (
     timelineContext = null,
 ) => {
     const animationFrameId = useRef(null);
-    const { runWithoutDirty, isUserInteracting, isNodeEditMode, nodeEditContext, enableEnergyScaling, energyInfluence } = useAppState() || {};
+    const {
+        runWithoutDirty,
+        isUserInteracting,
+        isNodeEditMode,
+        nodeEditContext,
+        enableEnergyScaling,
+        energyInfluence,
+        setBackgroundColor,
+    } = useAppState() || {};
 
     // Energy refs for RAF access
     const enableEnergyScalingRef = useRef(enableEnergyScaling);
     useEffect(() => { enableEnergyScalingRef.current = enableEnergyScaling; }, [enableEnergyScaling]);
     const energyInfluenceRef = useRef(energyInfluence);
     useEffect(() => { energyInfluenceRef.current = energyInfluence; }, [energyInfluence]);
+    const setBackgroundColorRef = useRef(setBackgroundColor);
+    useEffect(() => { setBackgroundColorRef.current = setBackgroundColor; }, [setBackgroundColor]);
 
     // Store modulation refs for access in animation loop
     const modulationStoreRef = useRef(modulationStore);
@@ -745,6 +755,7 @@ export const useAnimation = (
             // Direct evaluation: get current position and evaluate all shape tracks
             const pos = tlCtx.getPositionSeconds?.() ?? tlCtx.positionSeconds ?? 0;
             const currentLayers = sourceLayersRefLocal.current?.current || animatedPrevRef.current || [];
+            let evaluatedBackgroundColor = null;
 
             for (const track of tlCtx.tracks) {
                 if (!track.enabled || !track.targetId) continue;
@@ -753,6 +764,9 @@ export const useAnimation = (
                 if (track.type === 'globalShape') {
                     const globalResult = evaluateGlobalShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
                     if (globalResult && Array.isArray(globalResult.layers)) {
+                        if (typeof globalResult.backgroundColor === 'string') {
+                            evaluatedBackgroundColor = globalResult.backgroundColor;
+                        }
                         globalResult.layers.forEach((interpolatedData, index) => {
                             const layer = currentLayers[index];
                             if (!layer || !interpolatedData) return;
@@ -780,6 +794,9 @@ export const useAnimation = (
                 if (track.type === 'shape') {
                     const shapeResult = evaluateShapeTrackAtTime(track, pos, lerpNodes, lerpSubpaths);
                     if (shapeResult) {
+                        if (typeof shapeResult.backgroundColor === 'string') {
+                            evaluatedBackgroundColor = shapeResult.backgroundColor;
+                        }
                         const parts = track.targetId.split(':');
                         const layerName = parts.length >= 2 ? parts[1] : null;
 
@@ -845,6 +862,10 @@ export const useAnimation = (
                         }
                     }
                 }
+            }
+
+            if (typeof evaluatedBackgroundColor === 'string' && typeof setBackgroundColorRef.current === 'function') {
+                setBackgroundColorRef.current(evaluatedBackgroundColor);
             }
 
             // Temporal smoothing to reduce visual popping around close keyframes.

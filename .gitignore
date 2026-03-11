@@ -32,3 +32,6 @@ dist-ssr
 
 # But allow example files
 !.env.example
+
+# Local TouchDesigner operator workspace
+touchdesigner_local/

@@ -398,6 +398,7 @@ export function useTimelineModulation({
     // Collect shape track results to apply after numeric tracks
     const shapeUpdates = []; // { layerId, nodes, subpaths, position, animation, colors }
     const touchedNumericKeys = new Set();
+    let evaluatedBackgroundColor = null;
 
     for (const track of tracks) {
       if (!track.enabled || !track.targetId) continue;
@@ -409,6 +410,9 @@ export function useTimelineModulation({
         if (!isPlaying) {
           const globalResult = evaluateGlobalShapeTrackAtTime(track, positionSeconds, lerpNodes, lerpSubpaths);
           if (globalResult && Array.isArray(globalResult.layers)) {
+            if (typeof globalResult.backgroundColor === 'string') {
+              evaluatedBackgroundColor = globalResult.backgroundColor;
+            }
             // Add each layer's interpolated data to shapeUpdates
             globalResult.layers.forEach((interpolatedData, index) => {
               const layer = layersRef.current[index];
@@ -457,6 +461,9 @@ export function useTimelineModulation({
                 base: shapeResult.base,               // Pass base for runtime blending
                 energyBand: track.energyBand || 'total', // Per-track frequency band for energy scaling
               });
+              if (typeof shapeResult.backgroundColor === 'string') {
+                evaluatedBackgroundColor = shapeResult.backgroundColor;
+              }
             }
           }
         }
@@ -907,6 +914,10 @@ export function useTimelineModulation({
             store.setMod('timeline', '__global__', parsed.paramId, value);
         }
       }
+    }
+
+    if (!isPlaying && typeof evaluatedBackgroundColor === 'string' && typeof setBackgroundColor === 'function') {
+      setBackgroundColor(evaluatedBackgroundColor);
     }
 
     // Evaluate stored paramKeyframes for all enabled tracks

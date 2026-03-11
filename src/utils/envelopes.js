@@ -327,6 +327,9 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     if (categories.color && Array.isArray(kf.colors)) {
       result.colors = [...kf.colors];
     }
+    if (typeof kf.backgroundColor === 'string') {
+      result.backgroundColor = kf.backgroundColor;
+    }
 
     // Include base (un-varied) data if present for runtime energy blending
     if (kf.base) {
@@ -504,6 +507,45 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       result.colors = [...leftColorKf.colors];
     } else if (rightColorKf) {
       result.colors = [...rightColorKf.colors];
+    }
+  }
+
+  // Interpolate background color if keyframes carry it.
+  {
+    const hasBackgroundColor = (kf) => typeof kf?.backgroundColor === 'string' && kf.backgroundColor.length > 0;
+    const findPrevWithBackgroundColor = (start) => {
+      for (let i = start; i >= 0; i--) {
+        const kf = sorted[i];
+        if (isEnabled(kf) && hasBackgroundColor(kf)) return kf;
+      }
+      return null;
+    };
+    const findNextWithBackgroundColor = (start) => {
+      for (let i = start; i < sorted.length; i++) {
+        const kf = sorted[i];
+        if (isEnabled(kf) && hasBackgroundColor(kf)) return kf;
+      }
+      return null;
+    };
+
+    const leftBgKf = hasBackgroundColor(left) ? left : findPrevWithBackgroundColor(leftIndex);
+    const rightBgKf = hasBackgroundColor(right) ? right : findNextWithBackgroundColor(rightIndex);
+
+    if (leftBgKf && rightBgKf) {
+      if (leftBgKf === rightBgKf || Math.abs(rightBgKf.timeSeconds - leftBgKf.timeSeconds) < 1e-6) {
+        result.backgroundColor = leftBgKf.backgroundColor;
+      } else {
+        const tRaw = (timeSeconds - leftBgKf.timeSeconds) / (rightBgKf.timeSeconds - leftBgKf.timeSeconds);
+        const t = Math.max(0, Math.min(1, tRaw));
+        const bgCurve = leftBgKf.curve || 'linear';
+        const bgTension = leftBgKf.tension !== undefined ? leftBgKf.tension : 0.5;
+        const easedBgT = interpolateValue(t, 0, 1, bgCurve, bgTension);
+        result.backgroundColor = lerpColor(leftBgKf.backgroundColor, rightBgKf.backgroundColor, easedBgT);
+      }
+    } else if (leftBgKf) {
+      result.backgroundColor = leftBgKf.backgroundColor;
+    } else if (rightBgKf) {
+      result.backgroundColor = rightBgKf.backgroundColor;
     }
   }
 
@@ -707,6 +749,7 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
     if (!Array.isArray(kf.layers)) return null;
 
     return {
+      backgroundColor: typeof kf.backgroundColor === 'string' ? kf.backgroundColor : null,
       layers: kf.layers.map(layerData => {
         const result = {
           nodes: categories.shape ? layerData.nodes : null,
@@ -947,7 +990,16 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
     interpolatedLayers.push(result);
   }
 
-  return { layers: interpolatedLayers };
+  let backgroundColor = null;
+  if (typeof left.backgroundColor === 'string' && typeof right.backgroundColor === 'string') {
+    backgroundColor = lerpColor(left.backgroundColor, right.backgroundColor, easedT);
+  } else if (typeof left.backgroundColor === 'string') {
+    backgroundColor = left.backgroundColor;
+  } else if (typeof right.backgroundColor === 'string') {
+    backgroundColor = right.backgroundColor;
+  }
+
+  return { layers: interpolatedLayers, backgroundColor };
 };
 
 // Preset envelope curves (same as BPMEnvelopeEditor)

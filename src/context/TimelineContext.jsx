@@ -171,6 +171,7 @@ const createShapeKeyframe = (timeSeconds, nodes, subpaths, label = '', extras = 
     shapeParams: extras.shapeParams || null, // { numSides, curviness, radiusFactor, radiusFactorX, radiusFactorY, rotation }
     animation: extras.animation || null,    // { movementStyle, movementSpeed, movementAngle, scaleSpeed, scaleMin, scaleMax }
     colors: Array.isArray(extras.colors) ? extras.colors : null, // array of hex colors
+    backgroundColor: typeof extras.backgroundColor === 'string' ? extras.backgroundColor : null,
     enabled: extras.enabled !== undefined ? extras.enabled : true,
   };
 };
@@ -196,6 +197,7 @@ const createGlobalShapeKeyframe = (timeSeconds, layers, label = '', extras = {})
     // Curve settings for interpolation
     curve: extras.curve || 'linear',
     tension: extras.tension !== undefined ? extras.tension : 0.5,
+    backgroundColor: typeof extras.backgroundColor === 'string' ? extras.backgroundColor : null,
     // Variation metadata for regeneration
     variation: extras.variation || null,
     enabled: extras.enabled !== undefined ? extras.enabled : true,
@@ -831,6 +833,9 @@ export const TimelineProvider = ({ children }) => {
                 shapeParams: ('shapeParams' in extras) ? (extras.shapeParams || null) : (kf.shapeParams || null),
                 animation: ('animation' in extras) ? (extras.animation || null) : (kf.animation || null),
                 colors: ('colors' in extras) ? (Array.isArray(extras.colors) ? extras.colors : null) : (kf.colors || null),
+                backgroundColor: ('backgroundColor' in extras)
+                  ? (typeof extras.backgroundColor === 'string' ? extras.backgroundColor : null)
+                  : (kf.backgroundColor || null),
               }
               : kf
           );
@@ -879,6 +884,9 @@ export const TimelineProvider = ({ children }) => {
                 label,
                 curve: extras.curve || kf.curve || 'linear',
                 tension: extras.tension !== undefined ? extras.tension : kf.tension,
+                backgroundColor: ('backgroundColor' in extras)
+                  ? (typeof extras.backgroundColor === 'string' ? extras.backgroundColor : null)
+                  : (kf.backgroundColor || null),
                 variation: extras.variation || kf.variation || null,
               }
               : kf
@@ -1340,6 +1348,7 @@ export const TimelineProvider = ({ children }) => {
       constrainColorsToPalette: options.constrainColorsToPalette,
       paletteColors: options.paletteColors,
     };
+    extras.backgroundColor = typeof options.backgroundColor === 'string' ? options.backgroundColor : null;
 
     // Add the keyframe
     const keyframeId = addShapeKeyframe(trackId, time, nodes, subpaths, '', extras);
@@ -1469,6 +1478,7 @@ export const TimelineProvider = ({ children }) => {
         animation: baseKeyframeData.extras.animation,
         colors: baseKeyframeData.extras.colors,
       };
+      extras.backgroundColor = typeof options.backgroundColor === 'string' ? options.backgroundColor : null;
 
       // Smooth easing for organic transitions between random keyframes
       extras.curve = 'easeInOut';
@@ -1744,6 +1754,7 @@ export const TimelineProvider = ({ children }) => {
     addGlobalShapeKeyframe(trackId, time, layersData, options.label || '', {
       curve: options.curve || 'easeInOut',
       tension: options.tension ?? 0.5,
+      backgroundColor: typeof options.backgroundColor === 'string' ? options.backgroundColor : null,
     });
 
     return time;
@@ -1859,6 +1870,7 @@ export const TimelineProvider = ({ children }) => {
     addGlobalShapeKeyframe(trackId, time, layersData, '', {
       curve: options.curve || 'easeInOut',
       tension: options.tension ?? 0.5,
+      backgroundColor: typeof options.backgroundColor === 'string' ? options.backgroundColor : null,
       variation: {
         baseSeed,
         baseTime: time,
@@ -1951,6 +1963,9 @@ export const TimelineProvider = ({ children }) => {
     // Update the keyframe
     updateKeyframe(trackId, keyframeId, {
       layers: layersData,
+      backgroundColor: typeof variationMeta.backgroundColor === 'string'
+        ? variationMeta.backgroundColor
+        : (typeof keyframe.backgroundColor === 'string' ? keyframe.backgroundColor : null),
       variation: {
         ...variationMeta,
         baseSeed: newSeed,
@@ -2093,6 +2108,7 @@ export const TimelineProvider = ({ children }) => {
         addGlobalShapeKeyframe(trackId, time, layersData, '', {
           curve,
           tension,
+          backgroundColor: typeof options.backgroundColor === 'string' ? options.backgroundColor : null,
           variation,
         });
         keyframeIds.push(`global-kf-${time}`);
@@ -2104,6 +2120,7 @@ export const TimelineProvider = ({ children }) => {
         .map(entry => createGlobalShapeKeyframe(entry.time, entry.layersData, '', {
           curve,
           tension,
+          backgroundColor: typeof options.backgroundColor === 'string' ? options.backgroundColor : null,
           variation: entry.variation,
         }))
         .sort((a, b) => a.timeSeconds - b.timeSeconds);

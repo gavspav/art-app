@@ -1613,6 +1613,7 @@ const MainApp = () => {
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
+        backgroundColor,
       };
 
       // Newly auto-created tracks are added via async React state update.
@@ -1657,6 +1658,7 @@ const MainApp = () => {
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
+        backgroundColor,
       });
       if (time != null) {
         console.log('Generated global variation keyframe at', time);
@@ -1665,7 +1667,7 @@ const MainApp = () => {
     }
 
     console.warn('No shape track found for selected layer, and no global shape track found');
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors]);
+}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
 
   // Ref that TimelinePanel populates with its settings-aware random handler
   // so the keyboard shortcut (Shift+R) uses the panel's Random N, transients, etc.
@@ -1871,6 +1873,7 @@ const MainApp = () => {
             paletteColors: generationPaletteColors,
             temporalReferenceTimes,
             baseSeed: Date.now(),
+            backgroundColor,
           },
         );
         if (keyframeIds?.length) {
@@ -1891,6 +1894,7 @@ const MainApp = () => {
             paletteColors: generationPaletteColors,
             temporalReferenceTimes,
             baseSeed: Date.now(),
+            backgroundColor,
           },
         );
         if (keyframeIds?.length) {
@@ -1950,6 +1954,7 @@ const MainApp = () => {
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
+        backgroundColor,
       });
     } else {
       const shapeRandomOptions = {
@@ -1963,6 +1968,7 @@ const MainApp = () => {
         isParamRandomizable,
         constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
         paletteColors: generationPaletteColors,
+        backgroundColor,
       };
 
       // Newly auto-created tracks are added via async React state update.
@@ -1993,7 +1999,7 @@ const MainApp = () => {
         nodeMod ? 'with node modulation' : '',
         energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
     }
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
+}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
 
   // Fill keyframes between nearest keyframes around playhead (option-driven, no modal prompts)
   // Supports both single-layer shape tracks and global shape tracks
@@ -2099,6 +2105,7 @@ const MainApp = () => {
           isParamRandomizable,
           constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
           paletteColors: generationPaletteColors,
+          backgroundColor,
         }
       );
     } else {
@@ -2116,6 +2123,7 @@ const MainApp = () => {
           isParamRandomizable,
           constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
           paletteColors: generationPaletteColors,
+          backgroundColor,
         }
       );
     }
@@ -2125,7 +2133,7 @@ const MainApp = () => {
         nodeMod ? 'with node modulation' : '',
         energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
     }
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors]);
+}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
 
   // Shift+C: capture current layers to a global shape keyframe (if global track exists)
   const handleCaptureGlobalKeyframe = useCallback(() => {
