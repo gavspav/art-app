@@ -1805,7 +1805,10 @@ const TimelinePanel = ({
                   if (track.type === 'globalShape') {
                     // Capture snapshot of all layers at this time.
                     // Note: this uses current layer state; for evaluated-at-time capture, use the dedicated Global Shape controls.
-                    captureGlobalShapeKeyframe?.(track.id, layers, { timeSecondsOverride: time });
+                    captureGlobalShapeKeyframe?.(track.id, layers, {
+                      timeSecondsOverride: time,
+                      backgroundColor: getCurrentAppState?.()?.backgroundColor || null,
+                    });
                     return;
                   }
                   if (track.type === 'color') {

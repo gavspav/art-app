@@ -2140,11 +2140,13 @@ const MainApp = () => {
     if (!timelineContext?.visible) return;
     const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
     if (!globalShapeTrack) return;
-    const time = timelineContext.captureGlobalShapeKeyframe?.(globalShapeTrack.id, layers, {});
+    const time = timelineContext.captureGlobalShapeKeyframe?.(globalShapeTrack.id, layers, {
+      backgroundColor,
+    });
     if (time != null) {
       console.log('Captured global shape keyframe at', time);
     }
-  }, [timelineContext, layers]);
+  }, [timelineContext, layers, backgroundColor]);
 
   // Keyboard shortcuts
 		  useKeyboardShortcuts({
