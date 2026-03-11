@@ -27,6 +27,7 @@ export default function LayerShapeSection({
   updateLayer,
   setLayers,
   buildTargetSet,
+  applyTargetedUpdate,
   targetMode,
   debugSettingsEnabled,
   rotateMin,
@@ -49,6 +50,27 @@ export default function LayerShapeSection({
   return (
     <div className="tab-section">
       <div className="control-card">
+        <div className="compact-row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+          <label
+            className="compact-label"
+            title="Show or hide this layer"
+            onMouseDown={(e) => { e.stopPropagation(); }}
+            onClick={(e) => { e.stopPropagation(); }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <input
+              type="checkbox"
+              checked={currentLayer?.visible !== false}
+              onChange={(e) => {
+                applyTargetedUpdate?.(() => ({ visible: !!e.target.checked }));
+              }}
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); }}
+            />
+            Show layer
+          </label>
+        </div>
+
         {shapeParams.map(param => (
           <div key={`${param.id}-${currentLayer?.id || 0}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}>
             <DynamicControl

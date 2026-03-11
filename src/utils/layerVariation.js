@@ -195,6 +195,7 @@ export function buildVariedLayerFrom(prev, nameIndex, baseVar, {
     }
   }
   varied.vary = { ...(prev?.vary || DEFAULT_LAYER.vary || {}) };
+  varied.visible = true;
   // Preserve legacy and split variations
   varied.variation = Number(prev?.variation ?? DEFAULT_LAYER.variation);
   varied.variationShape = Number(v.shape);
