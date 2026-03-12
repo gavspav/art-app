@@ -28,3 +28,15 @@ export const shouldIgnoreGlobalKey = (event) => {
   if (active && isTextInputLike(active)) return true;
   return false;
 };
+
+export const shouldBlurActiveTextInputOnPointerDown = (activeElement, target) => {
+  if (!activeElement || !isTextInputLike(activeElement)) return false;
+
+  const nextTarget = target?.target ? target.target : target;
+  if (!nextTarget) return false;
+  if (nextTarget === activeElement) return false;
+  if (typeof activeElement.contains === 'function' && activeElement.contains(nextTarget)) return false;
+  if (isTextInputLike(nextTarget)) return false;
+
+  return true;
+};

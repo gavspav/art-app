@@ -26,7 +26,7 @@ import { useAutosave } from './hooks/useAutosave.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
-import { shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { shouldBlurActiveTextInputOnPointerDown, shouldIgnoreGlobalKey } from './utils/domUtils.js';
 import { createCustomPaletteEntry, loadCustomPalettes, mergeCustomPalettes, saveCustomPalettes } from './utils/customPalettes.js';
 import { createSeededRandom } from './utils/randomUtils.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
@@ -2657,8 +2657,36 @@ const MainApp = () => {
     panelOverwriteSelectedKeyframeRef,
   };
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+
+    const handlePointerDown = (event) => {
+      const activeElement = document.activeElement;
+      if (!shouldBlurActiveTextInputOnPointerDown(activeElement, event.target)) return;
+
+      try {
+        activeElement.blur?.();
+      } catch {
+        return;
+      }
+
+      try {
+        containerRef.current?.focus?.({ preventScroll: true });
+      } catch {
+        containerRef.current?.focus?.();
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true);
+  }, []);
+
   return (
-    <div ref={containerRef} className={`App ${isFullscreen ? 'fullscreen' : ''}`}>
+    <div
+      ref={containerRef}
+      className={`App ${isFullscreen ? 'fullscreen' : ''}`}
+      tabIndex={-1}
+    >
       <main className="main-layout">
         <KeyboardShortcutsOverlay
           visible={showShortcuts}
