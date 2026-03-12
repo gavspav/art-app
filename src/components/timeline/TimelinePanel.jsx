@@ -421,6 +421,18 @@ const TimelinePanel = ({
   const pixelsPerSecondRef = useRef(pixelsPerSecond);
   useEffect(() => { pixelsPerSecondRef.current = pixelsPerSecond; }, [pixelsPerSecond]);
 
+  const commitScrollLeft = useCallback((nextScrollLeft) => {
+    const container = tracksContainerRef.current;
+    const normalized = Math.max(0, Number(nextScrollLeft) || 0);
+
+    if (container && Math.abs(container.scrollLeft - normalized) > 1) {
+      container.scrollLeft = normalized;
+    }
+    if (setScrollLeft) {
+      setScrollLeft(normalized);
+    }
+  }, [setScrollLeft]);
+
   // Auto-scroll to keep playhead visible during playback
   useEffect(() => {
     if (!isPlaying || !getPositionSeconds) return;
@@ -444,11 +456,11 @@ const TimelinePanel = ({
         if (playheadScreenX > scrollThreshold) {
           // Scroll to put playhead at 20% from left
           const targetScroll = Math.max(0, xAbsolute - viewWidth * 0.2);
-          container.scrollLeft = targetScroll;
+          commitScrollLeft(targetScroll);
         }
         // Also handle if playhead is before current view (e.g., after loop)
         else if (playheadScreenX < 0) {
-          container.scrollLeft = Math.max(0, xAbsolute - viewWidth * 0.1);
+          commitScrollLeft(Math.max(0, xAbsolute - viewWidth * 0.1));
         }
       }
 
@@ -459,7 +471,7 @@ const TimelinePanel = ({
     return () => {
       if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [isPlaying, getPositionSeconds]);
+  }, [isPlaying, getPositionSeconds, commitScrollLeft]);
 
   // Scroll to show playhead when position changes significantly (e.g., stop/rewind)
   useEffect(() => {
@@ -473,15 +485,9 @@ const TimelinePanel = ({
     if (xScreen < 0 || xScreen > viewWidth) {
       // Center the playhead in view, or scroll to 0 if at start
       const newScroll = positionSeconds < 0.1 ? 0 : Math.max(0, xAbsolute - viewWidth / 2);
-      if (setScrollLeft) {
-        setScrollLeft(newScroll);
-      }
-      // Also scroll the DOM element
-      if (tracksContainerRef.current) {
-        tracksContainerRef.current.scrollLeft = newScroll;
-      }
+      commitScrollLeft(newScroll);
     }
-  }, [positionSeconds, isPlaying, pixelsPerSecond, scrollLeft, containerWidth, setScrollLeft]);
+  }, [positionSeconds, isPlaying, pixelsPerSecond, scrollLeft, containerWidth, commitScrollLeft]);
 
   // Total timeline width in pixels
   const timelineWidth = useMemo(() => {
