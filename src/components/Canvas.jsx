@@ -196,6 +196,183 @@ const getLayerGeometry = (layer, canvas) => {
     };
 };
 
+const normalizePathMode = (value) => (value === 'open' ? 'open' : 'closed');
+const isOpenPathLayer = (layer) => normalizePathMode(layer?.pathMode) === 'open';
+const getMinimumNodeCount = (layer) => (isOpenPathLayer(layer) ? 2 : 3);
+const normalizeStrokeCap = (value) => (
+    value === 'butt' || value === 'square' ? value : 'round'
+);
+const normalizeStrokeJoin = (value) => (
+    value === 'bevel' || value === 'miter' ? value : 'round'
+);
+
+const localNodeToWorldPoint = (node, geometry) => {
+    if (!node || !geometry) return { x: 0, y: 0 };
+    const {
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        sinR,
+        cosR,
+    } = geometry;
+    return {
+        x: centerX + (node.x * cosR - node.y * sinR) * radiusX,
+        y: centerY + (node.x * sinR + node.y * cosR) * radiusY,
+    };
+};
+
+const worldPointToLocalNode = (point, geometry) => {
+    if (!point || !geometry) return { x: 0, y: 0 };
+    const {
+        centerX,
+        centerY,
+        radiusX,
+        radiusY,
+        sinR,
+        cosR,
+    } = geometry;
+    const safeRadiusX = Math.abs(radiusX) > 1e-9 ? radiusX : 1e-9;
+    const safeRadiusY = Math.abs(radiusY) > 1e-9 ? radiusY : 1e-9;
+    const lx = (point.x - centerX) / safeRadiusX;
+    const ly = (point.y - centerY) / safeRadiusY;
+    return {
+        x: lx * cosR + ly * sinR,
+        y: -lx * sinR + ly * cosR,
+    };
+};
+
+const getPolylineNormalAt = (points, index, isClosed = false) => {
+    if (!Array.isArray(points) || points.length < 2) return { x: 0, y: -1 };
+    const lastIndex = points.length - 1;
+    const getSegmentNormal = (a, b) => {
+        const dx = (b?.x || 0) - (a?.x || 0);
+        const dy = (b?.y || 0) - (a?.y || 0);
+        const length = Math.hypot(dx, dy) || 1;
+        return { x: -dy / length, y: dx / length };
+    };
+
+    if (!isClosed && index <= 0) return getSegmentNormal(points[0], points[1]);
+    if (!isClosed && index >= lastIndex) return getSegmentNormal(points[lastIndex - 1], points[lastIndex]);
+
+    const prevIndex = index <= 0 ? lastIndex : index - 1;
+    const nextIndex = index >= lastIndex ? 0 : index + 1;
+    const prevNormal = getSegmentNormal(points[prevIndex], points[index]);
+    const nextNormal = getSegmentNormal(points[index], points[nextIndex]);
+    const avgX = prevNormal.x + nextNormal.x;
+    const avgY = prevNormal.y + nextNormal.y;
+    const avgLength = Math.hypot(avgX, avgY) || 1;
+    return { x: avgX / avgLength, y: avgY / avgLength };
+};
+
+const snapPointToOctant = (anchor, point) => {
+    if (!anchor || !point) return point;
+    const dx = point.x - anchor.x;
+    const dy = point.y - anchor.y;
+    const dist = Math.hypot(dx, dy);
+    if (!(dist > 0)) return point;
+    const angle = Math.atan2(dy, dx);
+    const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+    return {
+        x: anchor.x + Math.cos(snapped) * dist,
+        y: anchor.y + Math.sin(snapped) * dist,
+    };
+};
+
+const DEFAULT_NODE_EDIT_VIEW = Object.freeze({
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+});
+
+const clampNodeEditZoom = (zoom) => Math.max(0.5, Math.min(8, Number.isFinite(zoom) ? zoom : 1));
+
+const getPathCentroid = (points = []) => {
+    if (!Array.isArray(points) || points.length === 0) return { x: 0, y: 0 };
+    let sumX = 0;
+    let sumY = 0;
+    points.forEach((point) => {
+        sumX += Number(point?.x) || 0;
+        sumY += Number(point?.y) || 0;
+    });
+    return { x: sumX / points.length, y: sumY / points.length };
+};
+
+const buildFilletPoints = (prevPoint, cornerPoint, nextPoint, radiusPx) => {
+    if (!prevPoint || !cornerPoint || !nextPoint) return null;
+    const inVec = {
+        x: prevPoint.x - cornerPoint.x,
+        y: prevPoint.y - cornerPoint.y,
+    };
+    const outVec = {
+        x: nextPoint.x - cornerPoint.x,
+        y: nextPoint.y - cornerPoint.y,
+    };
+    const inLen = Math.hypot(inVec.x, inVec.y);
+    const outLen = Math.hypot(outVec.x, outVec.y);
+    if (!(inLen > 1e-6) || !(outLen > 1e-6)) return null;
+
+    const uIn = { x: inVec.x / inLen, y: inVec.y / inLen };
+    const uOut = { x: outVec.x / outLen, y: outVec.y / outLen };
+    const dot = Math.max(-0.999999, Math.min(0.999999, uIn.x * uOut.x + uIn.y * uOut.y));
+    const angle = Math.acos(dot);
+    if (!(angle > 1e-3) || !(angle < Math.PI - 1e-3)) return null;
+
+    const tangentDistance = Math.min(
+        Math.max(2, radiusPx) / Math.tan(angle / 2),
+        inLen * 0.5,
+        outLen * 0.5,
+    );
+    if (!(tangentDistance > 0)) return null;
+    const effectiveRadius = tangentDistance * Math.tan(angle / 2);
+    const tangentStart = {
+        x: cornerPoint.x + uIn.x * tangentDistance,
+        y: cornerPoint.y + uIn.y * tangentDistance,
+    };
+    const tangentEnd = {
+        x: cornerPoint.x + uOut.x * tangentDistance,
+        y: cornerPoint.y + uOut.y * tangentDistance,
+    };
+
+    const bisector = {
+        x: uIn.x + uOut.x,
+        y: uIn.y + uOut.y,
+    };
+    const bisectorLen = Math.hypot(bisector.x, bisector.y);
+    if (!(bisectorLen > 1e-6)) return null;
+    const centerDistance = effectiveRadius / Math.sin(angle / 2);
+    const center = {
+        x: cornerPoint.x + (bisector.x / bisectorLen) * centerDistance,
+        y: cornerPoint.y + (bisector.y / bisectorLen) * centerDistance,
+    };
+
+    const startAngle = Math.atan2(tangentStart.y - center.y, tangentStart.x - center.x);
+    const endAngle = Math.atan2(tangentEnd.y - center.y, tangentEnd.x - center.x);
+    const cross = (tangentStart.x - center.x) * (tangentEnd.y - center.y) - (tangentStart.y - center.y) * (tangentEnd.x - center.x);
+
+    let delta = endAngle - startAngle;
+    if (cross > 0 && delta < 0) delta += Math.PI * 2;
+    if (cross < 0 && delta > 0) delta -= Math.PI * 2;
+    const arcLength = Math.abs(delta) * effectiveRadius;
+    const sampleCount = Math.max(4, Math.min(16, Math.round(arcLength / 12)));
+
+    const arcPoints = [];
+    for (let i = 0; i <= sampleCount; i += 1) {
+        const t = i / sampleCount;
+        const angleAtT = startAngle + delta * t;
+        arcPoints.push({
+            x: center.x + Math.cos(angleAtT) * effectiveRadius,
+            y: center.y + Math.sin(angleAtT) * effectiveRadius,
+        });
+    }
+
+    return {
+        tangentStart,
+        tangentEnd,
+        arcPoints,
+    };
+};
+
 // --- Shape Drawing Logic (supports node-based shapes) ---
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
     // Destructure properties from the layer and its nested position object
@@ -222,6 +399,10 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
         // New: color fading
         colorFadeEnabled = false,
         colorFadeSpeed = 0.0,
+        pathMode = 'closed',
+        strokeWidthPx = 3,
+        strokeCap = 'round',
+        strokeJoin = 'round',
     } = layer || {};
     const pos = layer?.position || { x: 0.5, y: 0.5, scale: 1 };
     let px = Number(pos.x);
@@ -247,6 +428,8 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
       ? Math.max(0, Math.min(1, symmetryValue))
       : amplitudeFactor;
     const waveTime = time * wobbleTimeScale;
+    const isOpenPath = normalizePathMode(pathMode) === 'open';
+    const effectiveStrokeWidth = Math.max(1, Number.isFinite(Number(strokeWidthPx)) ? Number(strokeWidthPx) : 3);
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
@@ -299,30 +482,48 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     const sinR = Math.sin(rotRad);
     const cosR = Math.cos(rotRad);
 
-    const buildDeformedPoints = (nodes) => nodes.map((n, i) => {
-        // Apply anisotropic scaling first, then rotate (correct order): R * S * p
-        const sx = n.x * radiusX;
-        const sy = n.y * radiusY;
-        const tx = sx * cosR - sy * sinR;
-        const ty = sx * sinR + sy * cosR;
-        const baseX = centerX + tx;
-        const baseY = centerY + ty;
-        const angle = (i / nodes.length) * Math.PI * 2;
-        const harmonicAngle = angle * noiseScaleFactor;
-        const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
-        const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
-        const n2 = Math.cos(harmonicAngle * actualFreq2 - waveTime * 0.5 + phase) * Math.cos(waveTime * 0.3 * amplitudeFactor);
-        const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
-        // Canvas-relative deformation
-        const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075; // 7.5% of current radius
-        const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
-        const dx = baseX - centerX;
-        const dy = baseY - centerY;
-        const dist = Math.hypot(dx, dy) || 1;
-        const normX = dx / dist;
-        const normY = dy / dist;
-        return { x: baseX + normX * offset, y: baseY + normY * offset };
-    });
+    const buildDeformedPoints = (nodes) => {
+        const basePoints = nodes.map((n) => {
+            const sx = n.x * radiusX;
+            const sy = n.y * radiusY;
+            const tx = sx * cosR - sy * sinR;
+            const ty = sx * sinR + sy * cosR;
+            return { x: centerX + tx, y: centerY + ty };
+        });
+        const totalLength = isOpenPath
+            ? basePoints.reduce((sum, point, index) => {
+                if (index === 0) return 0;
+                return sum + Math.hypot(point.x - basePoints[index - 1].x, point.y - basePoints[index - 1].y);
+            }, 0)
+            : 0;
+        let runningLength = 0;
+        return basePoints.map((basePoint, i) => {
+            if (isOpenPath && i > 0) {
+                runningLength += Math.hypot(basePoint.x - basePoints[i - 1].x, basePoint.y - basePoints[i - 1].y);
+            }
+            const angle = isOpenPath
+                ? ((totalLength > 1e-6 ? runningLength / totalLength : 0) * Math.PI * 2)
+                : (i / Math.max(1, nodes.length)) * Math.PI * 2;
+            const harmonicAngle = angle * noiseScaleFactor;
+            const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
+            const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
+            const n2 = Math.cos(harmonicAngle * actualFreq2 - waveTime * 0.5 + phase) * Math.cos(waveTime * 0.3 * amplitudeFactor);
+            const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
+            const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
+            const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * effectiveNoiseAmount * amplitudeFactor;
+
+            let normal;
+            if (isOpenPath) {
+                normal = getPolylineNormalAt(basePoints, i, false);
+            } else {
+                const dx = basePoint.x - centerX;
+                const dy = basePoint.y - centerY;
+                const dist = Math.hypot(dx, dy) || 1;
+                normal = { x: dx / dist, y: dy / dist };
+            }
+            return { x: basePoint.x + normal.x * offset, y: basePoint.y + normal.y * offset };
+        });
+    };
 
     const drawSmoothClosed = (pts, t) => {
         const last = pts[pts.length - 1];
@@ -356,6 +557,36 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
             }
             ctx.closePath();
         };
+    };
+
+    const drawSmoothOpen = (pts, t) => {
+        if (!Array.isArray(pts) || pts.length < 2) return;
+        const first = pts[0];
+        const last = pts[pts.length - 1];
+        if (t <= 1e-4 || pts.length < 3) {
+            ctx.moveTo(first.x, first.y);
+            for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+            return;
+        }
+        ctx.moveTo(first.x, first.y);
+        for (let i = 1; i < pts.length - 1; i += 1) {
+            const current = pts[i];
+            const next = pts[i + 1];
+            const midX = (current.x + next.x) / 2;
+            const midY = (current.y + next.y) / 2;
+            const endX = midX * t + current.x * (1 - t);
+            const endY = midY * t + current.y * (1 - t);
+            ctx.quadraticCurveTo(current.x, current.y, endX, endY);
+        }
+        ctx.quadraticCurveTo(last.x, last.y, last.x, last.y);
+    };
+
+    const drawNodePath = (pts, t) => {
+        if (isOpenPath) {
+            drawSmoothOpen(pts, t);
+        } else {
+            drawSmoothClosed(pts, t);
+        }
     };
 
     // Use explicit nodes whenever present so edits persist after exiting node mode
@@ -462,7 +693,7 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
             drawSmoothClosed(pts, t);
         }
         points = all.length ? all : points;
-    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= getMinimumNodeCount(layer)) {
         usedNodes = true;
         points = buildDeformedPoints(layer.nodes);
     } else {
@@ -509,16 +740,14 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     if (usedNodes) {
         // If subpaths were handled, drawing already occurred; otherwise draw single node loop
         if (!(Array.isArray(layer.subpaths) && layer.subpaths.length > 0)) {
-            const _last3 = points[points.length - 1];
-            const _first3 = points[0];
             const t = Math.max(0, Math.min(1, (curviness ?? 0)));
-            drawSmoothClosed(points, t);
+            drawNodePath(points, t);
         }
     } else {
         // Apply curviness smoothing to procedural shapes as well
         if (points.length >= 2) {
             const t = Math.max(0, Math.min(1, (curviness ?? 0)));
-            drawSmoothClosed(points, t);
+            drawNodePath(points, t);
         } else if (points.length === 1) {
             // Single point; nothing to draw as shape
             ctx.moveTo(points[0].x, points[0].y);
@@ -548,6 +777,17 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     const requestedColors = Number.isFinite(Number(numColors))
         ? Math.max(1, Math.round(Number(numColors)))
         : paletteStops.length;
+
+    if (isOpenPath) {
+        const idx = Math.max(0, Math.min(paletteStops.length - 1, Math.round(Number(selectedColor) || 0)));
+        ctx.strokeStyle = paletteStops[idx] || paletteStops[0] || '#ffffff';
+        ctx.lineWidth = effectiveStrokeWidth;
+        ctx.lineCap = normalizeStrokeCap(strokeCap);
+        ctx.lineJoin = normalizeStrokeJoin(strokeJoin);
+        ctx.stroke();
+        ctx.restore();
+        return;
+    }
 
     // Color fill: if animating colours, fill with a single blended colour (no gradient)
     // Otherwise, use the existing radial gradient from the palette.
@@ -750,7 +990,7 @@ export const estimateLayerHalfExtents = (layer, canvas, opts = {}) => {
         }
 
         const points = Array.isArray(opts?.renderedPoints) ? opts.renderedPoints : null;
-        if (points && points.length >= 3) {
+        if (points && points.length >= getMinimumNodeCount(layer)) {
             let maxPosX = 0, maxNegX = 0;
             let maxPosY = 0, maxNegY = 0;
             for (const p of points) {
@@ -950,7 +1190,7 @@ const drawImage = (ctx, layer, canvas, globalBlendMode = 'source-over') => {
 // Uses same seeded randomization for frequencies to avoid drift when noise is high.
 export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) => {
     try {
-        if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return [];
+        if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < getMinimumNodeCount(layer)) return [];
         const { x, y, scale } = layer.position || { x: 0.5, y: 0.5, scale: 1 };
         const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
         const minWH = artSize;
@@ -993,19 +1233,34 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
         const actualFreq2 = freq2 + (rnd() - 0.5) * 3 * freqJitter;
         const actualFreq3 = freq3 + (rnd() - 0.5) * 30 * freqJitter;
         const noiseAmount = Number(layer.noiseAmount ?? 0);
+        const isOpenPath = isOpenPathLayer(layer);
+        const geometry = {
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+            sinR,
+            cosR,
+        };
+        const basePoints = layer.nodes.map((node) => localNodeToWorldPoint(node, geometry));
+        const totalLength = isOpenPath
+            ? basePoints.reduce((sum, point, index) => {
+                if (index === 0) return 0;
+                return sum + Math.hypot(point.x - basePoints[index - 1].x, point.y - basePoints[index - 1].y);
+            }, 0)
+            : 0;
 
         const pts = [];
-        const count = layer.nodes.length;
+        const count = basePoints.length;
+        let runningLength = 0;
         for (let i = 0; i < count; i++) {
-            const n = layer.nodes[i];
-            // scale then rotate: base = center + R * (S * n)
-            const sx = n.x * radiusX;
-            const sy = n.y * radiusY;
-            const tx = sx * cosR - sy * sinR;
-            const ty = sx * sinR + sy * cosR;
-            const baseX = centerX + tx;
-            const baseY = centerY + ty;
-            const angle = (i / count) * Math.PI * 2;
+            const basePoint = basePoints[i];
+            if (isOpenPath && i > 0) {
+                runningLength += Math.hypot(basePoint.x - basePoints[i - 1].x, basePoint.y - basePoints[i - 1].y);
+            }
+            const angle = isOpenPath
+                ? ((totalLength > 1e-6 ? runningLength / totalLength : 0) * Math.PI * 2)
+                : (i / count) * Math.PI * 2;
             const harmonicAngle = angle * noiseScale;
             const phase = (1 - symmetryFactor) * (i % 2) * Math.PI;
             const n1 = Math.sin(harmonicAngle * actualFreq1 + waveTime + phase) * Math.sin(waveTime * 0.8 * amplitudeFactor);
@@ -1013,12 +1268,15 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
             const n3 = Math.sin(harmonicAngle * actualFreq3 + waveTime * 1.5 + phase) * Math.sin(waveTime * 0.6 * amplitudeFactor);
             const NOISE_BASE = Math.max(radiusX, radiusY) * 0.075;
             const offset = (n1 * 1 + n2 * 0.75 + n3 * 0.5) * NOISE_BASE * noiseAmount * amplitudeFactor;
-            const dx = baseX - centerX;
-            const dy = baseY - centerY;
-            const dist = Math.hypot(dx, dy) || 1;
-            const normX = dx / dist;
-            const normY = dy / dist;
-            pts.push({ x: baseX + normX * offset, y: baseY + normY * offset });
+            const normal = isOpenPath
+                ? getPolylineNormalAt(basePoints, i, false)
+                : (() => {
+                    const dx = basePoint.x - centerX;
+                    const dy = basePoint.y - centerY;
+                    const dist = Math.hypot(dx, dy) || 1;
+                    return { x: dx / dist, y: dy / dist };
+                })();
+            pts.push({ x: basePoint.x + normal.x * offset, y: basePoint.y + normal.y * offset });
         }
         return pts;
     } catch {
@@ -1029,7 +1287,10 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
 // Build a Path2D that approximates the rendered footprint of a layer for hit-testing
 const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 0, time = 0 } = {}) => {
     const path = new Path2D();
-    if (!layer || !canvas || !layer.position || !layer.visible) return path;
+    if (!layer || !canvas || !layer.position || !layer.visible) return { path, hitMode: 'fill', lineWidth: 0 };
+    const isOpenPath = isOpenPathLayer(layer);
+    const minNodeCount = getMinimumNodeCount(layer);
+    const hitLineWidth = Math.max(8, Number(layer?.strokeWidthPx ?? 3) + 8);
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
     const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = getLayerCanvasMapping(canvas, layer);
@@ -1056,21 +1317,21 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const geometry = { centerX, centerY, radiusX, radiusY, sinR, cosR };
 
     let nodePoints = null;
-    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
-        if (Array.isArray(renderedPoints) && renderedPoints.length >= 3) {
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= minNodeCount) {
+        if (Array.isArray(renderedPoints) && renderedPoints.length >= minNodeCount) {
             nodePoints = renderedPoints;
         } else {
             const computed = computeDeformedNodePoints(layer, canvas, globalSeed, time);
-            if (Array.isArray(computed) && computed.length >= 3) {
+            if (Array.isArray(computed) && computed.length >= minNodeCount) {
                 nodePoints = computed;
             }
         }
     }
 
     let basePoints = null;
-    if (Array.isArray(nodePoints) && nodePoints.length >= 3) {
+    if (Array.isArray(nodePoints) && nodePoints.length >= minNodeCount) {
         basePoints = nodePoints;
-    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= minNodeCount) {
         basePoints = buildBaseNodePoints(layer, geometry, renderedPoints);
     }
 
@@ -1079,12 +1340,14 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     const wrapOy = wrapOffset.oy;
 
     const writePolygon = (pts) => {
-        if (!Array.isArray(pts) || pts.length < 3) return;
+        if (!Array.isArray(pts) || pts.length < minNodeCount) return;
         path.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) {
             path.lineTo(pts[i].x, pts[i].y);
         }
-        path.closePath();
+        if (!isOpenPath) {
+            path.closePath();
+        }
     };
 
     if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
@@ -1103,16 +1366,16 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
             });
             writePolygon(pts);
         }
-        return path;
+        return { path, hitMode: 'fill', lineWidth: 0 };
     }
 
-    if (Array.isArray(layer.nodes) && layer.nodes.length >= 3) {
+    if (Array.isArray(layer.nodes) && layer.nodes.length >= minNodeCount) {
         let pts = nodePoints;
-        if (!Array.isArray(pts) || pts.length < 3) {
+        if (!Array.isArray(pts) || pts.length < minNodeCount) {
             pts = buildBaseNodePoints(layer, geometry, renderedPoints);
         }
         writePolygon(applyWrapToPoints(pts, wrapOffset));
-        return path;
+        return { path, hitMode: isOpenPath ? 'stroke' : 'fill', lineWidth: isOpenPath ? hitLineWidth : 0 };
     }
 
     const sides = Number(layer?.numSides);
@@ -1120,7 +1383,7 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
     if (!count) {
         path.ellipse(centerX + wrapOx, centerY + wrapOy, Math.max(1, radiusX), Math.max(1, radiusY), rotRad, 0, Math.PI * 2);
         path.closePath();
-        return path;
+        return { path, hitMode: 'fill', lineWidth: 0 };
     }
     const pts = [];
     for (let i = 0; i < count; i++) {
@@ -1136,7 +1399,7 @@ const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 
         });
     }
     writePolygon(pts);
-    return path;
+    return { path, hitMode: isOpenPath ? 'stroke' : 'fill', lineWidth: isOpenPath ? hitLineWidth : 0 };
 };
 
 // --- Canvas Component ---
@@ -1216,9 +1479,19 @@ const Canvas = forwardRef(({
     const draggingMidIndexRef = useRef(null);
     const draggingCenterRef = useRef(false);
     const draggingOrbitCenterRef = useRef(false);
+    const draggingRotateRef = useRef(false);
+    const bendingRef = useRef(false);
+    const draftPathRef = useRef(null);
+    const draftBackupRef = useRef(null);
+    const draftMoveRef = useRef(false);
+    const interactionFreezeTimeRef = useRef(null);
+    const bendGestureRef = useRef(null);
     // Cache original nodes during node-edit numSides changes so we can restore when coming back
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
+    const [bendLatch, setBendLatch] = useState(false);
+    const [nodeEditView, setNodeEditView] = useState(DEFAULT_NODE_EDIT_VIEW);
+    const nodeEditViewRef = useRef(DEFAULT_NODE_EDIT_VIEW);
     // Drive re-render for color fade while frozen so colours visibly animate
     const [, setColorTick] = useState(0);
     // Accumulated animation time (seconds), advances only when not frozen
@@ -1226,7 +1499,7 @@ const Canvas = forwardRef(({
     const lastTimeStampRef = useRef(null);
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
-    const draggingKindRef = useRef(null); // 'node' | 'mid' | null
+    const draggingKindRef = useRef(null); // 'node' | 'mid' | 'center' | 'orbitCenter' | 'rotate' | 'bend' | 'draft'
     const gestureRef = useRef(null);
     const dragStartOffsetRef = useRef({ normX: 0, normY: 0 }); // offset from layer center when drag starts
     const pendingDragUpdateRef = useRef(null); // batched drag update
@@ -1243,25 +1516,67 @@ const Canvas = forwardRef(({
         });
     }, []);
 
-    const clearDragState = () => {
+    const clearDragState = useCallback(() => {
         draggingNodeIndexRef.current = null;
         draggingMidIndexRef.current = null;
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
+        draggingRotateRef.current = false;
+        bendingRef.current = false;
         draggingKindRef.current = null;
         gestureRef.current = null;
+        bendGestureRef.current = null;
         dragStartOffsetRef.current = { normX: 0, normY: 0 };
         pendingDragUpdateRef.current = null;
         if (dragUpdateRafRef.current) {
             cancelAnimationFrame(dragUpdateRafRef.current);
             dragUpdateRafRef.current = null;
         }
-    };
+        if (draftMoveRef.current) {
+            draftMoveRef.current = false;
+        }
+        if (!draftPathRef.current) interactionFreezeTimeRef.current = null;
+    }, []);
     // Track previous layer count to force a redraw when layers are added/removed via slider
     const prevLayersCountRef = useRef(layers.length);
 
     // Cache of last rendered edge-points per layer index
     const renderedPointsRef = useRef(new Map()); // Map<number, Array<{x,y}>>
+
+    const ensureInteractionFreezeTime = useCallback(() => {
+        if (interactionFreezeTimeRef.current == null) {
+            interactionFreezeTimeRef.current = animationTimeRef.current ?? 0;
+        }
+        return interactionFreezeTimeRef.current;
+    }, []);
+
+    const releaseInteractionFreezeTime = useCallback(() => {
+        if (
+            draggingNodeIndexRef.current == null &&
+            draggingMidIndexRef.current == null &&
+            !draggingCenterRef.current &&
+            !draggingOrbitCenterRef.current &&
+            !draggingRotateRef.current &&
+            !bendingRef.current &&
+            !draftMoveRef.current &&
+            !draftPathRef.current
+        ) {
+            interactionFreezeTimeRef.current = null;
+        }
+    }, []);
+
+    const setNodeEditViewState = useCallback((updater) => {
+        setNodeEditView((prev) => {
+            const next = typeof updater === 'function' ? updater(prev) : updater;
+            const normalized = {
+                zoom: clampNodeEditZoom(next?.zoom ?? prev.zoom),
+                panX: Number.isFinite(next?.panX) ? next.panX : prev.panX,
+                panY: Number.isFinite(next?.panY) ? next.panY : prev.panY,
+            };
+            nodeEditViewRef.current = normalized;
+            return normalized;
+        });
+    }, []);
 
     useEffect(() => {
         const canvasEl = localCanvasRef.current;
@@ -1587,7 +1902,7 @@ const Canvas = forwardRef(({
                         if (Array.isArray(layer?.subpaths) && layer.subpaths.length > 0) {
                             merged.subpaths = layer.subpaths;
                             merged.nodes = undefined;
-                        } else if (Array.isArray(layer?.nodes) && layer.nodes.length >= 3) {
+                        } else if (Array.isArray(layer?.nodes) && layer.nodes.length >= getMinimumNodeCount(layer)) {
                             merged.nodes = layer.nodes;
                             merged.subpaths = undefined;
                             if (typeof layer.syncNodesToNumSides === 'boolean') {
@@ -1601,6 +1916,10 @@ const Canvas = forwardRef(({
                         if (typeof layer?.radiusFactorX !== 'undefined') merged.radiusFactorX = layer.radiusFactorX;
                         if (typeof layer?.radiusFactorY !== 'undefined') merged.radiusFactorY = layer.radiusFactorY;
                         if (typeof layer?.rotation !== 'undefined') merged.rotation = layer.rotation;
+                        if (typeof layer?.pathMode !== 'undefined') merged.pathMode = layer.pathMode;
+                        if (typeof layer?.strokeWidthPx !== 'undefined') merged.strokeWidthPx = layer.strokeWidthPx;
+                        if (typeof layer?.strokeCap !== 'undefined') merged.strokeCap = layer.strokeCap;
+                        if (typeof layer?.strokeJoin !== 'undefined') merged.strokeJoin = layer.strokeJoin;
                     }
 
                     return merged;
@@ -1624,6 +1943,10 @@ const Canvas = forwardRef(({
 
 	        try {
 	            const renderStart = performance.now();
+            const activeView = isNodeEditMode ? nodeEditView : DEFAULT_NODE_EDIT_VIEW;
+            const viewZoom = clampNodeEditZoom(activeView?.zoom ?? 1);
+            const viewPanX = Number.isFinite(activeView?.panX) ? activeView.panX : 0;
+            const viewPanY = Number.isFinite(activeView?.panY) ? activeView.panY : 0;
 
             // Force a render when node edit mode toggles or selected layer changes
             const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
@@ -1666,6 +1989,9 @@ const Canvas = forwardRef(({
                 // keep lastTimeStampRef so when unfreezing dt stays small
             }
             const timeNow = animationTimeRef.current;
+            const interactionTimeNow = interactionFreezeTimeRef.current != null
+                ? ensureInteractionFreezeTime()
+                : timeNow;
             const bg = (typeof window !== 'undefined' && window.__artapp_bgimg) || null;
             if (bg && bg.enabled && bg.src) {
                 try {
@@ -1715,7 +2041,7 @@ const Canvas = forwardRef(({
             // If user wants color to fade while frozen, drive it with wall time but keep continuity using the computed offset
             const colorTimeNow = (isFrozen && colorFadeWhileFrozen)
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
-                : timeNow;
+                : interactionTimeNow;
 	            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
 	                if (!layer || !layer.position || !layer.visible) return;
 	                if (shouldHideAllBaseLayers) {
@@ -1731,11 +2057,11 @@ const Canvas = forwardRef(({
                     return;
                 }
 	                const shouldComputeRenderedPoints = Array.isArray(layer.nodes)
-                        && layer.nodes.length >= 3
+                        && layer.nodes.length >= getMinimumNodeCount(layer)
                         && (layer?.movementStyle === 'drift' || (isNodeEditMode && index === nodeEditSelectedIndex));
                     let renderedPoints = null;
 	                if (shouldComputeRenderedPoints) {
-	                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, timeNow);
+	                    renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, interactionTimeNow);
 	                    renderedPointsRef.current.set(index, renderedPoints);
 	                } else {
                     renderedPointsRef.current.delete(index);
@@ -1744,7 +2070,7 @@ const Canvas = forwardRef(({
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
                 } else {
                     // Use stable seed independent of render index so reordering layers doesn't change their appearance
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints });
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, interactionTimeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints });
                 }
             });
             // Ephemeral overlay layers (non-interactive / non-selectable)
@@ -1755,7 +2081,7 @@ const Canvas = forwardRef(({
                     if (layer.image && layer.image.src) {
                         drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                     } else {
-                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, timeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints: null });
+                        drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, interactionTimeNow, false, globalBlendMode, colorTimeNow), [], { renderedPoints: null });
                     }
                 });
             }
@@ -1814,7 +2140,13 @@ const Canvas = forwardRef(({
                     };
                     if ((img.naturalWidth || 0) > 0) { drawIt(); } else { img.onload = drawIt; }
                 } catch { /* noop */ }
-            }
+	            }
+	        }
+
+        if (isNodeEditMode) {
+            ctx.save();
+            ctx.translate(viewPanX, viewPanY);
+            ctx.scale(viewZoom, viewZoom);
         }
 
         if (classicMode) {
@@ -1831,12 +2163,15 @@ const Canvas = forwardRef(({
             animationTimeRef.current += dt;
         }
 	        const nowSec = animationTimeRef.current;
+            const interactionTimeFullPass = interactionFreezeTimeRef.current != null
+                ? ensureInteractionFreezeTime()
+                : nowSec;
 	        const forceFullPass = backgroundChanged || modeChanged || countChanged ||
 	            (isFrozen && colorFadeWhileFrozen) ||
 	            needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
 	        const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
 	            ? (Date.now() * 0.001 + colorWallOffsetRef.current)
-            : nowSec;
+            : interactionTimeFullPass;
 	        (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
 	            if (!layer || !layer.position) {
 	                console.error('Skipping render for malformed layer:', layer);
@@ -1860,14 +2195,14 @@ const Canvas = forwardRef(({
 
             if (forceFullPass || layerChange?.hasChanged) {
 	                const shouldComputeRenderedPoints = Array.isArray(layer.nodes)
-                        && layer.nodes.length >= 3
+                        && layer.nodes.length >= getMinimumNodeCount(layer)
                         && (layer?.movementStyle === 'drift' || (isNodeEditMode && index === nodeEditSelectedIndex));
                     let renderedPoints = null;
 	                if (layer.image && layer.image.src) {
 	                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints });
 	                } else {
 	                    // Use stable frozen time when frozen; live time otherwise
-	                    const time = nowSec;
+	                    const time = interactionTimeFullPass;
 	                    if (shouldComputeRenderedPoints) {
 	                        renderedPoints = computeDeformedNodePoints(layer, canvas, globalSeed, time);
 	                        renderedPointsRef.current.set(index, renderedPoints);
@@ -1887,7 +2222,7 @@ const Canvas = forwardRef(({
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                 } else {
-                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, nowSec, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints: null });
+                    drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawShape(c, l, cv, globalSeed, interactionTimeFullPass, false, globalBlendMode, colorTimeFullPass), [], { renderedPoints: null });
                 }
             });
         }
@@ -1934,16 +2269,16 @@ const Canvas = forwardRef(({
                         const { layer, index } = info;
                         if (!layer || !layer.visible) return;
                         if (!isLayerVisible(layer)) return;
-                        const path = buildLayerHitPath(layer, canvas, {
+                        const hitInfo = buildLayerHitPath(layer, canvas, {
                             renderedPoints: renderedPointsRef.current.get(index),
                             globalSeed,
                             time: animationTimeRef.current || 0,
                         });
-                        if (!path) return;
+                        if (!hitInfo?.path) return;
                         const isActive = id === activeLayerId;
                         ctx.lineWidth = isActive ? 3 : 2;
                         ctx.strokeStyle = isActive ? primaryColour : secondaryColour;
-                        ctx.stroke(path);
+                        ctx.stroke(hitInfo.path);
                     });
                     ctx.restore();
                 }
@@ -1989,7 +2324,7 @@ const Canvas = forwardRef(({
                 spinAngle: renderLayer.spinAngle ?? editableLayer.spinAngle,
             } : (editableLayer || renderLayer);
             const mapping = getLayerCanvasMapping(canvas, sel);
-            if (Array.isArray(sel.nodes) && sel.nodes.length >= 1) {
+            if (Array.isArray(sel.nodes) && sel.nodes.length >= getMinimumNodeCount(sel)) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
@@ -2025,9 +2360,11 @@ const Canvas = forwardRef(({
                 const rMid = 5;
                 ctx.fillStyle = '#222';
                 ctx.strokeStyle = '#ffffff';
-                for (let i = 0; i < points.length; i++) {
+                const midpointCount = isOpenPathLayer(sel) ? Math.max(0, points.length - 1) : points.length;
+                for (let i = 0; i < midpointCount; i++) {
                     const a = points[i];
-                    const b = points[(i + 1) % points.length];
+                    const b = isOpenPathLayer(sel) ? points[i + 1] : points[(i + 1) % points.length];
+                    if (!b) continue;
                     const mx = (a.x + b.x) / 2;
                     const my = (a.y + b.y) / 2;
                     ctx.beginPath();
@@ -2042,7 +2379,7 @@ const Canvas = forwardRef(({
                 const cross = 10;
                 // Compute centroid from current base points so marker updates while editing
                 let cx = layerCX, cy = layerCY;
-                if (points.length >= 3) {
+                if (points.length >= getMinimumNodeCount(sel)) {
                     let sx = 0, sy = 0;
                     for (let i = 0; i < points.length; i++) { sx += points[i].x; sy += points[i].y; }
                     cx = sx / points.length;
@@ -2054,6 +2391,16 @@ const Canvas = forwardRef(({
                 ctx.moveTo(cx, cy - cross);
                 ctx.lineTo(cx, cy + cross);
                 ctx.stroke();
+                if (draggingRotateRef.current && gestureRef.current?.rotateStart) {
+                    const rotateStart = gestureRef.current.rotateStart;
+                    ctx.beginPath();
+                    ctx.moveTo(rotateStart.centerX, rotateStart.centerY);
+                    ctx.lineTo(currentPointerRef.current.x || rotateStart.centerX, currentPointerRef.current.y || rotateStart.centerY);
+                    ctx.strokeStyle = 'rgba(255, 180, 0, 0.9)';
+                    ctx.setLineDash([6, 6]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
                 ctx.restore();
             }
 
@@ -2101,6 +2448,9 @@ const Canvas = forwardRef(({
         // Update trackers after a pass
         modeHashRef.current = { isNodeEditMode, selectedLayerIndex };
         prevLayersCountRef.current = (layersForRender?.length || 0);
+        if (isNodeEditMode) {
+            ctx.restore();
+        }
         } finally {
             ctx.restore();
         }
@@ -2130,6 +2480,8 @@ const Canvas = forwardRef(({
         getActiveTargetLayerIdsLatest,
         isLayerVisible,
         showLayerOutlines,
+        ensureInteractionFreezeTime,
+        nodeEditView,
     ]);
 
     // Render on relevant changes (initial paint, resize, selection changes, etc.)
@@ -2165,7 +2517,7 @@ const Canvas = forwardRef(({
         if (!canvas || !isNodeEditMode) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
-        if (!layer || layer.layerType !== 'shape') return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             // Avoid redundant updates
@@ -2181,7 +2533,7 @@ const Canvas = forwardRef(({
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
         const layer = layers[selectedLayerIndex];
-        if (!layer || layer.layerType !== 'shape') return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
@@ -2217,6 +2569,10 @@ const Canvas = forwardRef(({
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape') return;
         const currentNodes = Array.isArray(layer.nodes) ? layer.nodes : [];
+        if (isOpenPathLayer(layer)) {
+            nodesCacheRef.current.set(selIndex, Array.isArray(currentNodes) ? currentNodes.map(n => ({ ...n })) : []);
+            return;
+        }
         const desiredRaw = Number(layer?.numSides);
         const desired = Math.max(3, Number.isFinite(desiredRaw) ? Math.round(desiredRaw) : (currentNodes.length || 3));
 
@@ -2290,7 +2646,7 @@ const Canvas = forwardRef(({
         if (!canvas) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
-        if (!layer || layer.layerType !== 'shape') return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             // Only update if different or missing
@@ -2310,15 +2666,25 @@ const Canvas = forwardRef(({
         const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
         const scaleX = rect.width ? logicalWidth / rect.width : 1;
         const scaleY = rect.height ? logicalHeight / rect.height : 1;
+        const screenX = (evt.clientX - rect.left) * scaleX;
+        const screenY = (evt.clientY - rect.top) * scaleY;
+        if (!isNodeEditMode) {
+            return { x: screenX, y: screenY };
+        }
+        const view = nodeEditViewRef.current || DEFAULT_NODE_EDIT_VIEW;
+        const zoom = clampNodeEditZoom(view.zoom);
+        const panX = Number.isFinite(view.panX) ? view.panX : 0;
+        const panY = Number.isFinite(view.panY) ? view.panY : 0;
         return {
-            x: (evt.clientX - rect.left) * scaleX,
-            y: (evt.clientY - rect.top) * scaleY,
+            x: (screenX - panX) / zoom,
+            y: (screenY - panY) / zoom,
         };
     };
 
-    const mouseDownRef = useRef({ x: 0, y: 0, t: 0 }); // eslint-disable-line no-unused-vars
+    const mouseDownRef = useRef({ x: 0, y: 0, t: 0 });
+    const currentPointerRef = useRef({ x: 0, y: 0 });
 
-    const getNodeEditInteractiveLayer = (layerIndex) => {
+    const getNodeEditInteractiveLayer = useCallback((layerIndex) => {
         const base = layers[layerIndex];
         if (!base) return base;
         const animatedLayers = (layersRef && Array.isArray(layersRef.current)) ? layersRef.current : null;
@@ -2338,12 +2704,141 @@ const Canvas = forwardRef(({
             orbitAngle: animated.orbitAngle ?? base.orbitAngle,
             spinAngle: animated.spinAngle ?? base.spinAngle,
         };
-    };
+    }, [layers, layersRef]);
+
+    const updateSingleLayer = useCallback((layerIndex, updater) => {
+        setLayers(prev => prev.map((layer, index) => (
+            index === layerIndex ? updater(layer) : layer
+        )));
+    }, [setLayers]);
+
+    const cancelDraftPath = useCallback(() => {
+        const draft = draftPathRef.current;
+        const backup = draftBackupRef.current;
+        if (draft && backup) {
+            updateSingleLayer(draft.layerIndex, () => ({ ...backup }));
+        }
+        draftPathRef.current = null;
+        draftBackupRef.current = null;
+        draftMoveRef.current = false;
+        releaseInteractionFreezeTime();
+    }, [releaseInteractionFreezeTime, updateSingleLayer]);
+
+    const closeDraftPath = useCallback(() => {
+        const draft = draftPathRef.current;
+        if (!draft) return;
+        updateSingleLayer(draft.layerIndex, (layer) => {
+            const nodes = Array.isArray(layer?.nodes) ? layer.nodes.map(n => ({ ...n })) : [];
+            if (nodes.length < 3) return layer;
+            return {
+                ...layer,
+                pathMode: 'closed',
+                nodes,
+                syncNodesToNumSides: false,
+            };
+        });
+        draftPathRef.current = null;
+        draftBackupRef.current = null;
+        draftMoveRef.current = false;
+        releaseInteractionFreezeTime();
+    }, [releaseInteractionFreezeTime, updateSingleLayer]);
+
+    const applyDraftFillet = useCallback((layerIndex, endWorldPoint) => {
+        const canvas = localCanvasRef.current;
+        if (!canvas) return;
+        const interactiveLayer = getNodeEditInteractiveLayer(layerIndex);
+        const geometry = getLayerGeometry(interactiveLayer, canvas);
+        if (!interactiveLayer || !geometry || !Array.isArray(interactiveLayer.nodes) || interactiveLayer.nodes.length < 3) return;
+        const nodes = interactiveLayer.nodes.map(node => ({ ...node }));
+        const prevNode = nodes[nodes.length - 3];
+        const cornerNode = nodes[nodes.length - 2];
+        const endNode = nodes[nodes.length - 1];
+        const prevWorld = localNodeToWorldPoint(prevNode, geometry);
+        const cornerWorld = localNodeToWorldPoint(cornerNode, geometry);
+        const resolvedEndWorld = endWorldPoint || localNodeToWorldPoint(endNode, geometry);
+        const dragDistance = Math.hypot(resolvedEndWorld.x - cornerWorld.x, resolvedEndWorld.y - cornerWorld.y);
+        const radiusPx = Math.max(2, dragDistance * 0.35);
+        const fillet = buildFilletPoints(prevWorld, cornerWorld, resolvedEndWorld, radiusPx);
+        if (!fillet || !Array.isArray(fillet.arcPoints) || fillet.arcPoints.length < 4) return;
+        const localArcPoints = fillet.arcPoints.map(point => worldPointToLocalNode(point, geometry));
+        updateSingleLayer(layerIndex, (layer) => {
+            const current = Array.isArray(layer?.nodes) ? layer.nodes.map(node => ({ ...node })) : [];
+            if (current.length < 3) return layer;
+            current.splice(current.length - 2, 1, ...localArcPoints);
+            return {
+                ...layer,
+                nodes: current,
+                pathMode: 'open',
+                syncNodesToNumSides: false,
+            };
+        });
+    }, [getNodeEditInteractiveLayer, updateSingleLayer]);
+
+    const beginDraftPath = useCallback((layerIndex, startWorldPoint) => {
+        const canvas = localCanvasRef.current;
+        const layer = getNodeEditInteractiveLayer(layerIndex);
+        const geometry = canvas ? getLayerGeometry(layer, canvas) : null;
+        if (!layer || !geometry) return;
+        const localPoint = worldPointToLocalNode(startWorldPoint, geometry);
+        draftBackupRef.current = JSON.parse(JSON.stringify(layers[layerIndex] || null));
+        draftPathRef.current = { layerIndex };
+        draftMoveRef.current = true;
+        ensureInteractionFreezeTime();
+        updateSingleLayer(layerIndex, (currentLayer) => ({
+            ...currentLayer,
+            pathMode: 'open',
+            nodes: [{ ...localPoint }, { ...localPoint }],
+            syncNodesToNumSides: false,
+        }));
+    }, [ensureInteractionFreezeTime, getNodeEditInteractiveLayer, layers, updateSingleLayer]);
+
+    const appendDraftPoint = useCallback((layerIndex, worldPoint) => {
+        const canvas = localCanvasRef.current;
+        const layer = getNodeEditInteractiveLayer(layerIndex);
+        const geometry = canvas ? getLayerGeometry(layer, canvas) : null;
+        if (!layer || !geometry) return;
+        const localPoint = worldPointToLocalNode(worldPoint, geometry);
+        draftPathRef.current = { layerIndex };
+        draftMoveRef.current = true;
+        ensureInteractionFreezeTime();
+        updateSingleLayer(layerIndex, (currentLayer) => {
+            const nodes = Array.isArray(currentLayer?.nodes) ? currentLayer.nodes.map(node => ({ ...node })) : [];
+            nodes.push({ ...localPoint });
+            return {
+                ...currentLayer,
+                pathMode: 'open',
+                nodes,
+                syncNodesToNumSides: false,
+            };
+        });
+    }, [ensureInteractionFreezeTime, getNodeEditInteractiveLayer, updateSingleLayer]);
+
+    useEffect(() => {
+        if (!isNodeEditMode) return undefined;
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                if (draftPathRef.current) {
+                    event.preventDefault();
+                    cancelDraftPath();
+                    clearDragState();
+                }
+                return;
+            }
+            if (event.key === 'Enter' && draftPathRef.current) {
+                const layer = layers[draftPathRef.current.layerIndex];
+                if (Array.isArray(layer?.nodes) && layer.nodes.length >= 3) {
+                    event.preventDefault();
+                    closeDraftPath();
+                    clearDragState();
+                }
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, [cancelDraftPath, clearDragState, closeDraftPath, isNodeEditMode, layers]);
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
-        // If holding a selection modifier (Shift/Cmd/Ctrl), skip drag initiation so we can select on mouseup
-        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
 
@@ -2371,6 +2866,7 @@ const Canvas = forwardRef(({
 
         const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
+        mouseDownRef.current = { x: pos.x, y: pos.y, t: Date.now() };
         const hitRadius = 10;
         const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
         const wrapOx = wrapOffset.ox;
@@ -2404,12 +2900,22 @@ const Canvas = forwardRef(({
                 draggingCenterRef.current = false;
                 draggingKindRef.current = 'orbitCenter';
                 gestureRef.current = { layerId, layerIndex, type: 'orbitCenter', wrapOffset, geometry: gestureGeometry };
+                ensureInteractionFreezeTime();
                 return;
             }
         }
 
         if (!Array.isArray(layer.nodes)) {
-            gestureRef.current = null;
+            if (draftPathRef.current && draftPathRef.current.layerIndex !== layerIndex) {
+                cancelDraftPath();
+            }
+            if (!e.metaKey && !e.ctrlKey) {
+                beginDraftPath(layerIndex, pos);
+                draggingKindRef.current = 'draft';
+                gestureRef.current = { layerId, layerIndex, type: 'draft', geometry: gestureGeometry };
+            } else {
+                gestureRef.current = null;
+            }
             return;
         }
         // Prefer deformed points for hit-testing so handles remain clickable under noise
@@ -2440,6 +2946,7 @@ const Canvas = forwardRef(({
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
             gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx, wrapOffset, geometry: gestureGeometry };
+            ensureInteractionFreezeTime();
             return;
         }
         // Try midpoints next
@@ -2450,14 +2957,20 @@ const Canvas = forwardRef(({
                 const ry = n.x * sinR + n.y * cosR;
                 return { x: centerX + wrapOx + rx * radiusX, y: centerY + wrapOy + ry * radiusY };
             });
-        const midIdx = pts.findIndex((_, i) => {
+        const segmentCount = isOpenPathLayer(layer) ? Math.max(0, pts.length - 1) : pts.length;
+        let midIdx = -1;
+        for (let i = 0; i < segmentCount; i += 1) {
             const a = pts[i];
-            const b = pts[(i + 1) % pts.length];
+            const b = isOpenPathLayer(layer) ? pts[i + 1] : pts[(i + 1) % pts.length];
+            if (!a || !b) continue;
             const mx = (a.x + b.x) / 2;
             const my = (a.y + b.y) / 2;
             const dx = mx - pos.x; const dy = my - pos.y;
-            return (dx * dx + dy * dy) <= hitRadius * hitRadius;
-        });
+            if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
+                midIdx = i;
+                break;
+            }
+        }
         if (midIdx !== -1) {
             draggingMidIndexRef.current = midIdx;
             draggingNodeIndexRef.current = null;
@@ -2485,12 +2998,13 @@ const Canvas = forwardRef(({
                     startMouse: { x: pos.x, y: pos.y },
                 },
             };
+            ensureInteractionFreezeTime();
             return;
         }
         // Try center cross (use centroid to match the drawn crosshair position)
         {
             let cx = centerX + wrapOx, cy = centerY + wrapOy;
-            if (pts.length >= 3) {
+            if (pts.length >= getMinimumNodeCount(layer)) {
                 let sx = 0, sy = 0;
                 for (let i = 0; i < pts.length; i++) { sx += pts[i].x; sy += pts[i].y; }
                 cx = sx / pts.length;
@@ -2498,6 +3012,25 @@ const Canvas = forwardRef(({
             }
             const dx = cx - pos.x; const dy = cy - pos.y;
             if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+                if (e.ctrlKey) {
+                    draggingRotateRef.current = true;
+                    draggingKindRef.current = 'rotate';
+                    gestureRef.current = {
+                        layerId,
+                        layerIndex,
+                        type: 'rotate',
+                        wrapOffset,
+                        geometry: gestureGeometry,
+                        rotateStart: {
+                            centerX: cx,
+                            centerY: cy,
+                            startAngle: Math.atan2(pos.y - cy, pos.x - cx),
+                            initialRotation: Number(layer.rotation) || 0,
+                        },
+                    };
+                    ensureInteractionFreezeTime();
+                    return;
+                }
                 draggingCenterRef.current = true;
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
@@ -2515,8 +3048,63 @@ const Canvas = forwardRef(({
                     normX: clickNormX - currentPosX,
                     normY: clickNormY - currentPosY,
                 };
+                ensureInteractionFreezeTime();
                 return;
             }
+        }
+
+        const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
+        if (bendLatch || capsActive) {
+            const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
+            const targetIndexes = [];
+            layers.forEach((candidate, candidateIndex) => {
+                if (!candidate || !Array.isArray(candidate.nodes) || candidate.nodes.length < getMinimumNodeCount(candidate)) return;
+                if (selectedIds.size > 1) {
+                    if (candidate.id && selectedIds.has(candidate.id)) targetIndexes.push(candidateIndex);
+                } else if (candidateIndex === layerIndex) {
+                    targetIndexes.push(candidateIndex);
+                }
+            });
+            if (targetIndexes.length === 0) targetIndexes.push(layerIndex);
+            const baselines = targetIndexes.map((targetIndex) => {
+                const targetLayer = getNodeEditInteractiveLayer(targetIndex);
+                const targetGeometry = getLayerGeometry(targetLayer, canvas);
+                if (!targetLayer || !targetGeometry || !Array.isArray(targetLayer.nodes)) return null;
+                return {
+                    layerIndex: targetIndex,
+                    geometry: targetGeometry,
+                    nodes: targetLayer.nodes.map(node => ({ ...node })),
+                    worldPoints: targetLayer.nodes.map(node => localNodeToWorldPoint(node, targetGeometry)),
+                };
+            }).filter(Boolean);
+            const centroid = getPathCentroid(baselines.flatMap(entry => entry.worldPoints));
+            bendGestureRef.current = {
+                startMouse: { ...pos },
+                centroid,
+                radiusPx: 120,
+                baselines,
+            };
+            bendingRef.current = true;
+            draggingKindRef.current = 'bend';
+            ensureInteractionFreezeTime();
+            return;
+        }
+
+        if (draftPathRef.current && draftPathRef.current.layerIndex !== layerIndex) {
+            cancelDraftPath();
+        }
+        if (draftPathRef.current?.layerIndex === layerIndex && !e.metaKey && !e.ctrlKey) {
+            appendDraftPoint(layerIndex, pos);
+            draggingKindRef.current = 'draft';
+            gestureRef.current = { layerId, layerIndex, type: 'draft', geometry: gestureGeometry };
+            return;
+        }
+
+        if (!e.metaKey && !e.ctrlKey) {
+            beginDraftPath(layerIndex, pos);
+            draggingKindRef.current = 'draft';
+            gestureRef.current = { layerId, layerIndex, type: 'draft', geometry: gestureGeometry };
+            return;
         }
 
         gestureRef.current = null;
@@ -2528,10 +3116,13 @@ const Canvas = forwardRef(({
         const mid = draggingMidIndexRef.current;
         const draggingCenter = draggingCenterRef.current;
         const draggingOrbit = draggingOrbitCenterRef.current;
-        if (idx == null && mid == null && !draggingCenter && !draggingOrbit) return;
+        const draggingRotate = draggingRotateRef.current;
+        const bending = bendingRef.current;
+        const drafting = draftMoveRef.current;
+        if (idx == null && mid == null && !draggingCenter && !draggingOrbit && !draggingRotate && !bending && !drafting) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const selIndex = Math.max(0, Math.min(Number.isFinite(gestureRef.current?.layerIndex) ? gestureRef.current.layerIndex : (Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0), Math.max(0, layers.length - 1)));
         const layer = getNodeEditInteractiveLayer(selIndex);
         if (!layer || !layer.position) return;
         const gestureGeometry = gestureRef.current?.geometry;
@@ -2554,6 +3145,7 @@ const Canvas = forwardRef(({
         } = geometry;
 
         const pos = getMousePos(e);
+        currentPointerRef.current = { x: pos.x, y: pos.y };
         const wrapOffset = layer?.movementStyle === 'drift'
             ? (gestureRef.current?.wrapOffset || getDriftWrapOffset(layer, canvas))
             : ZERO_WRAP_OFFSET;
@@ -2565,6 +3157,66 @@ const Canvas = forwardRef(({
         // so that dragging the wrapped center crosshair does not introduce a 1.0 offset.
         const normXBase = spanX > 0 ? (posBaseX - artOffsetX - offsetXPx) / spanX : 0.5;
         const normYBase = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
+
+        if (draggingRotate) {
+            const rotateStart = gestureRef.current?.rotateStart;
+            if (!rotateStart) return;
+            const angle = Math.atan2(pos.y - rotateStart.centerY, pos.x - rotateStart.centerX);
+            const deltaDeg = ((angle - rotateStart.startAngle) * 180) / Math.PI;
+            setLayers(prev => prev.map((entry, index) => (
+                index === selIndex ? { ...entry, rotation: (rotateStart.initialRotation || 0) + deltaDeg } : entry
+            )));
+            return;
+        }
+
+        if (bending) {
+            const gesture = bendGestureRef.current;
+            if (!gesture) return;
+            const dy = pos.y - gesture.startMouse.y;
+            const sigma = Math.max(1, gesture.radiusPx * 0.45);
+            setLayers(prev => prev.map((entry, index) => {
+                const baseline = gesture.baselines.find(item => item.layerIndex === index);
+                if (!baseline || !Array.isArray(entry?.nodes)) return entry;
+                const nextNodes = baseline.worldPoints.map((worldPoint, pointIndex) => {
+                    const distance = Math.hypot(worldPoint.x - gesture.startMouse.x, worldPoint.y - gesture.startMouse.y);
+                    if (distance > gesture.radiusPx) return { ...baseline.nodes[pointIndex] };
+                    const falloff = Math.exp(-((distance * distance) / (2 * sigma * sigma)));
+                    let nextWorld;
+                    if (e.shiftKey) {
+                        const scaleFactor = 1 + (dy / 180) * falloff;
+                        nextWorld = {
+                            x: gesture.centroid.x + (worldPoint.x - gesture.centroid.x) * scaleFactor,
+                            y: gesture.centroid.y + (worldPoint.y - gesture.centroid.y) * scaleFactor,
+                        };
+                    } else {
+                        nextWorld = { x: worldPoint.x, y: worldPoint.y + dy * falloff };
+                    }
+                    return worldPointToLocalNode(nextWorld, baseline.geometry);
+                });
+                return { ...entry, nodes: nextNodes, syncNodesToNumSides: false };
+            }));
+            return;
+        }
+
+        if (drafting) {
+            const anchorLayer = getNodeEditInteractiveLayer(selIndex);
+            const anchorGeometry = getLayerGeometry(anchorLayer, canvas);
+            if (!anchorLayer || !anchorGeometry || !Array.isArray(anchorLayer.nodes) || anchorLayer.nodes.length < 2) return;
+            let targetWorld = { x: posBaseX, y: posBaseY };
+            if (e.shiftKey) {
+                const anchor = localNodeToWorldPoint(anchorLayer.nodes[anchorLayer.nodes.length - 2], anchorGeometry);
+                targetWorld = snapPointToOctant(anchor, targetWorld);
+            }
+            const localPoint = worldPointToLocalNode(targetWorld, anchorGeometry);
+            setLayers(prev => prev.map((entry, index) => {
+                if (index !== selIndex) return entry;
+                const nodes = Array.isArray(entry?.nodes) ? entry.nodes.map(node => ({ ...node })) : [];
+                if (nodes.length < 2) return entry;
+                nodes[nodes.length - 1] = { ...localPoint };
+                return { ...entry, pathMode: 'open', nodes, syncNodesToNumSides: false };
+            }));
+            return;
+        }
 
         if (draggingOrbit) {
             const nx = Math.max(0, Math.min(1, normXBase));
@@ -2691,8 +3343,25 @@ const Canvas = forwardRef(({
             }
         } else if (idx != null) {
             // Convert dragged canvas position back to unrotated local node coords
-            const lx = (posBaseX - centerX) / radiusX;
-            const ly = (posBaseY - centerY) / radiusY;
+            let targetBaseX = posBaseX;
+            let targetBaseY = posBaseY;
+            if (e.shiftKey && Array.isArray(layer.nodes) && layer.nodes.length >= 2) {
+                let anchorNode = null;
+                if (isOpenPathLayer(layer)) {
+                    if (idx === 0 && layer.nodes[1]) anchorNode = layer.nodes[1];
+                    else if (idx === layer.nodes.length - 1 && layer.nodes[layer.nodes.length - 2]) anchorNode = layer.nodes[layer.nodes.length - 2];
+                } else {
+                    anchorNode = layer.nodes[(idx - 1 + layer.nodes.length) % layer.nodes.length];
+                }
+                if (anchorNode) {
+                    const anchorWorld = localNodeToWorldPoint(anchorNode, geometry);
+                    const snapped = snapPointToOctant(anchorWorld, { x: targetBaseX, y: targetBaseY });
+                    targetBaseX = snapped.x;
+                    targetBaseY = snapped.y;
+                }
+            }
+            const lx = (targetBaseX - centerX) / radiusX;
+            const ly = (targetBaseY - centerY) / radiusY;
             const nx = lx * cosR + ly * sinR;
             const ny = -lx * sinR + ly * cosR;
             // Store update for RAF batching
@@ -2858,7 +3527,7 @@ const Canvas = forwardRef(({
 
     const onMouseUp = (e) => {
         const canvas = localCanvasRef.current;
-        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current;
+        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current || draggingRotateRef.current || bendingRef.current || draftMoveRef.current;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
 
         if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
@@ -2870,12 +3539,18 @@ const Canvas = forwardRef(({
                 for (let i = layers.length - 1; i >= 0; i--) {
                     const layer = layers[i];
                     if (!layer || !layer.visible) continue;
-                    const path = buildLayerHitPath(layer, canvas, {
+                    const hitInfo = buildLayerHitPath(layer, canvas, {
                         renderedPoints: renderedPointsRef.current.get(i),
                         globalSeed,
                         time: animationTimeRef.current || 0,
                     });
-                    if (ctx.isPointInPath(path, pos.x, pos.y)) {
+                    if (hitInfo?.hitMode === 'stroke') {
+                        ctx.lineWidth = hitInfo.lineWidth || 8;
+                    }
+                    const isHit = hitInfo?.hitMode === 'stroke'
+                        ? ctx.isPointInStroke(hitInfo.path, pos.x, pos.y)
+                        : ctx.isPointInPath(hitInfo?.path, pos.x, pos.y);
+                    if (isHit) {
                         hitIndex = i;
                         hitLayer = layer;
                         break;
@@ -2905,8 +3580,86 @@ const Canvas = forwardRef(({
                 }
             }
         }
+        if (canvas && draggingKindRef.current === 'draft' && draftPathRef.current) {
+            draftMoveRef.current = false;
+            if (e.altKey) {
+                applyDraftFillet(draftPathRef.current.layerIndex, getMousePos(e));
+            }
+        }
+
+        if (canvas && draggingKindRef.current === 'node') {
+            const dragLayerIndex = gestureRef.current?.layerIndex;
+            const dragNodeIndex = draggingNodeIndexRef.current;
+            if (Number.isInteger(dragLayerIndex) && Number.isInteger(dragNodeIndex)) {
+                const activeLayer = getNodeEditInteractiveLayer(dragLayerIndex);
+                const activeGeometry = getLayerGeometry(activeLayer, canvas);
+                const isEndpoint = Array.isArray(activeLayer?.nodes) && (dragNodeIndex === 0 || dragNodeIndex === activeLayer.nodes.length - 1);
+                if (activeLayer && activeGeometry && isOpenPathLayer(activeLayer) && isEndpoint && Array.isArray(activeLayer.nodes)) {
+                    const activeEndpointWorld = localNodeToWorldPoint(activeLayer.nodes[dragNodeIndex], activeGeometry);
+                    const oppositeIndex = dragNodeIndex === 0 ? activeLayer.nodes.length - 1 : 0;
+                    if (activeLayer.nodes.length >= 3) {
+                        const oppositeWorld = localNodeToWorldPoint(activeLayer.nodes[oppositeIndex], activeGeometry);
+                        if (Math.hypot(activeEndpointWorld.x - oppositeWorld.x, activeEndpointWorld.y - oppositeWorld.y) <= 14) {
+                            updateSingleLayer(dragLayerIndex, (layer) => ({ ...layer, pathMode: 'closed', syncNodesToNumSides: false }));
+                        }
+                    }
+                    if (e.shiftKey) {
+                        let best = null;
+                        layers.forEach((candidate, candidateIndex) => {
+                            if (candidateIndex === dragLayerIndex || !isOpenPathLayer(candidate) || !Array.isArray(candidate.nodes) || candidate.nodes.length < 2) return;
+                            const interactiveCandidate = getNodeEditInteractiveLayer(candidateIndex);
+                            const candidateGeometry = getLayerGeometry(interactiveCandidate, canvas);
+                            if (!candidateGeometry) return;
+                            [0, interactiveCandidate.nodes.length - 1].forEach((endpointIndex) => {
+                                const endpointWorld = localNodeToWorldPoint(interactiveCandidate.nodes[endpointIndex], candidateGeometry);
+                                const distance = Math.hypot(activeEndpointWorld.x - endpointWorld.x, activeEndpointWorld.y - endpointWorld.y);
+                                if (distance > 14) return;
+                                if (!best || distance < best.distance) {
+                                    best = {
+                                        candidateIndex,
+                                        endpointIndex,
+                                        distance,
+                                        candidateLayer: interactiveCandidate,
+                                        candidateGeometry,
+                                    };
+                                }
+                            });
+                        });
+                        if (best) {
+                            const activeWorldPoints = activeLayer.nodes.map(node => localNodeToWorldPoint(node, activeGeometry));
+                            const candidateWorldPoints = best.candidateLayer.nodes.map(node => localNodeToWorldPoint(node, best.candidateGeometry));
+                            const activeAtStart = dragNodeIndex === 0;
+                            const candidateAtStart = best.endpointIndex === 0;
+                            let orientedActive = activeWorldPoints.map(point => ({ ...point }));
+                            let orientedCandidate = candidateWorldPoints.map(point => ({ ...point }));
+                            if (activeAtStart) orientedActive = orientedActive.slice().reverse();
+                            if (!candidateAtStart) orientedCandidate = orientedCandidate.slice().reverse();
+                            const joinPoint = {
+                                x: (orientedActive[orientedActive.length - 1].x + orientedCandidate[0].x) / 2,
+                                y: (orientedActive[orientedActive.length - 1].y + orientedCandidate[0].y) / 2,
+                            };
+                            orientedActive[orientedActive.length - 1] = joinPoint;
+                            orientedCandidate[0] = joinPoint;
+                            const mergedWorld = [...orientedActive, ...orientedCandidate.slice(1)];
+                            const mergedLocal = mergedWorld.map(point => worldPointToLocalNode(point, activeGeometry));
+                            const removedIndex = best.candidateIndex;
+                            const nextSelectedIndex = removedIndex < dragLayerIndex ? dragLayerIndex - 1 : dragLayerIndex;
+                            setLayers(prev => prev
+                                .map((entry, index) => (
+                                    index === dragLayerIndex
+                                        ? { ...entry, nodes: mergedLocal, pathMode: 'open', syncNodesToNumSides: false }
+                                        : entry
+                                ))
+                                .filter((_, index) => index !== removedIndex));
+                            setSelectedLayerIndex?.(Math.max(0, nextSelectedIndex));
+                            if (clearSelection) clearSelection();
+                        }
+                    }
+                }
+            }
+        }
         // If we just finished dragging a node or a midpoint, push a snapshot
-        if (isNodeEditMode && (draggingKindRef.current === 'node' || draggingKindRef.current === 'mid')) {
+        if (isNodeEditMode && (draggingKindRef.current === 'node' || draggingKindRef.current === 'mid' || draggingKindRef.current === 'bend')) {
             pushHistorySnapshot();
         }
 
@@ -2914,8 +3667,12 @@ const Canvas = forwardRef(({
         draggingMidIndexRef.current = null;
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
+        draggingRotateRef.current = false;
+        bendingRef.current = false;
         draggingKindRef.current = null;
         gestureRef.current = null;
+        bendGestureRef.current = null;
+        releaseInteractionFreezeTime();
 
         // nothing else to do here
     };
@@ -2925,13 +3682,17 @@ const Canvas = forwardRef(({
   // Use refs to track state and avoid re-running on every layers change
   const prevNodeLenRef = useRef(0);
   const wasNodeEditModeRef = useRef(false);
-  useEffect(() => {
-    if (!isNodeEditMode) {
-      // Only reset when transitioning FROM node edit mode TO non-node edit mode
-      if (wasNodeEditModeRef.current) {
-        historyRef.current = { stack: [], index: -1, layerIndex: -1 };
-        prevNodeLenRef.current = 0;
-        setHistoryTick(t => t + 1);
+    useEffect(() => {
+        if (!isNodeEditMode) {
+          if (nodeEditViewRef.current.zoom !== 1 || nodeEditViewRef.current.panX !== 0 || nodeEditViewRef.current.panY !== 0) {
+            nodeEditViewRef.current = DEFAULT_NODE_EDIT_VIEW;
+            setNodeEditView(DEFAULT_NODE_EDIT_VIEW);
+          }
+          // Only reset when transitioning FROM node edit mode TO non-node edit mode
+          if (wasNodeEditModeRef.current) {
+            historyRef.current = { stack: [], index: -1, layerIndex: -1 };
+            prevNodeLenRef.current = 0;
+            setHistoryTick(t => t + 1);
       }
       wasNodeEditModeRef.current = false;
       return;
@@ -2949,7 +3710,34 @@ const Canvas = forwardRef(({
     }
     // Only depend on isNodeEditMode and selectedLayerIndex, not layers
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNodeEditMode, initHistoryBaseline, selectedLayerIndex]);
+  }, [isNodeEditMode, initHistoryBaseline, selectedLayerIndex, setNodeEditView]);
+
+    const onWheel = useCallback((e) => {
+        if (!isNodeEditMode) return;
+        e.preventDefault();
+        const canvas = localCanvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
+        const scaleX = rect.width ? logicalWidth / rect.width : 1;
+        const scaleY = rect.height ? logicalHeight / rect.height : 1;
+        const screenX = (e.clientX - rect.left) * scaleX;
+        const screenY = (e.clientY - rect.top) * scaleY;
+
+        setNodeEditViewState((prev) => {
+            const prevZoom = clampNodeEditZoom(prev.zoom);
+            const intensity = e.ctrlKey ? 0.0025 : 0.0015;
+            const nextZoom = clampNodeEditZoom(prevZoom * Math.exp(-e.deltaY * intensity));
+            if (Math.abs(nextZoom - prevZoom) < 1e-4) return prev;
+            const worldX = (screenX - prev.panX) / prevZoom;
+            const worldY = (screenY - prev.panY) / prevZoom;
+            return {
+                zoom: nextZoom,
+                panX: screenX - worldX * nextZoom,
+                panY: screenY - worldY * nextZoom,
+            };
+        });
+    }, [isNodeEditMode, setNodeEditViewState]);
 
     return (
         <>
@@ -2959,9 +3747,27 @@ const Canvas = forwardRef(({
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
+              onWheel={onWheel}
+              onDoubleClick={() => {
+                  if (draftPathRef.current) closeDraftPath();
+              }}
           />
           {isNodeEditMode && (
             <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', gap: 10, zIndex: 9000 }}>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48 }}
+                title={`Reset node edit zoom (${Math.round(nodeEditView.zoom * 100)}%)`}
+                aria-label="Reset node edit zoom"
+                onClick={() => setNodeEditViewState(DEFAULT_NODE_EDIT_VIEW)}
+              >{`${Math.round(nodeEditView.zoom * 100)}%`}</button>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48, border: bendLatch ? '2px solid #ffb400' : undefined }}
+                title="Toggle bend latch"
+                aria-label="Toggle bend latch"
+                onClick={() => setBendLatch(value => !value)}
+              >⌘</button>
               <button
                 className="fab"
                 style={{ width: 48, height: 48 }}

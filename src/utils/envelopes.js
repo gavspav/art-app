@@ -391,6 +391,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     nodes: null,
     subpaths: null,
   };
+  const pathModesMatch = ((left.shapeParams?.pathMode || 'closed') === (right.shapeParams?.pathMode || 'closed'));
 
   // Use curve/tension from the left keyframe to ease scalar interpolations
   // Geometry (nodes/subpaths) continues to use linear clampedT
@@ -401,7 +402,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
   // Interpolate shape (nodes/subpaths) if enabled
   if (categories.shape) {
     // Try to interpolate subpaths first
-    if (left.subpaths && right.subpaths && lerpSubpaths) {
+    if (pathModesMatch && left.subpaths && right.subpaths && lerpSubpaths) {
       const interpolated = lerpSubpaths(left.subpaths, right.subpaths, clampedT);
       if (interpolated) {
         result.subpaths = interpolated;
@@ -409,7 +410,7 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
     }
 
     // Try to interpolate nodes if subpaths didn't work
-    if (!result.subpaths && left.nodes && right.nodes && lerpNodes) {
+    if (pathModesMatch && !result.subpaths && left.nodes && right.nodes && lerpNodes) {
       const interpolated = lerpNodes(left.nodes, right.nodes, clampedT);
       if (interpolated) {
         result.nodes = interpolated;
@@ -450,6 +451,10 @@ export const evaluateShapeTrackAtTime = (track, timeSeconds, lerpNodes, lerpSubp
       radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, easedT),
       radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, easedT),
       rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
+      pathMode: spA.pathMode ?? spB.pathMode ?? 'closed',
+      strokeWidthPx: lerp(spA.strokeWidthPx ?? 3, spB.strokeWidthPx ?? 3, easedT),
+      strokeCap: spA.strokeCap ?? spB.strokeCap ?? 'round',
+      strokeJoin: spA.strokeJoin ?? spB.strokeJoin ?? 'round',
     };
   }
 
@@ -832,15 +837,16 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
       animation: null,
       colors: null,
     };
+    const pathModesMatch = ((layerA.shapeParams?.pathMode || 'closed') === (layerB.shapeParams?.pathMode || 'closed'));
 
     // Interpolate shape (nodes/subpaths) if enabled
     if (categories.shape) {
-      if (layerA.subpaths && layerB.subpaths && lerpSubpaths) {
+      if (pathModesMatch && layerA.subpaths && layerB.subpaths && lerpSubpaths) {
         const interpolated = lerpSubpaths(layerA.subpaths, layerB.subpaths, clampedT);
         if (interpolated) result.subpaths = interpolated;
       }
 
-      if (!result.subpaths && layerA.nodes && layerB.nodes && lerpNodes) {
+      if (pathModesMatch && !result.subpaths && layerA.nodes && layerB.nodes && lerpNodes) {
         const interpolated = lerpNodes(layerA.nodes, layerB.nodes, clampedT);
         if (interpolated) result.nodes = interpolated;
       }
@@ -878,6 +884,10 @@ export const evaluateGlobalShapeTrackAtTime = (track, timeSeconds, lerpNodes, le
         radiusFactorX: lerp(spA.radiusFactorX ?? spA.radiusFactor ?? 0.125, spB.radiusFactorX ?? spB.radiusFactor ?? 0.125, easedT),
         radiusFactorY: lerp(spA.radiusFactorY ?? spA.radiusFactor ?? 0.125, spB.radiusFactorY ?? spB.radiusFactor ?? 0.125, easedT),
         rotation: lerp(spA.rotation ?? 0, spB.rotation ?? 0, easedT),
+        pathMode: spA.pathMode ?? spB.pathMode ?? 'closed',
+        strokeWidthPx: lerp(spA.strokeWidthPx ?? 3, spB.strokeWidthPx ?? 3, easedT),
+        strokeCap: spA.strokeCap ?? spB.strokeCap ?? 'round',
+        strokeJoin: spA.strokeJoin ?? spB.strokeJoin ?? 'round',
       };
     }
 

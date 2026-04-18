@@ -232,6 +232,9 @@ export function usePresetMorph({
                   },
                   // Node morphing (if enabled and topology matches)
                   ...(morphNodesRef.current ? (() => {
+                    const pathModeA = laSrc?.pathMode || 'closed';
+                    const pathModeB = lbSrc?.pathMode || 'closed';
+                    if (pathModeA !== pathModeB) return {};
                     const nodesA = laSrc?.nodes;
                     const nodesB = lbSrc?.nodes;
                     const subpathsA = laSrc?.subpaths;

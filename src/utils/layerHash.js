@@ -9,50 +9,51 @@
  * @param {Object} layer - The layer object
  * @returns {string} - Hash representing visual state
  */
+const serializeVisualValue = (value) => {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value);
+};
+
 export const calculateVisualHash = (layer) => {
-  if (!layer) return '';
-  
-  // Extract only visual properties that affect rendering
-  const visualProps = {
-    // Shape properties
-    numSides: layer.numSides,
-    curviness: layer.curviness,
-    radiusFactor: layer.radiusFactor,
-    width: layer.width,
-    height: layer.height,
-    noiseAmount: layer.noiseAmount,
-    noiseSeed: layer.noiseSeed, // Include noise seed as it affects visual output
-    
-    // Appearance properties
-    opacity: layer.opacity,
-    blendMode: layer.blendMode,
-    colors: layer.colors,
-    // Node-based shape data (normalized positions)
-    nodes: layer.nodes,
-    // Rotation (degrees) affects geometry orientation
-    rotation: layer.rotation,
-    
-    // Position and scale (from nested position object)
-    x: layer.position?.x,
-    y: layer.position?.y,
-    scale: layer.position?.scale,
-    
-    // Layer type and visibility
-    layerType: layer.layerType,
-    visible: layer.visible,
-    
-    // Image properties (if applicable)
-    imageSrc: layer.image?.src || null,
-    imageBlur: layer.imageBlur,
-    imageBrightness: layer.imageBrightness,
-    imageContrast: layer.imageContrast,
-    imageHue: layer.imageHue,
-    imageSaturation: layer.imageSaturation,
-    imageDistortion: layer.imageDistortion,
-  };
-  
-  // Create a stable string representation
-  return JSON.stringify(visualProps);
+  if (!layer || typeof layer !== 'object') return '';
+
+  const position = layer.position || {};
+  const image = layer.image || {};
+
+  // Build a stable, compact serialization without allocating a large intermediate object.
+  return [
+    `numSides:${serializeVisualValue(layer.numSides)}`,
+    `curviness:${serializeVisualValue(layer.curviness)}`,
+    `radiusFactor:${serializeVisualValue(layer.radiusFactor)}`,
+    `width:${serializeVisualValue(layer.width)}`,
+    `height:${serializeVisualValue(layer.height)}`,
+    `noiseAmount:${serializeVisualValue(layer.noiseAmount)}`,
+    `noiseSeed:${serializeVisualValue(layer.noiseSeed)}`,
+    `opacity:${serializeVisualValue(layer.opacity)}`,
+    `blendMode:${serializeVisualValue(layer.blendMode)}`,
+    `colors:${serializeVisualValue(layer.colors)}`,
+    `nodes:${serializeVisualValue(layer.nodes)}`,
+    `pathMode:${serializeVisualValue(layer.pathMode)}`,
+    `strokeWidthPx:${serializeVisualValue(layer.strokeWidthPx)}`,
+    `strokeCap:${serializeVisualValue(layer.strokeCap)}`,
+    `strokeJoin:${serializeVisualValue(layer.strokeJoin)}`,
+    `rotation:${serializeVisualValue(layer.rotation)}`,
+    `x:${serializeVisualValue(position.x)}`,
+    `y:${serializeVisualValue(position.y)}`,
+    `scale:${serializeVisualValue(position.scale)}`,
+    `layerType:${serializeVisualValue(layer.layerType)}`,
+    `visible:${serializeVisualValue(layer.visible)}`,
+    `imageSrc:${serializeVisualValue(image.src)}`,
+    `imageBlur:${serializeVisualValue(layer.imageBlur)}`,
+    `imageBrightness:${serializeVisualValue(layer.imageBrightness)}`,
+    `imageContrast:${serializeVisualValue(layer.imageContrast)}`,
+    `imageHue:${serializeVisualValue(layer.imageHue)}`,
+    `imageSaturation:${serializeVisualValue(layer.imageSaturation)}`,
+    `imageDistortion:${serializeVisualValue(layer.imageDistortion)}`,
+  ].join('|');
 };
 
 /**
@@ -109,6 +110,7 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
   // Define visual properties to check
   const propsToCheck = [
     'numSides', 'curviness', 'radiusFactor', 'width', 'height', 'noiseAmount', 'rotation',
+    'pathMode', 'strokeWidthPx', 'strokeCap', 'strokeJoin',
     'opacity', 'blendMode', 'colors', 'layerType', 'visible'
   ];
   

@@ -56,6 +56,29 @@ const SHORTCUT_SECTIONS = [
       [['Shift', 'F'], 'Fill variation keyframes between first and last keyframe'],
     ],
   },
+  {
+    title: 'Node Edit',
+    items: [
+      [['Double-click'], 'Close the current draft path'],
+      [['Enter'], 'Close the current draft path'],
+      [['Esc'], 'Cancel the current draft and restore the prior shape'],
+      [['Shift', 'Drag'], 'Snap draft and endpoint drags to straight 45° increments'],
+      [['Ctrl', 'Drag center'], 'Rotate the active shape/path in place'],
+      [['CapsLock'], 'Bend selected nodes with vertical mouse movement'],
+    ],
+  },
+];
+
+const NODE_EDIT_TIPS = [
+  'Click and drag on empty canvas in Node Edit mode to start a draft path on the active layer.',
+  'Release after two points to keep an open line, or keep clicking to add more points.',
+  'Double-click or press Enter to close the draft into a filled shape.',
+  'Hold Shift while drawing or dragging an endpoint to snap to straight 45 degree angles.',
+  'Hold Alt while extending a draft corner to replace the hard turn with a curved fillet.',
+  'Ctrl-drag the center handle to rotate the active path or shape in place.',
+  'Turn on Caps Lock, or use the bend toggle button on canvas, then drag up or down to bend nearby nodes.',
+  'While bending, hold Shift to scale the affected selection instead of pushing nodes vertically.',
+  'Shift-drag one open-path endpoint onto another open endpoint to join them, or onto its opposite endpoint to close the path.',
 ];
 
 export default function KeyboardShortcutsOverlay({ visible, onClose }) {
@@ -105,6 +128,17 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
               </div>
             </section>
           ))}
+          <section className="shortcuts-section">
+            <div className="shortcuts-section-title">Node Edit Drawing Tips</div>
+            <div className="shortcuts-grid">
+              {NODE_EDIT_TIPS.map((tip) => (
+                <div key={tip}>
+                  <span />
+                  <span>{tip}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
         <div className="shortcuts-footer">
           <div className="shortcuts-hint">Press `Esc` or `K` to close.</div>

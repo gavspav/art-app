@@ -126,6 +126,21 @@ npm run dev
 - **L** – Lock or unlock the bottom control panel position
 - **Delete / Backspace** – Delete the active layer while in Node Edit mode (if more than one layer remains)
 
+## Node Edit Drawing
+
+- Enter Node Edit mode with **N**.
+- Click and drag on empty canvas to start drawing on the active layer.
+- Release after two points to keep an open line, or keep clicking to add more points to the current draft.
+- **Double-click** or press **Enter** to close the current draft into a filled shape.
+- Press **Esc** while drafting to cancel the draft and restore the previous geometry.
+- Hold **Shift** while drawing or dragging an endpoint to snap movement to 45 degree increments.
+- Hold **Alt** while extending a corner in a draft to turn the hard corner into a curved fillet.
+- Hold **Ctrl** and drag the center handle to rotate the active shape or path in place.
+- Turn on **Caps Lock**, or use the on-canvas bend toggle, then drag up or down to bend nearby nodes.
+- While bending, hold **Shift** to scale the affected selection instead of pushing nodes vertically.
+- Shift-drag one open-path endpoint onto another compatible open endpoint to join them.
+- Shift-drag an open-path endpoint onto the opposite endpoint of the same path to close it.
+
 ## MIDI
 
 - Web MIDI support with learn/clear per parameter.

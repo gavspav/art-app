@@ -1726,6 +1726,10 @@ export const TimelineProvider = ({ children }) => {
         radiusFactorX: layer.radiusFactorX ?? layer.radiusFactor ?? 0.125,
         radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
         rotation: layer.rotation ?? 0,
+        pathMode: layer.pathMode ?? 'closed',
+        strokeWidthPx: layer.strokeWidthPx ?? 3,
+        strokeCap: layer.strokeCap ?? 'round',
+        strokeJoin: layer.strokeJoin ?? 'round',
       },
       // Always store animation — category toggles control playback, not storage
       animation: {
@@ -1844,6 +1848,10 @@ export const TimelineProvider = ({ children }) => {
           radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
           radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
           rotation: l.rotation ?? 0,
+          pathMode: l.pathMode ?? 'closed',
+          strokeWidthPx: l.strokeWidthPx ?? 3,
+          strokeCap: l.strokeCap ?? 'round',
+          strokeJoin: l.strokeJoin ?? 'round',
         },
         // Always store animation — category toggles control playback, not storage
         animation: {
@@ -1938,6 +1946,10 @@ export const TimelineProvider = ({ children }) => {
           radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
           radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
           rotation: l.rotation ?? 0,
+          pathMode: l.pathMode ?? 'closed',
+          strokeWidthPx: l.strokeWidthPx ?? 3,
+          strokeCap: l.strokeCap ?? 'round',
+          strokeJoin: l.strokeJoin ?? 'round',
         },
         // Always store animation — category toggles control playback, not storage
         animation: {
@@ -2069,6 +2081,10 @@ export const TimelineProvider = ({ children }) => {
             radiusFactorX: l.radiusFactorX ?? l.radiusFactor ?? 0.125,
             radiusFactorY: l.radiusFactorY ?? l.radiusFactor ?? 0.125,
             rotation: l.rotation ?? 0,
+            pathMode: l.pathMode ?? 'closed',
+            strokeWidthPx: l.strokeWidthPx ?? 3,
+            strokeCap: l.strokeCap ?? 'round',
+            strokeJoin: l.strokeJoin ?? 'round',
           },
           animation: {
             movementStyle: l.movementStyle ?? 'bounce',

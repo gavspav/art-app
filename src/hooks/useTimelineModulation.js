@@ -801,6 +801,9 @@ export function useTimelineModulation({
                     },
                     // Node morphing (if enabled and topology matches)
                     ...(morphNodesRef.current ? (() => {
+                      const pathModeA = laSrc?.pathMode || 'closed';
+                      const pathModeB = lbSrc?.pathMode || 'closed';
+                      if (pathModeA !== pathModeB) return {};
                       const nodesA = laSrc?.nodes;
                       const nodesB = lbSrc?.nodes;
                       const subpathsA = laSrc?.subpaths;
@@ -1154,6 +1157,10 @@ export function useTimelineModulation({
               if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
               if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
               if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
+              if (sp.pathMode !== undefined) updatedLayer.pathMode = sp.pathMode;
+              if (sp.strokeWidthPx !== undefined) updatedLayer.strokeWidthPx = sp.strokeWidthPx;
+              if (sp.strokeCap !== undefined) updatedLayer.strokeCap = sp.strokeCap;
+              if (sp.strokeJoin !== undefined) updatedLayer.strokeJoin = sp.strokeJoin;
             }
 
             // Apply animation params

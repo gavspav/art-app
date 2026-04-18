@@ -1142,6 +1142,10 @@ export const useAnimation = (
                         if (sp.radiusFactorX !== undefined) updatedLayer.radiusFactorX = sp.radiusFactorX;
                         if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
                         if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
+                        if (sp.pathMode !== undefined) updatedLayer.pathMode = sp.pathMode;
+                        if (sp.strokeWidthPx !== undefined) updatedLayer.strokeWidthPx = sp.strokeWidthPx;
+                        if (sp.strokeCap !== undefined) updatedLayer.strokeCap = sp.strokeCap;
+                        if (sp.strokeJoin !== undefined) updatedLayer.strokeJoin = sp.strokeJoin;
                     }
 
                     // Apply animation parameters (legacy)

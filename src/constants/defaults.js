@@ -68,6 +68,10 @@ export const DEFAULT_LAYER = {
 
   // Node editing
   nodes: null, // when set, array of { x: number, y: number } normalized to canvas size (0..1)
+  pathMode: 'closed', // 'closed' for filled shapes, 'open' for stroked paths/lines
+  strokeWidthPx: 3,
+  strokeCap: 'round',
+  strokeJoin: 'round',
   // If true, while in node edit mode the app will keep nodes length synced to numSides (polygon editing mode).
   // Imported SVGs will set this to false to preserve their sampled node count.
   syncNodesToNumSides: true,

@@ -61,6 +61,13 @@ describe('Layer Hash Utilities', () => {
       expect(hash1).not.toBe(hash2);
     });
 
+    test('should include open path stroke properties', () => {
+      const layer1 = { ...mockLayer, pathMode: 'closed', strokeWidthPx: 3 };
+      const layer2 = { ...mockLayer, pathMode: 'open', strokeWidthPx: 8 };
+
+      expect(calculateVisualHash(layer1)).not.toBe(calculateVisualHash(layer2));
+    });
+
     test('should handle null/undefined layers', () => {
       expect(calculateVisualHash(null)).toBe('');
       expect(calculateVisualHash(undefined)).toBe('');
