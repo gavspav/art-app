@@ -1490,6 +1490,14 @@ const Canvas = forwardRef(({
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
     const [bendLatch, setBendLatch] = useState(false);
+    const [draftHint, setDraftHint] = useState('');
+    const draftHintTimerRef = useRef(null);
+    const showDraftHint = useCallback((message) => {
+        if (!message) return;
+        setDraftHint(message);
+        if (draftHintTimerRef.current) clearTimeout(draftHintTimerRef.current);
+        draftHintTimerRef.current = setTimeout(() => setDraftHint(''), 2200);
+    }, []);
     const [nodeEditView, setNodeEditView] = useState(DEFAULT_NODE_EDIT_VIEW);
     const nodeEditViewRef = useRef(DEFAULT_NODE_EDIT_VIEW);
     // Drive re-render for color fade while frozen so colours visibly animate
@@ -2726,10 +2734,14 @@ const Canvas = forwardRef(({
 
     const closeDraftPath = useCallback(() => {
         const draft = draftPathRef.current;
-        if (!draft) return;
+        if (!draft) return false;
+        let committed = false;
+        let committedNodes = null;
         updateSingleLayer(draft.layerIndex, (layer) => {
             const nodes = Array.isArray(layer?.nodes) ? layer.nodes.map(n => ({ ...n })) : [];
             if (nodes.length < 3) return layer;
+            committed = true;
+            committedNodes = nodes;
             return {
                 ...layer,
                 pathMode: 'closed',
@@ -2737,11 +2749,31 @@ const Canvas = forwardRef(({
                 syncNodesToNumSides: false,
             };
         });
+        if (!committed) {
+            showDraftHint('Need at least 3 points to close the path');
+            return false;
+        }
+        // Push history snapshot for draft commit so Ctrl/Cmd+Z returns to pre-draft state.
+        try {
+            const cur = historyRef.current;
+            if (cur && cur.layerIndex === draft.layerIndex && Array.isArray(committedNodes)) {
+                const snap = cloneNodes(committedNodes);
+                const last = cur.stack[cur.index];
+                if (!last || !equalNodes(last, snap)) {
+                    if (cur.index < cur.stack.length - 1) cur.stack = cur.stack.slice(0, cur.index + 1);
+                    cur.stack.push(snap);
+                    while (cur.stack.length > 5) cur.stack.shift();
+                    cur.index = cur.stack.length - 1;
+                    setHistoryTick(t => t + 1);
+                }
+            }
+        } catch { /* noop */ }
         draftPathRef.current = null;
         draftBackupRef.current = null;
         draftMoveRef.current = false;
         releaseInteractionFreezeTime();
-    }, [releaseInteractionFreezeTime, updateSingleLayer]);
+        return true;
+    }, [releaseInteractionFreezeTime, showDraftHint, updateSingleLayer]);
 
     const applyDraftFillet = useCallback((layerIndex, endWorldPoint) => {
         const canvas = localCanvasRef.current;
@@ -2826,16 +2858,18 @@ const Canvas = forwardRef(({
             }
             if (event.key === 'Enter' && draftPathRef.current) {
                 const layer = layers[draftPathRef.current.layerIndex];
+                event.preventDefault();
                 if (Array.isArray(layer?.nodes) && layer.nodes.length >= 3) {
-                    event.preventDefault();
                     closeDraftPath();
                     clearDragState();
+                } else {
+                    showDraftHint('Need at least 3 points to close the path');
                 }
             }
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, [cancelDraftPath, clearDragState, closeDraftPath, isNodeEditMode, layers]);
+    }, [cancelDraftPath, clearDragState, closeDraftPath, isNodeEditMode, layers, showDraftHint]);
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
@@ -3012,7 +3046,7 @@ const Canvas = forwardRef(({
             }
             const dx = cx - pos.x; const dy = cy - pos.y;
             if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
-                if (e.ctrlKey) {
+                if (e.ctrlKey || e.metaKey) {
                     draggingRotateRef.current = true;
                     draggingKindRef.current = 'rotate';
                     gestureRef.current = {
@@ -3053,8 +3087,7 @@ const Canvas = forwardRef(({
             }
         }
 
-        const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
-        if (bendLatch || capsActive) {
+        if (bendLatch) {
             const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
             const targetIndexes = [];
             layers.forEach((candidate, candidateIndex) => {
@@ -3100,11 +3133,16 @@ const Canvas = forwardRef(({
             return;
         }
 
-        if (!e.metaKey && !e.ctrlKey) {
+        // Missed click on a populated layer: do NOT auto-start a draft that would
+        // silently replace the existing geometry. Require Shift to start a fresh draft.
+        if (!e.metaKey && !e.ctrlKey && e.shiftKey) {
             beginDraftPath(layerIndex, pos);
             draggingKindRef.current = 'draft';
             gestureRef.current = { layerId, layerIndex, type: 'draft', geometry: gestureGeometry };
             return;
+        }
+        if (!e.metaKey && !e.ctrlKey) {
+            showDraftHint('Shift-click empty canvas to start a new draft on this layer');
         }
 
         gestureRef.current = null;
@@ -3752,6 +3790,24 @@ const Canvas = forwardRef(({
                   if (draftPathRef.current) closeDraftPath();
               }}
           />
+          {isNodeEditMode && draftHint && (
+            <div
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: 16,
+                transform: 'translateX(-50%)',
+                padding: '6px 12px',
+                background: 'rgba(20,20,22,0.85)',
+                color: '#ffd36b',
+                border: '1px solid rgba(255,180,0,0.45)',
+                borderRadius: 6,
+                fontSize: 12,
+                pointerEvents: 'none',
+                zIndex: 9001,
+              }}
+            >{draftHint}</div>
+          )}
           {isNodeEditMode && (
             <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', gap: 10, zIndex: 9000 }}>
               <button
