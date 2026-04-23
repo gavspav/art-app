@@ -298,6 +298,92 @@ const getPathCentroid = (points = []) => {
     return { x: sumX / points.length, y: sumY / points.length };
 };
 
+const lerpPoint = (a, b, t) => ({
+    x: a.x * (1 - t) + b.x * t,
+    y: a.y * (1 - t) + b.y * t,
+});
+
+const quadraticPointAt = (start, control, end, t) => {
+    const inv = 1 - t;
+    return {
+        x: inv * inv * start.x + 2 * inv * t * control.x + t * t * end.x,
+        y: inv * inv * start.y + 2 * inv * t * control.y + t * t * end.y,
+    };
+};
+
+const pushContourPoint = (points, point) => {
+    const last = points[points.length - 1];
+    if (last && Math.abs(last.x - point.x) < 1e-9 && Math.abs(last.y - point.y) < 1e-9) return;
+    points.push({ x: point.x, y: point.y });
+};
+
+const sampleQuadraticContour = (out, start, control, end, samples = 8) => {
+    for (let i = 1; i <= samples; i += 1) {
+        pushContourPoint(out, quadraticPointAt(start, control, end, i / samples));
+    }
+};
+
+const sampleSmoothedOpenContour = (pts, curviness, samples = 8) => {
+    if (!Array.isArray(pts) || pts.length < 2) return Array.isArray(pts) ? pts.map(p => ({ ...p })) : [];
+    const t = Math.max(0, Math.min(1, Number(curviness) || 0));
+    if (t <= 1e-4 || pts.length < 3) return pts.map(p => ({ ...p }));
+
+    const out = [{ ...pts[0] }];
+    let segmentStart = pts[0];
+    for (let i = 1; i < pts.length - 1; i += 1) {
+        const current = pts[i];
+        const next = pts[i + 1];
+        const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
+        const end = lerpPoint(current, mid, t);
+        sampleQuadraticContour(out, segmentStart, current, end, samples);
+        segmentStart = end;
+    }
+    const last = pts[pts.length - 1];
+    sampleQuadraticContour(out, segmentStart, last, last, samples);
+    return out;
+};
+
+const sampleSmoothedClosedContour = (pts, curviness, samples = 8) => {
+    if (!Array.isArray(pts) || pts.length < 3) return Array.isArray(pts) ? pts.map(p => ({ ...p })) : [];
+    const t = Math.max(0, Math.min(1, Number(curviness) || 0));
+    if (t <= 1e-4) {
+        const out = pts.map(p => ({ ...p }));
+        pushContourPoint(out, pts[0]);
+        return out;
+    }
+
+    const last = pts[pts.length - 1];
+    const first = pts[0];
+    const lastFirstMid = { x: (last.x + first.x) / 2, y: (last.y + first.y) / 2 };
+    const start = t >= 1 - 1e-4
+        ? lastFirstMid
+        : lerpPoint(first, lastFirstMid, t);
+    const out = [{ ...start }];
+    let segmentStart = start;
+
+    for (let i = 0; i < pts.length; i += 1) {
+        const current = pts[i];
+        const next = pts[(i + 1) % pts.length];
+        const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
+        const end = t >= 1 - 1e-4 ? mid : lerpPoint(next, mid, t);
+        sampleQuadraticContour(out, segmentStart, current, end, samples);
+        segmentStart = end;
+    }
+    pushContourPoint(out, out[0]);
+    return out;
+};
+
+const sampleLayerContourNodes = (layer, sourceMode = 'open') => {
+    const nodes = Array.isArray(layer?.nodes) ? layer.nodes.map(node => ({
+        x: Number(node?.x) || 0,
+        y: Number(node?.y) || 0,
+    })) : [];
+    const t = Math.max(0, Math.min(1, Number(layer?.curviness) || 0));
+    return sourceMode === 'closed'
+        ? sampleSmoothedClosedContour(nodes, t)
+        : sampleSmoothedOpenContour(nodes, t);
+};
+
 const buildFilletPoints = (prevPoint, cornerPoint, nextPoint, radiusPx) => {
     if (!prevPoint || !cornerPoint || !nextPoint) return null;
     const inVec = {
@@ -2759,24 +2845,45 @@ const Canvas = forwardRef(({
         releaseInteractionFreezeTime();
     }, [releaseInteractionFreezeTime, updateSingleLayer]);
 
-    const closeDraftPath = useCallback(() => {
-        const draft = draftPathRef.current;
-        if (!draft) return false;
-        let committed = false;
-        let committedNodes = null;
-        updateSingleLayer(draft.layerIndex, (layer) => {
-            const nodes = Array.isArray(layer?.nodes) ? layer.nodes.map(n => ({ ...n })) : [];
-            if (nodes.length < 3) return layer;
-            committed = true;
-            committedNodes = nodes;
+    const openClosedLayerAsPath = useCallback((layerIndex) => {
+        let openedNodes = null;
+        updateSingleLayer(layerIndex, (layer) => {
+            if (!layer || isOpenPathLayer(layer) || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return layer;
+            openedNodes = sampleLayerContourNodes(layer, 'closed');
+            if (!Array.isArray(openedNodes) || openedNodes.length < 2) return layer;
             return {
                 ...layer,
-                pathMode: 'closed',
-                nodes,
+                pathMode: 'open',
+                nodes: openedNodes,
+                curviness: 0,
                 syncNodesToNumSides: false,
             };
         });
-        if (!committed) {
+        return openedNodes;
+    }, [updateSingleLayer]);
+
+    const closeOpenLayerAsShape = useCallback((layerIndex) => {
+        let committedNodes = null;
+        updateSingleLayer(layerIndex, (layer) => {
+            if (!layer || !Array.isArray(layer.nodes) || layer.nodes.length < 3) return layer;
+            committedNodes = sampleLayerContourNodes(layer, isOpenPathLayer(layer) ? 'open' : 'closed');
+            if (!Array.isArray(committedNodes) || committedNodes.length < 3) return layer;
+            return {
+                ...layer,
+                pathMode: 'closed',
+                nodes: committedNodes,
+                curviness: 0,
+                syncNodesToNumSides: false,
+            };
+        });
+        return committedNodes;
+    }, [updateSingleLayer]);
+
+    const closeDraftPath = useCallback(() => {
+        const draft = draftPathRef.current;
+        if (!draft) return false;
+        const committedNodes = closeOpenLayerAsShape(draft.layerIndex);
+        if (!Array.isArray(committedNodes) || committedNodes.length < 3) {
             showDraftHint('Need at least 3 points to close the path');
             return false;
         }
@@ -2800,7 +2907,7 @@ const Canvas = forwardRef(({
         draftMoveRef.current = false;
         releaseInteractionFreezeTime();
         return true;
-    }, [releaseInteractionFreezeTime, showDraftHint, updateSingleLayer]);
+    }, [closeOpenLayerAsShape, releaseInteractionFreezeTime, showDraftHint]);
 
     const applyDraftFillet = useCallback((layerIndex, endWorldPoint) => {
         const canvas = localCanvasRef.current;
@@ -2902,6 +3009,19 @@ const Canvas = forwardRef(({
                 } else {
                     showDraftHint('Need at least 3 points to close the path');
                 }
+                return;
+            }
+            if (event.key === 'Enter') {
+                const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+                const layer = layers[idx];
+                if (isOpenPathLayer(layer)) {
+                    event.preventDefault();
+                    if (Array.isArray(layer?.nodes) && layer.nodes.length >= 3) {
+                        closeOpenLayerAsShape(idx);
+                    } else {
+                        showDraftHint('Need at least 3 points to close the path');
+                    }
+                }
             }
         };
         const onKeyUp = (event) => {
@@ -2919,7 +3039,7 @@ const Canvas = forwardRef(({
             nodeEditSpaceRef.current = false;
             nodeEditPanRef.current = null;
         };
-    }, [cancelDraftPath, clearDragState, closeDraftPath, isNodeEditMode, layers, showDraftHint]);
+    }, [cancelDraftPath, clearDragState, closeDraftPath, closeOpenLayerAsShape, isNodeEditMode, layers, selectedLayerIndex, showDraftHint]);
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
@@ -3185,6 +3305,19 @@ const Canvas = forwardRef(({
             bendingRef.current = true;
             draggingKindRef.current = 'bend';
             ensureInteractionFreezeTime();
+            return;
+        }
+
+        if (
+            e.shiftKey &&
+            !e.metaKey &&
+            !e.ctrlKey &&
+            !draftPathRef.current &&
+            !isOpenPathLayer(layer) &&
+            Array.isArray(layer.nodes) &&
+            layer.nodes.length >= 3
+        ) {
+            openClosedLayerAsPath(layerIndex);
             return;
         }
 
@@ -3715,7 +3848,7 @@ const Canvas = forwardRef(({
                     if (activeLayer.nodes.length >= 3) {
                         const oppositeWorld = localNodeToWorldPoint(activeLayer.nodes[oppositeIndex], activeGeometry);
                         if (Math.hypot(activeEndpointWorld.x - oppositeWorld.x, activeEndpointWorld.y - oppositeWorld.y) <= endpointSnapThreshold) {
-                            updateSingleLayer(dragLayerIndex, (layer) => ({ ...layer, pathMode: 'closed', syncNodesToNumSides: false }));
+                            closeOpenLayerAsShape(dragLayerIndex);
                         }
                     }
                     if (e.shiftKey) {
@@ -3905,7 +4038,14 @@ const Canvas = forwardRef(({
               onTouchEnd={onTouchEnd}
               onTouchCancel={onTouchEnd}
               onDoubleClick={() => {
-                  if (draftPathRef.current) closeDraftPath();
+                  if (draftPathRef.current) {
+                      closeDraftPath();
+                      return;
+                  }
+                  const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+                  if (isOpenPathLayer(layers[idx])) {
+                      closeOpenLayerAsShape(idx);
+                  }
               }}
           />
           {isNodeEditMode && draftHint && (

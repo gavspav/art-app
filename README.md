@@ -131,9 +131,10 @@ npm run dev
 - Enter Node Edit mode with **N**.
 - Use the mouse wheel, trackpad pinch, or the on-canvas zoom buttons to zoom the node-edit viewport without changing layer geometry.
 - Hold **Space** and drag, or middle-drag, to pan the node-edit viewport while zoomed in.
-- On an **empty** layer, click and drag to start drawing. On a layer that already has geometry, hold **Shift** first to start a fresh draft (prevents accidentally replacing the current shape).
+- On an **empty** layer, click and drag to start drawing.
+- On a closed shape, **Shift-click** to extract the current shape outline as an editable open line. The contour is sampled into nodes so switching between line and shape does not move the outline.
 - Release after two points to keep an open line, or keep clicking to add more points to the current draft.
-- **Double-click** or press **Enter** to close the current draft into a filled shape (requires at least 3 points).
+- **Double-click** or press **Enter** to close the current draft or active open outline into a filled shape (requires at least 3 points).
 - Press **Esc** while drafting to cancel the draft and restore the previous geometry.
 - Hold **Shift** while drawing or dragging an endpoint to snap movement to 45 degree increments.
 - Hold **Alt** while extending a corner in a draft to turn the hard corner into a curved fillet.

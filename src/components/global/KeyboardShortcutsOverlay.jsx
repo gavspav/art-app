@@ -73,9 +73,9 @@ const SHORTCUT_SECTIONS = [
 const NODE_EDIT_TIPS = [
   'Use the mouse wheel, trackpad pinch, or the on-canvas zoom buttons to zoom the node-edit viewport without changing saved geometry.',
   'Hold Space and drag, or middle-drag, to pan while zoomed in.',
-  'In Node Edit mode, click an empty layer to start drawing. On a layer that already has geometry, hold Shift to start a fresh draft (avoids accidental overwrites).',
+  'In Node Edit mode, click an empty layer to start drawing. Shift-click a closed shape to extract its exact outline as an editable line.',
   'Release after two points to keep an open line, or keep clicking to add more points.',
-  'Double-click or press Enter to close the draft into a filled shape.',
+  'Double-click or press Enter to close the draft or active open outline into a filled shape.',
   'Hold Shift while drawing or dragging an endpoint to snap to straight 45 degree angles.',
   'Hold Alt while extending a draft corner to replace the hard turn with a curved fillet.',
   'Ctrl- or Cmd-drag the center handle to rotate the active path or shape in place.',
