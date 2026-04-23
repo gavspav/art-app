@@ -64,18 +64,22 @@ const SHORTCUT_SECTIONS = [
       [['Esc'], 'Cancel the current draft and restore the prior shape'],
       [['Shift', 'Drag'], 'Snap draft and endpoint drags to straight 45° increments'],
       [['Ctrl/Cmd', 'Drag center'], 'Rotate the active shape/path in place'],
+      [['Wheel / pinch'], 'Zoom the node-edit viewport'],
+      [['Space', 'Drag'], 'Pan the node-edit viewport'],
     ],
   },
 ];
 
 const NODE_EDIT_TIPS = [
+  'Use the mouse wheel, trackpad pinch, or the on-canvas zoom buttons to zoom the node-edit viewport without changing saved geometry.',
+  'Hold Space and drag, or middle-drag, to pan while zoomed in.',
   'In Node Edit mode, click an empty layer to start drawing. On a layer that already has geometry, hold Shift to start a fresh draft (avoids accidental overwrites).',
   'Release after two points to keep an open line, or keep clicking to add more points.',
   'Double-click or press Enter to close the draft into a filled shape.',
   'Hold Shift while drawing or dragging an endpoint to snap to straight 45 degree angles.',
   'Hold Alt while extending a draft corner to replace the hard turn with a curved fillet.',
   'Ctrl- or Cmd-drag the center handle to rotate the active path or shape in place.',
-  'Use the bend toggle button on canvas (orange outline when active), then drag up or down to bend nearby nodes.',
+  'Use Caps Lock or the bend toggle button on canvas (orange outline when active), then drag up or down to bend nearby nodes.',
   'While bending, hold Shift to scale the affected selection instead of pushing nodes vertically.',
   'Shift-drag one open-path endpoint onto another open endpoint to join them, or onto its opposite endpoint to close the path.',
 ];

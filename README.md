@@ -129,6 +129,8 @@ npm run dev
 ## Node Edit Drawing
 
 - Enter Node Edit mode with **N**.
+- Use the mouse wheel, trackpad pinch, or the on-canvas zoom buttons to zoom the node-edit viewport without changing layer geometry.
+- Hold **Space** and drag, or middle-drag, to pan the node-edit viewport while zoomed in.
 - On an **empty** layer, click and drag to start drawing. On a layer that already has geometry, hold **Shift** first to start a fresh draft (prevents accidentally replacing the current shape).
 - Release after two points to keep an open line, or keep clicking to add more points to the current draft.
 - **Double-click** or press **Enter** to close the current draft into a filled shape (requires at least 3 points).
@@ -136,7 +138,7 @@ npm run dev
 - Hold **Shift** while drawing or dragging an endpoint to snap movement to 45 degree increments.
 - Hold **Alt** while extending a corner in a draft to turn the hard corner into a curved fillet.
 - Hold **Ctrl** or **Cmd** and drag the center handle to rotate the active shape or path in place.
-- Click the on-canvas **bend toggle** (orange outline when active), then drag up or down to bend nearby nodes.
+- Turn on **Caps Lock** or click the on-canvas **bend toggle** (orange outline when active), then drag up or down to bend nearby nodes.
 - While bending, hold **Shift** to scale the affected selection instead of pushing nodes vertically.
 - Shift-drag one open-path endpoint onto another compatible open endpoint to join them.
 - Shift-drag an open-path endpoint onto the opposite endpoint of the same path to close it.

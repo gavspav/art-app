@@ -1480,6 +1480,9 @@ const Canvas = forwardRef(({
     const draggingCenterRef = useRef(false);
     const draggingOrbitCenterRef = useRef(false);
     const draggingRotateRef = useRef(false);
+    const nodeEditPanRef = useRef(null);
+    const nodeEditSpaceRef = useRef(false);
+    const nodeEditTouchRef = useRef(null);
     const bendingRef = useRef(false);
     const draftPathRef = useRef(null);
     const draftBackupRef = useRef(null);
@@ -1507,7 +1510,7 @@ const Canvas = forwardRef(({
     const lastTimeStampRef = useRef(null);
     // Node-edit undo/redo history (keep last 5 snapshots for the active layer)
     const historyRef = useRef({ stack: [], index: -1, layerIndex: -1 });
-    const draggingKindRef = useRef(null); // 'node' | 'mid' | 'center' | 'orbitCenter' | 'rotate' | 'bend' | 'draft'
+    const draggingKindRef = useRef(null); // 'node' | 'mid' | 'center' | 'orbitCenter' | 'rotate' | 'bend' | 'draft' | 'pan'
     const gestureRef = useRef(null);
     const dragStartOffsetRef = useRef({ normX: 0, normY: 0 }); // offset from layer center when drag starts
     const pendingDragUpdateRef = useRef(null); // batched drag update
@@ -1530,6 +1533,7 @@ const Canvas = forwardRef(({
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingRotateRef.current = false;
+        nodeEditPanRef.current = null;
         bendingRef.current = false;
         draggingKindRef.current = null;
         gestureRef.current = null;
@@ -1585,6 +1589,21 @@ const Canvas = forwardRef(({
             return normalized;
         });
     }, []);
+
+    const zoomNodeEditViewAtScreenPoint = useCallback((screenX, screenY, zoomMultiplier) => {
+        setNodeEditViewState((prev) => {
+            const prevZoom = clampNodeEditZoom(prev.zoom);
+            const nextZoom = clampNodeEditZoom(prevZoom * zoomMultiplier);
+            if (Math.abs(nextZoom - prevZoom) < 1e-4) return prev;
+            const worldX = (screenX - prev.panX) / prevZoom;
+            const worldY = (screenY - prev.panY) / prevZoom;
+            return {
+                zoom: nextZoom,
+                panX: screenX - worldX * nextZoom,
+                panY: screenY - worldY * nextZoom,
+            };
+        });
+    }, [setNodeEditViewState]);
 
     useEffect(() => {
         const canvasEl = localCanvasRef.current;
@@ -1955,6 +1974,7 @@ const Canvas = forwardRef(({
             const viewZoom = clampNodeEditZoom(activeView?.zoom ?? 1);
             const viewPanX = Number.isFinite(activeView?.panX) ? activeView.panX : 0;
             const viewPanY = Number.isFinite(activeView?.panY) ? activeView.panY : 0;
+            const editorOverlayScale = isNodeEditMode ? (1 / viewZoom) : 1;
 
             // Force a render when node edit mode toggles or selected layer changes
             const modeChanged = (modeHashRef.current.isNodeEditMode !== isNodeEditMode) || (modeHashRef.current.selectedLayerIndex !== selectedLayerIndex);
@@ -1984,7 +2004,7 @@ const Canvas = forwardRef(({
                 && hasActiveOverlayLayers
                 && (hideLayerId || hideLayerIndex >= 0);
 
-	        if (!needsFullRender) {
+	        if (!needsFullRender && !isNodeEditMode) {
             // Safety: after clearing the canvas, ensure content is drawn at least once
             // Advance accumulator only when not frozen
             const nowWall = Date.now() * 0.001;
@@ -2174,7 +2194,7 @@ const Canvas = forwardRef(({
             const interactionTimeFullPass = interactionFreezeTimeRef.current != null
                 ? ensureInteractionFreezeTime()
                 : nowSec;
-	        const forceFullPass = backgroundChanged || modeChanged || countChanged ||
+	        const forceFullPass = isNodeEditMode || backgroundChanged || modeChanged || countChanged ||
 	            (isFrozen && colorFadeWhileFrozen) ||
 	            needsFullRender; // canvas was cleared earlier, so redraw everything when any layer changed
 	        const colorTimeFullPass = (isFrozen && colorFadeWhileFrozen)
@@ -2284,7 +2304,7 @@ const Canvas = forwardRef(({
                         });
                         if (!hitInfo?.path) return;
                         const isActive = id === activeLayerId;
-                        ctx.lineWidth = isActive ? 3 : 2;
+                        ctx.lineWidth = (isActive ? 3 : 2) * editorOverlayScale;
                         ctx.strokeStyle = isActive ? primaryColour : secondaryColour;
                         ctx.stroke(hitInfo.path);
                     });
@@ -2356,8 +2376,8 @@ const Canvas = forwardRef(({
                 // Vertex handles (base positions with rotation)
                 ctx.fillStyle = '#ffffff';
                 ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 2;
-                const r = 6;
+                ctx.lineWidth = 2 * editorOverlayScale;
+                const r = 6 * editorOverlayScale;
                 points.forEach(p => {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -2365,7 +2385,7 @@ const Canvas = forwardRef(({
                     ctx.stroke();
                 });
                 // Midpoint handles on the smoothed curve midpoints
-                const rMid = 5;
+                const rMid = 5 * editorOverlayScale;
                 ctx.fillStyle = '#222';
                 ctx.strokeStyle = '#ffffff';
                 const midpointCount = isOpenPathLayer(sel) ? Math.max(0, points.length - 1) : points.length;
@@ -2383,8 +2403,8 @@ const Canvas = forwardRef(({
 
                 // Center cross-hair handle to move the whole shape
                 ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2;
-                const cross = 10;
+                ctx.lineWidth = 2 * editorOverlayScale;
+                const cross = 10 * editorOverlayScale;
                 // Compute centroid from current base points so marker updates while editing
                 let cx = layerCX, cy = layerCY;
                 if (points.length >= getMinimumNodeCount(sel)) {
@@ -2405,7 +2425,8 @@ const Canvas = forwardRef(({
                     ctx.moveTo(rotateStart.centerX, rotateStart.centerY);
                     ctx.lineTo(currentPointerRef.current.x || rotateStart.centerX, currentPointerRef.current.y || rotateStart.centerY);
                     ctx.strokeStyle = 'rgba(255, 180, 0, 0.9)';
-                    ctx.setLineDash([6, 6]);
+                    ctx.lineWidth = 2 * editorOverlayScale;
+                    ctx.setLineDash([6 * editorOverlayScale, 6 * editorOverlayScale]);
                     ctx.stroke();
                     ctx.setLineDash([]);
                 }
@@ -2428,10 +2449,10 @@ const Canvas = forwardRef(({
                 const oy = ay + ocy * spanY + offsetYPx + wrapOffset.oy;
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(ox, oy, 6, 0, Math.PI * 2);
+                ctx.arc(ox, oy, 6 * editorOverlayScale, 0, Math.PI * 2);
                 ctx.fillStyle = '#ffffff';
                 ctx.fill();
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 2 * editorOverlayScale;
                 ctx.strokeStyle = '#ff3333';
                 ctx.stroke();
                 ctx.restore();
@@ -2666,16 +2687,22 @@ const Canvas = forwardRef(({
         }
     }, [layers, selectedLayerIndex, isNodeEditMode, setLayers]);
 
-    // Mouse interaction for dragging nodes
-    const getMousePos = (evt) => {
+    const getCanvasScreenPos = useCallback((evt) => {
         const canvas = localCanvasRef.current;
         if (!canvas) return { x: 0, y: 0 };
         const rect = canvas.getBoundingClientRect();
         const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
         const scaleX = rect.width ? logicalWidth / rect.width : 1;
         const scaleY = rect.height ? logicalHeight / rect.height : 1;
-        const screenX = (evt.clientX - rect.left) * scaleX;
-        const screenY = (evt.clientY - rect.top) * scaleY;
+        return {
+            x: (evt.clientX - rect.left) * scaleX,
+            y: (evt.clientY - rect.top) * scaleY,
+        };
+    }, []);
+
+    // Mouse interaction for dragging nodes
+    const getMousePos = (evt) => {
+        const { x: screenX, y: screenY } = getCanvasScreenPos(evt);
         if (!isNodeEditMode) {
             return { x: screenX, y: screenY };
         }
@@ -2847,7 +2874,17 @@ const Canvas = forwardRef(({
 
     useEffect(() => {
         if (!isNodeEditMode) return undefined;
+        const isTextEntryTarget = (target) => {
+            const tagName = target?.tagName;
+            return target?.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+        };
         const onKeyDown = (event) => {
+            if ((event.code === 'Space' || event.key === ' ') && !isTextEntryTarget(event.target)) {
+                nodeEditSpaceRef.current = true;
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
             if (event.key === 'Escape') {
                 if (draftPathRef.current) {
                     event.preventDefault();
@@ -2867,8 +2904,21 @@ const Canvas = forwardRef(({
                 }
             }
         };
+        const onKeyUp = (event) => {
+            if (event.code === 'Space' || event.key === ' ') {
+                nodeEditSpaceRef.current = false;
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        };
         window.addEventListener('keydown', onKeyDown, true);
-        return () => window.removeEventListener('keydown', onKeyDown, true);
+        window.addEventListener('keyup', onKeyUp, true);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown, true);
+            window.removeEventListener('keyup', onKeyUp, true);
+            nodeEditSpaceRef.current = false;
+            nodeEditPanRef.current = null;
+        };
     }, [cancelDraftPath, clearDragState, closeDraftPath, isNodeEditMode, layers, showDraftHint]);
 
     const onMouseDown = (e) => {
@@ -2877,6 +2927,20 @@ const Canvas = forwardRef(({
         if (!canvas) return;
 
         clearDragState();
+
+        if (e.button === 1 || nodeEditSpaceRef.current) {
+            e.preventDefault();
+            const screenPos = getCanvasScreenPos(e);
+            const view = nodeEditViewRef.current || DEFAULT_NODE_EDIT_VIEW;
+            nodeEditPanRef.current = {
+                startX: screenPos.x,
+                startY: screenPos.y,
+                startPanX: Number.isFinite(view.panX) ? view.panX : 0,
+                startPanY: Number.isFinite(view.panY) ? view.panY : 0,
+            };
+            draggingKindRef.current = 'pan';
+            return;
+        }
 
         const layerIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = getNodeEditInteractiveLayer(layerIndex);
@@ -2901,7 +2965,7 @@ const Canvas = forwardRef(({
         const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
         mouseDownRef.current = { x: pos.x, y: pos.y, t: Date.now() };
-        const hitRadius = 10;
+        const hitRadius = 10 / clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1);
         const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
         const wrapOx = wrapOffset.ox;
         const wrapOy = wrapOffset.oy;
@@ -3087,7 +3151,8 @@ const Canvas = forwardRef(({
             }
         }
 
-        if (bendLatch) {
+        const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
+        if (bendLatch || capsActive) {
             const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
             const targetIndexes = [];
             layers.forEach((candidate, candidateIndex) => {
@@ -3157,9 +3222,20 @@ const Canvas = forwardRef(({
         const draggingRotate = draggingRotateRef.current;
         const bending = bendingRef.current;
         const drafting = draftMoveRef.current;
-        if (idx == null && mid == null && !draggingCenter && !draggingOrbit && !draggingRotate && !bending && !drafting) return;
+        const panning = !!nodeEditPanRef.current;
+        if (idx == null && mid == null && !draggingCenter && !draggingOrbit && !draggingRotate && !bending && !drafting && !panning) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
+        if (panning) {
+            const screenPos = getCanvasScreenPos(e);
+            const pan = nodeEditPanRef.current;
+            setNodeEditViewState({
+                zoom: nodeEditViewRef.current.zoom,
+                panX: pan.startPanX + (screenPos.x - pan.startX),
+                panY: pan.startPanY + (screenPos.y - pan.startY),
+            });
+            return;
+        }
         const selIndex = Math.max(0, Math.min(Number.isFinite(gestureRef.current?.layerIndex) ? gestureRef.current.layerIndex : (Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0), Math.max(0, layers.length - 1)));
         const layer = getNodeEditInteractiveLayer(selIndex);
         if (!layer || !layer.position) return;
@@ -3565,7 +3641,7 @@ const Canvas = forwardRef(({
 
     const onMouseUp = (e) => {
         const canvas = localCanvasRef.current;
-        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current || draggingRotateRef.current || bendingRef.current || draftMoveRef.current;
+        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current || draggingRotateRef.current || bendingRef.current || draftMoveRef.current || !!nodeEditPanRef.current;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
 
         if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
@@ -3634,10 +3710,11 @@ const Canvas = forwardRef(({
                 const isEndpoint = Array.isArray(activeLayer?.nodes) && (dragNodeIndex === 0 || dragNodeIndex === activeLayer.nodes.length - 1);
                 if (activeLayer && activeGeometry && isOpenPathLayer(activeLayer) && isEndpoint && Array.isArray(activeLayer.nodes)) {
                     const activeEndpointWorld = localNodeToWorldPoint(activeLayer.nodes[dragNodeIndex], activeGeometry);
+                    const endpointSnapThreshold = 14 / clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1);
                     const oppositeIndex = dragNodeIndex === 0 ? activeLayer.nodes.length - 1 : 0;
                     if (activeLayer.nodes.length >= 3) {
                         const oppositeWorld = localNodeToWorldPoint(activeLayer.nodes[oppositeIndex], activeGeometry);
-                        if (Math.hypot(activeEndpointWorld.x - oppositeWorld.x, activeEndpointWorld.y - oppositeWorld.y) <= 14) {
+                        if (Math.hypot(activeEndpointWorld.x - oppositeWorld.x, activeEndpointWorld.y - oppositeWorld.y) <= endpointSnapThreshold) {
                             updateSingleLayer(dragLayerIndex, (layer) => ({ ...layer, pathMode: 'closed', syncNodesToNumSides: false }));
                         }
                     }
@@ -3651,7 +3728,7 @@ const Canvas = forwardRef(({
                             [0, interactiveCandidate.nodes.length - 1].forEach((endpointIndex) => {
                                 const endpointWorld = localNodeToWorldPoint(interactiveCandidate.nodes[endpointIndex], candidateGeometry);
                                 const distance = Math.hypot(activeEndpointWorld.x - endpointWorld.x, activeEndpointWorld.y - endpointWorld.y);
-                                if (distance > 14) return;
+                                if (distance > endpointSnapThreshold) return;
                                 if (!best || distance < best.distance) {
                                     best = {
                                         candidateIndex,
@@ -3706,6 +3783,7 @@ const Canvas = forwardRef(({
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingRotateRef.current = false;
+        nodeEditPanRef.current = null;
         bendingRef.current = false;
         draggingKindRef.current = null;
         gestureRef.current = null;
@@ -3753,39 +3831,79 @@ const Canvas = forwardRef(({
     const onWheel = useCallback((e) => {
         if (!isNodeEditMode) return;
         e.preventDefault();
+        const screenPos = getCanvasScreenPos(e);
+        const intensity = e.ctrlKey ? 0.0025 : 0.0015;
+        zoomNodeEditViewAtScreenPoint(screenPos.x, screenPos.y, Math.exp(-e.deltaY * intensity));
+    }, [getCanvasScreenPos, isNodeEditMode, zoomNodeEditViewAtScreenPoint]);
+
+    const zoomNodeEditViewAtCanvasCenter = useCallback((zoomMultiplier) => {
         const canvas = localCanvasRef.current;
         if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        const { width: logicalWidth, height: logicalHeight } = getCanvasLogicalDimensions(canvas);
-        const scaleX = rect.width ? logicalWidth / rect.width : 1;
-        const scaleY = rect.height ? logicalHeight / rect.height : 1;
-        const screenX = (e.clientX - rect.left) * scaleX;
-        const screenY = (e.clientY - rect.top) * scaleY;
+        const { width, height } = getCanvasLogicalDimensions(canvas);
+        zoomNodeEditViewAtScreenPoint(width / 2, height / 2, zoomMultiplier);
+    }, [zoomNodeEditViewAtScreenPoint]);
 
-        setNodeEditViewState((prev) => {
-            const prevZoom = clampNodeEditZoom(prev.zoom);
-            const intensity = e.ctrlKey ? 0.0025 : 0.0015;
-            const nextZoom = clampNodeEditZoom(prevZoom * Math.exp(-e.deltaY * intensity));
-            if (Math.abs(nextZoom - prevZoom) < 1e-4) return prev;
-            const worldX = (screenX - prev.panX) / prevZoom;
-            const worldY = (screenY - prev.panY) / prevZoom;
-            return {
-                zoom: nextZoom,
-                panX: screenX - worldX * nextZoom,
-                panY: screenY - worldY * nextZoom,
-            };
+    const getTouchPairState = useCallback((touches) => {
+        if (!touches || touches.length < 2) return null;
+        const first = getCanvasScreenPos(touches[0]);
+        const second = getCanvasScreenPos(touches[1]);
+        const mid = {
+            x: (first.x + second.x) / 2,
+            y: (first.y + second.y) / 2,
+        };
+        const distance = Math.hypot(second.x - first.x, second.y - first.y);
+        return { first, second, mid, distance };
+    }, [getCanvasScreenPos]);
+
+    const onTouchStart = useCallback((e) => {
+        if (!isNodeEditMode || e.touches.length < 2) return;
+        e.preventDefault();
+        clearDragState();
+        const pair = getTouchPairState(e.touches);
+        if (!pair || !(pair.distance > 0)) return;
+        const view = nodeEditViewRef.current || DEFAULT_NODE_EDIT_VIEW;
+        const startZoom = clampNodeEditZoom(view.zoom);
+        nodeEditTouchRef.current = {
+            startDistance: pair.distance,
+            startWorldX: (pair.mid.x - view.panX) / startZoom,
+            startWorldY: (pair.mid.y - view.panY) / startZoom,
+            startZoom,
+        };
+    }, [clearDragState, getTouchPairState, isNodeEditMode]);
+
+    const onTouchMove = useCallback((e) => {
+        const gesture = nodeEditTouchRef.current;
+        if (!isNodeEditMode || !gesture || e.touches.length < 2) return;
+        e.preventDefault();
+        const pair = getTouchPairState(e.touches);
+        if (!pair || !(pair.distance > 0)) return;
+        const nextZoom = clampNodeEditZoom(gesture.startZoom * (pair.distance / gesture.startDistance));
+        setNodeEditViewState({
+            zoom: nextZoom,
+            panX: pair.mid.x - gesture.startWorldX * nextZoom,
+            panY: pair.mid.y - gesture.startWorldY * nextZoom,
         });
-    }, [isNodeEditMode, setNodeEditViewState]);
+    }, [getTouchPairState, isNodeEditMode, setNodeEditViewState]);
+
+    const onTouchEnd = useCallback((e) => {
+        if (e.touches.length < 2) {
+            nodeEditTouchRef.current = null;
+        }
+    }, []);
 
     return (
         <>
           <canvas
               ref={localCanvasRef}
-              style={{ display: 'block', pointerEvents: 'auto' }}
+              style={{ display: 'block', pointerEvents: 'auto', touchAction: isNodeEditMode ? 'none' : 'auto' }}
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
               onWheel={onWheel}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchEnd}
               onDoubleClick={() => {
                   if (draftPathRef.current) closeDraftPath();
               }}
@@ -3813,10 +3931,24 @@ const Canvas = forwardRef(({
               <button
                 className="fab"
                 style={{ width: 48, height: 48 }}
+                title="Zoom out"
+                aria-label="Zoom out"
+                onClick={() => zoomNodeEditViewAtCanvasCenter(1 / 1.2)}
+              >-</button>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48 }}
                 title={`Reset node edit zoom (${Math.round(nodeEditView.zoom * 100)}%)`}
                 aria-label="Reset node edit zoom"
                 onClick={() => setNodeEditViewState(DEFAULT_NODE_EDIT_VIEW)}
               >{`${Math.round(nodeEditView.zoom * 100)}%`}</button>
+              <button
+                className="fab"
+                style={{ width: 48, height: 48 }}
+                title="Zoom in"
+                aria-label="Zoom in"
+                onClick={() => zoomNodeEditViewAtCanvasCenter(1.2)}
+              >+</button>
               <button
                 className="fab"
                 style={{ width: 48, height: 48, border: bendLatch ? '2px solid #ffb400' : undefined }}
