@@ -234,7 +234,9 @@ export function usePresetMorph({
                   ...(morphNodesRef.current ? (() => {
                     const pathModeA = laSrc?.pathMode || 'closed';
                     const pathModeB = lbSrc?.pathMode || 'closed';
-                    if (pathModeA !== pathModeB) return {};
+                    const pathClosedA = pathModeA === 'open' ? !!laSrc?.pathClosed : false;
+                    const pathClosedB = pathModeB === 'open' ? !!lbSrc?.pathClosed : false;
+                    if (pathModeA !== pathModeB || pathClosedA !== pathClosedB) return {};
                     const nodesA = laSrc?.nodes;
                     const nodesB = lbSrc?.nodes;
                     const subpathsA = laSrc?.subpaths;

@@ -16,6 +16,10 @@ const cloneForKeyframe = (value) => {
   return JSON.parse(JSON.stringify(value));
 };
 
+const minNodeCountForLayer = (layer) => (
+  layer?.pathMode === 'open' && layer?.pathClosed !== true ? 2 : 3
+);
+
 const TRACK_HEADER_WIDTH = 200;
 
 const isEditableElement = (target) => (
@@ -261,7 +265,7 @@ const TimelinePanel = ({
     // First try React state layer (has current node edits during node edit mode)
     if (Array.isArray(editedLayer.subpaths) && editedLayer.subpaths.length > 0) {
       subpaths = editedLayer.subpaths;
-    } else if (Array.isArray(editedLayer.nodes) && editedLayer.nodes.length >= (editedLayer.pathMode === 'open' ? 2 : 3)) {
+    } else if (Array.isArray(editedLayer.nodes) && editedLayer.nodes.length >= minNodeCountForLayer(editedLayer)) {
       nodes = editedLayer.nodes;
     }
 
@@ -269,7 +273,7 @@ const TimelinePanel = ({
     if (!nodes && !subpaths && animatedLayer) {
       if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
         subpaths = animatedLayer.subpaths;
-      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= ((animatedLayer.pathMode === 'open' || editedLayer.pathMode === 'open') ? 2 : 3)) {
+      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= Math.max(minNodeCountForLayer(animatedLayer), minNodeCountForLayer(editedLayer))) {
         nodes = animatedLayer.nodes;
       }
     }
@@ -297,6 +301,7 @@ const TimelinePanel = ({
         radiusFactorY: editedLayer.radiusFactorY ?? editedLayer.radiusFactor ?? 0.125,
         rotation: editedLayer.rotation ?? 0,
         pathMode: editedLayer.pathMode ?? 'closed',
+        pathClosed: editedLayer.pathClosed ?? false,
         strokeWidthPx: editedLayer.strokeWidthPx ?? 3,
         strokeCap: editedLayer.strokeCap ?? 'round',
         strokeJoin: editedLayer.strokeJoin ?? 'round',
@@ -821,7 +826,7 @@ const TimelinePanel = ({
     // First try React state layer (has current node edits during node edit mode)
     if (Array.isArray(layer.subpaths) && layer.subpaths.length > 0) {
       subpaths = layer.subpaths;
-    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= (layer.pathMode === 'open' ? 2 : 3)) {
+    } else if (Array.isArray(layer.nodes) && layer.nodes.length >= minNodeCountForLayer(layer)) {
       nodes = layer.nodes;
     }
 
@@ -829,7 +834,7 @@ const TimelinePanel = ({
     if (!nodes && !subpaths && animatedLayer) {
       if (Array.isArray(animatedLayer.subpaths) && animatedLayer.subpaths.length > 0) {
         subpaths = animatedLayer.subpaths;
-      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= ((animatedLayer.pathMode === 'open' || layer.pathMode === 'open') ? 2 : 3)) {
+      } else if (Array.isArray(animatedLayer.nodes) && animatedLayer.nodes.length >= Math.max(minNodeCountForLayer(animatedLayer), minNodeCountForLayer(layer))) {
         nodes = animatedLayer.nodes;
       }
     }
@@ -865,6 +870,7 @@ const TimelinePanel = ({
       radiusFactorY: layer.radiusFactorY ?? layer.radiusFactor ?? 0.125,
       rotation: layer.rotation ?? 0,
       pathMode: layer.pathMode ?? 'closed',
+      pathClosed: layer.pathClosed ?? false,
       strokeWidthPx: layer.strokeWidthPx ?? 3,
       strokeCap: layer.strokeCap ?? 'round',
       strokeJoin: layer.strokeJoin ?? 'round',

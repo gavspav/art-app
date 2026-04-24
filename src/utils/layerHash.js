@@ -37,6 +37,7 @@ export const calculateVisualHash = (layer) => {
     `colors:${serializeVisualValue(layer.colors)}`,
     `nodes:${serializeVisualValue(layer.nodes)}`,
     `pathMode:${serializeVisualValue(layer.pathMode)}`,
+    `pathClosed:${serializeVisualValue(layer.pathClosed)}`,
     `strokeWidthPx:${serializeVisualValue(layer.strokeWidthPx)}`,
     `strokeCap:${serializeVisualValue(layer.strokeCap)}`,
     `strokeJoin:${serializeVisualValue(layer.strokeJoin)}`,
@@ -110,7 +111,7 @@ export const getChangedVisualProperties = (currentLayer, previousLayer) => {
   // Define visual properties to check
   const propsToCheck = [
     'numSides', 'curviness', 'radiusFactor', 'width', 'height', 'noiseAmount', 'rotation',
-    'pathMode', 'strokeWidthPx', 'strokeCap', 'strokeJoin',
+    'pathMode', 'pathClosed', 'strokeWidthPx', 'strokeCap', 'strokeJoin',
     'opacity', 'blendMode', 'colors', 'layerType', 'visible'
   ];
   

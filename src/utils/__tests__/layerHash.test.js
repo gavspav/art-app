@@ -68,6 +68,13 @@ describe('Layer Hash Utilities', () => {
       expect(calculateVisualHash(layer1)).not.toBe(calculateVisualHash(layer2));
     });
 
+    test('should include closed-contour stroke mode', () => {
+      const layer1 = { ...mockLayer, pathMode: 'open', pathClosed: false };
+      const layer2 = { ...mockLayer, pathMode: 'open', pathClosed: true };
+
+      expect(calculateVisualHash(layer1)).not.toBe(calculateVisualHash(layer2));
+    });
+
     test('should handle null/undefined layers', () => {
       expect(calculateVisualHash(null)).toBe('');
       expect(calculateVisualHash(undefined)).toBe('');

@@ -1008,7 +1008,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
         if (layer?.layerType !== 'shape') {
           return { numSides: n };
         }
-        if (layer?.pathMode === 'open') {
+        if (layer?.pathMode === 'open' && layer?.pathClosed !== true) {
           return { numSides: n };
         }
         if (layer.syncNodesToNumSides) {

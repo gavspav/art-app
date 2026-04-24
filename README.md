@@ -132,7 +132,10 @@ npm run dev
 - Use the mouse wheel, trackpad pinch, or the on-canvas zoom buttons to zoom the node-edit viewport without changing layer geometry.
 - Hold **Space** and drag, or middle-drag, to pan the node-edit viewport while zoomed in.
 - On an **empty** layer, click and drag to start drawing.
-- On a closed shape, **Shift-click** to extract the current shape outline as an editable open line. The contour is sampled into nodes so switching between line and shape does not move the outline.
+- Click **Line**, then click the canvas to start drawing a new open line on a new layer.
+- Click **Copy** to duplicate the active layer into a new layer.
+- Click **+N** then a segment to insert a node, or **-N** then a node to remove it. You can also **Alt/Option-click** a segment or node for the same add/remove behavior.
+- On a closed shape, **Shift-click** to show the exact same contour as a stroked editable line. The line keeps the shape's existing nodes, curviness, and deformation settings, so switching back with **Enter** does not move the outline.
 - Release after two points to keep an open line, or keep clicking to add more points to the current draft.
 - **Double-click** or press **Enter** to close the current draft or active open outline into a filled shape (requires at least 3 points).
 - Press **Esc** while drafting to cancel the draft and restore the previous geometry.

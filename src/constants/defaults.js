@@ -69,6 +69,7 @@ export const DEFAULT_LAYER = {
   // Node editing
   nodes: null, // when set, array of { x: number, y: number } normalized to canvas size (0..1)
   pathMode: 'closed', // 'closed' for filled shapes, 'open' for stroked paths/lines
+  pathClosed: false, // when pathMode is 'open', stroke the contour as a closed loop without filling
   strokeWidthPx: 3,
   strokeCap: 'round',
   strokeJoin: 'round',

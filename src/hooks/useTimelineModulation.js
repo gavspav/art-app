@@ -66,6 +66,7 @@ const smoothShapeUpdate = (prev, current, factor) => {
     const ps = prev.shapeParams;
     const cs = current.shapeParams;
     result.shapeParams = {
+      ...current.shapeParams,
       numSides: Math.round(lerp(ps.numSides ?? 6, cs.numSides ?? 6, factor)),
       curviness: lerp(ps.curviness ?? 1, cs.curviness ?? 1, factor),
       radiusFactor: lerp(ps.radiusFactor ?? 0.125, cs.radiusFactor ?? 0.125, factor),
@@ -803,7 +804,9 @@ export function useTimelineModulation({
                     ...(morphNodesRef.current ? (() => {
                       const pathModeA = laSrc?.pathMode || 'closed';
                       const pathModeB = lbSrc?.pathMode || 'closed';
-                      if (pathModeA !== pathModeB) return {};
+                      const pathClosedA = pathModeA === 'open' ? !!laSrc?.pathClosed : false;
+                      const pathClosedB = pathModeB === 'open' ? !!lbSrc?.pathClosed : false;
+                      if (pathModeA !== pathModeB || pathClosedA !== pathClosedB) return {};
                       const nodesA = laSrc?.nodes;
                       const nodesB = lbSrc?.nodes;
                       const subpathsA = laSrc?.subpaths;
@@ -1158,6 +1161,7 @@ export function useTimelineModulation({
               if (sp.radiusFactorY !== undefined) updatedLayer.radiusFactorY = sp.radiusFactorY;
               if (sp.rotation !== undefined) updatedLayer.rotation = sp.rotation;
               if (sp.pathMode !== undefined) updatedLayer.pathMode = sp.pathMode;
+              if (sp.pathClosed !== undefined) updatedLayer.pathClosed = sp.pathClosed;
               if (sp.strokeWidthPx !== undefined) updatedLayer.strokeWidthPx = sp.strokeWidthPx;
               if (sp.strokeCap !== undefined) updatedLayer.strokeCap = sp.strokeCap;
               if (sp.strokeJoin !== undefined) updatedLayer.strokeJoin = sp.strokeJoin;
