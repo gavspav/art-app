@@ -1532,6 +1532,7 @@ const Canvas = forwardRef(({
     const draggingCenterRef = useRef(false);
     const draggingOrbitCenterRef = useRef(false);
     const draggingRotateRef = useRef(false);
+    const draggingResizeRef = useRef(false);
     const nodeEditPanRef = useRef(null);
     const nodeEditSpaceRef = useRef(false);
     const nodeEditTouchRef = useRef(null);
@@ -1545,7 +1546,8 @@ const Canvas = forwardRef(({
     const nodesCacheRef = useRef(new Map()); // key: selectedLayerIndex -> nodes array snapshot
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0, pixelRatio: DEFAULT_PIXEL_RATIO });
     const [bendLatch, setBendLatch] = useState(false);
-    const [nodeClickTool, setNodeClickTool] = useState('select'); // 'select' | 'add' | 'remove' | 'newLine'
+    const [nodeClickTool, setNodeClickTool] = useState('select'); // 'select' | 'add' | 'remove' | 'newLine' | 'polygon'
+    const [polygonSidesInput, setPolygonSidesInput] = useState('6');
     const [draftHint, setDraftHint] = useState('');
     const draftHintTimerRef = useRef(null);
     const showDraftHint = useCallback((message) => {
@@ -1586,6 +1588,7 @@ const Canvas = forwardRef(({
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingRotateRef.current = false;
+        draggingResizeRef.current = false;
         nodeEditPanRef.current = null;
         bendingRef.current = false;
         draggingKindRef.current = null;
@@ -1622,6 +1625,7 @@ const Canvas = forwardRef(({
             !draggingCenterRef.current &&
             !draggingOrbitCenterRef.current &&
             !draggingRotateRef.current &&
+            !draggingResizeRef.current &&
             !bendingRef.current &&
             !draftMoveRef.current &&
             !draftPathRef.current
@@ -2483,12 +2487,12 @@ const Canvas = forwardRef(({
                 ctx.moveTo(cx, cy - cross);
                 ctx.lineTo(cx, cy + cross);
                 ctx.stroke();
-                if (draggingRotateRef.current && gestureRef.current?.rotateStart) {
-                    const rotateStart = gestureRef.current.rotateStart;
+                if ((draggingRotateRef.current || draggingResizeRef.current) && gestureRef.current?.transformStart) {
+                    const transformStart = gestureRef.current.transformStart;
                     ctx.beginPath();
-                    ctx.moveTo(rotateStart.centerX, rotateStart.centerY);
-                    ctx.lineTo(currentPointerRef.current.x || rotateStart.centerX, currentPointerRef.current.y || rotateStart.centerY);
-                    ctx.strokeStyle = 'rgba(255, 180, 0, 0.9)';
+                    ctx.moveTo(transformStart.centerX, transformStart.centerY);
+                    ctx.lineTo(currentPointerRef.current.x || transformStart.centerX, currentPointerRef.current.y || transformStart.centerY);
+                    ctx.strokeStyle = draggingResizeRef.current ? 'rgba(100, 220, 255, 0.9)' : 'rgba(255, 180, 0, 0.9)';
                     ctx.lineWidth = 2 * editorOverlayScale;
                     ctx.setLineDash([6 * editorOverlayScale, 6 * editorOverlayScale]);
                     ctx.stroke();
@@ -2826,6 +2830,19 @@ const Canvas = forwardRef(({
         releaseInteractionFreezeTime();
     }, [releaseInteractionFreezeTime, setLayers, setSelectedLayerIndex, updateSingleLayer]);
 
+    const commitPolygonDraft = useCallback(() => {
+        const draft = draftPathRef.current;
+        if (!draft || draft.kind !== 'polygon') return false;
+        draftPathRef.current = null;
+        draftBackupRef.current = null;
+        draftMoveRef.current = false;
+        draggingKindRef.current = null;
+        gestureRef.current = null;
+        releaseInteractionFreezeTime();
+        showDraftHint('Polygon created');
+        return true;
+    }, [releaseInteractionFreezeTime, showDraftHint]);
+
     const duplicateActiveLayer = useCallback(() => {
         const idx = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const source = layers[idx];
@@ -2898,6 +2915,72 @@ const Canvas = forwardRef(({
         showDraftHint('Drawing new line layer');
         return true;
     }, [clearSelection, ensureInteractionFreezeTime, layers, selectedLayerIndex, setLayers, setSelectedLayerIndex, showDraftHint]);
+
+    const createPolygonLayerAtPoint = useCallback((startWorldPoint) => {
+        const canvas = localCanvasRef.current;
+        if (!canvas || !startWorldPoint) return false;
+        const activeIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
+        const source = layers[activeIndex] || DEFAULT_LAYER;
+        const sides = Math.max(3, Math.min(96, Math.round(Number(polygonSidesInput) || 3)));
+        const mapping = getLayerCanvasMapping(canvas, source);
+        const nx = mapping.spanX > 0 ? (startWorldPoint.x - mapping.offsetX) / mapping.spanX : 0.5;
+        const ny = mapping.spanY > 0 ? (startWorldPoint.y - mapping.offsetY) / mapping.spanY : 0.5;
+        const safeX = Math.max(0, Math.min(1, nx));
+        const safeY = Math.max(0, Math.min(1, ny));
+        const newIndex = layers.length;
+        const base = cloneLayerDeep({ ...DEFAULT_LAYER, ...source });
+        const nodes = computeInitialNodes(sides).map(node => ({ ...node }));
+        const sourceRadius = Number(source?.radiusFactor ?? DEFAULT_LAYER.radiusFactor ?? 0.125);
+        const initialRadius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : 0.125;
+        const nextLayer = {
+            ...base,
+            id: createLayerId(),
+            name: `Layer ${newIndex + 1}`,
+            layerType: 'shape',
+            visible: true,
+            position: {
+                ...(DEFAULT_LAYER.position || {}),
+                ...(base.position || {}),
+                x: safeX,
+                y: safeY,
+                scale: base.position?.scale ?? DEFAULT_LAYER.position?.scale ?? 1,
+            },
+            xOffset: 0,
+            yOffset: 0,
+            pathMode: 'closed',
+            pathClosed: false,
+            nodes,
+            numSides: sides,
+            radiusFactor: initialRadius,
+            radiusFactorX: initialRadius,
+            radiusFactorY: initialRadius,
+            rotation: 0,
+            syncNodesToNumSides: false,
+            movementStyle: 'still',
+            movementSpeed: 0,
+            vx: 0,
+            vy: 0,
+        };
+        setLayers(prev => [...prev, nextLayer]);
+        setSelectedLayerIndex?.(newIndex);
+        if (clearSelection) clearSelection();
+        draftBackupRef.current = { __newLayerDraft: true };
+        draftPathRef.current = { layerIndex: newIndex, kind: 'polygon' };
+        draggingKindRef.current = 'polygonDraft';
+        gestureRef.current = {
+            layerId: nextLayer.id,
+            layerIndex: newIndex,
+            type: 'polygonDraft',
+            center: { ...startWorldPoint },
+            refSize: Math.max(1, mapping.refSize || 1),
+            scale: Math.max(0.0001, nextLayer.position.scale ?? 1),
+            initialRotation: 0,
+        };
+        ensureInteractionFreezeTime();
+        setNodeClickTool('select');
+        showDraftHint('Move cursor to size polygon. Hold Ctrl to rotate. Press Enter to commit.');
+        return true;
+    }, [clearSelection, ensureInteractionFreezeTime, layers, polygonSidesInput, selectedLayerIndex, setLayers, setSelectedLayerIndex, showDraftHint]);
 
     const handleNodeClickEdit = useCallback((layerIndex, worldPoint, mode = 'auto') => {
         const canvas = localCanvasRef.current;
@@ -3145,6 +3228,12 @@ const Canvas = forwardRef(({
                 }
                 return;
             }
+            if (event.key === 'Enter' && draftPathRef.current?.kind === 'polygon') {
+                event.preventDefault();
+                commitPolygonDraft();
+                clearDragState();
+                return;
+            }
             if (event.key === 'Enter' && draftPathRef.current) {
                 const layer = layers[draftPathRef.current.layerIndex];
                 event.preventDefault();
@@ -3184,7 +3273,7 @@ const Canvas = forwardRef(({
             nodeEditSpaceRef.current = false;
             nodeEditPanRef.current = null;
         };
-    }, [cancelDraftPath, clearDragState, closeDraftPath, closeOpenLayerAsShape, isNodeEditMode, layers, selectedLayerIndex, showDraftHint]);
+    }, [cancelDraftPath, clearDragState, closeDraftPath, closeOpenLayerAsShape, commitPolygonDraft, isNodeEditMode, layers, selectedLayerIndex, showDraftHint]);
 
     const onMouseDown = (e) => {
         if (!isNodeEditMode) return;
@@ -3252,6 +3341,12 @@ const Canvas = forwardRef(({
         if (nodeClickTool === 'newLine' && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
             createScratchLineLayerAtPoint(pos);
+            return;
+        }
+
+        if (nodeClickTool === 'polygon' && !e.altKey && !e.shiftKey) {
+            e.preventDefault();
+            createPolygonLayerAtPoint(pos);
             return;
         }
 
@@ -3393,7 +3488,7 @@ const Canvas = forwardRef(({
             }
             const dx = cx - pos.x; const dy = cy - pos.y;
             if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
-                if (e.ctrlKey || e.metaKey) {
+                if (e.ctrlKey) {
                     draggingRotateRef.current = true;
                     draggingKindRef.current = 'rotate';
                     gestureRef.current = {
@@ -3402,11 +3497,33 @@ const Canvas = forwardRef(({
                         type: 'rotate',
                         wrapOffset,
                         geometry: gestureGeometry,
-                        rotateStart: {
+                        transformStart: {
                             centerX: cx,
                             centerY: cy,
                             startAngle: Math.atan2(pos.y - cy, pos.x - cx),
                             initialRotation: Number(layer.rotation) || 0,
+                        },
+                    };
+                    ensureInteractionFreezeTime();
+                    return;
+                }
+                if (e.metaKey) {
+                    const startDistance = Math.hypot(pos.x - cx, pos.y - cy) || 1;
+                    draggingResizeRef.current = true;
+                    draggingKindRef.current = 'resize';
+                    gestureRef.current = {
+                        layerId,
+                        layerIndex,
+                        type: 'resize',
+                        wrapOffset,
+                        geometry: gestureGeometry,
+                        transformStart: {
+                            centerX: cx,
+                            centerY: cy,
+                            startDistance,
+                            radiusFactor: Number(layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4),
+                            radiusFactorX: Number(layer.radiusFactorX ?? layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4),
+                            radiusFactorY: Number(layer.radiusFactorY ?? layer.radiusFactor ?? layer.baseRadiusFactor ?? 0.4),
                         },
                     };
                     ensureInteractionFreezeTime();
@@ -3516,10 +3633,12 @@ const Canvas = forwardRef(({
         const draggingCenter = draggingCenterRef.current;
         const draggingOrbit = draggingOrbitCenterRef.current;
         const draggingRotate = draggingRotateRef.current;
+        const draggingResize = draggingResizeRef.current;
         const bending = bendingRef.current;
         const drafting = draftMoveRef.current;
         const panning = !!nodeEditPanRef.current;
-        if (idx == null && mid == null && !draggingCenter && !draggingOrbit && !draggingRotate && !bending && !drafting && !panning) return;
+        const polygonDrafting = draftPathRef.current?.kind === 'polygon';
+        if (idx == null && mid == null && !draggingCenter && !draggingOrbit && !draggingRotate && !draggingResize && !bending && !drafting && !panning && !polygonDrafting) return;
         const canvas = localCanvasRef.current;
         if (!canvas) return;
         if (panning) {
@@ -3532,6 +3651,34 @@ const Canvas = forwardRef(({
             });
             return;
         }
+
+        const pos = getMousePos(e);
+        currentPointerRef.current = { x: pos.x, y: pos.y };
+
+        if (polygonDrafting) {
+            const draft = gestureRef.current;
+            if (!draft || !Number.isInteger(draft.layerIndex) || !draft.center) return;
+            const dx = pos.x - draft.center.x;
+            const dy = pos.y - draft.center.y;
+            const distance = Math.max(16, Math.hypot(dx, dy));
+            const radius = Math.max(0.005, distance / Math.max(1, draft.refSize || 1) / Math.max(0.0001, draft.scale || 1));
+            const rotation = e.ctrlKey
+                ? ((Math.atan2(dy, dx) * 180) / Math.PI)
+                : draft.initialRotation ?? 0;
+            setLayers(prev => prev.map((entry, index) => (
+                index === draft.layerIndex
+                    ? {
+                        ...entry,
+                        radiusFactor: radius,
+                        radiusFactorX: radius,
+                        radiusFactorY: radius,
+                        rotation,
+                    }
+                    : entry
+            )));
+            return;
+        }
+
         const selIndex = Math.max(0, Math.min(Number.isFinite(gestureRef.current?.layerIndex) ? gestureRef.current.layerIndex : (Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0), Math.max(0, layers.length - 1)));
         const layer = getNodeEditInteractiveLayer(selIndex);
         if (!layer || !layer.position) return;
@@ -3554,8 +3701,6 @@ const Canvas = forwardRef(({
             spanY,
         } = geometry;
 
-        const pos = getMousePos(e);
-        currentPointerRef.current = { x: pos.x, y: pos.y };
         const wrapOffset = layer?.movementStyle === 'drift'
             ? (gestureRef.current?.wrapOffset || getDriftWrapOffset(layer, canvas))
             : ZERO_WRAP_OFFSET;
@@ -3569,12 +3714,26 @@ const Canvas = forwardRef(({
         const normYBase = spanY > 0 ? (posBaseY - artOffsetY - offsetYPx) / spanY : 0.5;
 
         if (draggingRotate) {
-            const rotateStart = gestureRef.current?.rotateStart;
-            if (!rotateStart) return;
-            const angle = Math.atan2(pos.y - rotateStart.centerY, pos.x - rotateStart.centerX);
-            const deltaDeg = ((angle - rotateStart.startAngle) * 180) / Math.PI;
+            const transformStart = gestureRef.current?.transformStart;
+            if (!transformStart) return;
+            const angle = Math.atan2(pos.y - transformStart.centerY, pos.x - transformStart.centerX);
+            const deltaDeg = ((angle - transformStart.startAngle) * 180) / Math.PI;
             setLayers(prev => prev.map((entry, index) => (
-                index === selIndex ? { ...entry, rotation: (rotateStart.initialRotation || 0) + deltaDeg } : entry
+                index === selIndex ? { ...entry, rotation: (transformStart.initialRotation || 0) + deltaDeg } : entry
+            )));
+            return;
+        }
+
+        if (draggingResize) {
+            const transformStart = gestureRef.current?.transformStart;
+            if (!transformStart) return;
+            const distance = Math.hypot(pos.x - transformStart.centerX, pos.y - transformStart.centerY);
+            const scaleFactor = Math.max(0.05, distance / Math.max(1, transformStart.startDistance || 1));
+            const radiusFactor = Math.max(0.001, (Number(transformStart.radiusFactor) || 0.4) * scaleFactor);
+            const radiusFactorX = Math.max(0.001, (Number(transformStart.radiusFactorX) || radiusFactor) * scaleFactor);
+            const radiusFactorY = Math.max(0.001, (Number(transformStart.radiusFactorY) || radiusFactor) * scaleFactor);
+            setLayers(prev => prev.map((entry, index) => (
+                index === selIndex ? { ...entry, radiusFactor, radiusFactorX, radiusFactorY } : entry
             )));
             return;
         }
@@ -3937,8 +4096,9 @@ const Canvas = forwardRef(({
 
     const onMouseUp = (e) => {
         const canvas = localCanvasRef.current;
-        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current || draggingRotateRef.current || bendingRef.current || draftMoveRef.current || !!nodeEditPanRef.current;
+        const wasDragging = draggingKindRef.current != null || draggingCenterRef.current || draggingOrbitCenterRef.current || draggingRotateRef.current || draggingResizeRef.current || bendingRef.current || draftMoveRef.current || !!nodeEditPanRef.current;
         const hasModifier = e.shiftKey || e.metaKey || e.ctrlKey;
+        const keepPolygonDraft = draftPathRef.current?.kind === 'polygon';
 
         if (!wasDragging && canvas && setSelectedLayerIndex && toggleLayerSelection) {
             const ctx = canvas.getContext('2d');
@@ -4079,12 +4239,15 @@ const Canvas = forwardRef(({
         draggingCenterRef.current = false;
         draggingOrbitCenterRef.current = false;
         draggingRotateRef.current = false;
+        draggingResizeRef.current = false;
         nodeEditPanRef.current = null;
         bendingRef.current = false;
-        draggingKindRef.current = null;
-        gestureRef.current = null;
+        if (!keepPolygonDraft) {
+            draggingKindRef.current = null;
+            gestureRef.current = null;
+        }
         bendGestureRef.current = null;
-        releaseInteractionFreezeTime();
+        if (!keepPolygonDraft) releaseInteractionFreezeTime();
 
         // nothing else to do here
     };
@@ -4238,6 +4401,50 @@ const Canvas = forwardRef(({
                 aria-label="Start new line layer"
                 onClick={() => setNodeClickTool(value => (value === 'newLine' ? 'select' : 'newLine'))}
               >Line</button>
+              <label
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    height: 48,
+                    padding: '0 8px',
+                    borderRadius: 999,
+                    background: 'rgba(20,20,22,0.72)',
+                    border: nodeClickTool === 'polygon' ? '2px solid #ffb400' : '1px solid rgba(255,255,255,0.18)',
+                    color: '#fff',
+                    fontSize: 12,
+                    pointerEvents: 'auto',
+                }}
+                title="Set polygon sides, then click Polygon and drag on canvas"
+              >
+                <span>Sides</span>
+                <input
+                    type="number"
+                    min="3"
+                    max="96"
+                    step="1"
+                    value={polygonSidesInput}
+                    onChange={(event) => setPolygonSidesInput(event.target.value)}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    style={{
+                        width: 46,
+                        height: 28,
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.24)',
+                        background: 'rgba(0,0,0,0.32)',
+                        color: '#fff',
+                        padding: '0 6px',
+                    }}
+                    aria-label="Polygon sides"
+                />
+              </label>
+              <button
+                className="fab"
+                style={{ width: 64, height: 48, border: nodeClickTool === 'polygon' ? '2px solid #ffb400' : undefined }}
+                title="Create polygon: click canvas, move to size, hold Ctrl to rotate, press Enter to commit"
+                aria-label="Create polygon"
+                onClick={() => setNodeClickTool(value => (value === 'polygon' ? 'select' : 'polygon'))}
+              >Poly</button>
               <button
                 className="fab"
                 style={{ width: 64, height: 48 }}

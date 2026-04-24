@@ -133,6 +133,7 @@ npm run dev
 - Hold **Space** and drag, or middle-drag, to pan the node-edit viewport while zoomed in.
 - On an **empty** layer, click and drag to start drawing.
 - Click **Line**, then click the canvas to start drawing a new open line on a new layer.
+- Enter a side count, click **Poly**, then click the canvas to place a polygon draft. Move the cursor away from the centre to scale it; hold **Ctrl** while moving to rotate it; press **Enter** to commit or **Esc** to cancel.
 - Click **Copy** to duplicate the active layer into a new layer.
 - Click **+N** then a segment to insert a node, or **-N** then a node to remove it. You can also **Alt/Option-click** a segment or node for the same add/remove behavior.
 - On a closed shape, **Shift-click** to show the exact same contour as a stroked editable line. The line keeps the shape's existing nodes, curviness, and deformation settings, so switching back with **Enter** does not move the outline.
@@ -141,7 +142,7 @@ npm run dev
 - Press **Esc** while drafting to cancel the draft and restore the previous geometry.
 - Hold **Shift** while drawing or dragging an endpoint to snap movement to 45 degree increments.
 - Hold **Alt** while extending a corner in a draft to turn the hard corner into a curved fillet.
-- Hold **Ctrl** or **Cmd** and drag the center handle to rotate the active shape or path in place.
+- Hold **Ctrl** and drag the center handle to rotate the active shape or path in place. Hold **Cmd** and drag the center handle to resize it.
 - Turn on **Caps Lock** or click the on-canvas **bend toggle** (orange outline when active), then drag up or down to bend nearby nodes.
 - While bending, hold **Shift** to scale the affected selection instead of pushing nodes vertically.
 - Shift-drag one open-path endpoint onto another compatible open endpoint to join them.
