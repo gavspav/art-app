@@ -115,7 +115,13 @@ export function useLayerManagement({
     if (!isNodeEditMode) return;
     const idx = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
     const layer = layers[idx];
-    if (!layer || layer.layerType !== 'shape') return;
+    if (
+      !layer ||
+      layer.layerType !== 'shape' ||
+      layer.shapeDeleted === true ||
+      layer.blankLayer === true ||
+      (layer.pathMode === 'open' && layer.pathClosed !== true)
+    ) return;
     if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
       const desired = Math.max(3, layer.numSides || 6);
       const nodes = Array.from({ length: desired }, (_, i) => {

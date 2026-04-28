@@ -3,6 +3,7 @@ import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
 import RangeSlider from '../../common/RangeSlider.jsx';
 import { resolveLayerTargets, applyWithVary } from '../../../utils/varyUtils.js';
+import { computeInitialNodes } from '../../../utils/nodeUtils.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -17,6 +18,29 @@ const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   }
   aliases.push(`layer:all:${paramId}`);
   return Array.from(new Set(aliases.filter(Boolean)));
+};
+
+const reviveDeletedShape = (layer) => {
+  if (!layer?.shapeDeleted) return layer;
+  const sides = Math.max(3, Math.round(Number(layer?.numSides) || 6));
+  const nodes = Array.isArray(layer?.nodes) && layer.nodes.length >= 3
+    ? layer.nodes.map(node => ({ ...node }))
+    : computeInitialNodes(sides).map(node => ({ ...node }));
+
+  return {
+    ...layer,
+    shapeDeleted: false,
+    blankLayer: false,
+    layerType: 'shape',
+    pathMode: 'closed',
+    pathClosed: false,
+    nodes,
+    subpaths: [],
+    subpathStyles: [],
+    subpathGroups: [],
+    numSides: nodes.length,
+    syncNodesToNumSides: false,
+  };
 };
 
 export default function LayerShapeSection({
@@ -36,7 +60,6 @@ export default function LayerShapeSection({
   setShowRotateSettings,
   setRotateMin,
   setRotateMax,
-  applyRotation,
   getIsRnd,
   setIsRnd,
   MidiRotationStatus: _MidiRotationStatus,
@@ -73,6 +96,43 @@ export default function LayerShapeSection({
     }
   };
 
+  const reviveShapeLayerUpdate = (update) => {
+    if (typeof setLayers !== 'function') return;
+    setLayers(prev => {
+      const next = typeof update === 'function' ? update(prev) : update;
+      if (!Array.isArray(next)) return next;
+      return next.map((layer, index) => (
+        prev?.[index]?.shapeDeleted && layer?.shapeDeleted
+          ? reviveDeletedShape(layer)
+          : layer
+      ));
+    });
+  };
+
+  const updateRevivedShapeLayer = (patch) => {
+    if (typeof updateLayer !== 'function') return;
+    updateLayer(reviveDeletedShape({ ...(currentLayer || {}), ...(patch || {}) }));
+  };
+
+  const applyRevivingRotation = (rotation) => {
+    const { effective: targets } = resolveLayerTargets({
+      currentLayer,
+      buildTargetSet,
+      targetMode,
+    });
+
+    if (typeof setLayers === 'function' && targets.size > 0) {
+      setLayers(prev => applyWithVary({
+        layers: prev,
+        targets,
+        updater: (layer) => reviveDeletedShape({ ...layer, rotation }),
+      }));
+      return;
+    }
+
+    updateRevivedShapeLayer({ rotation });
+  };
+
   return (
     <div className="tab-section">
       <div className="control-card">
@@ -102,8 +162,8 @@ export default function LayerShapeSection({
             <DynamicControl
               param={param}
               currentLayer={currentLayer}
-              updateLayer={updateLayer}
-              setLayers={setLayers}
+              updateLayer={updateRevivedShapeLayer}
+              setLayers={reviveShapeLayerUpdate}
               buildTargetSet={buildTargetSet}
               targetMode={targetMode}
               debugSettingsEnabled={debugSettingsEnabled}
@@ -125,7 +185,7 @@ export default function LayerShapeSection({
                   precision={0}
                   onCommit={(next) => {
                     const wrapped = ((((next + 180) % 360) + 360) % 360) - 180;
-                    applyRotation(wrapped);
+                    applyRevivingRotation(wrapped);
                   }}
                   className="dc-value-input"
                 />
@@ -143,7 +203,7 @@ export default function LayerShapeSection({
                     const high = Math.max(rotateMin, rotateMax);
                     let v = low + Math.random() * Math.max(0, high - low);
                     const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-                    applyRotation(wrapped);
+                    applyRevivingRotation(wrapped);
                   }}
                 >
                   🎲
@@ -169,7 +229,7 @@ export default function LayerShapeSection({
                 let v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) v = 0;
                 const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-                applyRotation(wrapped);
+                applyRevivingRotation(wrapped);
               }}
               className="dc-slider"
               rangeMin={rotateMin}

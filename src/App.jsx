@@ -211,6 +211,7 @@ const MainApp = () => {
   const svgFileInputRef = React.useRef(null);
   // Shape track updates ref - shared between useTimelineModulation and useAnimation
   const shapeTrackUpdatesRef = useRef(new Map());
+  const nodeEditDeleteHandlerRef = useRef(null);
   const variationBaseRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
@@ -2166,6 +2167,7 @@ const MainApp = () => {
     setShowLayerOutlines,
     setIsolateMode,
     deleteLayer,
+    nodeEditDeleteHandlerRef,
     saveQuickPresetToMemory: handleRamPresetSave,
     recallQuickPresetFromMemory: handleRamPresetRecall,
     toggleBPM: bpmForAnimation?.togglePlay,
@@ -2474,6 +2476,7 @@ const MainApp = () => {
     selectedLayerIndex,
     setLayers,
     setSelectedLayerIndex,
+    nodeEditDeleteHandlerRef,
     classicMode,
     isolateMode,
     getActiveTargetLayerIds,

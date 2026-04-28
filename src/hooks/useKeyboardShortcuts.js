@@ -18,6 +18,7 @@ export function useKeyboardShortcuts({
   setShowLayerOutlines,
   setIsolateMode,
   deleteLayer,
+  nodeEditDeleteHandlerRef,
   saveQuickPresetToMemory,
   recallQuickPresetFromMemory,
   toggleBPM,
@@ -167,6 +168,12 @@ export function useKeyboardShortcuts({
       if (key === 'delete' || key === 'backspace') {
         const nodeMode = !!hotkeyRef?.current?.nodeEditMode;
         const len = Number(hotkeyRef?.current?.layersLen) || 0;
+        if (nodeMode) {
+          if (nodeEditDeleteHandlerRef?.current?.()) {
+            e.preventDefault();
+            return;
+          }
+        }
         if (nodeMode && len > 1) {
           e.preventDefault();
           const idx = Math.max(0, Math.min(len - 1, Number(hotkeyRef?.current?.selectedIndex) || 0));
@@ -254,6 +261,7 @@ export function useKeyboardShortcuts({
     setShowLayerOutlines,
     setIsolateMode,
     deleteLayer,
+    nodeEditDeleteHandlerRef,
     saveQuickPresetToMemory,
     recallQuickPresetFromMemory,
     toggleBPM,

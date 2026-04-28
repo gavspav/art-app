@@ -201,6 +201,7 @@ const normalizePathMode = (value) => (value === 'open' ? 'open' : 'closed');
 const isOpenPathLayer = (layer) => normalizePathMode(layer?.pathMode) === 'open';
 const isClosedContourLayer = (layer) => !isOpenPathLayer(layer) || layer?.pathClosed === true;
 const getMinimumNodeCount = (layer) => (isOpenPathLayer(layer) && !isClosedContourLayer(layer) ? 2 : 3);
+const isLayerContentDeleted = (layer) => layer?.shapeDeleted === true;
 const normalizeStrokeCap = (value) => (
     value === 'butt' || value === 'square' ? value : 'round'
 );
@@ -423,6 +424,7 @@ const buildFilletPoints = (prevPoint, cornerPoint, nextPoint, radiusPx) => {
 
 // --- Shape Drawing Logic (supports node-based shapes) ---
 const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = false, globalBlendMode = 'source-over', colorTimeArg = null) => {
+    if (isLayerContentDeleted(layer)) return;
     // Destructure properties from the layer and its nested position object
     const {
         numSides: sides,
@@ -480,6 +482,10 @@ const drawShape = (ctx, layer, canvas, globalSeed, time = 0, _isNodeEditMode = f
     const isClosedContour = !isOpenPath || layer?.pathClosed === true;
     const isLinearOpenPath = isOpenPath && !isClosedContour;
     const effectiveStrokeWidth = Math.max(1, Number.isFinite(Number(strokeWidthPx)) ? Number(strokeWidthPx) : 3);
+
+    if (Array.isArray(layer.nodes) && layer.nodes.length > 0 && layer.nodes.length < getMinimumNodeCount(layer)) {
+        return;
+    }
 
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(opacity)));
@@ -1338,10 +1344,13 @@ export const computeDeformedNodePoints = (layer, canvas, globalSeedBase, time) =
 // Build a Path2D that approximates the rendered footprint of a layer for hit-testing
 const buildLayerHitPath = (layer, canvas, { renderedPoints = null, globalSeed = 0, time = 0 } = {}) => {
     const path = new Path2D();
-    if (!layer || !canvas || !layer.position || !layer.visible) return { path, hitMode: 'fill', lineWidth: 0 };
+    if (!layer || !canvas || !layer.position || !layer.visible || isLayerContentDeleted(layer)) return { path, hitMode: 'fill', lineWidth: 0 };
     const isOpenPath = isOpenPathLayer(layer);
     const closesContour = isClosedContourLayer(layer);
     const minNodeCount = getMinimumNodeCount(layer);
+    if (Array.isArray(layer.nodes) && layer.nodes.length > 0 && layer.nodes.length < minNodeCount) {
+        return { path, hitMode: 'fill', lineWidth: 0 };
+    }
     const hitLineWidth = Math.max(8, Number(layer?.strokeWidthPx ?? 3) + 8);
 
     const { x = 0.5, y = 0.5, scale = 1 } = layer.position || {};
@@ -1474,6 +1483,7 @@ const Canvas = forwardRef(({
     selectedLayerIndex,
     setLayers,
     setSelectedLayerIndex,
+    nodeEditDeleteHandlerRef,
     classicMode = false,
     isolateMode = false,
     getActiveTargetLayerIds: getActiveTargetLayerIdsProp,
@@ -1533,6 +1543,8 @@ const Canvas = forwardRef(({
     const draggingOrbitCenterRef = useRef(false);
     const draggingRotateRef = useRef(false);
     const draggingResizeRef = useRef(false);
+    const selectedCenterHandleRef = useRef(null);
+    const [, setSelectedCenterHandleTick] = useState(0);
     const nodeEditPanRef = useRef(null);
     const nodeEditSpaceRef = useRef(false);
     const nodeEditTouchRef = useRef(null);
@@ -2139,7 +2151,10 @@ const Canvas = forwardRef(({
                 ? (Date.now() * 0.001 + colorWallOffsetRef.current)
                 : interactionTimeNow;
 	            (Array.isArray(layersForRender) ? layersForRender : []).forEach((layer, index) => {
-	                if (!layer || !layer.position || !layer.visible) return;
+	                if (!layer || !layer.position || !layer.visible || isLayerContentDeleted(layer)) {
+                    renderedPointsRef.current.delete(index);
+                    return;
+                }
 	                if (shouldHideAllBaseLayers) {
 	                    renderedPointsRef.current.delete(index);
 	                    return;
@@ -2173,7 +2188,7 @@ const Canvas = forwardRef(({
 	            if (hasActiveOverlayLayers) {
 	                const overlayList = overlayLayersRef.current;
 	                overlayList.forEach((layer) => {
-	                    if (!layer || !layer.position || !layer.visible) return;
+	                    if (!layer || !layer.position || !layer.visible || isLayerContentDeleted(layer)) return;
                     if (layer.image && layer.image.src) {
                         drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                     } else {
@@ -2273,7 +2288,10 @@ const Canvas = forwardRef(({
 	                console.error('Skipping render for malformed layer:', layer);
 	                return;
 	            }
-	            if (!layer.visible) return;
+	            if (!layer.visible || isLayerContentDeleted(layer)) {
+                renderedPointsRef.current.delete(index);
+                return;
+            }
 	            if (shouldHideAllBaseLayers) {
 	                renderedPointsRef.current.delete(index);
 	                return;
@@ -2314,7 +2332,7 @@ const Canvas = forwardRef(({
 	        if (hasActiveOverlayLayers) {
 	            const overlayList = overlayLayersRef.current;
 	            overlayList.forEach((layer) => {
-	                if (!layer || !layer.position || !layer.visible) return;
+	                if (!layer || !layer.position || !layer.visible || isLayerContentDeleted(layer)) return;
                 if (layer.image && layer.image.src) {
                     drawLayerWithWrap(ctx, layer, canvas, (c, l, cv) => drawImage(c, l, cv, globalBlendMode), [], { renderedPoints: null });
                 } else {
@@ -2419,8 +2437,9 @@ const Canvas = forwardRef(({
                 orbitAngle: renderLayer.orbitAngle ?? editableLayer.orbitAngle,
                 spinAngle: renderLayer.spinAngle ?? editableLayer.spinAngle,
             } : (editableLayer || renderLayer);
+            if (!isLayerContentDeleted(sel)) {
             const mapping = getLayerCanvasMapping(canvas, sel);
-            if (Array.isArray(sel.nodes) && sel.nodes.length >= getMinimumNodeCount(sel)) {
+            if (Array.isArray(sel.nodes) && sel.nodes.length > 0) {
                 const { x, y, scale } = sel.position || { x: 0.5, y: 0.5, scale: 1 };
                 const { spanX, spanY, offsetX: ax, offsetY: ay, refSize: artSize } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
@@ -2456,7 +2475,9 @@ const Canvas = forwardRef(({
                 const rMid = 5 * editorOverlayScale;
                 ctx.fillStyle = '#222';
                 ctx.strokeStyle = '#ffffff';
-                const midpointCount = isClosedContourLayer(sel) ? points.length : Math.max(0, points.length - 1);
+                const midpointCount = points.length >= 2
+                    ? (isClosedContourLayer(sel) ? points.length : Math.max(0, points.length - 1))
+                    : 0;
                 for (let i = 0; i < midpointCount; i++) {
                     const a = points[i];
                     const b = isClosedContourLayer(sel) ? points[(i + 1) % points.length] : points[i + 1];
@@ -2469,24 +2490,28 @@ const Canvas = forwardRef(({
                     ctx.stroke();
                 }
 
-                // Center cross-hair handle to move the whole shape
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 2 * editorOverlayScale;
-                const cross = 10 * editorOverlayScale;
-                // Compute centroid from current base points so marker updates while editing
-                let cx = layerCX, cy = layerCY;
                 if (points.length >= getMinimumNodeCount(sel)) {
+                    // Center cross-hair handle to move the whole shape
+                    const selectedCenterHandle = selectedCenterHandleRef.current;
+                    const isCenterHandleSelected = selectedCenterHandle
+                        && selectedCenterHandle.layerIndex === clampedIndex
+                        && (selectedCenterHandle.layerId == null || selectedCenterHandle.layerId === sel?.id);
+                    ctx.strokeStyle = isCenterHandleSelected ? '#ffcc33' : '#ffffff';
+                    ctx.lineWidth = 2 * editorOverlayScale;
+                    const cross = 10 * editorOverlayScale;
+                    // Compute centroid from current base points so marker updates while editing
+                    let cx = layerCX, cy = layerCY;
                     let sx = 0, sy = 0;
                     for (let i = 0; i < points.length; i++) { sx += points[i].x; sy += points[i].y; }
                     cx = sx / points.length;
                     cy = sy / points.length;
+                    ctx.beginPath();
+                    ctx.moveTo(cx - cross, cy);
+                    ctx.lineTo(cx + cross, cy);
+                    ctx.moveTo(cx, cy - cross);
+                    ctx.lineTo(cx, cy + cross);
+                    ctx.stroke();
                 }
-                ctx.beginPath();
-                ctx.moveTo(cx - cross, cy);
-                ctx.lineTo(cx + cross, cy);
-                ctx.moveTo(cx, cy - cross);
-                ctx.lineTo(cx, cy + cross);
-                ctx.stroke();
                 if ((draggingRotateRef.current || draggingResizeRef.current) && gestureRef.current?.transformStart) {
                     const transformStart = gestureRef.current.transformStart;
                     ctx.beginPath();
@@ -2524,6 +2549,7 @@ const Canvas = forwardRef(({
                 ctx.strokeStyle = '#ff3333';
                 ctx.stroke();
                 ctx.restore();
+            }
             }
         }
 
@@ -2614,7 +2640,7 @@ const Canvas = forwardRef(({
         if (!canvas || !isNodeEditMode) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
-        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer) || isLayerContentDeleted(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             // Avoid redundant updates
@@ -2630,7 +2656,7 @@ const Canvas = forwardRef(({
         const canvas = localCanvasRef.current;
         if (!canvas || !isNodeEditMode) return;
         const layer = layers[selectedLayerIndex];
-        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer) || isLayerContentDeleted(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             setLayers(prev => prev.map((l, i) => i === selectedLayerIndex ? { ...l, nodes } : l));
@@ -2664,7 +2690,7 @@ const Canvas = forwardRef(({
         ) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
-        if (!layer || layer.layerType !== 'shape') return;
+        if (!layer || layer.layerType !== 'shape' || isLayerContentDeleted(layer)) return;
         const currentNodes = Array.isArray(layer.nodes) ? layer.nodes : [];
         if (isOpenPathLayer(layer)) {
             nodesCacheRef.current.set(selIndex, Array.isArray(currentNodes) ? currentNodes.map(n => ({ ...n })) : []);
@@ -2743,7 +2769,7 @@ const Canvas = forwardRef(({
         if (!canvas) return;
         const selIndex = Math.max(0, Math.min(Number.isFinite(selectedLayerIndex) ? selectedLayerIndex : 0, Math.max(0, layers.length - 1)));
         const layer = layers[selIndex];
-        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer)) return;
+        if (!layer || layer.layerType !== 'shape' || isOpenPathLayer(layer) || isLayerContentDeleted(layer)) return;
         if (!Array.isArray(layer.nodes) || layer.nodes.length < 3) {
             const nodes = computeInitialNodes(layer);
             // Only update if different or missing
@@ -2814,6 +2840,64 @@ const Canvas = forwardRef(({
             index === layerIndex ? updater(layer) : layer
         )));
     }, [setLayers]);
+
+    const clearSelectedCenterHandle = useCallback(() => {
+        if (!selectedCenterHandleRef.current) return;
+        selectedCenterHandleRef.current = null;
+        setSelectedCenterHandleTick(tick => tick + 1);
+    }, []);
+
+    const selectCenterHandle = useCallback((layerIndex, layerId) => {
+        selectedCenterHandleRef.current = { layerIndex, layerId: layerId ?? null };
+        setSelectedCenterHandleTick(tick => tick + 1);
+    }, []);
+
+    const deleteSelectedCenterShape = useCallback(() => {
+        const selected = selectedCenterHandleRef.current;
+        if (!selected || !Number.isInteger(selected.layerIndex)) return false;
+        const layer = layers[selected.layerIndex];
+        if (!layer || (selected.layerId != null && layer.id !== selected.layerId)) {
+            clearSelectedCenterHandle();
+            return false;
+        }
+        if (isLayerContentDeleted(layer)) {
+            clearSelectedCenterHandle();
+            return false;
+        }
+
+        draftPathRef.current = null;
+        draftBackupRef.current = null;
+        draftMoveRef.current = false;
+        clearDragState();
+        interactionFreezeTimeRef.current = null;
+        updateSingleLayer(selected.layerIndex, currentLayer => ({
+            ...currentLayer,
+            shapeDeleted: true,
+            blankLayer: true,
+            nodes: [],
+            subpaths: [],
+            subpathStyles: [],
+            subpathGroups: [],
+            syncNodesToNumSides: false,
+        }));
+        nodesCacheRef.current.delete(selected.layerIndex);
+        clearSelectedCenterHandle();
+        return true;
+    }, [clearDragState, clearSelectedCenterHandle, layers, updateSingleLayer]);
+
+    useEffect(() => {
+        if (!nodeEditDeleteHandlerRef) return undefined;
+        nodeEditDeleteHandlerRef.current = deleteSelectedCenterShape;
+        return () => {
+            if (nodeEditDeleteHandlerRef.current === deleteSelectedCenterShape) {
+                nodeEditDeleteHandlerRef.current = null;
+            }
+        };
+    }, [deleteSelectedCenterShape, nodeEditDeleteHandlerRef]);
+
+    useEffect(() => {
+        clearSelectedCenterHandle();
+    }, [clearSelectedCenterHandle, isNodeEditMode, selectedLayerIndex]);
 
     const cancelDraftPath = useCallback(() => {
         const draft = draftPathRef.current;
@@ -3091,6 +3175,7 @@ const Canvas = forwardRef(({
             committedNodes = layer.nodes.map(node => ({ ...node }));
             return {
                 ...layer,
+                shapeDeleted: false,
                 pathMode: 'closed',
                 pathClosed: false,
                 nodes: committedNodes,
@@ -3169,6 +3254,44 @@ const Canvas = forwardRef(({
         const layer = getNodeEditInteractiveLayer(layerIndex);
         const geometry = canvas ? getLayerGeometry(layer, canvas) : null;
         if (!layer || !geometry) return;
+        const isBlankDraft = isLayerContentDeleted(layer)
+            || layer?.blankLayer === true
+            || !Array.isArray(layer.nodes)
+            || layer.nodes.length === 0;
+        if (isBlankDraft) {
+            const mapping = getLayerCanvasMapping(canvas, layer);
+            const nx = mapping.spanX > 0 ? (startWorldPoint.x - mapping.offsetX) / mapping.spanX : 0.5;
+            const ny = mapping.spanY > 0 ? (startWorldPoint.y - mapping.offsetY) / mapping.spanY : 0.5;
+            const safeX = Math.max(0, Math.min(1, nx));
+            const safeY = Math.max(0, Math.min(1, ny));
+            draftBackupRef.current = JSON.parse(JSON.stringify(layers[layerIndex] || null));
+            draftPathRef.current = { layerIndex };
+            draftMoveRef.current = false;
+            ensureInteractionFreezeTime();
+            updateSingleLayer(layerIndex, (currentLayer) => ({
+                ...currentLayer,
+                shapeDeleted: false,
+                blankLayer: false,
+                pathMode: 'open',
+                pathClosed: false,
+                position: {
+                    ...(currentLayer?.position || {}),
+                    x: safeX,
+                    y: safeY,
+                    scale: currentLayer?.position?.scale ?? 1,
+                },
+                xOffset: 0,
+                yOffset: 0,
+                nodes: [{ x: 0, y: 0 }],
+                numSides: 1,
+                syncNodesToNumSides: false,
+                movementStyle: 'still',
+                movementSpeed: 0,
+                vx: 0,
+                vy: 0,
+            }));
+            return;
+        }
         const localPoint = worldPointToLocalNode(startWorldPoint, geometry);
         draftBackupRef.current = JSON.parse(JSON.stringify(layers[layerIndex] || null));
         draftPathRef.current = { layerIndex };
@@ -3176,6 +3299,8 @@ const Canvas = forwardRef(({
         ensureInteractionFreezeTime();
         updateSingleLayer(layerIndex, (currentLayer) => ({
             ...currentLayer,
+            shapeDeleted: false,
+            blankLayer: false,
             pathMode: 'open',
             pathClosed: false,
             numSides: 2,
@@ -3198,6 +3323,8 @@ const Canvas = forwardRef(({
             nodes.push({ ...localPoint });
             return {
                 ...currentLayer,
+                shapeDeleted: false,
+                blankLayer: false,
                 pathMode: 'open',
                 pathClosed: false,
                 nodes,
@@ -3350,6 +3477,24 @@ const Canvas = forwardRef(({
             return;
         }
 
+        const isBlankLayerDraftStart = e.shiftKey
+            && !e.metaKey
+            && !e.ctrlKey
+            && !draftPathRef.current
+            && (
+                isLayerContentDeleted(layer)
+                || layer?.blankLayer === true
+                || (Array.isArray(layer.nodes) && layer.nodes.length === 0)
+            );
+        if (isBlankLayerDraftStart) {
+            e.preventDefault();
+            clearSelectedCenterHandle();
+            beginDraftPath(layerIndex, pos);
+            draggingKindRef.current = null;
+            gestureRef.current = null;
+            return;
+        }
+
         // Orbit center handle can be dragged regardless of node presence
         {
             const ocxNorm = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
@@ -3358,6 +3503,7 @@ const Canvas = forwardRef(({
             const oy = artOffsetY + ocyNorm * spanY + offsetYPx + wrapOy;
             const dx = ox - pos.x; const dy = oy - pos.y;
             if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
+                clearSelectedCenterHandle();
                 draggingOrbitCenterRef.current = true;
                 draggingNodeIndexRef.current = null;
                 draggingMidIndexRef.current = null;
@@ -3416,6 +3562,7 @@ const Canvas = forwardRef(({
             });
         }
         if (idx !== -1) {
+            clearSelectedCenterHandle();
             draggingNodeIndexRef.current = idx;
             draggingMidIndexRef.current = null;
             draggingCenterRef.current = false;
@@ -3448,6 +3595,7 @@ const Canvas = forwardRef(({
             }
         }
         if (midIdx !== -1) {
+            clearSelectedCenterHandle();
             draggingMidIndexRef.current = midIdx;
             draggingNodeIndexRef.current = null;
             draggingCenterRef.current = false;
@@ -3488,6 +3636,7 @@ const Canvas = forwardRef(({
             }
             const dx = cx - pos.x; const dy = cy - pos.y;
             if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+                selectCenterHandle(layerIndex, layerId);
                 if (e.ctrlKey) {
                     draggingRotateRef.current = true;
                     draggingKindRef.current = 'rotate';
@@ -3552,6 +3701,7 @@ const Canvas = forwardRef(({
         }
 
         const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
+        clearSelectedCenterHandle();
         if (bendLatch || capsActive) {
             const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
             const targetIndexes = [];
