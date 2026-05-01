@@ -34,6 +34,8 @@ export default function GroupsControls() {
     setParameterTargetMode,
     // actions
     createGroup,
+    renameGroup,
+    setGroupColor,
     addMembersToGroup,
     removeMembersFromGroup,
     deleteGroup,
@@ -44,12 +46,36 @@ export default function GroupsControls() {
 
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState('#7c84ff');
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('#7c84ff');
   const [memberText, setMemberText] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState(editTarget?.type === 'group' ? editTarget.groupId : null);
 
   const layerIndexToId = useMemo(() => (Array.isArray(layers) ? layers.map(l => l?.id).filter(Boolean) : []), [layers]);
 
   const currentGroup = useMemo(() => (Array.isArray(layerGroups) ? layerGroups.find(g => g.id === selectedGroupId) : null), [layerGroups, selectedGroupId]);
+
+  useEffect(() => {
+    if (editTarget?.type === 'group' && editTarget.groupId) {
+      setSelectedGroupId(editTarget.groupId);
+      return;
+    }
+    setSelectedGroupId(prev => (
+      prev && Array.isArray(layerGroups) && layerGroups.some(group => group.id === prev)
+        ? prev
+        : null
+    ));
+  }, [editTarget, layerGroups]);
+
+  useEffect(() => {
+    if (!currentGroup) {
+      setEditName('');
+      setEditColor('#7c84ff');
+      return;
+    }
+    setEditName(currentGroup.name || 'Group');
+    setEditColor(currentGroup.color || '#7c84ff');
+  }, [currentGroup]);
 
   const selectIdsExactly = (ids = []) => {
     if (!toggleLayerSelection) return;
@@ -108,6 +134,17 @@ export default function GroupsControls() {
     selectIdsExactly(currentGroup.memberIds);
   };
 
+  const handleRenameCurrentGroup = () => {
+    if (!currentGroup || !renameGroup) return;
+    renameGroup(currentGroup.id, editName.trim() || 'Group');
+  };
+
+  const handleColorCurrentGroup = (color) => {
+    setEditColor(color);
+    if (!currentGroup || !setGroupColor) return;
+    setGroupColor(currentGroup.id, color);
+  };
+
   return (
     <div className="control-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -138,7 +175,15 @@ export default function GroupsControls() {
             ))}
           </div>
           {currentGroup && (
-            <button className="btn-compact-secondary" onClick={() => deleteGroup && deleteGroup(currentGroup.id)}>Delete</button>
+            <button
+              className="btn-compact-secondary"
+              onClick={() => {
+                deleteGroup && deleteGroup(currentGroup.id);
+                setSelectedGroupId(null);
+              }}
+            >
+              Delete
+            </button>
           )}
           {currentGroup && (
             <button className="btn-compact-secondary" onClick={selectMembers}>Select members</button>
@@ -147,7 +192,7 @@ export default function GroupsControls() {
         </div>
       </div>
 
-      {/* Create / Rename */}
+      {/* Create */}
       <div className="dc-inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
         <input className="compact-input" placeholder="Group name" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <input title="Color" type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} style={{ width: 44, height: 28 }} />
@@ -156,6 +201,31 @@ export default function GroupsControls() {
           <button className="btn-compact-secondary" onClick={handleCreateEmpty} title="Create empty group">Create Empty</button>
         </div>
       </div>
+
+      {currentGroup && (
+        <div className="dc-inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
+          <input
+            className="compact-input"
+            placeholder="Rename selected group"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={handleRenameCurrentGroup}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          <input
+            title="Group color"
+            type="color"
+            value={editColor}
+            onChange={(e) => handleColorCurrentGroup(e.target.value)}
+            style={{ width: 44, height: 28 }}
+          />
+          <button className="btn-compact-secondary" onClick={handleRenameCurrentGroup}>Rename</button>
+        </div>
+      )}
 
       {/* Members from Text */}
       <div className="dc-inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>

@@ -30,6 +30,35 @@ const buildDefaultPresetSlots = () => (
   }))
 );
 
+const pruneLayerScopedState = (state, layers) => {
+  const liveIds = new Set((Array.isArray(layers) ? layers : []).map(layer => layer?.id).filter(Boolean));
+  const selectedLayerIds = Array.isArray(state?.selectedLayerIds)
+    ? state.selectedLayerIds.filter(id => liveIds.has(id))
+    : [];
+  const layerGroups = Array.isArray(state?.layerGroups)
+    ? state.layerGroups.map(group => ({
+      ...group,
+      memberIds: Array.from(new Set(
+        (Array.isArray(group?.memberIds) ? group.memberIds : []).filter(id => liveIds.has(id))
+      )),
+    }))
+    : [];
+
+  let editTarget = state?.editTarget || { type: 'single' };
+  if (editTarget?.type === 'selection' && selectedLayerIds.length === 0) {
+    editTarget = { type: 'single' };
+  } else if (editTarget?.type === 'group' && !layerGroups.some(group => group.id === editTarget.groupId)) {
+    editTarget = { type: 'single' };
+  }
+
+  return {
+    ...state,
+    selectedLayerIds,
+    layerGroups,
+    editTarget,
+  };
+};
+
 // Create the provider component
 export const AppStateProvider = ({ children }) => {
   // Simple unique id generator for layers
@@ -542,7 +571,7 @@ export const AppStateProvider = ({ children }) => {
         return prev;
       }
 
-      return { ...prev, layers: nextLayers };
+      return pruneLayerScopedState({ ...prev, layers: nextLayers }, nextLayers);
     });
     markDirty();
   }, [assignIds, markDirty]);
@@ -789,7 +818,11 @@ export const AppStateProvider = ({ children }) => {
         const normalizedPaletteRef = (typeof newState.globalPaletteRef === 'string' && newState.globalPaletteRef.trim().length > 0)
           ? newState.globalPaletteRef.trim()
           : null;
-        setAppState(prevState => ({
+        setAppState(prevState => {
+          const normalizedLayers = Array.isArray(newState.layers) && newState.layers.length > 0
+            ? newState.layers.map(normalizeLayer)
+            : prevState.layers.map(normalizeLayer);
+          return pruneLayerScopedState({
           ...prevState,
           ...newState,
           audioSpawnMicReactive: typeof newState.audioSpawnMicReactive === 'boolean'
@@ -831,10 +864,9 @@ export const AppStateProvider = ({ children }) => {
             ...(newState.backgroundImage || {})
           },
           // Ensure layers have proper structure
-          layers: Array.isArray(newState.layers) && newState.layers.length > 0
-            ? newState.layers.map(normalizeLayer)
-            : prevState.layers.map(normalizeLayer)
-        }));
+          layers: normalizedLayers
+        }, normalizedLayers);
+        });
       });
       setIsDirty(false);
       setLastSavedAt(Date.now());
@@ -860,7 +892,11 @@ export const AppStateProvider = ({ children }) => {
   // Groups CRUD
   const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
     const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;
-    setAppState(prev => ({ ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: [...new Set(memberIds)] }] }));
+    setAppState(prev => {
+      const liveIds = new Set((prev.layers || []).map(layer => layer?.id).filter(Boolean));
+      const validMemberIds = Array.from(new Set((memberIds || []).filter(memberId => liveIds.has(memberId))));
+      return { ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: validMemberIds }] };
+    });
     markDirty();
     return id;
   }, [markDirty]);
@@ -875,7 +911,12 @@ export const AppStateProvider = ({ children }) => {
   const addMembersToGroup = useCallback((groupId, ids = []) => {
     setAppState(prev => ({
       ...prev,
-      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: Array.from(new Set([...(g.memberIds || []), ...ids])) } : g)
+      layerGroups: (prev.layerGroups || []).map(g => {
+        if (g.id !== groupId) return g;
+        const liveIds = new Set((prev.layers || []).map(layer => layer?.id).filter(Boolean));
+        const nextIds = Array.from(new Set([...(g.memberIds || []), ...ids])).filter(id => liveIds.has(id));
+        return { ...g, memberIds: nextIds };
+      })
     }));
     markDirty();
   }, [markDirty]);
@@ -888,7 +929,13 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
   const deleteGroup = useCallback((groupId) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId) }));
+    setAppState(prev => ({
+      ...prev,
+      layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId),
+      editTarget: prev.editTarget?.type === 'group' && prev.editTarget.groupId === groupId
+        ? { type: 'single' }
+        : prev.editTarget,
+    }));
     markDirty();
   }, [markDirty]);
 
