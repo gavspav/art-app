@@ -45,7 +45,7 @@
   --z-panel: 100;
   --z-sidebar: 200;
   --z-divider: 250;
-  --z-fab: 500;
+  --z-fab: 1000;
   --z-modal: 1200;
 }
 
@@ -129,7 +129,7 @@ canvas {
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.34);
-  opacity: 0.22;
+  opacity: 0.88;
   transition: opacity 0.18s ease, transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -142,7 +142,7 @@ canvas {
 }
 
 .floating-actions--fullscreen {
-  opacity: 0.28;
+  opacity: 0.88;
 }
 
 .fab-divider {
