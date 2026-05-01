@@ -54,6 +54,17 @@ export default function GroupsControls() {
   const layerIndexToId = useMemo(() => (Array.isArray(layers) ? layers.map(l => l?.id).filter(Boolean) : []), [layers]);
 
   const currentGroup = useMemo(() => (Array.isArray(layerGroups) ? layerGroups.find(g => g.id === selectedGroupId) : null), [layerGroups, selectedGroupId]);
+  const selectedLayerSet = useMemo(() => new Set(Array.isArray(selectedLayerIds) ? selectedLayerIds : []), [selectedLayerIds]);
+  const currentMemberSet = useMemo(() => new Set(Array.isArray(currentGroup?.memberIds) ? currentGroup.memberIds : []), [currentGroup]);
+  const layerRows = useMemo(() => (
+    Array.isArray(layers)
+      ? layers.map((layer, index) => ({
+        id: layer?.id,
+        index,
+        name: layer?.name || `Layer ${index + 1}`,
+      })).filter(layer => layer.id)
+      : []
+  ), [layers]);
 
   useEffect(() => {
     if (editTarget?.type === 'group' && editTarget.groupId) {
@@ -134,6 +145,15 @@ export default function GroupsControls() {
     selectIdsExactly(currentGroup.memberIds);
   };
 
+  const toggleMember = (layerId) => {
+    if (!currentGroup || !layerId) return;
+    if (currentMemberSet.has(layerId)) {
+      removeMembersFromGroup && removeMembersFromGroup(currentGroup.id, [layerId]);
+    } else {
+      addMembersToGroup && addMembersToGroup(currentGroup.id, [layerId]);
+    }
+  };
+
   const handleRenameCurrentGroup = () => {
     if (!currentGroup || !renameGroup) return;
     renameGroup(currentGroup.id, editName.trim() || 'Group');
@@ -154,10 +174,25 @@ export default function GroupsControls() {
 
       {/* Group List */}
       <div className="dc-inner" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ opacity: 0.8 }}>Groups</span>
-          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-            {(layerGroups || []).map(g => (
+          {currentGroup && (
+            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                className="btn-compact-secondary"
+                onClick={() => {
+                  deleteGroup && deleteGroup(currentGroup.id);
+                  setSelectedGroupId(null);
+                }}
+              >
+                Delete
+              </button>
+              <button className="btn-compact-secondary" onClick={selectMembers}>Select members</button>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem' }}>
+            {(layerGroups || []).length > 0 ? (layerGroups || []).map(g => (
               <button
                 key={g.id}
                 className={`btn-compact-secondary ${selectedGroupId === g.id ? 'active' : ''}`}
@@ -167,28 +202,20 @@ export default function GroupsControls() {
                   setEditTarget && setEditTarget({ type: 'group', groupId: g.id });
                 }}
                 title={`${g.name || 'Group'} • ${g.memberIds?.length || 0} layers`}
-                style={{ borderColor: g.color || '#7c84ff' }}
+                style={{
+                  borderColor: selectedGroupId === g.id ? (g.color || '#7c84ff') : 'rgba(255,255,255,0.16)',
+                  justifyContent: 'flex-start',
+                  height: 'auto',
+                  minHeight: 36,
+                  padding: '0.35rem 0.5rem',
+                }}
               >
                 <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 999, background: g.color || '#7c84ff', marginRight: 6 }} />
                 {g.name || 'Group'} ({g.memberIds?.length || 0})
               </button>
-            ))}
-          </div>
-          {currentGroup && (
-            <button
-              className="btn-compact-secondary"
-              onClick={() => {
-                deleteGroup && deleteGroup(currentGroup.id);
-                setSelectedGroupId(null);
-              }}
-            >
-              Delete
-            </button>
-          )}
-          {currentGroup && (
-            <button className="btn-compact-secondary" onClick={selectMembers}>Select members</button>
-          )}
-          <div />
+            )) : (
+              <span style={{ color: 'rgba(255,255,255,0.58)', fontSize: '0.86rem' }}>No groups yet</span>
+            )}
         </div>
       </div>
 
@@ -197,7 +224,14 @@ export default function GroupsControls() {
         <input className="compact-input" placeholder="Group name" value={newName} onChange={(e) => setNewName(e.target.value)} />
         <input title="Color" type="color" value={newColor} onChange={(e) => setNewColor(e.target.value)} style={{ width: 44, height: 28 }} />
         <div style={{ display: 'flex', gap: '0.4rem' }}>
-          <button className="btn-compact-secondary" onClick={handleCreateFromSelection} title="Create from current selection">Create from Selection</button>
+          <button
+            className="btn-compact-secondary"
+            onClick={handleCreateFromSelection}
+            title="Create from current selection"
+            disabled={selectedLayerSet.size === 0}
+          >
+            Create from Selection
+          </button>
           <button className="btn-compact-secondary" onClick={handleCreateEmpty} title="Create empty group">Create Empty</button>
         </div>
       </div>
@@ -227,6 +261,61 @@ export default function GroupsControls() {
         </div>
       )}
 
+      {currentGroup && (
+        <div className="dc-inner" style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+          <div className="dc-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+            <strong>Members</strong>
+            <span style={{ opacity: 0.72, fontSize: '0.82rem' }}>{currentMemberSet.size} selected</span>
+          </div>
+          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+            {Array.from(currentMemberSet).map(memberId => {
+              const row = layerRows.find(layer => layer.id === memberId);
+              return (
+                <button
+                  key={memberId}
+                  type="button"
+                  className="btn-compact-secondary"
+                  onClick={() => toggleMember(memberId)}
+                  title="Remove from group"
+                  style={{ height: 24, padding: '0 0.45rem', fontSize: '0.78rem' }}
+                >
+                  {row ? `${row.index + 1}. ${row.name}` : 'Missing layer'} x
+                </button>
+              );
+            })}
+            {currentMemberSet.size === 0 && (
+              <span style={{ color: 'rgba(255,255,255,0.58)', fontSize: '0.86rem' }}>No members in this group</span>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.35rem' }}>
+            {layerRows.map(layer => (
+              <label
+                key={layer.id}
+                className="compact-label"
+                title={layer.name}
+                style={{
+                  padding: '0.35rem 0.45rem',
+                  border: `1px solid ${currentMemberSet.has(layer.id) ? (currentGroup.color || '#7c84ff') : 'rgba(255,255,255,0.12)'}`,
+                  borderRadius: 6,
+                  background: currentMemberSet.has(layer.id) ? 'rgba(124,132,255,0.14)' : 'rgba(255,255,255,0.035)',
+                  minWidth: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={currentMemberSet.has(layer.id)}
+                  onChange={() => toggleMember(layer.id)}
+                />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {layer.index + 1}. {layer.name}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Members from Text */}
       <div className="dc-inner" style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
         <input className="compact-input" placeholder="Members (e.g., 1,3,5-7)" value={memberText} onChange={(e) => setMemberText(e.target.value)} />
@@ -235,13 +324,13 @@ export default function GroupsControls() {
       </div>
 
       <div className="compact-row" style={{ opacity: 0.8 }}>
-        <span>Tip: Shift+Click on the canvas to build a selection. The Layer tab dropdown lets you target that selection or a group for parameter edits.</span>
+        <span>Shift-click canvas shapes to build a selection. Select a group here or in the Layer tab to batch-edit its members.</span>
       </div>
 
       {/* Target Mode Selector for Group Parameter Changes */}
       <div className="dc-inner" style={{ marginTop: '0.75rem' }}>
         <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
-          <strong>Parameter Target Mode</strong>
+          <strong>App Parameter Scope</strong>
         </div>
         <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
@@ -266,8 +355,8 @@ export default function GroupsControls() {
           </label>
         </div>
         <div style={{ fontSize: '0.85rem', opacity: 0.75, marginTop: '0.5rem' }}>
-          <strong>Individual:</strong> Changes apply only to the selected group/selection.<br />
-          <strong>Global:</strong> Changes apply to all layers.
+          <strong>Individual:</strong> controls edit the active layer, selection, or group.<br />
+          <strong>Global:</strong> controls edit every layer.
         </div>
       </div>
     </div>

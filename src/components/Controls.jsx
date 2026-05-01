@@ -1616,6 +1616,22 @@ const Controls = forwardRef(({
     return `layer:${idx}`;
   }, [editTarget, layerGroups, selectionCount, selectedLayerIndex]);
 
+  const activeTargetBadge = useMemo(() => {
+    if (editTarget?.type === 'group' && editTarget.groupId) {
+      const group = layerGroups.find(g => g.id === editTarget.groupId);
+      if (group) {
+        return {
+          color: group.color || '#7c84ff',
+          label: `Editing group: ${group.name || 'Group'} (${Array.isArray(group.memberIds) ? group.memberIds.length : 0})`,
+        };
+      }
+    }
+    if (editTarget?.type === 'selection' && selectionCount > 0) {
+      return { color: '#4fc3f7', label: `Editing selection (${selectionCount})` };
+    }
+    return null;
+  }, [editTarget, layerGroups, selectionCount]);
+
   const { buildTargetSet, applyTargetedUpdate } = useLayerTargeting({
     currentLayer,
     layerIds,
@@ -1975,6 +1991,28 @@ const Controls = forwardRef(({
                 handleTargetSelect({ target: { value } });
               }}
             />
+            {activeTargetBadge && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  alignSelf: 'flex-start',
+                  maxWidth: '100%',
+                  padding: '0.25rem 0.45rem',
+                  border: `1px solid ${activeTargetBadge.color}`,
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.045)',
+                  color: '#f3f3f3',
+                  fontSize: '0.82rem',
+                  lineHeight: 1.2,
+                }}
+                title={activeTargetBadge.label}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: activeTargetBadge.color, flex: '0 0 auto' }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTargetBadge.label}</span>
+              </div>
+            )}
           </div>
           <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
