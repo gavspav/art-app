@@ -23,6 +23,8 @@ import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import { useAutosave } from './hooks/useAutosave.js';
+import { useTimelineModeAutomationGate } from './hooks/useTimelineModeAutomationGate.js';
+import { useSceneSnapshots } from './hooks/useSceneSnapshots.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
@@ -654,66 +656,17 @@ const MainApp = () => {
 	  });
 
   // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
-  useEffect(() => {
-    if (typeof setTimelineVisible !== 'function') return;
-    setTimelineVisible(!!timelineMode);
-  }, [timelineMode, setTimelineVisible]);
-
   // When Timeline mode is active, disable competing automation sources (BPM + Audio),
   // and restore previous runtime state when switching back to Free mode.
-  const automationRestoreRef = useRef({ audioEnabled: null, bpmWasPlaying: null });
-  const lastTimelineModeRef = useRef(false);
-  useEffect(() => {
-    const was = lastTimelineModeRef.current;
-    const now = !!timelineMode;
-    if (was === now) return;
-    lastTimelineModeRef.current = now;
-
-    if (now) {
-      automationRestoreRef.current = {
-        audioEnabled: !!audioReactive?.settings?.enabled,
-        bpmWasPlaying: !!bpmForAnimation?.isPlaying,
-      };
-
-      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
-      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
-      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
-      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
-
-      try { modulationStore?.clearAllMods?.('bpm'); } catch { /* noop */ }
-      try { modulationStore?.clearAllMods?.('audio'); } catch { /* noop */ }
-      return;
-    }
-
-    // Restoring Free mode
-    const { audioEnabled, bpmWasPlaying } = automationRestoreRef.current || {};
-    if (audioEnabled) {
-      try { audioReactive?.setAudioEnabled?.(true); } catch { /* noop */ }
-    }
-    if (bpmWasPlaying) {
-      try { bpmForAnimation?.play?.(); } catch { /* noop */ }
-    }
-  }, [timelineMode, audioReactive, bpmForAnimation, modulationStore]);
-
   // Enforce "Timeline mode disables BPM + Audio" even if the user toggles them on.
-  useEffect(() => {
-    if (!timelineMode) return;
-    if (bpmForAnimation?.isPlaying) {
-      try { bpmForAnimation?.pause?.(); } catch { /* noop */ }
-    }
-    if (audioReactive?.settings?.enabled) {
-      try { audioReactive?.setAudioEnabled?.(false); } catch { /* noop */ }
-      try { audioReactive?.stopAudio?.(); } catch { /* noop */ }
-      try { audioReactive?.stopFilePlayback?.(); } catch { /* noop */ }
-    }
-  }, [timelineMode, bpmForAnimation?.isPlaying, audioReactive?.settings?.enabled, audioReactive, bpmForAnimation]);
-
   // When audio is disabled in Free mode, clear audio mod state so layers don't keep stale values.
-  useEffect(() => {
-    if (timelineMode) return;
-    if (audioReactive?.settings?.enabled) return;
-    try { modulationStore?.clearAllMods?.('audio'); } catch { /* noop */ }
-  }, [timelineMode, audioReactive?.settings?.enabled, modulationStore]);
+  useTimelineModeAutomationGate({
+    timelineMode,
+    setTimelineVisible,
+    audioReactive,
+    bpmForAnimation,
+    modulationStore,
+  });
 
   // When timeline playback starts from t=0 and a timeline start preset exists,
   // recall that preset app state before timeline automation is applied.
@@ -860,29 +813,6 @@ const MainApp = () => {
 
   // No local popovers; inline checkboxes next to controls
 
-  // Keep frequently-changing data in refs so handlers stay stable
-  const parametersRef = useRef(parameters);
-  const midiMappingsRef = useRef(midiMappings);
-  useEffect(() => { parametersRef.current = parameters; }, [parameters]);
-  useEffect(() => { midiMappingsRef.current = midiMappings; }, [midiMappings]);
-
-  // Download helper for exporting JSON
-  const downloadJson = useCallback((filename, obj) => {
-    try {
-      const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      console.warn('Failed to export JSON', e);
-    }
-  }, []);
-
   // Clamps selection and expose currentLayer for Controls.
   // Controls should edit persisted layer state, not the throttled animated UI snapshot,
   // otherwise booleans like visibility can appear to snap back.
@@ -923,104 +853,39 @@ const MainApp = () => {
     (Array.isArray(uiLayers) ? uiLayers : []).map((l, i) => l?.name || `Layer ${i + 1}`)
   ), [uiLayers]);
 
-  const getExportMeta = useCallback(() => {
-    const handle = canvasRef.current;
-    const canvasEl = handle?.canvas || handle || null;
-    const globalMeta = (typeof window !== 'undefined' && window.__artapp_canvasMeta) || {};
-    let width = canvasEl?.width ?? globalMeta.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
-    let height = canvasEl?.height ?? globalMeta.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0);
-    width = Math.round(Number(width) || 0);
-    height = Math.round(Number(height) || 0);
-    return {
-      version: '2.0',
-      canvasWidth: width,
-      canvasHeight: height,
-      exportedAt: new Date().toISOString(),
-    };
-  }, []);
-
-  // Wrap getCurrentAppState to persist includeRnd checkboxes alongside app state
-  const getFullAppState = useCallback(() => {
-    const base = typeof getCurrentAppState === 'function' ? getCurrentAppState() : {};
-    return { ...base, includeRnd };
-  }, [getCurrentAppState, includeRnd]);
-
-  const getCurrentAppStateRef = useRef(getFullAppState);
-  useEffect(() => { getCurrentAppStateRef.current = getFullAppState; }, [getFullAppState]);
-
-  const handleQuickSave = useCallback(() => {
-    const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
-    if (!baseName) return;
-    const includeState = window.confirm('Include app state (layers, background, animation)?');
-    const exportMeta = getExportMeta();
-    const payload = {
-      parameters: parametersRef.current,
-      appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
-      customPalettes: Array.isArray(customPalettes) ? customPalettes : [],
-      midiMappings: midiMappingsRef.current || {},
-      audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
-      bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
-      timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
-      savedAt: new Date().toISOString(),
-      version: '2.2',
-      exportMeta,
-    };
-    downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, customPalettes]);
-
-  const handleRamPresetSave = useCallback(() => {
-    if (typeof setQuickPresetSnapshot !== 'function') return;
-    try {
-      const snapshot = {
-        parameters: Array.isArray(parameters) ? parameters : [],
-        appState: typeof getFullAppState === 'function' ? getFullAppState() : null,
-        audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
-        bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
-        timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
-        exportMeta: getExportMeta(),
-        savedAt: new Date().toISOString(),
-      };
-      setQuickPresetSnapshot(snapshot);
-    } catch (error) {
-      console.warn('[RAM Preset] Failed to capture snapshot', error);
-    }
-  }, [getFullAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
-
-  const handleRamPresetRecall = useCallback(() => {
-    if (!quickPreset) {
-      console.info('[RAM Preset] No snapshot stored yet');
-      return;
-    }
-    try {
-      if (Array.isArray(quickPreset.parameters) && typeof applyParametersSnapshot === 'function') {
-        applyParametersSnapshot(quickPreset.parameters);
-      }
-      if (quickPreset.appState && typeof loadAppState === 'function') {
-        loadAppState(quickPreset.appState);
-        // Restore randomization include checkboxes
-        if (quickPreset.appState.includeRnd && typeof quickPreset.appState.includeRnd === 'object') {
-          setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...quickPreset.appState.includeRnd });
-        }
-      }
-      if (quickPreset.exportMeta && typeof window !== 'undefined') {
-        window.__artapp_lastImportMeta = quickPreset.exportMeta;
-      }
-      // Apply audio config if present
-      if (quickPreset.audioConfig && applyAudioSnapshot) {
-        applyAudioSnapshot(quickPreset.audioConfig);
-      }
-      // Apply BPM config if present
-      if (quickPreset.bpmConfig && applyBPMSnapshot) {
-        applyBPMSnapshot(quickPreset.bpmConfig);
-      }
-      // Apply Timeline config if present
-      if (quickPreset.timelineConfig && applyTimelineSnapshot) {
-        applyTimelineSnapshot(quickPreset.timelineConfig);
-      }
-    } catch (error) {
-      console.warn('[RAM Preset] Failed to recall snapshot', error);
-    }
-  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot]);
+  const {
+    getFullAppState,
+    handleQuickSave,
+    handleQuickLoad,
+    handleImportFile,
+    handleRamPresetSave,
+    handleRamPresetRecall,
+  } = useSceneSnapshots({
+    canvasRef,
+    configFileInputRef,
+    parameters,
+    getCurrentAppState,
+    includeRnd,
+    setIncludeRnd,
+    defaultIncludeRnd: DEFAULT_INCLUDE_RND,
+    customPalettes,
+    midiMappings,
+    getAudioSnapshot,
+    applyAudioSnapshot,
+    getBPMSnapshot,
+    applyBPMSnapshot,
+    getTimelineSnapshot,
+    applyTimelineSnapshot,
+    quickPreset,
+    setQuickPresetSnapshot,
+    applyParametersSnapshot,
+    loadAppState,
+    getSavedConfigList,
+    loadFullConfiguration,
+    loadParameters,
+    setMappingsFromExternal,
+    mergeCustomPaletteList,
+  });
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
   const distributeColorsAcrossLayers = (colors = [], layerCount = 0) => {
@@ -1109,115 +974,6 @@ const MainApp = () => {
     }),
     [getParamConfig, isParamRandomizable, palettesWithCustom, randomizeColorsPerLayer, uniformColorCount],
   );
-
-  const handleImportFile = useCallback(async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      if (data?.customPalettes) {
-        mergeCustomPaletteList(data.customPalettes);
-      }
-      // Apply MIDI mappings immediately if present
-      try {
-        if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
-      } catch { /* noop */ }
-
-      // Apply audio config if present
-      try {
-        if (data && data.audioConfig && applyAudioSnapshot) applyAudioSnapshot(data.audioConfig);
-      } catch { /* noop */ }
-
-      // Apply BPM config if present
-      try {
-        if (data && data.bpmConfig && applyBPMSnapshot) applyBPMSnapshot(data.bpmConfig);
-      } catch { /* noop */ }
-
-      // Apply Timeline config if present
-      try {
-        if (data && data.timelineConfig && applyTimelineSnapshot) applyTimelineSnapshot(data.timelineConfig);
-      } catch { /* noop */ }
-
-      // Build a unique name for this import
-      const base = file.name.replace(/\.json$/i, '') || 'imported';
-      const existing = new Set(getSavedConfigList());
-      let name = base;
-      let i = 1;
-      while (existing.has(name)) { name = `${base}-${i++}`; }
-
-      // Try to persist to localStorage, but treat quota errors as non-fatal
-      let persistedName = null;
-      try {
-        const key = `artapp-config-${name}`;
-        localStorage.setItem(key, JSON.stringify(data));
-        const list = getSavedConfigList();
-        if (!list.includes(name)) {
-          localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
-        }
-        persistedName = name;
-      } catch (storageError) {
-        // QuotaExceededError or similar: log and continue without saving to localStorage
-        console.warn('[Import] Failed to persist config to localStorage; proceeding without saving', storageError);
-      }
-
-      const loadState = window.confirm('Load app state if available?');
-      let res = null;
-
-      if (persistedName) {
-        // Normal path: use existing loaders
-        res = loadState ? loadFullConfiguration(persistedName) : loadParameters(persistedName);
-        if (res?.success && loadState && res.appState && typeof loadAppState === 'function') {
-          loadAppState(res.appState);
-          // Restore randomization include checkboxes
-          if (res.appState.includeRnd && typeof res.appState.includeRnd === 'object') {
-            setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...res.appState.includeRnd });
-          }
-        }
-      } else {
-        // Fallback path: apply directly from the imported JSON without persisting
-        if (loadState) {
-          if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
-            try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
-          }
-          if (data?.appState && typeof loadAppState === 'function') {
-            try { loadAppState(data.appState); } catch { /* noop */ }
-          }
-        } else if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
-          try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
-        }
-
-        // Synthesize minimal result object so exportMeta can still be propagated
-        res = { success: true, exportMeta: data?.exportMeta, appState: data?.appState };
-      }
-
-      // Restore randomization include checkboxes from loaded state
-      const loadedAppState = res?.appState || data?.appState;
-      if (loadState && loadedAppState?.includeRnd && typeof loadedAppState.includeRnd === 'object') {
-        setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...loadedAppState.includeRnd });
-      }
-
-      if (res?.exportMeta && typeof window !== 'undefined') {
-        window.__artapp_lastImportMeta = res.exportMeta;
-      }
-
-      if (persistedName) {
-        alert(`Imported '${persistedName}'`);
-      } else {
-        alert('Imported (local save skipped: storage is full)');
-      }
-    } catch (err) {
-      console.warn('Failed to import JSON', err);
-      alert('Failed to import JSON');
-    } finally {
-      // reset input to allow re-selecting the same file later
-      e.target.value = '';
-    }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, mergeCustomPaletteList]);
-
-  const handleQuickLoad = useCallback(() => {
-    configFileInputRef.current?.click();
-  }, []);
 
   // --- SVG Import: create a new layer from an SVG file ---
   const handleImportSVGClick = useCallback(() => {
