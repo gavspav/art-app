@@ -280,9 +280,25 @@ export const MidiProvider = ({ children }) => {
   }, [access, selectedInputId, onMidiMessage]);
 
   const beginLearn = useCallback((paramId) => {
-    if (!selectedInputId) return;
-    setLearnParamId(paramId || null);
-  }, [selectedInputId]);
+    if (!paramId) {
+      setLearnParamId(null);
+      return false;
+    }
+
+    const inputList = Array.isArray(inputs) ? inputs : [];
+    const selectedExists = !!selectedInputId && inputList.some(input => input?.id === selectedInputId);
+    const nextInputId = selectedExists
+      ? selectedInputId
+      : (inputList.find(input => input?.id)?.id || '');
+
+    if (!nextInputId) return false;
+    if (nextInputId !== selectedInputId) {
+      setSelectedInputId(nextInputId);
+    }
+
+    setLearnParamId(paramId);
+    return true;
+  }, [inputs, selectedInputId]);
 
   const value = useMemo(() => ({
     supported,

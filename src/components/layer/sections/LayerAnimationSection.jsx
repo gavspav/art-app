@@ -1,6 +1,8 @@
 import React from 'react';
 import ControlSectionCard from '../../controls/common/ControlSectionCard.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
+import { useMidi } from '../../../context/MidiContext.jsx';
+import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
 
 export default function LayerAnimationSection({
   currentLayer,
@@ -17,19 +19,51 @@ export default function LayerAnimationSection({
   handleOrbitRadiusChange,
 }) {
   const DynamicControl = _DynamicControl;
+  const {
+    supported: midiSupported,
+    mappings: midiMappings,
+    registerParamHandler,
+    beginLearn,
+    clearMapping,
+    learnParamId,
+  } = useMidi() || {};
+  const midiRandomizeId = buildMidiRandomizeId('layerAnimation');
+  useMidiTrigger(registerParamHandler, midiRandomizeId, () => randomizeAnimationOnly && randomizeAnimationOnly());
+  const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
+
   return (
     <div className="tab-section">
       <ControlSectionCard
         actions={(
-          <button
-            type="button"
-            className="icon-btn sm"
-            title="Randomize animation for selected layer"
-            aria-label="Randomize animation for selected layer"
-            onClick={() => randomizeAnimationOnly && randomizeAnimationOnly()}
-          >
-            🎲
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
+            <button
+              type="button"
+              className="icon-btn sm"
+              title={midiSupported ? 'Randomize animation for selected layer. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize animation for selected layer'}
+              aria-label="Randomize animation for selected layer"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (e.altKey) {
+                  clearMapping && clearMapping(midiRandomizeId);
+                  return;
+                }
+                if (e.shiftKey) {
+                  beginLearn && beginLearn(midiRandomizeId);
+                  return;
+                }
+                randomizeAnimationOnly && randomizeAnimationOnly();
+              }}
+            >
+              🎲
+            </button>
+            {midiSupported && (
+              <>
+                <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeId); }}>Learn</button>
+                <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeId); }} disabled={!midiRandomizeMapped}>Clear</button>
+              </>
+            )}
+          </div>
         )}
       >
         <div style={{ marginTop: '0.5rem' }}>

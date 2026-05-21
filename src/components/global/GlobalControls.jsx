@@ -17,6 +17,7 @@ import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/s
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 import RangeSlider from '../common/RangeSlider.jsx';
+import { buildMidiRandomizeId, useMidiTriggers } from '../../hooks/useMidiTrigger.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -35,6 +36,19 @@ const VARIATION_SCALE_SLIDER_MAX = 5;
 const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
+const GLOBAL_RANDOMIZE_MIDI_PARAMS = [
+  'backgroundColor',
+  'globalSpeedMultiplier',
+  'globalPaletteIndex',
+  'globalBlendMode',
+  'globalOpacity',
+  'layersCount',
+  'variationPosition',
+  'variationShape',
+  'variationAnim',
+  'variationColor',
+  'variationScale',
+];
 
 import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
 // Legacy (unused directly here; retained in module export for reference):
@@ -1154,20 +1168,56 @@ const GlobalControls = ({
     variationShapeStep,
   ]);
 
+  const globalMidiRandomizeTriggers = useMemo(() => (
+    GLOBAL_RANDOMIZE_MIDI_PARAMS.map(paramId => ({
+      paramId: buildMidiRandomizeId(paramId),
+      onTrigger: () => randomizeSingleGlobalParam(paramId),
+    }))
+  ), [randomizeSingleGlobalParam]);
+  useMidiTriggers(registerParamHandler, globalMidiRandomizeTriggers);
+
+  const renderMidiRandomizeControls = (paramId) => {
+    const midiRandomizeId = buildMidiRandomizeId(paramId);
+    if (!midiRandomizeId) return null;
+    const mapped = !!midiMappings?.[midiRandomizeId];
+    return (
+      <div className="compact-row" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+        <span className="compact-label" style={{ opacity: 0.8 }}>
+          MIDI Randomise: {midiSupported ? (mapped ? (mappingLabel ? mappingLabel(midiMappings[midiRandomizeId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+        </span>
+        {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeId); }} disabled={!midiSupported}>Learn</button>
+        <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeId); }} disabled={!midiSupported || !mapped}>Clear</button>
+      </div>
+    );
+  };
+
   const renderRndControl = (paramId, style) => (
     <span className="rnd-toggle" style={style}>
       <button
         type="button"
         className="icon-btn rnd-toggle__button"
-        title="Randomise this parameter"
+        title={midiSupported ? 'Randomise this parameter. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomise this parameter'}
         aria-label={`Randomise ${paramId}`}
         onClick={(e) => {
           e.stopPropagation();
+          const midiRandomizeId = buildMidiRandomizeId(paramId);
+          if (e.altKey) {
+            clearMapping && clearMapping(midiRandomizeId);
+            return;
+          }
+          if (e.shiftKey) {
+            beginLearn && beginLearn(midiRandomizeId);
+            return;
+          }
           randomizeSingleGlobalParam(paramId);
         }}
       >
         <Dices size={11} className="rnd-toggle__icon" />
       </button>
+      {learnParamId === buildMidiRandomizeId(paramId) && midiSupported && (
+        <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>
+      )}
       <label className="compact-label" title="Include this parameter when Randomize All is triggered">
         <input
           type="checkbox"
@@ -1692,6 +1742,7 @@ const GlobalControls = ({
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalSpeedMultiplier'); }} disabled={!midiSupported}>Learn</button>
                   <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalSpeedMultiplier'); }} disabled={!midiSupported || !midiMappings?.globalSpeedMultiplier}>Clear</button>
                 </div>
+                {renderMidiRandomizeControls('globalSpeedMultiplier')}
                 <AudioControlRow paramId="globalSpeedMultiplier" />
                 <BPMControlRow paramId="globalSpeedMultiplier" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -1751,6 +1802,7 @@ const GlobalControls = ({
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalPaletteIndex'); }} disabled={!midiSupported}>Learn</button>
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalPaletteIndex'); }} disabled={!midiSupported || !midiMappings?.globalPaletteIndex}>Clear</button>
                   </div>
+                  {renderMidiRandomizeControls('globalPaletteIndex')}
                   <AudioControlRow paramId="globalPaletteIndex" />
                   <BPMControlRow paramId="globalPaletteIndex" />
                 </div>
@@ -1774,6 +1826,7 @@ const GlobalControls = ({
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalBlendMode'); }} disabled={!midiSupported}>Learn</button>
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalBlendMode'); }} disabled={!midiSupported || !midiMappings?.globalBlendMode}>Clear</button>
                   </div>
+                  {renderMidiRandomizeControls('globalBlendMode')}
                   <AudioControlRow paramId="globalBlendMode" />
                   <BPMControlRow paramId="globalBlendMode" />
                 </div>
@@ -1799,6 +1852,7 @@ const GlobalControls = ({
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('globalOpacity'); }} disabled={!midiSupported}>Learn</button>
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('globalOpacity'); }} disabled={!midiSupported || !midiMappings?.globalOpacity}>Clear</button>
                   </div>
+                  {renderMidiRandomizeControls('globalOpacity')}
                   <AudioControlRow paramId="globalOpacity" />
                   <BPMControlRow paramId="globalOpacity" />
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -1832,6 +1886,7 @@ const GlobalControls = ({
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn('layersCount'); }} disabled={!midiSupported}>Learn</button>
                     <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping('layersCount'); }} disabled={!midiSupported || !midiMappings?.layersCount}>Clear</button>
                   </div>
+                  {renderMidiRandomizeControls('layersCount')}
                   <AudioControlRow paramId="layersCount" />
                   <BPMControlRow paramId="layersCount" />
                   <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>
@@ -1890,6 +1945,7 @@ const GlobalControls = ({
                       <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(v.key); }} disabled={!midiSupported}>Learn</button>
                       <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(v.key); }} disabled={!midiSupported || !midiMappings?.[v.key]}>Clear</button>
                     </div>
+                    {renderMidiRandomizeControls(v.key)}
                     <AudioControlRow paramId={v.key} />
                     <BPMControlRow paramId={v.key} />
                     <div style={{ display: 'grid', gridTemplateColumns: 'auto 5rem auto 5rem auto 5rem', gap: '0.4rem', alignItems: 'center', marginTop: '0.5rem' }}>

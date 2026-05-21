@@ -1,6 +1,8 @@
 import React from 'react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
+import { useMidi } from '../../../context/MidiContext.jsx';
+import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -55,6 +57,11 @@ export default function LayerColorSection({
   const MidiColorSection = _MidiColorSection;
   const AudioRotationStatus = _AudioRotationStatus;
   const BPMRotationStatus = _BPMRotationStatus;
+  const { registerParamHandler } = useMidi() || {};
+  const midiRandomizeId = buildMidiRandomizeId('layerColors');
+  useMidiTrigger(registerParamHandler, midiRandomizeId, () => onRandomizeLayerColors && onRandomizeLayerColors());
+  const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
+
   const handleLayerColorChange = (newColors) => {
     const arr = Array.isArray(newColors) ? newColors : [];
     const n = Math.max(1, arr.length);
@@ -153,12 +160,30 @@ export default function LayerColorSection({
               <button
                 type="button"
                 className="icon-btn"
-                title="Randomize colours for this layer"
+                title={midiSupported ? 'Randomize colours for this layer. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize colours for this layer'}
                 aria-label="Randomize colours"
-                onClick={(e) => { e.stopPropagation(); onRandomizeLayerColors && onRandomizeLayerColors(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (e.altKey) {
+                    clearMapping && clearMapping(midiRandomizeId);
+                    return;
+                  }
+                  if (e.shiftKey) {
+                    beginLearn && beginLearn(midiRandomizeId);
+                    return;
+                  }
+                  onRandomizeLayerColors && onRandomizeLayerColors();
+                }}
               >
                 🎲
               </button>
+              {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
+              {midiSupported && (
+                <>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeId); }}>Learn</button>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeId); }} disabled={!midiRandomizeMapped}>Clear</button>
+                </>
+              )}
               <button
                 type="button"
                 className="icon-btn"

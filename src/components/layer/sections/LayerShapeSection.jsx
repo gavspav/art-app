@@ -4,6 +4,8 @@ import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.
 import RangeSlider from '../../common/RangeSlider.jsx';
 import { resolveLayerTargets, applyWithVary } from '../../../utils/varyUtils.js';
 import { computeInitialNodes } from '../../../utils/nodeUtils.js';
+import { useMidi } from '../../../context/MidiContext.jsx';
+import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -70,6 +72,15 @@ export default function LayerShapeSection({
   const MidiRotationStatus = _MidiRotationStatus;
   const AudioRotationStatus = _AudioRotationStatus;
   const BPMRotationStatus = _BPMRotationStatus;
+  const {
+    supported: midiSupported,
+    mappings: midiMappings,
+    registerParamHandler,
+    beginLearn,
+    clearMapping,
+    mappingLabel,
+    learnParamId,
+  } = useMidi() || {};
   const handleVisibleChange = (nextVisible) => {
     const { effective: targets } = resolveLayerTargets({
       currentLayer,
@@ -133,6 +144,17 @@ export default function LayerShapeSection({
     updateRevivedShapeLayer({ rotation });
   };
 
+  const midiRandomizeId = buildMidiRandomizeId('rotation');
+  const randomizeRotation = () => {
+    const low = Math.min(rotateMin, rotateMax);
+    const high = Math.max(rotateMin, rotateMax);
+    let v = low + Math.random() * Math.max(0, high - low);
+    const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
+    applyRevivingRotation(wrapped);
+  };
+  useMidiTrigger(registerParamHandler, midiRandomizeId, randomizeRotation);
+  const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
+
   return (
     <div className="tab-section">
       <div className="control-card">
@@ -195,19 +217,24 @@ export default function LayerShapeSection({
                 <button
                   type="button"
                   className="icon-btn"
-                  title="Randomize rotation"
+                  title={midiSupported ? 'Randomize rotation. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize rotation'}
                   aria-label="Randomize rotation"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const low = Math.min(rotateMin, rotateMax);
-                    const high = Math.max(rotateMin, rotateMax);
-                    let v = low + Math.random() * Math.max(0, high - low);
-                    const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-                    applyRevivingRotation(wrapped);
+                    if (e.altKey) {
+                      clearMapping && clearMapping(midiRandomizeId);
+                      return;
+                    }
+                    if (e.shiftKey) {
+                      beginLearn && beginLearn(midiRandomizeId);
+                      return;
+                    }
+                    randomizeRotation();
                   }}
                 >
                   🎲
                 </button>
+                {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
                 <button
                   type="button"
                   className="icon-btn"
@@ -272,6 +299,14 @@ export default function LayerShapeSection({
                     />
                     Include in Randomize All
                   </label>
+                </div>
+                <div className="compact-row" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+                  <span className="compact-label" style={{ opacity: 0.8 }}>
+                    MIDI Randomise: {midiSupported ? (midiRandomizeMapped ? (mappingLabel ? mappingLabel(midiMappings[midiRandomizeId]) : 'Mapped') : 'Not mapped') : 'Not supported'}
+                  </span>
+                  {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7' }}>Listening…</span>}
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeId); }} disabled={!midiSupported}>Learn</button>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeId); }} disabled={!midiSupported || !midiRandomizeMapped}>Clear</button>
                 </div>
                 {(() => {
                   const paramIds = buildLayerParamIds(currentLayer, 'rotation', selectedLayerIndex);

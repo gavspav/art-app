@@ -3,7 +3,6 @@ import { importSVGFiles } from '../utils/svgImportEnhanced';
 
 export function useSvgImport({
   svgFileInputRef,
-  layers,
   layersRef,
   selectedLayerIndex,
   setLayers,
@@ -152,7 +151,7 @@ export function useSvgImport({
       handleSetNodeEditMode(true, { selectedIndex: layersSnapshot.length });
       
       // Success log
-      console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layers.length} existing layer(s)`);
+      console.log(`Successfully imported ${newLayers.length} SVG layer(s) and appended to ${layersSnapshot.length} existing layer(s)`);
     } catch (err) {
       console.warn('Failed to import SVG', err);
       alert('Failed to import SVG');
@@ -163,7 +162,6 @@ export function useSvgImport({
     importBaseRef,
     importFitEnabled,
     importRawRef,
-    layers.length,
     selectedLayerIndex,
     setImportAdjust,
     setImportDebug,

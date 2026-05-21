@@ -20,6 +20,7 @@ import LayerAnimationSection from './layer/sections/LayerAnimationSection.jsx';
 import LayerShapeSection from './layer/sections/LayerShapeSection.jsx';
 import LayerColorSection from './layer/sections/LayerColorSection.jsx';
 import RangeSlider from './common/RangeSlider.jsx';
+import { buildMidiRandomizeId, useMidiTrigger } from '../hooks/useMidiTrigger.js';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -1116,6 +1117,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     }
   };
 
+  const midiRandomizeId = buildMidiRandomizeId(id);
+  useMidiTrigger(registerParamHandler, midiRandomizeId, randomizeThisParam);
+
   const onToggleRandomizable = (e) => {
     e.stopPropagation();
     console.log('[Rnd] isRandomizable', id, !!e.target.checked);
@@ -1179,6 +1183,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     e.preventDefault();
     e.stopPropagation();
     console.log('[Controls] Randomize button MOUSEDOWN for param', id, 'label:', label);
+    if (e.altKey) {
+      clearMapping && clearMapping(midiRandomizeId);
+      return;
+    }
+    if (e.shiftKey) {
+      beginLearn && beginLearn(midiRandomizeId);
+      return;
+    }
     randomizeThisParam();
   };
 
@@ -1240,11 +1252,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
             ♪
           </span>
         )}
+        {learnParamId === midiRandomizeId && midiSupported && (
+          <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>
+        )}
         <button
           type="button"
           onClick={onClickRandomize}
           onMouseDown={onMouseDownRandomize}
-          title="Randomize this parameter"
+          title={midiSupported ? 'Randomize this parameter. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize this parameter'}
           aria-label={`Randomize ${label}`}
           className="icon-btn"
           style={{ padding: '0 0.4rem', pointerEvents: 'auto' }}
@@ -1402,6 +1417,35 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
                 onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(id); }}
                 disabled={!midiSupported || !midiMappings?.[id]}
                 title="Clear MIDI mapping for this parameter"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+            <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+              <strong>MIDI Randomise</strong>
+              <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+                {(!midiSupported) ? 'Not supported' : (midiMappings && midiMappings[midiRandomizeId] ? (mappingLabel ? mappingLabel(midiMappings[midiRandomizeId]) : 'Mapped') : 'Not mapped')}
+                {learnParamId === midiRandomizeId && midiSupported && <span style={{ marginLeft: '0.5rem', color: '#4fc3f7' }}>Listening… press a button</span>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (beginLearn) beginLearn(midiRandomizeId); }}
+                disabled={!midiSupported}
+                title="Click, then press a MIDI button to randomise this parameter"
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                className="btn-compact-secondary"
+                onClick={(e) => { e.stopPropagation(); if (clearMapping) clearMapping(midiRandomizeId); }}
+                disabled={!midiSupported || !midiMappings?.[midiRandomizeId]}
+                title="Clear MIDI mapping for this randomise action"
               >
                 Clear
               </button>
@@ -1938,6 +1982,9 @@ const Controls = forwardRef(({
     mappingLabel,
     learnParamId,
   } = useMidi() || {};
+  const midiRandomizeCurrentLayerId = buildMidiRandomizeId('currentLayer');
+  useMidiTrigger(registerParamHandler, midiRandomizeCurrentLayerId, () => randomizeCurrentLayer && randomizeCurrentLayer(false));
+  const midiRandomizeCurrentLayerMapped = !!midiMappings?.[midiRandomizeCurrentLayerId];
 
   // Register per-layer MIDI handler for Palette Index
   useEffect(() => {
@@ -2078,12 +2125,30 @@ const Controls = forwardRef(({
               <button
                 type="button"
                 className="icon-btn sm"
-                title="Randomize selected layer"
+                title={midiSupported ? 'Randomize selected layer. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize selected layer'}
                 aria-label="Randomize selected layer"
-                onClick={() => randomizeCurrentLayer(false)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (e.altKey) {
+                    clearMapping && clearMapping(midiRandomizeCurrentLayerId);
+                    return;
+                  }
+                  if (e.shiftKey) {
+                    beginLearn && beginLearn(midiRandomizeCurrentLayerId);
+                    return;
+                  }
+                  randomizeCurrentLayer(false);
+                }}
               >
                 🎲
               </button>
+              {learnParamId === midiRandomizeCurrentLayerId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
+              {midiSupported && (
+                <>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeCurrentLayerId); }}>Learn</button>
+                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeCurrentLayerId); }} disabled={!midiRandomizeCurrentLayerMapped}>Clear</button>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -980,7 +980,6 @@ const MainApp = () => {
     handleImportSVGFile,
   } = useSvgImport({
     svgFileInputRef,
-    layers,
     layersRef,
     selectedLayerIndex,
     setLayers,
