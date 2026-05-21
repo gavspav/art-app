@@ -7,7 +7,12 @@ export function useMIDIHandlers({
   // Globals
   setGlobalSpeedMultiplier,
   setGlobalBlendMode,
+  setGlobalPaletteIndex,
+  setGlobalPaletteRef,
+  globalPaletteIndex: _globalPaletteIndex,
   blendModes,
+  parameters = [],
+  layersCountParam,
   // Layers
   layers,
   setLayers,
@@ -17,17 +22,21 @@ export function useMIDIHandlers({
   // Palette helpers
   palettes,
   sampleColorsEven,
+  assignOneColorPerLayer,
   // Background
   backgroundColor,
   setBackgroundColor,
   // Randomize All
   rndAllPrevRef,
   handleRandomizeAll,
+  randomizeCurrentLayer,
+  randomizeAnimationForCurrentLayer,
+  randomizeCurrentLayerColors,
   // Selection
   clampedSelectedIndex,
 }) {
   const backgroundColorRef = useRef(backgroundColor || '#000000');
-  const backgroundRandomizePrevRef = useRef(0);
+  const randomizePreviousValuesRef = useRef(new Map());
 
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
@@ -271,22 +280,161 @@ export function useMIDIHandlers({
     };
   }, [registerParamHandler, setBackgroundColor]);
 
-  // Background colour randomise trigger must work even when the Global tab is unmounted.
+  // Randomise triggers must work even when the control tab/panel is unmounted.
   useEffect(() => {
     if (!registerParamHandler) return;
-    const unregister = registerParamHandler('randomize:backgroundColor', ({ value01 }) => {
-      const previous = backgroundRandomizePrevRef.current || 0;
-      const current = Math.max(0, Math.min(1, Number(value01) || 0));
-      if (previous < 0.5 && current >= 0.5) {
+
+    const getParam = (paramId) => (
+      (Array.isArray(parameters) ? parameters : []).find(param => param?.id === paramId)
+    );
+
+    const randomInRange = (paramId, fallbackMin, fallbackMax, fallbackStep = 0.01) => {
+      const param = paramId === 'layersCount' && layersCountParam ? layersCountParam : getParam(paramId);
+      const min = Number.isFinite(param?.min) ? param.min : fallbackMin;
+      const max = Number.isFinite(param?.max) ? param.max : fallbackMax;
+      const randomMin = Number.isFinite(param?.randomMin) ? param.randomMin : min;
+      const randomMax = Number.isFinite(param?.randomMax) ? param.randomMax : max;
+      const step = Number.isFinite(param?.step) && param.step > 0 ? param.step : fallbackStep;
+      const low = Math.min(randomMin, randomMax);
+      const high = Math.max(randomMin, randomMax);
+      let next = low + Math.random() * Math.max(0, high - low);
+      next = Math.round((next - low) / step) * step + low;
+      return Math.max(min, Math.min(max, Number(next.toFixed(6))));
+    };
+
+    const setLayerCount = (targetRaw) => {
+      const target = Math.max(1, Math.round(Number(targetRaw) || 1));
+      setLayers?.(prev => {
+        if (!Array.isArray(prev) || prev.length === target) return prev;
+        let next = prev;
+        if (target > prev.length) {
+          const addCount = target - prev.length;
+          const baseVar = {
+            shape: (typeof prev?.[0]?.variationShape === 'number') ? prev[0].variationShape : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationShape),
+            anim: (typeof prev?.[0]?.variationAnim === 'number') ? prev[0].variationAnim : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationAnim),
+            color: (typeof prev?.[0]?.variationColor === 'number') ? prev[0].variationColor : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationColor),
+            position: (typeof prev?.[0]?.variationPosition === 'number') ? prev[0].variationPosition : (typeof prev?.[0]?.variation === 'number' ? prev[0].variation : DEFAULT_LAYER.variationPosition),
+            scale: (typeof prev?.[0]?.variationScale === 'number') ? prev[0].variationScale : (DEFAULT_LAYER.variationScale ?? 0),
+          };
+          let last = prev[prev.length - 1] || DEFAULT_LAYER;
+          const additions = Array.from({ length: addCount }, (_, i) => {
+            const nextIdx = prev.length + i + 1;
+            const layer = buildVariedLayerFrom(last, nextIdx, baseVar);
+            if (!Array.isArray(layer.nodes) || layer.nodes?.length < 3) layer.nodes = null;
+            layer.layerType = 'shape';
+            last = layer;
+            return layer;
+          });
+          next = [...prev, ...additions];
+        } else {
+          next = prev.slice(0, target);
+        }
+        return next.map((layer, index) => ({ ...layer, name: `Layer ${index + 1}` }));
+      });
+      setSelectedLayerIndex?.(Math.max(0, target - 1));
+    };
+
+    const randomizeGlobalParam = (paramId) => {
+      if (paramId === 'backgroundColor') {
         const channel = () => Math.floor(Math.random() * 256);
         const nextHex = rgbToHex({ r: channel(), g: channel(), b: channel() });
         backgroundColorRef.current = nextHex;
         setBackgroundColor?.(nextHex);
+      } else if (paramId === 'globalSpeedMultiplier') {
+        setGlobalSpeedMultiplier?.(randomInRange(paramId, 0, 5, 0.01));
+      } else if (paramId === 'globalPaletteIndex') {
+        const list = Array.isArray(palettes) ? palettes : [];
+        if (!list.length) return;
+        const index = Math.floor(Math.random() * list.length);
+        const palette = list[index];
+        const colors = Array.isArray(palette) ? palette : palette?.colors;
+        setGlobalPaletteRef?.(null);
+        setGlobalPaletteIndex?.(index);
+        if (typeof assignOneColorPerLayer === 'function') {
+          assignOneColorPerLayer(typeof sampleColorsEven === 'function'
+            ? sampleColorsEven(colors || [], Math.max(1, Array.isArray(layers) ? layers.length : 1))
+            : (colors || []));
+        }
+      } else if (paramId === 'globalBlendMode') {
+        const options = Array.isArray(blendModes) ? blendModes : [];
+        if (!options.length) return;
+        setGlobalBlendMode?.(options[Math.floor(Math.random() * options.length)]);
+      } else if (paramId === 'globalOpacity') {
+        const next = randomInRange(paramId, 0, 1, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, opacity: next })));
+      } else if (paramId === 'layersCount') {
+        setLayerCount(randomInRange(paramId, 1, 20, 1));
+      } else if (paramId === 'variationPosition') {
+        const next = randomInRange(paramId, 0, 3, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, variationPosition: next })));
+      } else if (paramId === 'variationShape') {
+        const next = randomInRange(paramId, 0, 3, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, variationShape: next })));
+      } else if (paramId === 'variationAnim') {
+        const next = randomInRange(paramId, 0, 3, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, variationAnim: next })));
+      } else if (paramId === 'variationColor') {
+        const next = randomInRange(paramId, 0, 3, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, variationColor: next })));
+      } else if (paramId === 'variationScale') {
+        const next = randomInRange(paramId, -3, 3, 0.01);
+        setLayers?.(prev => prev.map(layer => ({ ...layer, variationScale: next })));
       }
-      backgroundRandomizePrevRef.current = current;
-    });
-    return unregister;
-  }, [registerParamHandler, setBackgroundColor]);
+    };
+
+    const triggerMap = new Map([
+      ['randomize:backgroundColor', () => randomizeGlobalParam('backgroundColor')],
+      ['randomize:globalSpeedMultiplier', () => randomizeGlobalParam('globalSpeedMultiplier')],
+      ['randomize:globalPaletteIndex', () => randomizeGlobalParam('globalPaletteIndex')],
+      ['randomize:globalBlendMode', () => randomizeGlobalParam('globalBlendMode')],
+      ['randomize:globalOpacity', () => randomizeGlobalParam('globalOpacity')],
+      ['randomize:layersCount', () => randomizeGlobalParam('layersCount')],
+      ['randomize:variationPosition', () => randomizeGlobalParam('variationPosition')],
+      ['randomize:variationShape', () => randomizeGlobalParam('variationShape')],
+      ['randomize:variationAnim', () => randomizeGlobalParam('variationAnim')],
+      ['randomize:variationColor', () => randomizeGlobalParam('variationColor')],
+      ['randomize:variationScale', () => randomizeGlobalParam('variationScale')],
+      ['randomize:currentLayer', () => randomizeCurrentLayer?.(false)],
+      ['randomize:layerAnimation', () => randomizeAnimationForCurrentLayer?.()],
+      ['randomize:layerColors', () => randomizeCurrentLayerColors?.()],
+    ]);
+
+    const unregisters = Array.from(triggerMap.entries()).map(([paramId, onTrigger]) => registerParamHandler(paramId, ({ value01 }) => {
+      const previous = randomizePreviousValuesRef.current.get(paramId) || 0;
+      const current = Math.max(0, Math.min(1, Number(value01) || 0));
+      if (previous < 0.5 && current >= 0.5) {
+        onTrigger();
+      }
+      randomizePreviousValuesRef.current.set(paramId, current);
+    }));
+
+    return () => {
+      unregisters.forEach(unregister => {
+        if (typeof unregister === 'function') unregister();
+      });
+    };
+  }, [
+    DEFAULT_LAYER,
+    assignOneColorPerLayer,
+    blendModes,
+    buildVariedLayerFrom,
+    layers,
+    layersCountParam,
+    parameters,
+    palettes,
+    randomizeAnimationForCurrentLayer,
+    randomizeCurrentLayer,
+    randomizeCurrentLayerColors,
+    registerParamHandler,
+    sampleColorsEven,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
+    setGlobalSpeedMultiplier,
+    setLayers,
+    setSelectedLayerIndex,
+  ]);
 
   // Global per-layer MIDI Colour handlers (RGBA)
   useEffect(() => {

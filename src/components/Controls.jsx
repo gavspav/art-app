@@ -20,7 +20,7 @@ import LayerAnimationSection from './layer/sections/LayerAnimationSection.jsx';
 import LayerShapeSection from './layer/sections/LayerShapeSection.jsx';
 import LayerColorSection from './layer/sections/LayerColorSection.jsx';
 import RangeSlider from './common/RangeSlider.jsx';
-import { buildMidiRandomizeId, useMidiTrigger } from '../hooks/useMidiTrigger.js';
+import { buildMidiRandomizeId } from '../hooks/useMidiTrigger.js';
 
 // Custom hover-based dropdown component
 const HoverDropdown = ({ value, options, onChange }) => {
@@ -845,7 +845,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
   }, [currentLayer, debugLog, id, showSettings, targetMode, debugSettingsEnabled]);
   const {
     mappings: midiMappings,
-    registerParamHandler,
     beginLearn,
     clearMapping,
     mappingLabel,
@@ -1118,7 +1117,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
   };
 
   const midiRandomizeId = buildMidiRandomizeId(id);
-  useMidiTrigger(registerParamHandler, midiRandomizeId, randomizeThisParam);
 
   const onToggleRandomizable = (e) => {
     e.stopPropagation();
@@ -1946,14 +1944,12 @@ const Controls = forwardRef(({
   const {
     supported: midiSupported,
     mappings: midiMappings,
-    registerParamHandler,
     beginLearn,
     clearMapping,
     mappingLabel,
     learnParamId,
   } = useMidi() || {};
   const midiRandomizeCurrentLayerId = buildMidiRandomizeId('currentLayer');
-  useMidiTrigger(registerParamHandler, midiRandomizeCurrentLayerId, () => randomizeCurrentLayer && randomizeCurrentLayer(false));
   const midiRandomizeCurrentLayerMapped = !!midiMappings?.[midiRandomizeCurrentLayerId];
 
   return (

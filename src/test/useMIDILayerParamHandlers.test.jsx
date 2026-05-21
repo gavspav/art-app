@@ -105,4 +105,19 @@ describe('useMIDILayerParamHandlers', () => {
     expect(latestLayers[0].radiusFactorY).toBeCloseTo(2);
     expect(latestLayers[1].radiusFactor).toBeCloseTo(2);
   });
+
+  test('layer parameter randomise triggers are registered centrally', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'randomize:radiusFactor', 1);
+    });
+
+    expect(latestLayers[0].radiusFactor).toBeGreaterThanOrEqual(0);
+    expect(latestLayers[0].radiusFactor).toBeLessThanOrEqual(4);
+    expect(latestLayers[1].radiusFactor).toBe(2);
+  });
 });

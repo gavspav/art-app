@@ -17,7 +17,7 @@ import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../../utils/s
 import { getCanvasFps, setCanvasFps, subscribeCanvasFps } from '../../utils/canvasFps.js';
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 import RangeSlider from '../common/RangeSlider.jsx';
-import { buildMidiRandomizeId, useMidiTriggers } from '../../hooks/useMidiTrigger.js';
+import { buildMidiRandomizeId } from '../../hooks/useMidiTrigger.js';
 
 const GLOBAL_SEED_MIN = 1;
 const GLOBAL_SEED_MAX = 2147483646;
@@ -36,19 +36,6 @@ const VARIATION_SCALE_SLIDER_MAX = 5;
 const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
-const GLOBAL_RANDOMIZE_MIDI_PARAMS = [
-  'globalSpeedMultiplier',
-  'globalPaletteIndex',
-  'globalBlendMode',
-  'globalOpacity',
-  'layersCount',
-  'variationPosition',
-  'variationShape',
-  'variationAnim',
-  'variationColor',
-  'variationScale',
-];
-
 import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection, AudioControlRow, BPMControlRow } from './sections/GlobalAutomationSections.jsx';
 // Legacy (unused directly here; retained in module export for reference):
 // import { RangeMappingEditor } from './sections/GlobalAutomationSections.jsx';
@@ -1166,14 +1153,6 @@ const GlobalControls = ({
     variationShapeMin,
     variationShapeStep,
   ]);
-
-  const globalMidiRandomizeTriggers = useMemo(() => (
-    GLOBAL_RANDOMIZE_MIDI_PARAMS.map(paramId => ({
-      paramId: buildMidiRandomizeId(paramId),
-      onTrigger: () => randomizeSingleGlobalParam(paramId),
-    }))
-  ), [randomizeSingleGlobalParam]);
-  useMidiTriggers(registerParamHandler, globalMidiRandomizeTriggers);
 
   const renderMidiRandomizeControls = (paramId) => {
     const midiRandomizeId = buildMidiRandomizeId(paramId);

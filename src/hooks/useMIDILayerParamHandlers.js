@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -46,6 +46,8 @@ export function useMIDILayerParamHandlers({
   palettes = [],
   sampleColors,
 }) {
+  const randomizePreviousValuesRef = useRef(new Map());
+
   const layerParams = useMemo(() => {
     const params = Array.isArray(parameters) ? parameters : [];
     const visibleLayerParams = params.filter(param => (
@@ -206,6 +208,53 @@ export function useMIDILayerParamHandlers({
     layerParams.forEach((param) => {
       unsubs.push(registerParamHandler(param.id, ({ value01 }) => {
         applyParamUpdate(param.id, value01);
+      }));
+    });
+
+    const randomizeParam = (paramId) => {
+      const param = paramMap.get(paramId);
+      if (!param) return;
+
+      if (paramId === 'paletteIndex') {
+        applyParamUpdate(paramId, Math.random());
+        return;
+      }
+
+      if (param.type === 'dropdown' && Array.isArray(param.options) && param.options.length) {
+        if (param.options.length === 1) {
+          applyParamUpdate(paramId, 0);
+          return;
+        }
+        const optionIndex = Math.floor(Math.random() * param.options.length);
+        applyParamUpdate(paramId, optionIndex / (param.options.length - 1));
+        return;
+      }
+
+      const min = Number.isFinite(param?.min) ? param.min : 0;
+      const max = Number.isFinite(param?.max) ? param.max : 1;
+      const randomMin = Number.isFinite(param?.randomMin) ? param.randomMin : min;
+      const randomMax = Number.isFinite(param?.randomMax) ? param.randomMax : max;
+      const low = Math.max(min, Math.min(randomMin, randomMax));
+      const high = Math.min(max, Math.max(randomMin, randomMax));
+      if (Math.abs(max - min) < 1e-9) {
+        applyParamUpdate(paramId, 0);
+        return;
+      }
+      const raw = low + Math.random() * Math.max(0, high - low);
+      const value = param.step === 1 ? Math.round(raw) : raw;
+      const clamped = clamp(value, min, max);
+      applyParamUpdate(paramId, (clamped - min) / (max - min));
+    };
+
+    layerParams.forEach((param) => {
+      const randomizeId = `randomize:${param.id}`;
+      unsubs.push(registerParamHandler(randomizeId, ({ value01 }) => {
+        const previous = randomizePreviousValuesRef.current.get(randomizeId) || 0;
+        const current = Math.max(0, Math.min(1, Number(value01) || 0));
+        if (previous < 0.5 && current >= 0.5) {
+          randomizeParam(param.id);
+        }
+        randomizePreviousValuesRef.current.set(randomizeId, current);
       }));
     });
 

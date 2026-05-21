@@ -5,7 +5,7 @@ import RangeSlider from '../../common/RangeSlider.jsx';
 import { resolveLayerTargets, applyWithVary } from '../../../utils/varyUtils.js';
 import { computeInitialNodes } from '../../../utils/nodeUtils.js';
 import { useMidi } from '../../../context/MidiContext.jsx';
-import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
+import { buildMidiRandomizeId } from '../../../hooks/useMidiTrigger.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -75,7 +75,6 @@ export default function LayerShapeSection({
   const {
     supported: midiSupported,
     mappings: midiMappings,
-    registerParamHandler,
     beginLearn,
     clearMapping,
     mappingLabel,
@@ -152,7 +151,6 @@ export default function LayerShapeSection({
     const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
     applyRevivingRotation(wrapped);
   };
-  useMidiTrigger(registerParamHandler, midiRandomizeId, randomizeRotation);
   const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
 
   return (

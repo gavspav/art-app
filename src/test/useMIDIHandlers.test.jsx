@@ -28,14 +28,28 @@ function Harness({ handlers, onBackgroundColor, onLayers }) {
     registerParamHandler: makeRegister(handlers),
     setGlobalSpeedMultiplier: () => {},
     setGlobalBlendMode: () => {},
+    setGlobalPaletteIndex: () => {},
+    setGlobalPaletteRef: () => {},
     blendModes: ['normal'],
+    parameters: [
+      { id: 'globalOpacity', type: 'slider', min: 0, max: 1, step: 0.01, randomMin: 0.2, randomMax: 0.2 },
+      { id: 'globalPaletteIndex', type: 'slider', min: 0, max: 1, step: 0.01 },
+    ],
     layers,
     setLayers,
     DEFAULT_LAYER: {},
     buildVariedLayerFrom: layer => ({ ...layer }),
     setSelectedLayerIndex: () => {},
-    palettes: [],
-    sampleColorsEven: colors => colors,
+    palettes: [{ colors: ['#ff0000', '#00ff00'] }],
+    sampleColorsEven: (colors, count) => colors.slice(0, count),
+    assignOneColorPerLayer: (colors) => {
+      setLayers(prev => prev.map((layer, index) => ({
+        ...layer,
+        colors: [colors[index % colors.length] || '#ffffff'],
+        numColors: 1,
+        selectedColor: 0,
+      })));
+    },
     backgroundColor,
     setBackgroundColor,
     rndAllPrevRef: { current: 0 },
@@ -93,6 +107,28 @@ describe('useMIDIHandlers', () => {
     });
 
     expect(latestBackgroundColor).toBe('#ff0040');
+  });
+
+  test('global palette and opacity randomise triggers stay registered centrally', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'randomize:globalOpacity', 1);
+    });
+
+    expect(latestLayers[0].opacity).toBe(0.2);
+    expect(latestLayers[1].opacity).toBe(0.2);
+
+    act(() => {
+      fire(handlers, 'randomize:globalOpacity', 0);
+      fire(handlers, 'randomize:globalPaletteIndex', 1);
+    });
+
+    expect(latestLayers[0].colors).toEqual(['#ff0000']);
+    expect(latestLayers[1].colors).toEqual(['#00ff00']);
   });
 
   test('global variation midi updates all layers', () => {

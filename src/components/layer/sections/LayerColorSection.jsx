@@ -1,8 +1,7 @@
 import React from 'react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
-import { useMidi } from '../../../context/MidiContext.jsx';
-import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
+import { buildMidiRandomizeId } from '../../../hooks/useMidiTrigger.js';
 
 const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
   const layerNameKey = (layer?.name || 'Layer').toString();
@@ -57,9 +56,7 @@ export default function LayerColorSection({
   const MidiColorSection = _MidiColorSection;
   const AudioRotationStatus = _AudioRotationStatus;
   const BPMRotationStatus = _BPMRotationStatus;
-  const { registerParamHandler } = useMidi() || {};
   const midiRandomizeId = buildMidiRandomizeId('layerColors');
-  useMidiTrigger(registerParamHandler, midiRandomizeId, () => onRandomizeLayerColors && onRandomizeLayerColors());
   const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
 
   const handleLayerColorChange = (newColors) => {

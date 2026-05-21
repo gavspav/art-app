@@ -2,7 +2,7 @@ import React from 'react';
 import ControlSectionCard from '../../controls/common/ControlSectionCard.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { useMidi } from '../../../context/MidiContext.jsx';
-import { buildMidiRandomizeId, useMidiTrigger } from '../../../hooks/useMidiTrigger.js';
+import { buildMidiRandomizeId } from '../../../hooks/useMidiTrigger.js';
 
 export default function LayerAnimationSection({
   currentLayer,
@@ -22,13 +22,11 @@ export default function LayerAnimationSection({
   const {
     supported: midiSupported,
     mappings: midiMappings,
-    registerParamHandler,
     beginLearn,
     clearMapping,
     learnParamId,
   } = useMidi() || {};
   const midiRandomizeId = buildMidiRandomizeId('layerAnimation');
-  useMidiTrigger(registerParamHandler, midiRandomizeId, () => randomizeAnimationOnly && randomizeAnimationOnly());
   const midiRandomizeMapped = !!midiMappings?.[midiRandomizeId];
 
   return (
