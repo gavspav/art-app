@@ -89,4 +89,20 @@ describe('useMIDILayerParamHandlers', () => {
     expect(latestLayers[1].radiusFactorX).toBeCloseTo(6);
     expect(latestLayers[1].radiusFactorY).toBeCloseTo(6);
   });
+
+  test('individual size mappings do not crash when computing radius ratios', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'layer:l1:radiusFactor', 0.5);
+    });
+
+    expect(latestLayers[0].radiusFactor).toBeCloseTo(2);
+    expect(latestLayers[0].radiusFactorX).toBeCloseTo(2);
+    expect(latestLayers[0].radiusFactorY).toBeCloseTo(2);
+    expect(latestLayers[1].radiusFactor).toBeCloseTo(2);
+  });
 });

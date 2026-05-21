@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { act, render } from '@testing-library/react';
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { useMIDIHandlers } from '../hooks/useMIDIHandlers.js';
 
 const makeRegister = (handlers) => (paramId, handler) => {
@@ -55,6 +55,10 @@ function Harness({ handlers, onBackgroundColor, onLayers }) {
 }
 
 describe('useMIDIHandlers', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test('background colour handlers stay registered centrally', () => {
     const handlers = new Map();
     let latestBackgroundColor = '';
@@ -71,6 +75,23 @@ describe('useMIDIHandlers', () => {
       fire(handlers, 'backgroundColorG', 0);
       fire(handlers, 'backgroundColorB', 0.25);
     });
+    expect(latestBackgroundColor).toBe('#ff0040');
+  });
+
+  test('background randomise trigger stays registered centrally', () => {
+    const handlers = new Map();
+    let latestBackgroundColor = '#102030';
+    vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.999)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.25);
+
+    render(<Harness handlers={handlers} onBackgroundColor={(color) => { latestBackgroundColor = color; }} />);
+
+    act(() => {
+      fire(handlers, 'randomize:backgroundColor', 1);
+    });
+
     expect(latestBackgroundColor).toBe('#ff0040');
   });
 

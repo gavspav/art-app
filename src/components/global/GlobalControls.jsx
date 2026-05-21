@@ -37,7 +37,6 @@ const AUTOSAVE_META_KEY = 'artapp-autosave-meta';
 const AUTOSAVE_SLOT_PREFIX = 'artapp-autosave-';
 const AUTOSAVE_SLOT_COUNT = 3;
 const GLOBAL_RANDOMIZE_MIDI_PARAMS = [
-  'backgroundColor',
   'globalSpeedMultiplier',
   'globalPaletteIndex',
   'globalBlendMode',

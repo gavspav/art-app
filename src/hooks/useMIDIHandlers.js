@@ -27,6 +27,7 @@ export function useMIDIHandlers({
   clampedSelectedIndex,
 }) {
   const backgroundColorRef = useRef(backgroundColor || '#000000');
+  const backgroundRandomizePrevRef = useRef(0);
 
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
@@ -268,6 +269,23 @@ export function useMIDIHandlers({
       if (typeof u2 === 'function') u2();
       if (typeof u3 === 'function') u3();
     };
+  }, [registerParamHandler, setBackgroundColor]);
+
+  // Background colour randomise trigger must work even when the Global tab is unmounted.
+  useEffect(() => {
+    if (!registerParamHandler) return;
+    const unregister = registerParamHandler('randomize:backgroundColor', ({ value01 }) => {
+      const previous = backgroundRandomizePrevRef.current || 0;
+      const current = Math.max(0, Math.min(1, Number(value01) || 0));
+      if (previous < 0.5 && current >= 0.5) {
+        const channel = () => Math.floor(Math.random() * 256);
+        const nextHex = rgbToHex({ r: channel(), g: channel(), b: channel() });
+        backgroundColorRef.current = nextHex;
+        setBackgroundColor?.(nextHex);
+      }
+      backgroundRandomizePrevRef.current = current;
+    });
+    return unregister;
   }, [registerParamHandler, setBackgroundColor]);
 
   // Global per-layer MIDI Colour handlers (RGBA)

@@ -160,7 +160,7 @@ export function useMIDILayerParamHandlers({
                 };
               } else {
                 const ratioRaw = Number.isFinite(prevRF) && Math.abs(prevRF) > 1e-9 ? targetRF / prevRF : targetRF;
-                const ratio = Number.isFinite(ratioRaw) && ratio > 0 ? ratioRaw : 1;
+                const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
                 patch = {
                   radiusFactor: targetRF,
                   radiusFactorX: (Number.isFinite(prevX) ? prevX : 1) * ratio,
