@@ -28,10 +28,8 @@ export function useSceneSnapshots({
 }) {
   const parametersRef = useRef(parameters);
   const midiMappingsRef = useRef(midiMappings);
-  const configInputRef = useRef(configFileInputRef);
   useEffect(() => { parametersRef.current = parameters; }, [parameters]);
   useEffect(() => { midiMappingsRef.current = midiMappings; }, [midiMappings]);
-  useEffect(() => { configInputRef.current = configFileInputRef; }, [configFileInputRef]);
 
   const downloadJson = useCallback((filename, obj) => {
     try {
@@ -236,8 +234,8 @@ export function useSceneSnapshots({
   }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, mergeCustomPaletteList, setIncludeRnd, defaultIncludeRnd]);
 
   const handleQuickLoad = useCallback(() => {
-    configInputRef.current?.current?.click();
-  }, []);
+    configFileInputRef.current?.click();
+  }, [configFileInputRef]);
 
   return {
     getFullAppState,

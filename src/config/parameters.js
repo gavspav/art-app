@@ -491,6 +491,8 @@ export const PARAMETERS = [
     max: 20,
     step: 1,
     defaultValue: 8,
+    randomMin: 1,
+    randomMax: 20,
     isRandomizable: false,
     showInOverlay: false,
     group: 'Global',

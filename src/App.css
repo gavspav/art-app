@@ -927,6 +927,11 @@ input[type="checkbox"] {
   color: var(--accent-warn);
 }
 
+.rnd-toggle__button {
+  padding: 0 0.1rem;
+  min-width: auto;
+}
+
 .settings-toggle-btn {
   gap: 0.3rem;
 }

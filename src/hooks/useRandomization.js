@@ -47,6 +47,17 @@ export function useRandomization({
 
   const getLayersSnapshot = () => Array.isArray(layersRef.current) ? layersRef.current : [];
 
+  const getLayerCountRange = useCallback(() => {
+    const layersParam = parameters.find(p => p.id === 'layersCount');
+    const baseMin = Number.isFinite(layersParam?.min) ? layersParam.min : 1;
+    const baseMax = Number.isFinite(layersParam?.max) ? layersParam.max : 20;
+    const rawMin = Number.isFinite(layersParam?.randomMin) ? layersParam.randomMin : baseMin;
+    const rawMax = Number.isFinite(layersParam?.randomMax) ? layersParam.randomMax : baseMax;
+    const low = Math.max(1, Math.round(Math.min(rawMin, rawMax)));
+    const high = Math.max(low, Math.round(Math.max(rawMin, rawMax)));
+    return { low, high };
+  }, [parameters]);
+
   // Local mix using seeded RNG
   const mixRand = useCallback((baseVal, min, max, w, integer = false) => {
     const rnd = min + rand() * Math.max(0, (max - min));
@@ -192,9 +203,7 @@ export function useRandomization({
 
     const getParam = (id) => parameters.find(p => p.id === id);
 
-    const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.randomMin) ? layersParam.randomMin : (Number.isFinite(layersParam?.min) ? layersParam.min : 1);
-    const defMaxL = Number.isFinite(layersParam?.randomMax) ? layersParam.randomMax : (Number.isFinite(layersParam?.max) ? layersParam.max : 8);
+    const { low: defMinL, high: defMaxL } = getLayerCountRange();
     const layerCount = incLayers
       ? Math.floor(rand() * (defMaxL - defMinL + 1)) + defMinL
       : layers.length;
@@ -513,7 +522,7 @@ export function useRandomization({
       const sval = smin + rand() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
+  }, [DEFAULT_LAYER, blendModes, colorCountMax, colorCountMin, getIsRnd, getLayerCountRange, mixRand, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, randomizePalette, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const classicRandomizeAll = useCallback(() => {
     const rnd = rand;
@@ -580,9 +589,7 @@ export function useRandomization({
     baseColors = sampleColorsEven(baseColors, colorCount);
 
     // Layers count
-    const layersParam = parameters.find(p => p.id === 'layersCount');
-    const defMinL = Number.isFinite(layersParam?.randomMin) ? layersParam.randomMin : (Number.isFinite(layersParam?.min) ? layersParam.min : 1);
-    const defMaxL = Number.isFinite(layersParam?.randomMax) ? layersParam.randomMax : (Number.isFinite(layersParam?.max) ? layersParam.max : 20);
+    const { low: defMinL, high: defMaxL } = getLayerCountRange();
     const layerCount = incLayers ? (Math.floor(rnd() * (defMaxL - defMinL + 1)) + defMinL) : layers.length;
 
     // If rotation should not vary across layers, sample once (classic) for Rotate slider
@@ -759,7 +766,7 @@ export function useRandomization({
       const sval = smin + rnd() * Math.max(0, smax - smin);
       setGlobalSpeedMultiplier(Number(sval.toFixed(2)));
     }
-  }, [DEFAULT_LAYER, blendModes, getIsRnd, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
+  }, [DEFAULT_LAYER, blendModes, getIsRnd, getLayerCountRange, palettes, parameters, rand, randomBackgroundColor, randomizeColorsPerLayer, randomizeNumColors, rotationVaryAcrossLayers, sampleColorsEven, setBackgroundColor, setGlobalBlendMode, setGlobalPaletteIndex, setGlobalPaletteRef, setGlobalSpeedMultiplier, setLayers, setSelectedLayerIndex, uniformColorCount]);
 
   const randomizeScene = useCallback(() => {
     const layers = getLayersSnapshot();

@@ -725,15 +725,25 @@ const GlobalControls = ({
   const setOpacityMax = useCallback((v) => { setOpacityMaxState(v); syncRangeToParam('globalOpacity', 'randomMax', v); }, [syncRangeToParam]);
 
   const setLayersMin = useCallback((v) => {
-    const next = Math.max(1, Math.round(Number(v) || 1));
-    const pairedMax = Math.max(next, Math.round(Number(layersMax) || next));
+    const next = Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(Number(v) || LAYERS_SLIDER_MIN)));
+    const currentMax = Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(Number(layersMax) || next)));
+    const pairedMax = Math.max(next, currentMax);
     setLayersMinState(next);
+    if (pairedMax !== layersMax) {
+      setLayersMaxState(pairedMax);
+      syncRangeToParam('layersCount', 'randomMax', pairedMax);
+    }
     syncRangeToParam('layersCount', 'randomMin', next);
     syncAudioMappingRangeToParam('layersCount', next, pairedMax);
   }, [layersMax, syncAudioMappingRangeToParam, syncRangeToParam]);
   const setLayersMax = useCallback((v) => {
-    const next = Math.max(1, Math.round(Number(v) || 1));
-    const pairedMin = Math.min(next, Math.round(Number(layersMin) || next));
+    const next = Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(Number(v) || LAYERS_SLIDER_MIN)));
+    const currentMin = Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(Number(layersMin) || next)));
+    const pairedMin = Math.min(next, currentMin);
+    if (pairedMin !== layersMin) {
+      setLayersMinState(pairedMin);
+      syncRangeToParam('layersCount', 'randomMin', pairedMin);
+    }
     setLayersMaxState(next);
     syncRangeToParam('layersCount', 'randomMax', next);
     syncAudioMappingRangeToParam('layersCount', pairedMin, next);
@@ -1010,6 +1020,164 @@ const GlobalControls = ({
     paletteColorsForVariation,
     setLayers,
   ]);
+
+  const randomInRange = useCallback((min, max, step = 0.01) => {
+    const lo = Number.isFinite(Number(min)) ? Number(min) : 0;
+    const hi = Number.isFinite(Number(max)) ? Number(max) : lo;
+    const low = Math.min(lo, hi);
+    const high = Math.max(lo, hi);
+    const rawStep = Number(step);
+    const safeStep = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : 0.01;
+    let next = low + Math.random() * (high - low);
+    next = Math.round((next - low) / safeStep) * safeStep + low;
+    return Math.max(low, Math.min(high, Number(next.toFixed(6))));
+  }, []);
+
+  const randomizeSingleGlobalParam = useCallback((paramId) => {
+    if (paramId === 'backgroundColor') {
+      const channel = () => Math.floor(Math.random() * 256);
+      setBackgroundColor(rgbToHex({ r: channel(), g: channel(), b: channel() }));
+      return;
+    }
+
+    if (paramId === 'globalSpeedMultiplier') {
+      setGlobalSpeedMultiplier(randomInRange(speedMin, speedMax, speedStep));
+      return;
+    }
+
+    if (paramId === 'globalPaletteIndex') {
+      const options = [
+        ...paletteOptions.builtins,
+        ...paletteOptions.customs,
+      ];
+      if (!options.length) return;
+      const pick = options[Math.floor(Math.random() * options.length)];
+      if (!pick?.value) return;
+      if (pick.value.startsWith('custom:')) {
+        const id = pick.value.slice('custom:'.length);
+        setGlobalPaletteIndex?.('custom');
+        setGlobalPaletteRef?.(id || null);
+      } else if (pick.value.startsWith('builtin:')) {
+        const idx = parseInt(pick.value.slice('builtin:'.length), 10);
+        if (!Number.isFinite(idx)) return;
+        setGlobalPaletteRef?.(null);
+        setGlobalPaletteIndex?.(idx);
+      }
+      const src = paletteValueMap.get(pick.value) || [];
+      const nextColors = sampleColorsEven(src, Math.max(1, layers.length));
+      assignOneColorPerLayer(nextColors);
+      return;
+    }
+
+    if (paramId === 'globalBlendMode') {
+      if (!Array.isArray(blendModes) || !blendModes.length) return;
+      const options = blendModes.filter(mode => mode !== globalBlendMode);
+      const pool = options.length ? options : blendModes;
+      setGlobalBlendMode(pool[Math.floor(Math.random() * pool.length)]);
+      return;
+    }
+
+    if (paramId === 'globalOpacity') {
+      const next = randomInRange(opacityMin, opacityMax, opacityStep);
+      setLayers(prev => prev.map(l => ({ ...l, opacity: next })));
+      return;
+    }
+
+    if (paramId === 'layersCount') {
+      commitLayerCountDraft(randomInRange(layersMin, layersMax, layersStep));
+      return;
+    }
+
+    if (paramId === 'variationPosition') {
+      applyVariationValue(paramId, randomInRange(variationPositionMin, variationPositionMax, variationPositionStep));
+      return;
+    }
+
+    if (paramId === 'variationShape') {
+      applyVariationValue(paramId, randomInRange(variationShapeMin, variationShapeMax, variationShapeStep));
+      return;
+    }
+
+    if (paramId === 'variationAnim') {
+      applyVariationValue(paramId, randomInRange(variationAnimMin, variationAnimMax, variationAnimStep));
+      return;
+    }
+
+    if (paramId === 'variationColor') {
+      applyVariationValue(paramId, randomInRange(variationColorMin, variationColorMax, variationColorStep));
+      return;
+    }
+
+    if (paramId === 'variationScale') {
+      applyVariationValue(paramId, randomInRange(variationScaleMin, variationScaleMax, variationScaleStep));
+    }
+  }, [
+    applyVariationValue,
+    assignOneColorPerLayer,
+    blendModes,
+    commitLayerCountDraft,
+    globalBlendMode,
+    layers.length,
+    layersMax,
+    layersMin,
+    layersStep,
+    opacityMax,
+    opacityMin,
+    opacityStep,
+    paletteOptions,
+    paletteValueMap,
+    randomInRange,
+    sampleColorsEven,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
+    setGlobalSpeedMultiplier,
+    setLayers,
+    speedMax,
+    speedMin,
+    speedStep,
+    variationAnimMax,
+    variationAnimMin,
+    variationAnimStep,
+    variationColorMax,
+    variationColorMin,
+    variationColorStep,
+    variationPositionMax,
+    variationPositionMin,
+    variationPositionStep,
+    variationScaleMax,
+    variationScaleMin,
+    variationScaleStep,
+    variationShapeMax,
+    variationShapeMin,
+    variationShapeStep,
+  ]);
+
+  const renderRndControl = (paramId, style) => (
+    <span className="rnd-toggle" style={style}>
+      <button
+        type="button"
+        className="icon-btn rnd-toggle__button"
+        title="Randomise this parameter"
+        aria-label={`Randomise ${paramId}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          randomizeSingleGlobalParam(paramId);
+        }}
+      >
+        <Dices size={11} className="rnd-toggle__icon" />
+      </button>
+      <label className="compact-label" title="Include this parameter when Randomize All is triggered">
+        <input
+          type="checkbox"
+          checked={!!getIsRnd(paramId)}
+          onChange={(e) => setIsRnd(paramId, e.target.checked)}
+        />
+        Rnd
+      </label>
+    </span>
+  );
 
   // Presets: helpers
   const TEMP_PRESET_PREFIX = 'preset-slot-';
@@ -1484,7 +1652,7 @@ const GlobalControls = ({
                   <BackgroundColorPicker compact inline hideLabel color={backgroundColor} onChange={setBackgroundColor} />
                 </div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={Boolean(getIsRnd('backgroundColor'))} onChange={(e) => setIsRnd('backgroundColor', Boolean(e.target.checked))} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  {renderRndControl('backgroundColor')}
                   <label className="compact-label" title="Enable background image"><input type="checkbox" checked={!!backgroundImage?.enabled} onChange={(e) => setBackgroundImage(prev => ({ ...(prev || {}), enabled: !!e.target.checked }))} /> Img</label>
                   <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowFpsSettings(s => !s); }} title="FPS settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
@@ -1511,7 +1679,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Speed:</span><BufferedNumberInput value={globalSpeedMultiplier} min={SPEED_SLIDER_MIN} max={SPEED_SLIDER_MAX} step={speedStep} precision={2} onCommit={(next) => setGlobalSpeedMultiplier(next)} className="dc-value-input" />{renderAutomationBadge('globalSpeedMultiplier')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('globalSpeedMultiplier')} onChange={(e) => setIsRnd('globalSpeedMultiplier', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  {renderRndControl('globalSpeedMultiplier')}
                   <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowSpeedSettings(s => !s); }} title="Global Speed settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
@@ -1570,7 +1738,7 @@ const GlobalControls = ({
                 {paletteOptions.builtins.length > 0 && (<optgroup label="Built-in">{paletteOptions.builtins.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
                 {paletteOptions.customs.length > 0 && (<optgroup label="Custom">{paletteOptions.customs.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}</optgroup>)}
               </select>
-              <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalPaletteIndex')} onChange={(e) => setIsRnd('globalPaletteIndex', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+              {renderRndControl('globalPaletteIndex', { flex: '0 0 auto' })}
               <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowPaletteSettings(s => !s); }} title="Palette settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}><Settings2 size={16} /></button>
               {showPaletteSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
@@ -1596,7 +1764,7 @@ const GlobalControls = ({
               <select className="compact-select" style={{ flex: '1 1 6rem', minWidth: '4rem' }} value={globalBlendMode} onChange={(e) => setGlobalBlendMode(e.target.value)}>
                 {blendModes.map(m => (<option key={m} value={m}>{m}</option>))}
               </select>
-              <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered" style={{ flex: '0 0 auto' }}><input type="checkbox" checked={!!getIsRnd('globalBlendMode')} onChange={(e) => setIsRnd('globalBlendMode', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+              {renderRndControl('globalBlendMode', { flex: '0 0 auto' })}
               <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowBlendModeSettings(s => !s); }} title="Style settings" style={{ padding: '0 0.4rem', flex: '0 0 auto' }}><Settings2 size={16} /></button>
               {showBlendModeSettings && (
                 <div className="dc-settings" style={{ flex: '0 0 100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>
@@ -1618,7 +1786,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Global Opacity:</span><BufferedNumberInput value={Number.isFinite(layers?.[0]?.opacity) ? layers[0].opacity : 1} min={OPACITY_SLIDER_MIN} max={OPACITY_SLIDER_MAX} step={opacityStep} precision={2} onCommit={(next) => { const v = Math.max(0, Math.min(1, next)); setLayers(prev => prev.map(l => ({ ...l, opacity: v }))); }} className="dc-value-input" />{renderAutomationBadge('globalOpacity')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('globalOpacity')} onChange={(e) => setIsRnd('globalOpacity', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  {renderRndControl('globalOpacity')}
                   <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowOpacitySettings(s => !s); }} title="Opacity settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
@@ -1651,7 +1819,7 @@ const GlobalControls = ({
               <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>Layers:</span><BufferedNumberInput value={layerCountDraft} min={LAYERS_SLIDER_MIN} max={LAYERS_SLIDER_MAX} step={layersStep} precision={0} onCommit={(next) => commitLayerCountDraft(Math.max(LAYERS_SLIDER_MIN, Math.min(LAYERS_SLIDER_MAX, Math.round(next))))} className="dc-value-input" inputMode="numeric" />{renderAutomationBadge('layersCount')}</div>
                 <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd('layersCount')} onChange={(e) => setIsRnd('layersCount', e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                  {renderRndControl('layersCount')}
                   <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); setShowLayersSettings(s => !s); }} title="Layers settings" style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                 </div>
               </div>
@@ -1709,7 +1877,7 @@ const GlobalControls = ({
                 <div className="dc-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}><span>{v.label}:</span><BufferedNumberInput value={Number(v.value)} min={v.sliderMin} max={v.sliderMax} step={v.step} precision={2} onCommit={(next) => applyVariationValue(v.key, next)} className="dc-value-input" />{renderAutomationBadge(v.key)}</div>
                   <div className="dc-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <label className="compact-label rnd-toggle" title="Include this parameter when Randomize All is triggered"><input type="checkbox" checked={!!getIsRnd(v.key)} onChange={(e) => setIsRnd(v.key, e.target.checked)} /><Dices size={11} className="rnd-toggle__icon" />Rnd</label>
+                    {renderRndControl(v.key)}
                     <button type="button" className="icon-btn settings-toggle-btn" onClick={(e) => { e.stopPropagation(); v.setShowSettings(s => !s); }} title={`${v.label} settings`} style={{ padding: '0 0.4rem' }}><Settings2 size={16} /></button>
                   </div>
                 </div>
