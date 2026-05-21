@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Consolidates all MIDI registerParamHandler effects
@@ -13,6 +13,9 @@ export function useMIDIHandlers({
   blendModes,
   parameters = [],
   layersCountParam,
+  applyVariationInstantly = false,
+  audioSpawnUseGlobalPalette = false,
+  paletteColorsForVariation = [],
   // Layers
   layers,
   setLayers,
@@ -41,6 +44,162 @@ export function useMIDIHandlers({
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
   }, [backgroundColor]);
+
+  const applyVariationValue = useCallback((prop, rawValue) => {
+    setLayers?.(prev => {
+      if (!Array.isArray(prev) || prev.length === 0) return prev;
+
+      let anyChange = false;
+      const updated = prev.map((layer) => {
+        if (layer?.[prop] === rawValue) return layer;
+        anyChange = true;
+        return { ...layer, [prop]: rawValue };
+      });
+
+      if (!anyChange) return prev;
+      if (!applyVariationInstantly || updated.length <= 1 || typeof buildVariedLayerFrom !== 'function') {
+        return updated;
+      }
+
+      const firstLayer = updated[0];
+      const baseVar = {
+        shape: Number(firstLayer?.variationShape ?? DEFAULT_LAYER.variationShape),
+        anim: Number(firstLayer?.variationAnim ?? DEFAULT_LAYER.variationAnim),
+        color: Number(firstLayer?.variationColor ?? DEFAULT_LAYER.variationColor),
+        position: Number(firstLayer?.variationPosition ?? DEFAULT_LAYER.variationPosition),
+        scale: Number(firstLayer?.variationScale ?? DEFAULT_LAYER.variationScale ?? 0),
+      };
+      const categoryMap = {
+        variationPosition: ['position'],
+        variationShape: ['shape'],
+        variationAnim: ['anim'],
+        variationColor: ['color'],
+        variationScale: ['scale'],
+      };
+      const affectCategories = categoryMap[prop] || null;
+      const categorySet = affectCategories ? new Set(affectCategories) : null;
+      const rebuilt = [firstLayer];
+      let prevLayer = firstLayer;
+
+      for (let i = 1; i < updated.length; i += 1) {
+        const original = updated[i];
+        const varied = buildVariedLayerFrom(prevLayer, i + 1, baseVar, {
+          affectCategories,
+          preserveSeeds: true,
+          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
+          paletteColors: paletteColorsForVariation,
+        }) || original;
+        const merged = {
+          ...original,
+          ...varied,
+          id: original.id ?? varied.id,
+          name: original.name || varied.name,
+        };
+
+        if (categorySet) {
+          if (!categorySet.has('color')) {
+            merged.colors = Array.isArray(original.colors) ? [...original.colors] : original.colors;
+            if (typeof original.numColors !== 'undefined') merged.numColors = original.numColors;
+          }
+          if (!categorySet.has('position') && !categorySet.has('scale')) {
+            if (typeof original.xOffset !== 'undefined') merged.xOffset = original.xOffset;
+            if (typeof original.yOffset !== 'undefined') merged.yOffset = original.yOffset;
+            if (original.position && typeof original.position === 'object') {
+              merged.position = { ...original.position };
+            }
+          }
+          if (!categorySet.has('shape')) {
+            [
+              'numSides',
+              'curviness',
+              'wobble',
+              'noiseAmount',
+              'width',
+              'height',
+              'radiusFactor',
+              'radiusFactorX',
+              'radiusFactorY',
+              'nodes',
+              'syncNodesToNumSides',
+              'viewBoxMapped',
+            ].forEach((field) => {
+              if (field in original) {
+                merged[field] = Array.isArray(original[field])
+                  ? [...original[field]]
+                  : (original[field] && typeof original[field] === 'object' ? { ...original[field] } : original[field]);
+              }
+            });
+          }
+          if (!categorySet.has('anim')) {
+            [
+              'movementStyle',
+              'movementSpeed',
+              'movementAngle',
+              'scaleSpeed',
+              'scaleMin',
+              'scaleMax',
+              'imageBlur',
+              'imageBrightness',
+              'imageContrast',
+              'imageHue',
+              'imageSaturation',
+              'imageDistortion',
+              'vx',
+              'vy',
+              'orbitCenterX',
+              'orbitCenterY',
+              'orbitAngle',
+              'orbitRadiusX',
+              'orbitRadiusY',
+            ].forEach((field) => {
+              if (field in original) merged[field] = original[field];
+            });
+          }
+          if (!categorySet.has('scale')) {
+            if (typeof original.variationScale !== 'undefined') merged.variationScale = original.variationScale;
+            if (original.position && typeof original.position === 'object') {
+              merged.position = {
+                ...(merged.position || {}),
+                ...(original.position || {}),
+                scale: original.position.scale,
+                scaleDirection: original.position.scaleDirection,
+              };
+            }
+          } else {
+            const rawScaleVar = Number(baseVar.scale || 0);
+            const originalScale = original.position?.scale ?? 1;
+            if (rawScaleVar !== 0) {
+              const layerSeed = (firstLayer?.seed ?? 1) + (i * 1013904223);
+              const rng = () => {
+                const x = Math.sin(layerSeed * 9999) * 10000;
+                return x - Math.floor(x);
+              };
+              const absWeight = Math.min(Math.abs(rawScaleVar) / 3, 1);
+              const ratio = rawScaleVar < 0
+                ? Math.max(0.05, 1 - rng() * (0.95 * absWeight))
+                : 1 + rng() * (1.2 * absWeight);
+              merged.position = {
+                ...(original.position || {}),
+                scale: Math.max(0.05, Math.min(5, originalScale * ratio)),
+              };
+            }
+          }
+        }
+
+        rebuilt.push(merged);
+        prevLayer = merged;
+      }
+
+      return rebuilt;
+    });
+  }, [
+    DEFAULT_LAYER,
+    applyVariationInstantly,
+    audioSpawnUseGlobalPalette,
+    buildVariedLayerFrom,
+    paletteColorsForVariation,
+    setLayers,
+  ]);
 
   // Randomize All (rising-edge)
   useEffect(() => {
@@ -73,10 +232,11 @@ export function useMIDIHandlers({
     const unregister = registerParamHandler('variation', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped, variationPosition: mapped })));
+      setLayers?.(prev => prev.map(l => ({ ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped })));
+      applyVariationValue('variationPosition', mapped);
     });
     return unregister;
-  }, [registerParamHandler, setLayers]);
+  }, [applyVariationValue, registerParamHandler, setLayers]);
 
   // Split variations: variationShape, variationAnim, variationColor (0..3) on every layer
   useEffect(() => {
@@ -84,22 +244,22 @@ export function useMIDIHandlers({
     const u0 = registerParamHandler('variationPosition', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variationPosition: mapped })));
+      applyVariationValue('variationPosition', mapped);
     });
     const u1 = registerParamHandler('variationShape', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variationShape: mapped })));
+      applyVariationValue('variationShape', mapped);
     });
     const u2 = registerParamHandler('variationAnim', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variationAnim: mapped })));
+      applyVariationValue('variationAnim', mapped);
     });
     const u3 = registerParamHandler('variationColor', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variationColor: mapped })));
+      applyVariationValue('variationColor', mapped);
     });
     return () => {
       if (typeof u0 === 'function') u0();
@@ -107,17 +267,17 @@ export function useMIDIHandlers({
       if (typeof u2 === 'function') u2();
       if (typeof u3 === 'function') u3();
     };
-  }, [registerParamHandler, setLayers]);
+  }, [applyVariationValue, registerParamHandler]);
 
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('variationScale', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +((-3) + v * 6).toFixed(2);
-      setLayers?.(prev => prev.map(l => ({ ...l, variationScale: mapped })));
+      applyVariationValue('variationScale', mapped);
     });
     return unregister;
-  }, [registerParamHandler, setLayers]);
+  }, [applyVariationValue, registerParamHandler]);
 
   // Global Blend Mode (dropdown over blendModes)
   useEffect(() => {
@@ -366,19 +526,19 @@ export function useMIDIHandlers({
         setLayerCount(randomInRange(paramId, 1, 20, 1));
       } else if (paramId === 'variationPosition') {
         const next = randomInRange(paramId, 0, 3, 0.01);
-        setLayers?.(prev => prev.map(layer => ({ ...layer, variationPosition: next })));
+        applyVariationValue('variationPosition', next);
       } else if (paramId === 'variationShape') {
         const next = randomInRange(paramId, 0, 3, 0.01);
-        setLayers?.(prev => prev.map(layer => ({ ...layer, variationShape: next })));
+        applyVariationValue('variationShape', next);
       } else if (paramId === 'variationAnim') {
         const next = randomInRange(paramId, 0, 3, 0.01);
-        setLayers?.(prev => prev.map(layer => ({ ...layer, variationAnim: next })));
+        applyVariationValue('variationAnim', next);
       } else if (paramId === 'variationColor') {
         const next = randomInRange(paramId, 0, 3, 0.01);
-        setLayers?.(prev => prev.map(layer => ({ ...layer, variationColor: next })));
+        applyVariationValue('variationColor', next);
       } else if (paramId === 'variationScale') {
         const next = randomInRange(paramId, -3, 3, 0.01);
-        setLayers?.(prev => prev.map(layer => ({ ...layer, variationScale: next })));
+        applyVariationValue('variationScale', next);
       }
     };
 
@@ -415,6 +575,7 @@ export function useMIDIHandlers({
     };
   }, [
     DEFAULT_LAYER,
+    applyVariationValue,
     assignOneColorPerLayer,
     blendModes,
     buildVariedLayerFrom,

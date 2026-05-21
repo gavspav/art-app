@@ -21,7 +21,7 @@ function Harness({ handlers, onBackgroundColor, onLayers }) {
   const [backgroundColor, setBackgroundColor] = useState('#102030');
   const [layers, setLayers] = useState([
     { id: 'l1', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1 },
-    { id: 'l2', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1 },
+    { id: 'l2', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1, xOffset: 0 },
   ]);
 
   useMIDIHandlers({
@@ -38,7 +38,11 @@ function Harness({ handlers, onBackgroundColor, onLayers }) {
     layers,
     setLayers,
     DEFAULT_LAYER: {},
-    buildVariedLayerFrom: layer => ({ ...layer }),
+    buildVariedLayerFrom: (layer, index, baseVar, options = {}) => ({
+      ...layer,
+      xOffset: options.affectCategories?.includes('position') ? baseVar.position + index : layer.xOffset,
+    }),
+    applyVariationInstantly: true,
     setSelectedLayerIndex: () => {},
     palettes: [{ colors: ['#ff0000', '#00ff00'] }],
     sampleColorsEven: (colors, count) => colors.slice(0, count),
@@ -146,5 +150,20 @@ describe('useMIDIHandlers', () => {
     expect(latestLayers[1].variationShape).toBe(1.5);
     expect(latestLayers[0].variationScale).toBe(1.5);
     expect(latestLayers[1].variationScale).toBe(1.5);
+  });
+
+  test('variation position midi applies the same instant visual update as the UI slider', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'variationPosition', 0.5);
+    });
+
+    expect(latestLayers[0].variationPosition).toBe(1.5);
+    expect(latestLayers[1].variationPosition).toBe(1.5);
+    expect(latestLayers[1].xOffset).toBe(3.5);
   });
 });
