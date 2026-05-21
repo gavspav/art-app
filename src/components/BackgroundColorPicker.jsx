@@ -13,9 +13,23 @@ const BackgroundColorPicker = ({ color, onChange, compact = false, hideLabel = f
   } = useMidi() || {};
   const hasSelectedMidiDevice = !!(midiSupported && midiInputId);
 
+  const idAll = 'backgroundColor';
   const idR = 'backgroundColorR';
   const idG = 'backgroundColorG';
   const idB = 'backgroundColorB';
+  const renderCompactMidiButtons = () => (
+    <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idAll); }} disabled={!midiSupported} title={`Learn MIDI for all background channels${midiSupported ? '' : ' (not supported)'}`}>All</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported} title={`Learn MIDI for BG Red${midiSupported ? '' : ' (not supported)'}`}>R</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported} title={`Learn MIDI for BG Green${midiSupported ? '' : ' (not supported)'}`}>G</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported} title={`Learn MIDI for BG Blue${midiSupported ? '' : ' (not supported)'}`}>B</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idAll); }} disabled={!midiSupported || !midiMappings?.[idAll]} title="Clear all background channels">✕All</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]} title="Clear R">✕R</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]} title="Clear G">✕G</button>
+      <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]} title="Clear B">✕B</button>
+    </div>
+  );
+
   if (compact) {
     if (inline) {
       return (
@@ -28,16 +42,7 @@ const BackgroundColorPicker = ({ color, onChange, compact = false, hideLabel = f
             aria-label="Background colour"
             title="Background colour"
           />
-          {hasSelectedMidiDevice && (
-            <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.4rem', alignItems: 'center' }}>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported} title={`Learn MIDI for BG Red${midiSupported ? '' : ' (not supported)'}`}>R</button>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported} title={`Learn MIDI for BG Green${midiSupported ? '' : ' (not supported)'}`}>G</button>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported} title={`Learn MIDI for BG Blue${midiSupported ? '' : ' (not supported)'}`}>B</button>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]} title="Clear R">✕R</button>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]} title="Clear G">✕G</button>
-              <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]} title="Clear B">✕B</button>
-            </div>
-          )}
+          {hasSelectedMidiDevice && renderCompactMidiButtons()}
         </div>
       );
     }
@@ -51,16 +56,7 @@ const BackgroundColorPicker = ({ color, onChange, compact = false, hideLabel = f
           onChange={(e) => onChange(e.target.value)}
           aria-label="Background colour"
         />
-        {hasSelectedMidiDevice && (
-          <div style={{ display: 'flex', gap: '0.25rem', marginLeft: '0.4rem', alignItems: 'center' }}>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported} title={`Learn MIDI for BG Red${midiSupported ? '' : ' (not supported)'}`}>R</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported} title={`Learn MIDI for BG Green${midiSupported ? '' : ' (not supported)'}`}>G</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported} title={`Learn MIDI for BG Blue${midiSupported ? '' : ' (not supported)'}`}>B</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]} title="Clear R">✕R</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]} title="Clear G">✕G</button>
-            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]} title="Clear B">✕B</button>
-          </div>
-        )}
+        {hasSelectedMidiDevice && renderCompactMidiButtons()}
       </div>
     );
   }
@@ -78,6 +74,10 @@ const BackgroundColorPicker = ({ color, onChange, compact = false, hideLabel = f
           <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
             <strong>MIDI</strong>
             <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+              All: {(!midiSupported) ? 'N/A' : (midiMappings && midiMappings[idAll] ? (mappingLabel ? mappingLabel(midiMappings[idAll]) : 'Mapped') : 'Not mapped')}
+              {learnParamId === idAll && midiSupported && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
+            </div>
+            <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
               R: {(!midiSupported) ? 'N/A' : (midiMappings && midiMappings[idR] ? (mappingLabel ? mappingLabel(midiMappings[idR]) : 'Mapped') : 'Not mapped')}
               {learnParamId === idR && midiSupported && <span style={{ marginLeft: '0.35rem', color: '#4fc3f7' }}>Listening…</span>}
             </div>
@@ -91,9 +91,11 @@ const BackgroundColorPicker = ({ color, onChange, compact = false, hideLabel = f
             </div>
           </div>
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idAll); }} disabled={!midiSupported} title="Learn all background channels">Learn All</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idR); }} disabled={!midiSupported} title="Learn BG Red">Learn R</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idG); }} disabled={!midiSupported} title="Learn BG Green">Learn G</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(idB); }} disabled={!midiSupported} title="Learn BG Blue">Learn B</button>
+            <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idAll); }} disabled={!midiSupported || !midiMappings?.[idAll]} title="Clear all background channels">Clear All</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idR); }} disabled={!midiSupported || !midiMappings?.[idR]} title="Clear R">Clear R</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idG); }} disabled={!midiSupported || !midiMappings?.[idG]} title="Clear G">Clear G</button>
             <button className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(idB); }} disabled={!midiSupported || !midiMappings?.[idB]} title="Clear B">Clear B</button>

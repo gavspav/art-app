@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 // Consolidates all MIDI registerParamHandler effects
@@ -26,6 +26,12 @@ export function useMIDIHandlers({
   // Selection
   clampedSelectedIndex,
 }) {
+  const backgroundColorRef = useRef(backgroundColor || '#000000');
+
+  useEffect(() => {
+    backgroundColorRef.current = backgroundColor || '#000000';
+  }, [backgroundColor]);
+
   // Randomize All (rising-edge)
   useEffect(() => {
     if (!registerParamHandler) return;
@@ -51,39 +57,39 @@ export function useMIDIHandlers({
     return unregister;
   }, [registerParamHandler, setGlobalSpeedMultiplier]);
 
-  // Legacy Layer Variation (0..3) -> now maps to all three split variations on base layer [0]
+  // Legacy Layer Variation (0..3) -> now maps to all three split variations on every layer
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('variation', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped, variationPosition: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped, variationPosition: mapped })));
     });
     return unregister;
   }, [registerParamHandler, setLayers]);
 
-  // Split variations: variationShape, variationAnim, variationColor (0..3) on base layer [0]
+  // Split variations: variationShape, variationAnim, variationColor (0..3) on every layer
   useEffect(() => {
     if (!registerParamHandler) return;
     const u0 = registerParamHandler('variationPosition', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationPosition: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variationPosition: mapped })));
     });
     const u1 = registerParamHandler('variationShape', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationShape: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variationShape: mapped })));
     });
     const u2 = registerParamHandler('variationAnim', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationAnim: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variationAnim: mapped })));
     });
     const u3 = registerParamHandler('variationColor', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +(v * 3).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationColor: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variationColor: mapped })));
     });
     return () => {
       if (typeof u0 === 'function') u0();
@@ -98,7 +104,7 @@ export function useMIDIHandlers({
     const unregister = registerParamHandler('variationScale', ({ value01 }) => {
       const v = Math.max(0, Math.min(1, value01));
       const mapped = +((-3) + v * 6).toFixed(2);
-      setLayers?.(prev => prev.map((l, i) => (i === 0 ? { ...l, variationScale: mapped } : l)));
+      setLayers?.(prev => prev.map(l => ({ ...l, variationScale: mapped })));
     });
     return unregister;
   }, [registerParamHandler, setLayers]);
@@ -227,26 +233,42 @@ export function useMIDIHandlers({
     // Re-register if layer list, names, ranges, or enable flags change
   }, [registerParamHandler, setLayers, layers]);
 
-  // Background Color (RGB)
+  // Background Color (whole colour + RGB channels)
   useEffect(() => {
     if (!registerParamHandler) return;
 
+    const idAll = 'backgroundColor';
     const idR = 'backgroundColorR';
     const idG = 'backgroundColorG';
     const idB = 'backgroundColorB';
 
-    const setChannel = (channel) => ({ value01 }) => {
-      const cur = hexToRgb(backgroundColor || '#000000');
+    const setAllChannels = ({ value01 }) => {
       const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
-      const next = { ...cur, [channel]: v255 };
-      setBackgroundColor?.(rgbToHex(next));
+      const nextHex = rgbToHex({ r: v255, g: v255, b: v255 });
+      backgroundColorRef.current = nextHex;
+      setBackgroundColor?.(nextHex);
     };
 
+    const setChannel = (channel) => ({ value01 }) => {
+      const cur = hexToRgb(backgroundColorRef.current || '#000000');
+      const v255 = Math.max(0, Math.min(255, Math.round(value01 * 255)));
+      const next = { ...cur, [channel]: v255 };
+      const nextHex = rgbToHex(next);
+      backgroundColorRef.current = nextHex;
+      setBackgroundColor?.(nextHex);
+    };
+
+    const u0 = registerParamHandler(idAll, setAllChannels);
     const u1 = registerParamHandler(idR, setChannel('r'));
     const u2 = registerParamHandler(idG, setChannel('g'));
     const u3 = registerParamHandler(idB, setChannel('b'));
-    return () => { if (typeof u1 === 'function') u1(); if (typeof u2 === 'function') u2(); if (typeof u3 === 'function') u3(); };
-  }, [registerParamHandler, backgroundColor, setBackgroundColor]);
+    return () => {
+      if (typeof u0 === 'function') u0();
+      if (typeof u1 === 'function') u1();
+      if (typeof u2 === 'function') u2();
+      if (typeof u3 === 'function') u3();
+    };
+  }, [registerParamHandler, setBackgroundColor]);
 
   // Global per-layer MIDI Colour handlers (RGBA)
   useEffect(() => {

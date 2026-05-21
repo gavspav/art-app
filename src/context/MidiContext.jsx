@@ -21,6 +21,7 @@ const buildDefaultMidiMappings = () => {
   };
 
   const specialOrder = [
+    'backgroundColor',
     'backgroundColorR',
     'backgroundColorG',
     'backgroundColorB',

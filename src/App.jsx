@@ -12,6 +12,7 @@ import { useFullscreen } from './hooks/useFullscreen';
 import { useAnimation } from './hooks/useAnimation.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMIDIHandlers } from './hooks/useMIDIHandlers.js';
+import { useMIDILayerParamHandlers } from './hooks/useMIDILayerParamHandlers.js';
 import { useAudioHandlers } from './hooks/useAudioHandlers.js';
 import { useAudioLayerHandlers } from './hooks/useAudioLayerHandlers.js';
 import { useAudioSpawnLayers } from './hooks/useAudioSpawnLayers.js';
@@ -1850,6 +1851,18 @@ const MainApp = () => {
     handleRandomizeAll,
     clampedSelectedIndex: selectedIdxForMidi,
     layersCountParam,
+  });
+
+  useMIDILayerParamHandlers({
+    registerParamHandler,
+    parameters,
+    layers,
+    setLayers,
+    selectedLayerIndex,
+    parameterTargetMode,
+    getActiveTargetLayerIds,
+    palettes,
+    sampleColors: sampleColorsEven,
   });
 
   // Centralize all Audio handlers (mirrors MIDI pattern)

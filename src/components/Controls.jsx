@@ -1194,35 +1194,6 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
     randomizeThisParam();
   };
 
-  // Register MIDI handler for this parameter
-  useEffect(() => {
-    if (!registerParamHandler) return;
-    const unsub = registerParamHandler(id, ({ value01 }) => {
-      if (type === 'slider') {
-        const lo = Number.isFinite(min) ? min : 0;
-        const hi = Number.isFinite(max) ? max : 1;
-        const st = Number.isFinite(step) && step > 0 ? step : (hi - lo) / 1000;
-        let mapped = lo + value01 * (hi - lo);
-        mapped = Math.round((mapped - lo) / st) * st + lo;
-        mapped = Math.max(lo, Math.min(hi, mapped));
-
-        // Respect target mode when updating via MIDI
-        if (id === 'scale') {
-          applyUpdateToTargets((layer) => ({
-            position: { ...(layer?.position || {}), scale: mapped },
-          }));
-        } else {
-          applyUpdateToTargets({ [id]: mapped });
-        }
-      } else if (type === 'dropdown' && Array.isArray(options) && options.length) {
-        const idx = Math.round(value01 * (options.length - 1));
-        const choice = options[Math.max(0, Math.min(options.length - 1, idx))];
-        applyUpdateToTargets({ [id]: choice });
-      }
-    });
-    return () => { if (typeof unsub === 'function') unsub(); };
-  }, [applyUpdateToTargets, id, max, min, options, registerParamHandler, step, type]);
-
   // BPM and Audio modulation is handled in the animation loop (useAnimation.js)
   // No handlers registered here to prevent excessive re-renders
 
@@ -1568,7 +1539,6 @@ const Controls = forwardRef(({
   onMoveLayerUp,
   onMoveLayerDown,
   palettes = [],
-  automationPalettes = [],
   onSaveCustomPalette,
 }, ref) => {
   const { parameters } = useParameters();
@@ -1985,45 +1955,6 @@ const Controls = forwardRef(({
   const midiRandomizeCurrentLayerId = buildMidiRandomizeId('currentLayer');
   useMidiTrigger(registerParamHandler, midiRandomizeCurrentLayerId, () => randomizeCurrentLayer && randomizeCurrentLayer(false));
   const midiRandomizeCurrentLayerMapped = !!midiMappings?.[midiRandomizeCurrentLayerId];
-
-  // Register per-layer MIDI handler for Palette Index
-  useEffect(() => {
-    if (!registerParamHandler || !currentLayer) return;
-    const paramIds = buildLayerParamIds(currentLayer, 'paletteIndex', selectedLayerIndex);
-    const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
-      const list = automationPalettes || [];
-      if (!Array.isArray(list) || list.length === 0) return;
-      const idx = Math.max(0, Math.min(list.length - 1, Math.floor(value01 * list.length)));
-      const palette = list[idx];
-      const count = Number.isFinite(currentLayer?.numColors)
-        ? currentLayer.numColors
-        : ((Array.isArray(currentLayer?.colors) ? currentLayer.colors.length : 0) || (palette?.colors?.length ?? 1));
-      const src = Array.isArray(palette) ? palette : palette?.colors;
-      const nextColors = sampleColors(src || [], count);
-      applyTargetedUpdate(() => ({ colors: [...nextColors], numColors: count, selectedColor: 0 }));
-    }));
-    return () => {
-      unsubs.forEach((unsub) => {
-        if (typeof unsub === 'function') unsub();
-      });
-    };
-  }, [applyTargetedUpdate, currentLayer, registerParamHandler, automationPalettes, selectedLayerIndex]);
-
-  // Register per-layer MIDI handler for Rotation (-180..180)
-  useEffect(() => {
-    if (!registerParamHandler || !currentLayer) return;
-    const paramIds = buildLayerParamIds(currentLayer, 'rotation', selectedLayerIndex);
-    const unsubs = paramIds.map((paramId) => registerParamHandler(paramId, ({ value01 }) => {
-      const v = -180 + (value01 * 360);
-      const wrapped = ((((v + 180) % 360) + 360) % 360) - 180;
-      applyRotation(wrapped);
-    }));
-    return () => {
-      unsubs.forEach((unsub) => {
-        if (typeof unsub === 'function') unsub();
-      });
-    };
-  }, [applyRotation, currentLayer, registerParamHandler, selectedLayerIndex]);
 
   return (
     <div className="controls-panel">
