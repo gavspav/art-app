@@ -18,6 +18,8 @@ export const buildLayerIdSets = (buildTargetSet) => {
   };
 };
 
+export const buildLayerIndexTarget = (index) => `__layer_index:${index}`;
+
 /**
  * Determine which layer ids should be updated for a parameter change based on the current target mode.
  * "individual" scopes to the active layer/selection; "global" broadcasts to every layer.
@@ -59,8 +61,10 @@ export const applyWithVary = ({ layers, targets, updater }) => {
   // try {
   //   console.debug('[applyWithVary] start', { targetCount: targets.size, targetIds: Array.from(targets || []) });
   // } catch { /* noop */ }
-  const result = layers.map(layer => {
-    if (!targets.has(layer.id)) return layer;
+  const result = layers.map((layer, index) => {
+    const idMatch = layer?.id && targets.has(layer.id);
+    const indexMatch = targets.has(buildLayerIndexTarget(index));
+    if (!idMatch && !indexMatch) return layer;
     // try { console.debug('[applyWithVary] updating layer', layer.id); } catch { /* noop */ }
     const patch = updater(layer);
     if (!patch || typeof patch !== 'object') return layer;

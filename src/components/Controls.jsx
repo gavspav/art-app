@@ -2240,7 +2240,7 @@ const isLayerEqualForUI = (a, b) => {
   const posA = a.position || {};
   const posB = b.position || {};
   const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
-  ['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection'].forEach(k => posKeys.delete(k));
+  ['x', 'y', 'vx', 'vy', 'scaleDirection'].forEach(k => posKeys.delete(k));
   for (const key of posKeys) {
     if (!Object.is(posA[key], posB[key])) return false;
   }

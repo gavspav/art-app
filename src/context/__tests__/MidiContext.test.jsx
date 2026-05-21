@@ -52,6 +52,29 @@ function MidiProbe() {
   );
 }
 
+function MappingProbe() {
+  const midi = useMidi();
+  const opacity = midi?.mappings?.globalOpacity;
+  const speed = midi?.mappings?.globalSpeedMultiplier;
+
+  return (
+    <div>
+      <div data-testid="opacity-mapping">{opacity ? `${opacity.type}:${opacity.channel}:${opacity.number}` : 'none'}</div>
+      <div data-testid="speed-mapping">{speed ? `${speed.type}:${speed.channel}:${speed.number}` : 'none'}</div>
+      <button
+        type="button"
+        onClick={() => {
+          midi?.setMapping?.('globalOpacity', { type: 'cc', channel: 1, number: 74 });
+          midi?.setMapping?.('globalSpeedMultiplier', { type: 'cc', channel: 1, number: 75 });
+        }}
+      >
+        Set mappings
+      </button>
+      <button type="button" onClick={() => midi?.clearMapping?.('globalOpacity')}>Clear opacity</button>
+    </div>
+  );
+}
+
 describe('MidiContext', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -88,5 +111,29 @@ describe('MidiContext', () => {
     sendCc(input, 74, 64);
 
     await waitFor(() => expect(screen.getByTestId('hits')).toHaveTextContent('1'));
+  });
+
+  it('clears only the requested learned mapping', async () => {
+    const { access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <MappingProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set mappings' }));
+
+    await waitFor(() => expect(screen.getByTestId('opacity-mapping')).toHaveTextContent('cc:1:74'));
+    await waitFor(() => expect(screen.getByTestId('speed-mapping')).toHaveTextContent('cc:1:75'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear opacity' }));
+
+    await waitFor(() => expect(screen.getByTestId('opacity-mapping')).toHaveTextContent('none'));
+    expect(screen.getByTestId('speed-mapping')).toHaveTextContent('cc:1:75');
   });
 });

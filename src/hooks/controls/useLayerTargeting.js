@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { resolveLayerTargets, applyWithVary } from '../../utils/varyUtils.js';
+import { resolveLayerTargets, applyWithVary, buildLayerIndexTarget } from '../../utils/varyUtils.js';
 
 export function useLayerTargeting({
   currentLayer,
@@ -12,7 +12,7 @@ export function useLayerTargeting({
   const buildTargetSet = useCallback((options = {}) => {
     const mode = options.mode || 'targeted';
     if (mode === 'all') {
-      return new Set((layerIds || []).filter(Boolean));
+      return new Set((layerIds || []).map((id, index) => id || buildLayerIndexTarget(index)).filter(Boolean));
     }
     if (typeof getActiveTargetLayerIds !== 'function') return new Set();
     const ids = getActiveTargetLayerIds();

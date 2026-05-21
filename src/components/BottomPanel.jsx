@@ -1068,19 +1068,6 @@ const BottomPanel = ({
           <div className="tab-content global-tab">
             <div className="control-card">
               <h3 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Audio</h3>
-              <div className="compact-field">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span className="compact-label">MIDI Input</span>
-                </div>
-                {!midiSupported ? (
-                  <div style={{ opacity: 0.7 }}>No Web MIDI</div>
-                ) : (
-                  <select className="compact-select" value={midiInputId || ''} onChange={(e) => setMidiInputId?.(e.target.value)}>
-                    <option value="">None</option>
-                    {(midiInputs || []).map(inp => (<option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>))}
-                  </select>
-                )}
-              </div>
               <AudioReactiveSection isActiveTab={activeTab === 'audio'} />
               <AudioDemoPresetsSection
                 timelineMode={timelineMode}
@@ -1378,6 +1365,33 @@ const BottomPanel = ({
             >
               <Piano size={14} />
             </button>
+            <select
+              className="compact-select toolbar-chip"
+              value={midiInputId || ''}
+              onChange={(e) => {
+                e.stopPropagation();
+                handlePanelInteraction();
+                setMidiInputId?.(e.target.value);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              disabled={!midiSupported || !(Array.isArray(midiInputs) && midiInputs.length > 0)}
+              title="MIDI input for learn and mapped controls"
+              aria-label="MIDI input"
+              style={{ maxWidth: '11rem', minWidth: '7rem', height: '1.75rem', opacity: midiInputId ? 1 : 0.65 }}
+            >
+              {!midiSupported ? (
+                <option value="">No Web MIDI</option>
+              ) : !(Array.isArray(midiInputs) && midiInputs.length > 0) ? (
+                <option value="">No MIDI inputs</option>
+              ) : (
+                <>
+                  <option value="">MIDI: None</option>
+                  {(midiInputs || []).map(inp => (
+                    <option key={inp.id} value={inp.id}>{inp.name || inp.id}</option>
+                  ))}
+                </>
+              )}
+            </select>
           </div>
           <div className="toolbar-group toolbar-status">
             <BeatIndicator panelExpanded={panelState === 'expanded'} />
@@ -1406,7 +1420,7 @@ const isLayerEqualForUI = (a, b) => {
   for (const key of keys) {
     if (!Object.is(a[key], b[key])) return false;
   }
-  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scale', 'scaleDirection']);
+  const ignorePos = new Set(['x', 'y', 'vx', 'vy', 'scaleDirection']);
   const posA = a.position || {};
   const posB = b.position || {};
   const posKeys = new Set([...Object.keys(posA), ...Object.keys(posB)]);
