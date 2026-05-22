@@ -50,8 +50,14 @@ export function useMIDIHandlers({
         ? layersCountParam
         : (Array.isArray(parameters) ? parameters.find(candidate => candidate?.id === paramId) : null)
     );
-    const min = Number.isFinite(Number(param?.min)) ? Number(param.min) : fallbackMin;
-    const max = Number.isFinite(Number(param?.max)) ? Number(param.max) : fallbackMax;
+    const absoluteMin = Number.isFinite(Number(param?.min)) ? Number(param.min) : fallbackMin;
+    const absoluteMax = Number.isFinite(Number(param?.max)) ? Number(param.max) : fallbackMax;
+    const absoluteLow = Math.min(absoluteMin, absoluteMax);
+    const absoluteHigh = Math.max(absoluteMin, absoluteMax);
+    const rangeMin = Number.isFinite(Number(param?.randomMin)) ? Number(param.randomMin) : absoluteMin;
+    const rangeMax = Number.isFinite(Number(param?.randomMax)) ? Number(param.randomMax) : absoluteMax;
+    const min = clamp(rangeMin, absoluteLow, absoluteHigh);
+    const max = clamp(rangeMax, absoluteLow, absoluteHigh);
     const step = Number.isFinite(Number(param?.step)) && Number(param.step) > 0
       ? Number(param.step)
       : fallbackStep;

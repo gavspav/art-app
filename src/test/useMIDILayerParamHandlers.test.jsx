@@ -32,7 +32,7 @@ function Harness({
     registerParamHandler: makeRegister(handlers),
     parameters: [
       { id: 'radiusFactor', label: 'Size', group: 'Shape', type: 'slider', min: 0, max: 4, step: 0.01, showInOverlay: true },
-      { id: 'colorFadeSpeed', label: 'Colour fade', group: 'Movement', type: 'slider', min: 0, max: 1, step: 0.01, showInOverlay: true },
+      { id: 'colorFadeSpeed', label: 'Colour fade', group: 'Movement', type: 'slider', min: 0, max: 1, step: 0.01, randomMin: 0.2, randomMax: 0.6, showInOverlay: true },
     ],
     layers,
     setLayers,
@@ -104,6 +104,20 @@ describe('useMIDILayerParamHandlers', () => {
     expect(latestLayers[0].radiusFactorX).toBeCloseTo(2);
     expect(latestLayers[0].radiusFactorY).toBeCloseTo(2);
     expect(latestLayers[1].radiusFactor).toBeCloseTo(2);
+  });
+
+  test('layer parameter mappings respect configured random bounds', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'colorFadeSpeed', 1);
+    });
+
+    expect(latestLayers[0].colorFadeSpeed).toBeCloseTo(0.6);
+    expect(latestLayers[1].colorFadeSpeed).toBeUndefined();
   });
 
   test('layer parameter randomise triggers are registered centrally', () => {

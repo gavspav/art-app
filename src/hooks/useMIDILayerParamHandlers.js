@@ -4,12 +4,24 @@ import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const mapMidiToParamValue = (value01, param) => {
-  const min = Number.isFinite(param?.min) ? param.min : 0;
-  const max = Number.isFinite(param?.max) ? param.max : 1;
+  const absoluteMin = Number.isFinite(param?.min) ? param.min : 0;
+  const absoluteMax = Number.isFinite(param?.max) ? param.max : 1;
+  const absoluteLow = Math.min(absoluteMin, absoluteMax);
+  const absoluteHigh = Math.max(absoluteMin, absoluteMax);
+  const min = clamp(
+    Number.isFinite(param?.randomMin) ? param.randomMin : absoluteMin,
+    absoluteLow,
+    absoluteHigh,
+  );
+  const max = clamp(
+    Number.isFinite(param?.randomMax) ? param.randomMax : absoluteMax,
+    absoluteLow,
+    absoluteHigh,
+  );
   const step = Number.isFinite(param?.step) && param.step > 0 ? param.step : (max - min) / 1000;
   let mapped = min + Math.max(0, Math.min(1, value01)) * (max - min);
   mapped = Math.round((mapped - min) / step) * step + min;
-  return clamp(mapped, min, max);
+  return clamp(mapped, Math.min(min, max), Math.max(min, max));
 };
 
 const makeRegularNodes = (sides) => {

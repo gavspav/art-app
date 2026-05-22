@@ -33,7 +33,7 @@ function Harness({ handlers, onBackgroundColor, onLayers, onGlobalSpeed }) {
     blendModes: ['normal'],
     parameters: [
       { id: 'globalOpacity', type: 'slider', min: 0, max: 1, step: 0.01, randomMin: 0.2, randomMax: 0.2 },
-      { id: 'globalSpeedMultiplier', type: 'slider', min: 2, max: 4, step: 0.5 },
+      { id: 'globalSpeedMultiplier', type: 'slider', min: 0, max: 5, step: 0.5, randomMin: 2, randomMax: 4 },
       { id: 'layersCount', type: 'slider', min: 2, max: 4, step: 1 },
       { id: 'globalPaletteIndex', type: 'slider', min: 0, max: 1, step: 0.01 },
     ],
@@ -155,7 +155,7 @@ describe('useMIDIHandlers', () => {
     expect(latestLayers[1].variationScale).toBe(1.5);
   });
 
-  test('global speed and layer count MIDI respect configured parameter bounds', () => {
+  test('global speed and layer count MIDI respect configured random bounds', () => {
     const handlers = new Map();
     let latestSpeed = null;
     let latestLayers = [];
