@@ -200,6 +200,7 @@ const MainApp = () => {
     mappings: midiMappings,
     setMappingsFromExternal,
     registerParamHandler,
+    setArcadeJoystickMidiEnabled,
   } = useMidi() || {};
 
   // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
@@ -830,6 +831,7 @@ const MainApp = () => {
       if (defaultArcadePreset?.midiMappings) {
         setMappingsFromExternal?.(defaultArcadePreset.midiMappings);
       }
+      setArcadeJoystickMidiEnabled?.(true);
       if (defaultArcadePreset?.audioConfig) {
         applyAudioSnapshot?.(defaultArcadePreset.audioConfig);
       }
@@ -849,6 +851,7 @@ const MainApp = () => {
       applyTimelineSnapshot,
       loadAppState,
       mergeCustomPaletteList,
+      setArcadeJoystickMidiEnabled,
       setMappingsFromExternal,
       setIncludeRnd,
     ]);
