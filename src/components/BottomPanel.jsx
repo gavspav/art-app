@@ -539,6 +539,8 @@ const BottomPanel = ({
     clearMapping,
     mappingLabel,
     learnParamId,
+    arcadeJoystickMidiEnabled,
+    setArcadeJoystickMidiEnabled,
   } = useMidi() || {};
   useEffect(() => {
     if (midiInputId) lastMidiInputIdRef.current = midiInputId;
@@ -1392,6 +1394,24 @@ const BottomPanel = ({
                 </>
               )}
             </select>
+            <label
+              className="compact-label toolbar-chip"
+              title="Translate arcade joystick note on/off messages into virtual MIDI CC movement"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', height: '1.75rem', padding: '0 0.45rem' }}
+            >
+              <input
+                type="checkbox"
+                checked={!!arcadeJoystickMidiEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handlePanelInteraction();
+                  setArcadeJoystickMidiEnabled?.(e.target.checked);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                disabled={!midiSupported}
+              />
+              Arcade sticks
+            </label>
           </div>
           <div className="toolbar-group toolbar-status">
             <BeatIndicator panelExpanded={panelState === 'expanded'} />

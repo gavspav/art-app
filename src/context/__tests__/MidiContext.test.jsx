@@ -27,6 +27,14 @@ const sendCc = (input, number, value, channel = 1) => {
   });
 };
 
+const sendNote = (input, number, value, channel = 1) => {
+  act(() => {
+    input.onmidimessage?.({
+      data: new Uint8Array([0x90 + (channel - 1), number, value]),
+    });
+  });
+};
+
 function MidiProbe() {
   const midi = useMidi();
   const [hits, setHits] = useState(0);
@@ -71,6 +79,64 @@ function MappingProbe() {
         Set mappings
       </button>
       <button type="button" onClick={() => midi?.clearMapping?.('globalOpacity')}>Clear opacity</button>
+    </div>
+  );
+}
+
+function HiddenImageEffectMappingProbe() {
+  const midi = useMidi();
+  const blur = midi?.mappings?.imageBlur;
+  const brightness = midi?.mappings?.imageBrightness;
+  const palette = midi?.mappings?.globalPaletteIndex;
+
+  return (
+    <div>
+      <div data-testid="blur-mapping">{blur ? `${blur.type}:${blur.channel}:${blur.number}` : 'none'}</div>
+      <div data-testid="brightness-mapping">{brightness ? `${brightness.type}:${brightness.channel}:${brightness.number}` : 'none'}</div>
+      <div data-testid="palette-mapping">{palette ? `${palette.type}:${palette.channel}:${palette.number}` : 'none'}</div>
+      <button
+        type="button"
+        onClick={() => {
+          midi?.setMappingsFromExternal?.({
+            imageBlur: { type: 'cc', channel: 1, number: 36 },
+            imageBrightness: { type: 'cc', channel: 1, number: 37 },
+            globalSpeedMultiplier: { type: 'cc', channel: 1, number: 36 },
+          });
+        }}
+      >
+        Import old mappings
+      </button>
+    </div>
+  );
+}
+
+function ArcadeJoystickProbe() {
+  const midi = useMidi();
+  const [hits, setHits] = useState(0);
+  const [lastValue, setLastValue] = useState(0);
+  const registerParamHandler = midi?.registerParamHandler;
+  const setMapping = midi?.setMapping;
+
+  useEffect(() => {
+    if (!setMapping) return;
+    setMapping('globalSpeedMultiplier', { type: 'cc', channel: 1, number: 36 });
+  }, [setMapping]);
+
+  useEffect(() => {
+    if (!registerParamHandler) return undefined;
+    return registerParamHandler('globalSpeedMultiplier', ({ raw }) => {
+      setHits(count => count + 1);
+      setLastValue(raw?.value ?? 0);
+    });
+  }, [registerParamHandler]);
+
+  return (
+    <div>
+      <div data-testid="arcade-enabled">{midi?.arcadeJoystickMidiEnabled ? 'yes' : 'no'}</div>
+      <div data-testid="arcade-hits">{hits}</div>
+      <div data-testid="arcade-last-value">{lastValue}</div>
+      <button type="button" onClick={() => midi?.setSelectedInputId?.('input-1')}>Select input</button>
+      <button type="button" onClick={() => midi?.setArcadeJoystickMidiEnabled?.(true)}>Enable arcade joystick</button>
     </div>
   );
 }
@@ -135,5 +201,56 @@ describe('MidiContext', () => {
 
     await waitFor(() => expect(screen.getByTestId('opacity-mapping')).toHaveTextContent('none'));
     expect(screen.getByTestId('speed-mapping')).toHaveTextContent('cc:1:75');
+  });
+
+  it('does not expose hidden image effect parameters as default or imported MIDI mappings', async () => {
+    const { access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <HiddenImageEffectMappingProbe />
+      </MidiProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('blur-mapping')).toHaveTextContent('none'));
+    expect(screen.getByTestId('brightness-mapping')).toHaveTextContent('none');
+    expect(screen.getByTestId('palette-mapping')).toHaveTextContent('cc:1:42');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import old mappings' }));
+
+    await waitFor(() => expect(screen.getByTestId('blur-mapping')).toHaveTextContent('none'));
+    expect(screen.getByTestId('brightness-mapping')).toHaveTextContent('none');
+  });
+
+  it('translates arcade joystick notes into held virtual CC movement when enabled', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeJoystickProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable arcade joystick' }));
+
+    await waitFor(() => expect(screen.getByTestId('arcade-enabled')).toHaveTextContent('yes'));
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendNote(input, 36, 127);
+
+    await waitFor(() => expect(Number(screen.getByTestId('arcade-hits').textContent)).toBeGreaterThan(0));
+
+    sendNote(input, 36, 0);
+
+    expect(Number(screen.getByTestId('arcade-last-value').textContent)).toBeGreaterThan(64);
   });
 });

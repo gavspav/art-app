@@ -7,8 +7,30 @@ export const useMidi = () => useContext(MidiContext);
 
 const LS_MIDI_MAPPINGS = 'artapp-midi-mappings';
 const LS_MIDI_SELECTED = 'artapp-midi-selected-input';
+const LS_ARCADE_JOYSTICK_MIDI_ENABLED = 'artapp-arcade-joystick-midi-enabled';
 
 const DEFAULT_MIDI_CHANNEL = 1;
+const HIDDEN_IMAGE_EFFECT_MIDI_PARAMS = new Set([
+  'imageBlur',
+  'imageBrightness',
+  'imageContrast',
+  'imageHue',
+  'imageSaturation',
+  'imageDistortion',
+]);
+const ARCADE_JOYSTICK_CC_RATE_PER_SECOND = 30;
+const ARCADE_JOYSTICK_TICK_MS = 33;
+const ARCADE_JOYSTICK_DEFAULT_VALUE = 64;
+const ARCADE_JOYSTICK_NOTE_MAP = {
+  37: { cc: 36, direction: -1 },
+  36: { cc: 36, direction: 1 },
+  38: { cc: 37, direction: 1 },
+  39: { cc: 37, direction: -1 },
+  46: { cc: 34, direction: -1 },
+  44: { cc: 34, direction: 1 },
+  45: { cc: 35, direction: 1 },
+  56: { cc: 35, direction: -1 },
+};
 
 const buildDefaultMidiMappings = () => {
   const mapping = {};
@@ -37,12 +59,16 @@ const buildDefaultMidiMappings = () => {
 
   specialOrder.forEach(assign);
 
-  const sliderParamIds = PARAMETERS
+  PARAMETERS
     .filter((param) => param?.type === 'slider')
-    .map((param) => param?.id)
-    .filter(Boolean);
-
-  sliderParamIds.forEach(assign);
+    .forEach((param) => {
+      if (!param?.id) return;
+      if (HIDDEN_IMAGE_EFFECT_MIDI_PARAMS.has(param.id)) {
+        cc += 1;
+        return;
+      }
+      assign(param.id);
+    });
 
   const extraParams = ['globalPaletteIndex', 'globalBlendMode', 'randomizeAll', 'variation'];
   extraParams.forEach(assign);
@@ -51,6 +77,15 @@ const buildDefaultMidiMappings = () => {
 };
 
 const DEFAULT_MIDI_MAPPINGS = buildDefaultMidiMappings();
+
+const stripHiddenImageEffectMappings = (mappings) => {
+  if (!mappings || typeof mappings !== 'object') return {};
+  const next = { ...mappings };
+  HIDDEN_IMAGE_EFFECT_MIDI_PARAMS.forEach((paramId) => {
+    delete next[paramId];
+  });
+  return next;
+};
 
 // Helper to build a stable descriptor string for a mapping
 const mappingLabel = (m) => {
@@ -68,11 +103,14 @@ export const MidiProvider = ({ children }) => {
   const [selectedInputId, setSelectedInputId] = useState(() => {
     try { return localStorage.getItem(LS_MIDI_SELECTED) || ''; } catch { return ''; }
   });
+  const [arcadeJoystickMidiEnabled, setArcadeJoystickMidiEnabledState] = useState(() => {
+    try { return localStorage.getItem(LS_ARCADE_JOYSTICK_MIDI_ENABLED) === 'true'; } catch { return false; }
+  });
 
   const [storedMappings, setStoredMappings] = useState(() => {
     try {
       const saved = localStorage.getItem(LS_MIDI_MAPPINGS);
-      return saved ? JSON.parse(saved) : {};
+      return saved ? stripHiddenImageEffectMappings(JSON.parse(saved)) : {};
     } catch {
       return {};
     }
@@ -82,6 +120,15 @@ export const MidiProvider = ({ children }) => {
 
   // Param handlers: paramId -> Set<fn({ value01, raw })>
   const handlersRef = useRef(new Map());
+  const arcadeJoystickValuesRef = useRef({
+    34: ARCADE_JOYSTICK_DEFAULT_VALUE,
+    35: ARCADE_JOYSTICK_DEFAULT_VALUE,
+    36: ARCADE_JOYSTICK_DEFAULT_VALUE,
+    37: ARCADE_JOYSTICK_DEFAULT_VALUE,
+  });
+  const arcadeJoystickDirectionsRef = useRef(new Map());
+  const arcadeJoystickTimerRef = useRef(null);
+  const arcadeJoystickLastTickRef = useRef(0);
 
   const registerParamHandler = useCallback((paramId, handler) => {
     if (!paramId || typeof handler !== 'function') return () => {};
@@ -110,7 +157,7 @@ export const MidiProvider = ({ children }) => {
 
   const effectiveMappings = useMemo(() => {
     const merged = { ...DEFAULT_MIDI_MAPPINGS };
-    Object.entries(storedMappings || {}).forEach(([paramId, mapping]) => {
+    Object.entries(stripHiddenImageEffectMappings(storedMappings) || {}).forEach(([paramId, mapping]) => {
       if (mapping === null) {
         delete merged[paramId];
       } else if (mapping && typeof mapping === 'object') {
@@ -124,6 +171,7 @@ export const MidiProvider = ({ children }) => {
 
   const setMapping = useCallback((paramId, mapping) => {
     if (!paramId) return;
+    if (HIDDEN_IMAGE_EFFECT_MIDI_PARAMS.has(paramId)) return;
     persist((prev) => {
       const next = { ...prev };
       const defaultMapping = DEFAULT_MIDI_MAPPINGS[paramId];
@@ -166,7 +214,7 @@ export const MidiProvider = ({ children }) => {
 
   const setMappingsFromExternal = useCallback((obj) => {
     if (obj && typeof obj === 'object') {
-      persist({ ...obj });
+      persist(stripHiddenImageEffectMappings(obj));
     }
   }, [persist]);
 
@@ -200,6 +248,12 @@ export const MidiProvider = ({ children }) => {
   useEffect(() => {
     try { localStorage.setItem(LS_MIDI_SELECTED, selectedInputId || ''); } catch { /* noop */ }
   }, [selectedInputId]);
+  const setArcadeJoystickMidiEnabled = useCallback((enabled) => {
+    const next = !!enabled;
+    setArcadeJoystickMidiEnabledState(next);
+    try { localStorage.setItem(LS_ARCADE_JOYSTICK_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
+  }, []);
+
   useEffect(() => {
     if (!selectedInputId && learnParamId) {
       setLearnParamId(null);
@@ -221,6 +275,109 @@ export const MidiProvider = ({ children }) => {
       try { fn({ value01, raw: msg }); } catch { /* noop */ }
     });
   }, []);
+
+  const dispatchMidiMessage = useCallback((msg) => {
+    if (!msg) return;
+    const value01 = Math.max(0, Math.min(1, (msg.value ?? 0) / 127));
+
+    // Build reverse index lazily per message (paramId -> mapping) filtered by match
+    for (const [paramId, m] of Object.entries(effectiveMappings)) {
+      if (!m) continue;
+      const same = (m.type === msg.type) &&
+                   (!m.channel || m.channel === msg.channel) &&
+                   (m.number === msg.number);
+      if (!same) continue;
+      triggerHandlers(paramId, value01, msg);
+    }
+
+    if (msg.type === 'cc') {
+      const secretParam = SECRET_CC_PARAMS[msg.number];
+      if (secretParam) {
+        triggerHandlers(secretParam, value01, msg);
+      }
+    }
+  }, [SECRET_CC_PARAMS, effectiveMappings, triggerHandlers]);
+
+  const emitArcadeJoystickCc = useCallback((cc, value) => {
+    dispatchMidiMessage({
+      type: 'cc',
+      channel: DEFAULT_MIDI_CHANNEL,
+      number: cc,
+      value,
+      source: 'arcadeJoystick',
+    });
+  }, [dispatchMidiMessage]);
+
+  const stopArcadeJoystickTimer = useCallback(() => {
+    if (arcadeJoystickTimerRef.current) {
+      clearInterval(arcadeJoystickTimerRef.current);
+      arcadeJoystickTimerRef.current = null;
+    }
+    arcadeJoystickLastTickRef.current = 0;
+  }, []);
+
+  const tickArcadeJoystick = useCallback(() => {
+    const directions = arcadeJoystickDirectionsRef.current;
+    if (!directions || directions.size === 0) {
+      stopArcadeJoystickTimer();
+      return;
+    }
+
+    const now = performance.now();
+    const previous = arcadeJoystickLastTickRef.current || now;
+    arcadeJoystickLastTickRef.current = now;
+    const deltaSeconds = Math.max(0, Math.min(0.25, (now - previous) / 1000));
+    const step = ARCADE_JOYSTICK_CC_RATE_PER_SECOND * deltaSeconds;
+
+    directions.forEach((direction, cc) => {
+      const current = Number(arcadeJoystickValuesRef.current[cc] ?? ARCADE_JOYSTICK_DEFAULT_VALUE);
+      const next = Math.max(0, Math.min(127, current + (direction * step)));
+      if (Math.round(next) === Math.round(current)) {
+        arcadeJoystickValuesRef.current[cc] = next;
+        return;
+      }
+      arcadeJoystickValuesRef.current[cc] = next;
+      emitArcadeJoystickCc(cc, Math.round(next));
+    });
+  }, [emitArcadeJoystickCc, stopArcadeJoystickTimer]);
+
+  const ensureArcadeJoystickTimer = useCallback(() => {
+    if (arcadeJoystickTimerRef.current) return;
+    arcadeJoystickLastTickRef.current = performance.now();
+    arcadeJoystickTimerRef.current = setInterval(tickArcadeJoystick, ARCADE_JOYSTICK_TICK_MS);
+  }, [tickArcadeJoystick]);
+
+  const handleArcadeJoystickNote = useCallback((msg) => {
+    if (!arcadeJoystickMidiEnabled || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
+    const control = ARCADE_JOYSTICK_NOTE_MAP[msg.number];
+    if (!control) return false;
+
+    const isPressed = Number(msg.value || 0) > 0;
+    if (isPressed) {
+      arcadeJoystickDirectionsRef.current.set(control.cc, control.direction);
+      ensureArcadeJoystickTimer();
+    } else {
+      const currentDirection = arcadeJoystickDirectionsRef.current.get(control.cc);
+      if (currentDirection === control.direction) {
+        arcadeJoystickDirectionsRef.current.delete(control.cc);
+      }
+      if (arcadeJoystickDirectionsRef.current.size === 0) {
+        stopArcadeJoystickTimer();
+      }
+    }
+    return true;
+  }, [arcadeJoystickMidiEnabled, ensureArcadeJoystickTimer, stopArcadeJoystickTimer]);
+
+  useEffect(() => {
+    if (arcadeJoystickMidiEnabled) return undefined;
+    arcadeJoystickDirectionsRef.current.clear();
+    stopArcadeJoystickTimer();
+    return undefined;
+  }, [arcadeJoystickMidiEnabled, stopArcadeJoystickTimer]);
+
+  useEffect(() => () => {
+    stopArcadeJoystickTimer();
+  }, [stopArcadeJoystickTimer]);
 
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]
@@ -248,26 +405,14 @@ export const MidiProvider = ({ children }) => {
       return;
     }
 
-    // Dispatch to any params mapped to this message
-    const value01 = Math.max(0, Math.min(1, (msg.value ?? 0) / 127));
-
-    // Build reverse index lazily per message (paramId -> mapping) filtered by match
-    for (const [paramId, m] of Object.entries(effectiveMappings)) {
-      if (!m) continue;
-      const same = (m.type === msg.type) &&
-                   (!m.channel || m.channel === msg.channel) &&
-                   (m.number === msg.number);
-      if (!same) continue;
-      triggerHandlers(paramId, value01, msg);
+    if (msg.type === 'cc' && msg.channel === DEFAULT_MIDI_CHANNEL && Object.hasOwn(arcadeJoystickValuesRef.current, msg.number)) {
+      arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
     }
 
-    if (msg.type === 'cc') {
-      const secretParam = SECRET_CC_PARAMS[msg.number];
-      if (secretParam) {
-        triggerHandlers(secretParam, value01, msg);
-      }
-    }
-  }, [SECRET_CC_PARAMS, effectiveMappings, learnParamId, setMapping, triggerHandlers]);
+    if (handleArcadeJoystickNote(msg)) return;
+
+    dispatchMidiMessage(msg);
+  }, [dispatchMidiMessage, handleArcadeJoystickNote, learnParamId, setMapping]);
 
   // Attach listener to selected input
   useEffect(() => {
@@ -314,7 +459,9 @@ export const MidiProvider = ({ children }) => {
     learnParamId,
     registerParamHandler,
     mappingLabel,
-  }), [beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, registerParamHandler, selectedInputId, setMapping, setMappingsFromExternal, supported]);
+    arcadeJoystickMidiEnabled,
+    setArcadeJoystickMidiEnabled,
+  }), [arcadeJoystickMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, registerParamHandler, selectedInputId, setArcadeJoystickMidiEnabled, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>
