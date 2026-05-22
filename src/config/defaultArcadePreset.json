@@ -1,0 +1,1101 @@
+{
+  "parameters": [
+    {
+      "id": "numSides",
+      "label": "Sides",
+      "type": "slider",
+      "min": 3,
+      "max": 20,
+      "step": 1,
+      "defaultValue": 6,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape",
+      "randomMax": 14
+    },
+    {
+      "id": "curviness",
+      "label": "Curviness",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "defaultValue": 1,
+      "isRandomizable": false,
+      "showInOverlay": true,
+      "group": "Shape"
+    },
+    {
+      "id": "wobble",
+      "label": "Wobble",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "defaultValue": 0.5,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement",
+      "randomMin": 0.7000000000000001
+    },
+    {
+      "id": "noiseAmount",
+      "label": "Noise",
+      "type": "slider",
+      "min": 0,
+      "max": 8,
+      "step": 0.1,
+      "defaultValue": 0.5,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement",
+      "randomMin": 0
+    },
+    {
+      "id": "noiseScale",
+      "label": "Noise Scale",
+      "type": "slider",
+      "min": 0.1,
+      "max": 3,
+      "step": 0.05,
+      "defaultValue": 1,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "wobbleSpeed",
+      "label": "Wobble Speed",
+      "type": "slider",
+      "min": 0,
+      "max": 2,
+      "step": 0.01,
+      "defaultValue": 1,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "symmetry",
+      "label": "Noise Symmetry",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "defaultValue": 0.5,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "freqJitter",
+      "label": "Frequency Jitter",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "defaultValue": 1,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "radiusFactor",
+      "label": "Size",
+      "type": "slider",
+      "min": 0.01,
+      "max": 2,
+      "step": 0.01,
+      "defaultValue": 0.4,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape",
+      "randomMax": 0.53
+    },
+    {
+      "id": "radiusFactorX",
+      "label": "Size X",
+      "type": "slider",
+      "min": 0.01,
+      "max": 2,
+      "step": 0.01,
+      "defaultValue": 0.4,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape",
+      "randomMax": 0.34
+    },
+    {
+      "id": "radiusFactorY",
+      "label": "Size Y",
+      "type": "slider",
+      "min": 0.01,
+      "max": 2,
+      "step": 0.01,
+      "defaultValue": 0.4,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape",
+      "randomMax": 0.28
+    },
+    {
+      "id": "xOffset",
+      "label": "X Offset",
+      "type": "slider",
+      "min": -0.5,
+      "max": 0.5,
+      "step": 0.001,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape"
+    },
+    {
+      "id": "yOffset",
+      "label": "Y Offset",
+      "type": "slider",
+      "min": -0.5,
+      "max": 0.5,
+      "step": 0.001,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Shape"
+    },
+    {
+      "id": "variationPosition",
+      "label": "Position Variation",
+      "type": "slider",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "defaultValue": 0.2,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "General",
+      "randomMin": 0.2
+    },
+    {
+      "id": "variationShape",
+      "label": "Shape Variation",
+      "type": "slider",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "defaultValue": 0.2,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "General",
+      "randomMin": 0,
+      "randomMax": 1.2000000000000002
+    },
+    {
+      "id": "variationAnim",
+      "label": "Animation Variation",
+      "type": "slider",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "defaultValue": 0.2,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "General",
+      "randomMin": 0
+    },
+    {
+      "id": "variationColor",
+      "label": "Colour Variation",
+      "type": "slider",
+      "min": 0,
+      "max": 3,
+      "step": 0.1,
+      "defaultValue": 0.2,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "General"
+    },
+    {
+      "id": "variationScale",
+      "label": "Scale Variation",
+      "type": "slider",
+      "min": -3,
+      "max": 3,
+      "step": 0.1,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "General",
+      "randomMax": -1.0999999999999996
+    },
+    {
+      "id": "opacity",
+      "label": "Opacity",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.1,
+      "defaultValue": 0.8,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Appearance"
+    },
+    {
+      "id": "colors",
+      "label": "Colors",
+      "type": "palette",
+      "isRandomizable": true,
+      "showInOverlay": false,
+      "group": "Appearance"
+    },
+    {
+      "id": "numColors",
+      "label": "Number of Colors",
+      "type": "slider",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "defaultValue": 1,
+      "isRandomizable": true,
+      "showInOverlay": false,
+      "group": "Appearance"
+    },
+    {
+      "id": "movementStyle",
+      "label": "Movement Style",
+      "type": "dropdown",
+      "options": [
+        "bounce",
+        "drift",
+        "still",
+        "orbit",
+        "spin"
+      ],
+      "defaultValue": "bounce",
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement",
+      "randomOptions": [
+        "bounce",
+        "drift",
+        "still"
+      ]
+    },
+    {
+      "id": "movementSpeed",
+      "label": "Movement Speed",
+      "type": "slider",
+      "min": 0,
+      "max": 5,
+      "step": 0.01,
+      "defaultValue": 1,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "movementAngle",
+      "label": "Movement Angle",
+      "type": "slider",
+      "min": 0,
+      "max": 360,
+      "step": 1,
+      "defaultValue": 45,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "scaleSpeed",
+      "label": "Z Scale Speed",
+      "type": "slider",
+      "min": 0,
+      "max": 0.2,
+      "step": 0.001,
+      "defaultValue": 0.05,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "scaleMin",
+      "label": "Z Scale Min",
+      "type": "slider",
+      "min": 0.1,
+      "max": 2,
+      "step": 0.01,
+      "defaultValue": 0.2,
+      "isRandomizable": false,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "scaleMax",
+      "label": "Z Scale Max",
+      "type": "slider",
+      "min": 0.5,
+      "max": 3,
+      "step": 0.01,
+      "defaultValue": 1.5,
+      "isRandomizable": false,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "freq1",
+      "label": "Frequency 1",
+      "type": "slider",
+      "min": 0.5,
+      "max": 8,
+      "step": 0.1,
+      "defaultValue": 2,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "freq2",
+      "label": "Frequency 2",
+      "type": "slider",
+      "min": 0.5,
+      "max": 8,
+      "step": 0.1,
+      "defaultValue": 3,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "freq3",
+      "label": "Frequency 3",
+      "type": "slider",
+      "min": 0.5,
+      "max": 50,
+      "step": 0.5,
+      "defaultValue": 4,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Movement"
+    },
+    {
+      "id": "imageBlur",
+      "label": "Blur",
+      "type": "slider",
+      "min": 0,
+      "max": 20,
+      "step": 0.1,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "imageBrightness",
+      "label": "Brightness",
+      "type": "slider",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "defaultValue": 100,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "imageContrast",
+      "label": "Contrast",
+      "type": "slider",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "defaultValue": 100,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "imageHue",
+      "label": "Hue Shift",
+      "type": "slider",
+      "min": 0,
+      "max": 360,
+      "step": 1,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "imageSaturation",
+      "label": "Saturation",
+      "type": "slider",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "defaultValue": 100,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "imageDistortion",
+      "label": "Distortion",
+      "type": "slider",
+      "min": 0,
+      "max": 50,
+      "step": 0.1,
+      "defaultValue": 0,
+      "isRandomizable": true,
+      "showInOverlay": true,
+      "group": "Image Effects"
+    },
+    {
+      "id": "backgroundColor",
+      "label": "Background Color",
+      "type": "global",
+      "isRandomizable": false,
+      "showInOverlay": false,
+      "group": "Global"
+    },
+    {
+      "id": "globalSpeedMultiplier",
+      "label": "Global Speed",
+      "type": "slider",
+      "min": 0,
+      "max": 5,
+      "step": 0.01,
+      "defaultValue": 1,
+      "isRandomizable": false,
+      "showInOverlay": false,
+      "group": "Global",
+      "randomMax": 3.6,
+      "randomMin": 0
+    },
+    {
+      "id": "globalBlendMode",
+      "label": "Global Blend Mode",
+      "type": "dropdown",
+      "options": [
+        "source-over",
+        "multiply",
+        "screen",
+        "overlay",
+        "darken",
+        "lighten",
+        "color-dodge",
+        "color-burn",
+        "hard-light",
+        "soft-light",
+        "difference",
+        "exclusion",
+        "hue",
+        "saturation",
+        "color",
+        "luminosity",
+        "lighter"
+      ],
+      "defaultValue": "source-over",
+      "isRandomizable": false,
+      "showInOverlay": false,
+      "group": "Global"
+    },
+    {
+      "id": "globalOpacity",
+      "label": "Global Opacity",
+      "type": "slider",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "defaultValue": 1,
+      "isRandomizable": false,
+      "showInOverlay": false,
+      "group": "Global",
+      "randomMin": 0.6
+    },
+    {
+      "id": "layersCount",
+      "label": "Layers Count",
+      "type": "slider",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "defaultValue": 8,
+      "randomMin": 1,
+      "randomMax": 39,
+      "isRandomizable": false,
+      "showInOverlay": false,
+      "group": "Global"
+    }
+  ],
+  "appState": {
+    "isFrozen": false,
+    "enableBreathing": false,
+    "enableEnergyScaling": false,
+    "energyInfluence": 0.5,
+    "audioSpawnEnabled": false,
+    "audioSpawnTriggerMode": "level",
+    "audioSpawnRepeatWhileAbove": true,
+    "audioSpawnHysteresis": 0.08,
+    "audioSpawnBand": "rms",
+    "audioSpawnThreshold": 0.6,
+    "audioSpawnCooldownMs": 250,
+    "audioSpawnHalfLifeMs": 1500,
+    "audioSpawnHalfLifeEnergyFactor": 1,
+    "audioSpawnMaxLayers": 12,
+    "audioSpawnPresetActive": false,
+    "audioSpawnUseGlobalPalette": false,
+    "audioSpawnMicReactive": false,
+    "audioSpawnMicReactiveAmount": 100,
+    "audioSpawnForceContourMode": false,
+    "audioSpawnDirectionMode": "template",
+    "audioSpawnDirectionSpread": 0,
+    "backgroundColor": "#0e83fb",
+    "backgroundImage": {
+      "src": null,
+      "opacity": 1,
+      "fit": "cover",
+      "enabled": false
+    },
+    "globalBlendMode": "source-over",
+    "globalSeed": 1790670034,
+    "globalSpeedMultiplier": 1,
+    "layers": [
+      {
+        "id": "layer-init-1779452648923",
+        "name": "Layer 1",
+        "layerType": "shape",
+        "imageSrc": null,
+        "shapeType": "polygon",
+        "numSides": 14,
+        "wobble": 1,
+        "curviness": 1,
+        "radiusFactor": 0.125,
+        "noiseAmount": 1.9445419240008999,
+        "noiseScale": 1,
+        "wobbleSpeed": 1,
+        "symmetry": 0.5,
+        "freqJitter": 1,
+        "noiseSpeed": 0.005,
+        "opacity": 0.8,
+        "blendMode": "source-over",
+        "colors": [
+          "#0a2e36"
+        ],
+        "selectedColor": 0,
+        "movementStyle": "drift",
+        "movementSpeed": 1,
+        "movementAngle": 45,
+        "scaleSpeed": 0.05,
+        "scaleMin": 0,
+        "scaleMax": 1.5,
+        "spinAngle": 0,
+        "variation": 0.2,
+        "variationShape": 0.2,
+        "variationAnim": 0.6,
+        "variationColor": 0.7,
+        "variationPosition": 0.9,
+        "variationScale": 0,
+        "seed": 1,
+        "noiseSeed": 1,
+        "useGlobalSeed": false,
+        "freq1": 2,
+        "freq2": 3,
+        "freq3": 4,
+        "baseRadiusFactor": 0.4,
+        "radiusBump": 0,
+        "rotation": 0,
+        "xOffset": 0,
+        "yOffset": 0,
+        "orbitCenterX": 0.5,
+        "orbitCenterY": 0.5,
+        "orbitAngle": 0,
+        "orbitRadiusX": 0.15,
+        "orbitRadiusY": 0.15,
+        "nodes": [
+          {
+            "x": 1,
+            "y": 0
+          },
+          {
+            "x": 0.9009688679024191,
+            "y": 0.4338837391175581
+          },
+          {
+            "x": 0.6234898018587336,
+            "y": 0.7818314824680298
+          },
+          {
+            "x": 0.22252093395631445,
+            "y": 0.9749279121818236
+          },
+          {
+            "x": -0.22252093395631434,
+            "y": 0.9749279121818236
+          },
+          {
+            "x": -0.6234898018587335,
+            "y": 0.7818314824680299
+          },
+          {
+            "x": -0.900968867902419,
+            "y": 0.43388373911755823
+          },
+          {
+            "x": -1,
+            "y": 1.2246467991473532e-16
+          },
+          {
+            "x": -0.9009688679024191,
+            "y": -0.433883739117558
+          },
+          {
+            "x": -0.6234898018587337,
+            "y": -0.7818314824680297
+          },
+          {
+            "x": -0.2225209339563146,
+            "y": -0.9749279121818236
+          },
+          {
+            "x": 0.22252093395631423,
+            "y": -0.9749279121818236
+          },
+          {
+            "x": 0.6234898018587334,
+            "y": -0.7818314824680299
+          },
+          {
+            "x": 0.900968867902419,
+            "y": -0.43388373911755834
+          }
+        ],
+        "pathMode": "closed",
+        "pathClosed": false,
+        "strokeWidthPx": 3,
+        "strokeCap": "round",
+        "strokeJoin": "round",
+        "syncNodesToNumSides": true,
+        "viewBoxMapped": false,
+        "imageBlur": 0,
+        "imageBrightness": 100,
+        "imageContrast": 100,
+        "imageHue": 0,
+        "imageSaturation": 100,
+        "imageDistortion": 0,
+        "position": {
+          "centerX": 0.5,
+          "centerY": 0.5,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0,
+          "vy": 0,
+          "scale": 1,
+          "scaleDirection": 1
+        },
+        "visible": true,
+        "vary": {
+          "numSides": true,
+          "curviness": true,
+          "wobble": true,
+          "noiseAmount": true,
+          "noiseScale": true,
+          "wobbleSpeed": true,
+          "symmetry": true,
+          "radiusFactor": true,
+          "radiusFactorX": true,
+          "radiusFactorY": true,
+          "xOffset": true,
+          "yOffset": true,
+          "width": true,
+          "height": true,
+          "opacity": false,
+          "movementStyle": true,
+          "movementSpeed": true,
+          "movementAngle": true,
+          "scaleSpeed": true,
+          "scaleMin": false,
+          "scaleMax": false,
+          "orbitCenterX": false,
+          "orbitCenterY": false,
+          "orbitRadiusX": false,
+          "orbitRadiusY": false,
+          "freq1": false,
+          "freq2": false,
+          "freq3": false,
+          "freqJitter": false,
+          "imageBlur": true,
+          "imageBrightness": true,
+          "imageContrast": true,
+          "imageHue": true,
+          "imageSaturation": true,
+          "imageDistortion": true,
+          "colors": true,
+          "numColors": true,
+          "colorFadeEnabled": true,
+          "colorFadeSpeed": true
+        },
+        "numColors": 1
+      }
+    ],
+    "selectedLayerIndex": 0,
+    "isOverlayVisible": true,
+    "isNodeEditMode": false,
+    "nodeEditContext": null,
+    "classicMode": false,
+    "zIgnore": true,
+    "randomizePalette": true,
+    "randomizeNumColors": true,
+    "globalPaletteIndex": 4,
+    "globalPaletteRef": null,
+    "randomizeColorsPerLayer": true,
+    "uniformColorCount": 3,
+    "colorFadeWhileFrozen": true,
+    "syncLayerColorsToFirst": false,
+    "applyVariationInstantly": true,
+    "parameterTargetMode": "individual",
+    "showLayerOutlines": false,
+    "isolateMode": false,
+    "selectedLayerIds": [
+      "layer-init-1779452648923"
+    ],
+    "layerGroups": [],
+    "editTarget": {
+      "type": "single"
+    },
+    "morphEnabled": false,
+    "morphRoute": [
+      1,
+      2
+    ],
+    "morphDurationPerLeg": 5,
+    "morphEasing": "linear",
+    "morphLoopMode": "loop",
+    "morphMode": "tween",
+    "morphNodes": false,
+    "timelineMode": false,
+    "includeRnd": {
+      "backgroundColor": true,
+      "globalSpeedMultiplier": true,
+      "globalBlendMode": true,
+      "globalOpacity": true,
+      "globalPaletteIndex": false,
+      "layersCount": false,
+      "rotation": true,
+      "variationPosition": true,
+      "variationShape": true,
+      "variationAnim": true,
+      "variationColor": true,
+      "variationScale": false,
+      "variation": true
+    }
+  },
+  "customPalettes": [],
+  "midiMappings": {
+    "backgroundColor": {
+      "type": "cc",
+      "channel": 1,
+      "number": 1
+    },
+    "backgroundColorR": {
+      "type": "cc",
+      "channel": 1,
+      "number": 2
+    },
+    "backgroundColorG": {
+      "type": "cc",
+      "channel": 1,
+      "number": 3
+    },
+    "backgroundColorB": {
+      "type": "cc",
+      "channel": 1,
+      "number": 4
+    },
+    "globalSpeedMultiplier": {
+      "type": "cc",
+      "channel": 1,
+      "number": 36
+    },
+    "globalOpacity": {
+      "type": "cc",
+      "channel": 1,
+      "number": 6
+    },
+    "layersCount": {
+      "type": "cc",
+      "channel": 1,
+      "number": 34
+    },
+    "variationPosition": {
+      "type": "cc",
+      "channel": 1,
+      "number": 8
+    },
+    "variationShape": {
+      "type": "cc",
+      "channel": 1,
+      "number": 9
+    },
+    "variationAnim": {
+      "type": "cc",
+      "channel": 1,
+      "number": 10
+    },
+    "variationColor": {
+      "type": "cc",
+      "channel": 1,
+      "number": 11
+    },
+    "variationScale": {
+      "type": "cc",
+      "channel": 1,
+      "number": 12
+    },
+    "numSides": {
+      "type": "cc",
+      "channel": 1,
+      "number": 13
+    },
+    "curviness": {
+      "type": "cc",
+      "channel": 1,
+      "number": 35
+    },
+    "wobble": {
+      "type": "cc",
+      "channel": 1,
+      "number": 15
+    },
+    "noiseAmount": {
+      "type": "cc",
+      "channel": 1,
+      "number": 16
+    },
+    "noiseScale": {
+      "type": "cc",
+      "channel": 1,
+      "number": 17
+    },
+    "wobbleSpeed": {
+      "type": "cc",
+      "channel": 1,
+      "number": 18
+    },
+    "symmetry": {
+      "type": "cc",
+      "channel": 1,
+      "number": 19
+    },
+    "freqJitter": {
+      "type": "cc",
+      "channel": 1,
+      "number": 20
+    },
+    "radiusFactor": {
+      "type": "cc",
+      "channel": 1,
+      "number": 37
+    },
+    "radiusFactorX": {
+      "type": "cc",
+      "channel": 1,
+      "number": 22
+    },
+    "radiusFactorY": {
+      "type": "cc",
+      "channel": 1,
+      "number": 23
+    },
+    "xOffset": {
+      "type": "cc",
+      "channel": 1,
+      "number": 24
+    },
+    "yOffset": {
+      "type": "cc",
+      "channel": 1,
+      "number": 25
+    },
+    "opacity": {
+      "type": "cc",
+      "channel": 1,
+      "number": 26
+    },
+    "numColors": {
+      "type": "cc",
+      "channel": 1,
+      "number": 27
+    },
+    "movementSpeed": {
+      "type": "cc",
+      "channel": 1,
+      "number": 28
+    },
+    "movementAngle": {
+      "type": "cc",
+      "channel": 1,
+      "number": 29
+    },
+    "scaleSpeed": {
+      "type": "cc",
+      "channel": 1,
+      "number": 30
+    },
+    "scaleMin": {
+      "type": "cc",
+      "channel": 1,
+      "number": 31
+    },
+    "scaleMax": {
+      "type": "cc",
+      "channel": 1,
+      "number": 32
+    },
+    "freq1": {
+      "type": "cc",
+      "channel": 1,
+      "number": 33
+    },
+    "imageContrast": {
+      "type": "cc",
+      "channel": 1,
+      "number": 38
+    },
+    "imageHue": {
+      "type": "cc",
+      "channel": 1,
+      "number": 39
+    },
+    "imageSaturation": {
+      "type": "cc",
+      "channel": 1,
+      "number": 40
+    },
+    "imageDistortion": {
+      "type": "cc",
+      "channel": 1,
+      "number": 41
+    },
+    "globalPaletteIndex": {
+      "type": "cc",
+      "channel": 1,
+      "number": 42
+    },
+    "globalBlendMode": {
+      "type": "cc",
+      "channel": 1,
+      "number": 43
+    },
+    "randomizeAll": {
+      "type": "cc",
+      "channel": 2,
+      "number": 17
+    },
+    "variation": {
+      "type": "cc",
+      "channel": 1,
+      "number": 45
+    },
+    "randomize:backgroundColor": {
+      "type": "note",
+      "channel": 1,
+      "number": 30
+    },
+    "randomize:globalPaletteIndex": {
+      "type": "note",
+      "channel": 1,
+      "number": 32
+    },
+    "randomize:globalBlendMode": {
+      "type": "note",
+      "channel": 1,
+      "number": 4
+    },
+    "randomize:globalOpacity": {
+      "type": "note",
+      "channel": 1,
+      "number": 5
+    },
+    "randomize:numSides": {
+      "type": "note",
+      "channel": 1,
+      "number": 51
+    },
+    "randomize:wobble": {
+      "type": "note",
+      "channel": 1,
+      "number": 40
+    },
+    "randomize:wobbleSpeed": {
+      "type": "note",
+      "channel": 10,
+      "number": 62
+    },
+    "randomize:movementStyle": {
+      "type": "note",
+      "channel": 1,
+      "number": 14
+    },
+    "randomize:variationPosition": {
+      "type": "note",
+      "channel": 1,
+      "number": 13
+    },
+    "randomize:variationColor": {
+      "type": "note",
+      "channel": 1,
+      "number": 6
+    },
+    "randomize:variationAnim": {
+      "type": "note",
+      "channel": 1,
+      "number": 12
+    }
+  },
+  "audioConfig": {
+    "settings": {
+      "sensitivity": 1,
+      "bassSensitivity": 1,
+      "midsSensitivity": 1,
+      "highsSensitivity": 1,
+      "smoothing": 0.7,
+      "release": 0.85
+    },
+    "mappings": {}
+  },
+  "bpmConfig": {
+    "settings": {
+      "bpm": 120,
+      "beatsPerBar": 4
+    },
+    "mappings": {}
+  },
+  "timelineConfig": {
+    "session": {
+      "id": "1777024657531-eb2mfn5bg",
+      "lengthSeconds": 60,
+      "tracks": [],
+      "audio": null,
+      "startPreset": null,
+      "loop": {
+        "enabled": false,
+        "startSeconds": 0,
+        "endSeconds": 60
+      }
+    },
+    "settings": {
+      "visible": false,
+      "zoom": 1,
+      "scrollLeft": 0,
+      "timelineSmoothing": 0,
+      "timelineDamping": 0
+    }
+  },
+  "savedAt": "2026-05-22T12:38:01.443Z",
+  "version": "2.2",
+  "exportMeta": {
+    "version": "2.0",
+    "canvasWidth": 1265,
+    "canvasHeight": 887,
+    "exportedAt": "2026-05-22T12:38:01.443Z"
+  }
+}

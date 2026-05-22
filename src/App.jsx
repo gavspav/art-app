@@ -36,6 +36,7 @@ import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverl
 import AppProviders from './components/app/AppProviders.jsx';
 import WorkspaceRouter from './components/workspaces/WorkspaceRouter.jsx';
 import { useTimelineModulation } from './hooks/useTimelineModulation.js';
+import defaultArcadePreset from './config/defaultArcadePreset.json';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -561,6 +562,7 @@ const MainApp = () => {
   const modulationStore = useModulationStore();
 
   const { timelineMode, setTimelineMode } = appStateCtx;
+  const defaultPresetAppliedRef = useRef(false);
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
@@ -809,6 +811,47 @@ const MainApp = () => {
       includeRndRef.current = includeRnd;
       try { window.localStorage.setItem('artapp-includeRnd', JSON.stringify(includeRnd)); } catch { /* ignore */ }
     }, [includeRnd]);
+    useEffect(() => {
+      if (defaultPresetAppliedRef.current) return;
+      defaultPresetAppliedRef.current = true;
+
+      if (Array.isArray(defaultArcadePreset?.customPalettes)) {
+        mergeCustomPaletteList(defaultArcadePreset.customPalettes);
+      }
+      if (Array.isArray(defaultArcadePreset?.parameters)) {
+        applyParametersSnapshot?.(defaultArcadePreset.parameters);
+      }
+      if (defaultArcadePreset?.appState) {
+        loadAppState?.(defaultArcadePreset.appState);
+        if (defaultArcadePreset.appState.includeRnd && typeof defaultArcadePreset.appState.includeRnd === 'object') {
+          setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...defaultArcadePreset.appState.includeRnd });
+        }
+      }
+      if (defaultArcadePreset?.midiMappings) {
+        setMappingsFromExternal?.(defaultArcadePreset.midiMappings);
+      }
+      if (defaultArcadePreset?.audioConfig) {
+        applyAudioSnapshot?.(defaultArcadePreset.audioConfig);
+      }
+      if (defaultArcadePreset?.bpmConfig) {
+        applyBPMSnapshot?.(defaultArcadePreset.bpmConfig);
+      }
+      if (defaultArcadePreset?.timelineConfig) {
+        applyTimelineSnapshot?.(defaultArcadePreset.timelineConfig);
+      }
+      if (defaultArcadePreset?.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = defaultArcadePreset.exportMeta;
+      }
+    }, [
+      applyAudioSnapshot,
+      applyBPMSnapshot,
+      applyParametersSnapshot,
+      applyTimelineSnapshot,
+      loadAppState,
+      mergeCustomPaletteList,
+      setMappingsFromExternal,
+      setIncludeRnd,
+    ]);
 	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
 	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
 
