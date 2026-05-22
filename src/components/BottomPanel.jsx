@@ -541,6 +541,8 @@ const BottomPanel = ({
     learnParamId,
     arcadeJoystickMidiEnabled,
     setArcadeJoystickMidiEnabled,
+    arcadeKeyboardMidiEnabled,
+    setArcadeKeyboardMidiEnabled,
   } = useMidi() || {};
   useEffect(() => {
     if (midiInputId) lastMidiInputIdRef.current = midiInputId;
@@ -1411,6 +1413,23 @@ const BottomPanel = ({
                 disabled={!midiSupported}
               />
               Arcade sticks
+            </label>
+            <label
+              className="compact-label toolbar-chip"
+              title="Use keyboard keys as arcade cabinet MIDI controls: WASZ, UHJN, ERTCV, IOPM, and comma"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', height: '1.75rem', padding: '0 0.45rem' }}
+            >
+              <input
+                type="checkbox"
+                checked={!!arcadeKeyboardMidiEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handlePanelInteraction();
+                  setArcadeKeyboardMidiEnabled?.(e.target.checked);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              Cab keys
             </label>
           </div>
           <div className="toolbar-group toolbar-status">

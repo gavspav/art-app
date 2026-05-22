@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
 import { shouldIgnoreGlobalKey } from '../utils/domUtils.js';
+import { ARCADE_KEYBOARD_MIDI_CODES } from '../context/MidiContext.jsx';
+
+const ARCADE_KEYBOARD_MIDI_CODE_SET = new Set(ARCADE_KEYBOARD_MIDI_CODES);
 
 // useKeyboardShortcuts: centralizes global keyboard handling
 // Expects stable setters/functions; uses hotkeyRef for dynamic state reads without re-binding
@@ -36,6 +39,7 @@ export function useKeyboardShortcuts({
   // Timeline global track capture
   overwriteSelectedTimelineKeyframe,
   onCaptureGlobalKeyframe,
+  arcadeKeyboardMidiEnabled = false,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -49,6 +53,10 @@ export function useKeyboardShortcuts({
         return;
       }
       
+      if (arcadeKeyboardMidiEnabled && !e.metaKey && !e.ctrlKey && !e.altKey && ARCADE_KEYBOARD_MIDI_CODE_SET.has(e.code)) {
+        return;
+      }
+
       if (shouldIgnoreGlobalKey(e)) return;
       // Spacebar -> toggle Freeze, and when timeline is visible also toggle timeline play/pause
       if (e.code === 'Space') {
@@ -276,5 +284,6 @@ export function useKeyboardShortcuts({
     onFillKeyframesBetween,
     overwriteSelectedTimelineKeyframe,
     onCaptureGlobalKeyframe,
+    arcadeKeyboardMidiEnabled,
   ]);
 }

@@ -201,6 +201,7 @@ const MainApp = () => {
     setMappingsFromExternal,
     registerParamHandler,
     setArcadeJoystickMidiEnabled,
+    arcadeKeyboardMidiEnabled,
   } = useMidi() || {};
 
   // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
@@ -1871,6 +1872,7 @@ const MainApp = () => {
 	    onFillKeyframesBetween: handleFillKeyframesBetween,
       overwriteSelectedTimelineKeyframe: () => panelOverwriteSelectedKeyframeRef.current?.() || false,
       onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
+      arcadeKeyboardMidiEnabled,
 	  });
 
   // MIDI helper refs and handlers integration

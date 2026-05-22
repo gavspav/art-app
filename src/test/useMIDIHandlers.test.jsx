@@ -17,7 +17,7 @@ const fire = (handlers, paramId, value01) => {
   set.forEach(handler => handler({ value01 }));
 };
 
-function Harness({ handlers, onBackgroundColor, onLayers }) {
+function Harness({ handlers, onBackgroundColor, onLayers, onGlobalSpeed }) {
   const [backgroundColor, setBackgroundColor] = useState('#102030');
   const [layers, setLayers] = useState([
     { id: 'l1', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1 },
@@ -26,15 +26,18 @@ function Harness({ handlers, onBackgroundColor, onLayers }) {
 
   useMIDIHandlers({
     registerParamHandler: makeRegister(handlers),
-    setGlobalSpeedMultiplier: () => {},
+    setGlobalSpeedMultiplier: onGlobalSpeed || (() => {}),
     setGlobalBlendMode: () => {},
     setGlobalPaletteIndex: () => {},
     setGlobalPaletteRef: () => {},
     blendModes: ['normal'],
     parameters: [
       { id: 'globalOpacity', type: 'slider', min: 0, max: 1, step: 0.01, randomMin: 0.2, randomMax: 0.2 },
+      { id: 'globalSpeedMultiplier', type: 'slider', min: 2, max: 4, step: 0.5 },
+      { id: 'layersCount', type: 'slider', min: 2, max: 4, step: 1 },
       { id: 'globalPaletteIndex', type: 'slider', min: 0, max: 1, step: 0.01 },
     ],
+    layersCountParam: { id: 'layersCount', type: 'slider', min: 2, max: 4, step: 1 },
     layers,
     setLayers,
     DEFAULT_LAYER: {},
@@ -150,6 +153,40 @@ describe('useMIDIHandlers', () => {
     expect(latestLayers[1].variationShape).toBe(1.5);
     expect(latestLayers[0].variationScale).toBe(1.5);
     expect(latestLayers[1].variationScale).toBe(1.5);
+  });
+
+  test('global speed and layer count MIDI respect configured parameter bounds', () => {
+    const handlers = new Map();
+    let latestSpeed = null;
+    let latestLayers = [];
+
+    render(
+      <Harness
+        handlers={handlers}
+        onGlobalSpeed={(value) => { latestSpeed = value; }}
+        onLayers={(layers) => { latestLayers = layers; }}
+      />,
+    );
+
+    act(() => {
+      fire(handlers, 'globalSpeedMultiplier', 0);
+    });
+    expect(latestSpeed).toBe(2);
+
+    act(() => {
+      fire(handlers, 'globalSpeedMultiplier', 1);
+    });
+    expect(latestSpeed).toBe(4);
+
+    act(() => {
+      fire(handlers, 'layersCount', 1);
+    });
+    expect(latestLayers).toHaveLength(4);
+
+    act(() => {
+      fire(handlers, 'layersCount', 0);
+    });
+    expect(latestLayers).toHaveLength(2);
   });
 
   test('variation position midi applies the same instant visual update as the UI slider', () => {

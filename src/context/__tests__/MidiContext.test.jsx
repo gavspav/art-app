@@ -141,6 +141,37 @@ function ArcadeJoystickProbe() {
   );
 }
 
+function ArcadeKeyboardProbe() {
+  const midi = useMidi();
+  const [hits, setHits] = useState(0);
+  const registerParamHandler = midi?.registerParamHandler;
+  const setMapping = midi?.setMapping;
+  const opacity = midi?.mappings?.globalOpacity;
+
+  useEffect(() => {
+    if (!setMapping) return;
+    setMapping('globalOpacity', { type: 'note', channel: 1, number: 30 });
+  }, [setMapping]);
+
+  useEffect(() => {
+    if (!registerParamHandler) return undefined;
+    return registerParamHandler('globalOpacity', ({ value01 }) => {
+      if (value01 > 0.5) setHits(count => count + 1);
+    });
+  }, [registerParamHandler]);
+
+  return (
+    <div>
+      <div data-testid="keyboard-enabled">{midi?.arcadeKeyboardMidiEnabled ? 'yes' : 'no'}</div>
+      <div data-testid="keyboard-supported">{midi?.supported ? 'yes' : 'no'}</div>
+      <div data-testid="keyboard-hits">{hits}</div>
+      <div data-testid="keyboard-mapping">{opacity ? `${opacity.type}:${opacity.channel}:${opacity.number}` : 'none'}</div>
+      <button type="button" onClick={() => midi?.setArcadeKeyboardMidiEnabled?.(true)}>Enable keyboard cabinet</button>
+      <button type="button" onClick={() => midi?.beginLearn?.('globalOpacity')}>Learn opacity</button>
+    </div>
+  );
+}
+
 describe('MidiContext', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -252,5 +283,39 @@ describe('MidiContext', () => {
     sendNote(input, 36, 0);
 
     expect(Number(screen.getByTestId('arcade-last-value').textContent)).toBeGreaterThan(64);
+  });
+
+  it('emits arcade button notes from keyboard mode without a physical MIDI input', async () => {
+    render(
+      <MidiProvider>
+        <ArcadeKeyboardProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable keyboard cabinet' }));
+
+    await waitFor(() => expect(screen.getByTestId('keyboard-enabled')).toHaveTextContent('yes'));
+    await waitFor(() => expect(screen.getByTestId('keyboard-supported')).toHaveTextContent('yes'));
+
+    fireEvent.keyDown(window, { code: 'KeyE', key: 'e' });
+    fireEvent.keyUp(window, { code: 'KeyE', key: 'e' });
+
+    await waitFor(() => expect(screen.getByTestId('keyboard-hits')).toHaveTextContent('1'));
+  });
+
+  it('learns joystick keyboard controls as their virtual CC axis', async () => {
+    render(
+      <MidiProvider>
+        <ArcadeKeyboardProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable keyboard cabinet' }));
+    await waitFor(() => expect(screen.getByTestId('keyboard-enabled')).toHaveTextContent('yes'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Learn opacity' }));
+    fireEvent.keyDown(window, { code: 'KeyW', key: 'w' });
+
+    await waitFor(() => expect(screen.getByTestId('keyboard-mapping')).toHaveTextContent('cc:1:37'));
   });
 });

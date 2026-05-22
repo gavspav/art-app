@@ -8,6 +8,7 @@ export const useMidi = () => useContext(MidiContext);
 const LS_MIDI_MAPPINGS = 'artapp-midi-mappings';
 const LS_MIDI_SELECTED = 'artapp-midi-selected-input';
 const LS_ARCADE_JOYSTICK_MIDI_ENABLED = 'artapp-arcade-joystick-midi-enabled';
+const LS_ARCADE_KEYBOARD_MIDI_ENABLED = 'artapp-arcade-keyboard-midi-enabled';
 
 const DEFAULT_MIDI_CHANNEL = 1;
 const HIDDEN_IMAGE_EFFECT_MIDI_PARAMS = new Set([
@@ -30,6 +31,40 @@ const ARCADE_JOYSTICK_NOTE_MAP = {
   44: { cc: 34, direction: 1 },
   45: { cc: 35, direction: 1 },
   56: { cc: 35, direction: -1 },
+};
+const ARCADE_KEYBOARD_NOTE_MAP = {
+  KeyW: { channel: 1, number: 38 },
+  KeyA: { channel: 1, number: 37 },
+  KeyS: { channel: 1, number: 36 },
+  KeyZ: { channel: 1, number: 39 },
+  KeyU: { channel: 1, number: 45 },
+  KeyH: { channel: 1, number: 46 },
+  KeyJ: { channel: 1, number: 44 },
+  KeyN: { channel: 1, number: 56 },
+  KeyE: { channel: 1, number: 30 },
+  KeyR: { channel: 1, number: 32 },
+  KeyT: { channel: 1, number: 4 },
+  KeyC: { channel: 1, number: 5 },
+  KeyV: { channel: 1, number: 51 },
+  KeyI: { channel: 1, number: 40 },
+  KeyO: { channel: 1, number: 14 },
+  KeyP: { channel: 1, number: 13 },
+  KeyM: { channel: 1, number: 6 },
+  Comma: { channel: 1, number: 12 },
+};
+
+export const ARCADE_KEYBOARD_MIDI_CODES = Object.freeze(Object.keys(ARCADE_KEYBOARD_NOTE_MAP));
+
+const shouldIgnoreKeyboardMidiEvent = (event) => {
+  const target = event?.target;
+  if (!target || typeof target !== 'object') return false;
+  const tag = (target.tagName || '').toLowerCase();
+  return !!(
+    target.isContentEditable
+    || tag === 'input'
+    || tag === 'textarea'
+    || tag === 'select'
+  );
 };
 
 const buildDefaultMidiMappings = () => {
@@ -106,6 +141,9 @@ export const MidiProvider = ({ children }) => {
   const [arcadeJoystickMidiEnabled, setArcadeJoystickMidiEnabledState] = useState(() => {
     try { return localStorage.getItem(LS_ARCADE_JOYSTICK_MIDI_ENABLED) === 'true'; } catch { return false; }
   });
+  const [arcadeKeyboardMidiEnabled, setArcadeKeyboardMidiEnabledState] = useState(() => {
+    try { return localStorage.getItem(LS_ARCADE_KEYBOARD_MIDI_ENABLED) === 'true'; } catch { return false; }
+  });
 
   const [storedMappings, setStoredMappings] = useState(() => {
     try {
@@ -129,6 +167,7 @@ export const MidiProvider = ({ children }) => {
   const arcadeJoystickDirectionsRef = useRef(new Map());
   const arcadeJoystickTimerRef = useRef(null);
   const arcadeJoystickLastTickRef = useRef(0);
+  const arcadeKeyboardPressedRef = useRef(new Set());
 
   const registerParamHandler = useCallback((paramId, handler) => {
     if (!paramId || typeof handler !== 'function') return () => {};
@@ -253,6 +292,11 @@ export const MidiProvider = ({ children }) => {
     setArcadeJoystickMidiEnabledState(next);
     try { localStorage.setItem(LS_ARCADE_JOYSTICK_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
   }, []);
+  const setArcadeKeyboardMidiEnabled = useCallback((enabled) => {
+    const next = !!enabled;
+    setArcadeKeyboardMidiEnabledState(next);
+    try { localStorage.setItem(LS_ARCADE_KEYBOARD_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
+  }, []);
 
   useEffect(() => {
     if (!selectedInputId && learnParamId) {
@@ -347,8 +391,15 @@ export const MidiProvider = ({ children }) => {
     arcadeJoystickTimerRef.current = setInterval(tickArcadeJoystick, ARCADE_JOYSTICK_TICK_MS);
   }, [tickArcadeJoystick]);
 
+  const getArcadeJoystickLearnMapping = useCallback((msg) => {
+    if (msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return null;
+    const control = ARCADE_JOYSTICK_NOTE_MAP[msg.number];
+    if (!control) return null;
+    return { type: 'cc', channel: DEFAULT_MIDI_CHANNEL, number: control.cc };
+  }, []);
+
   const handleArcadeJoystickNote = useCallback((msg) => {
-    if (!arcadeJoystickMidiEnabled || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
+    if ((!arcadeJoystickMidiEnabled && msg?.source !== 'arcadeKeyboard') || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
     const control = ARCADE_JOYSTICK_NOTE_MAP[msg.number];
     if (!control) return false;
 
@@ -379,6 +430,26 @@ export const MidiProvider = ({ children }) => {
     stopArcadeJoystickTimer();
   }, [stopArcadeJoystickTimer]);
 
+  const processMidiMessage = useCallback((msg) => {
+    if (!msg) return;
+
+    // Learn mode: bind first incoming message
+    if (learnParamId) {
+      const mapping = getArcadeJoystickLearnMapping(msg) || { type: msg.type, channel: msg.channel, number: msg.number };
+      setMapping(learnParamId, mapping);
+      setLearnParamId(null);
+      return;
+    }
+
+    if (msg.type === 'cc' && msg.channel === DEFAULT_MIDI_CHANNEL && Object.hasOwn(arcadeJoystickValuesRef.current, msg.number)) {
+      arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
+    }
+
+    if (handleArcadeJoystickNote(msg)) return;
+
+    dispatchMidiMessage(msg);
+  }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeJoystickNote, learnParamId, setMapping]);
+
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]
     if (!data || data.length < 2) return;
@@ -395,24 +466,52 @@ export const MidiProvider = ({ children }) => {
     } else if (status === 0x80) { // Note Off (treat as value 0)
       msg = { type: 'note', channel, number: d1, value: 0 };
     }
-    if (!msg) return;
+    processMidiMessage(msg);
+  }, [processMidiMessage]);
 
-    // Learn mode: bind first incoming message
-    if (learnParamId) {
-      const mapping = { type: msg.type, channel: msg.channel, number: msg.number };
-      setMapping(learnParamId, mapping);
-      setLearnParamId(null);
-      return;
+  useEffect(() => {
+    if (!arcadeKeyboardMidiEnabled) {
+      arcadeKeyboardPressedRef.current.clear();
+      return undefined;
     }
+    const pressedKeys = arcadeKeyboardPressedRef.current;
 
-    if (msg.type === 'cc' && msg.channel === DEFAULT_MIDI_CHANNEL && Object.hasOwn(arcadeJoystickValuesRef.current, msg.number)) {
-      arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
-    }
+    const handleKeyboardMidi = (event, pressed) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || shouldIgnoreKeyboardMidiEvent(event)) return;
+      const mapping = ARCADE_KEYBOARD_NOTE_MAP[event.code];
+      if (!mapping) return;
 
-    if (handleArcadeJoystickNote(msg)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
 
-    dispatchMidiMessage(msg);
-  }, [dispatchMidiMessage, handleArcadeJoystickNote, learnParamId, setMapping]);
+      if (pressed) {
+        if (pressedKeys.has(event.code)) return;
+        pressedKeys.add(event.code);
+      } else {
+        if (!pressedKeys.has(event.code)) return;
+        pressedKeys.delete(event.code);
+      }
+
+      processMidiMessage({
+        type: 'note',
+        channel: mapping.channel,
+        number: mapping.number,
+        value: pressed ? 127 : 0,
+        source: 'arcadeKeyboard',
+      });
+    };
+
+    const handleKeyDown = (event) => handleKeyboardMidi(event, true);
+    const handleKeyUp = (event) => handleKeyboardMidi(event, false);
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
+      pressedKeys.clear();
+    };
+  }, [arcadeKeyboardMidiEnabled, processMidiMessage]);
 
   // Attach listener to selected input
   useEffect(() => {
@@ -437,17 +536,20 @@ export const MidiProvider = ({ children }) => {
       ? selectedInputId
       : (inputList.find(input => input?.id)?.id || '');
 
-    if (!nextInputId) return false;
+    if (!nextInputId && !arcadeKeyboardMidiEnabled) return false;
     if (nextInputId !== selectedInputId) {
       setSelectedInputId(nextInputId);
     }
 
     setLearnParamId(paramId);
     return true;
-  }, [inputs, selectedInputId]);
+  }, [arcadeKeyboardMidiEnabled, inputs, selectedInputId]);
+
+  const midiAvailable = supported || arcadeKeyboardMidiEnabled;
 
   const value = useMemo(() => ({
-    supported,
+    supported: midiAvailable,
+    webMidiSupported: supported,
     inputs,
     selectedInputId,
     setSelectedInputId,
@@ -461,7 +563,9 @@ export const MidiProvider = ({ children }) => {
     mappingLabel,
     arcadeJoystickMidiEnabled,
     setArcadeJoystickMidiEnabled,
-  }), [arcadeJoystickMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, registerParamHandler, selectedInputId, setArcadeJoystickMidiEnabled, setMapping, setMappingsFromExternal, supported]);
+    arcadeKeyboardMidiEnabled,
+    setArcadeKeyboardMidiEnabled,
+  }), [arcadeJoystickMidiEnabled, arcadeKeyboardMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, midiAvailable, registerParamHandler, selectedInputId, setArcadeJoystickMidiEnabled, setArcadeKeyboardMidiEnabled, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const clamp01 = (value) => clamp(Number(value) || 0, 0, 1);
+
 // Consolidates all MIDI registerParamHandler effects
 export function useMIDIHandlers({
   registerParamHandler,
@@ -40,6 +43,26 @@ export function useMIDIHandlers({
 }) {
   const backgroundColorRef = useRef(backgroundColor || '#000000');
   const randomizePreviousValuesRef = useRef(new Map());
+
+  const mapMidiToConfiguredRange = useCallback((paramId, value01, fallbackMin, fallbackMax, fallbackStep = null) => {
+    const param = (
+      paramId === 'layersCount' && layersCountParam
+        ? layersCountParam
+        : (Array.isArray(parameters) ? parameters.find(candidate => candidate?.id === paramId) : null)
+    );
+    const min = Number.isFinite(Number(param?.min)) ? Number(param.min) : fallbackMin;
+    const max = Number.isFinite(Number(param?.max)) ? Number(param.max) : fallbackMax;
+    const step = Number.isFinite(Number(param?.step)) && Number(param.step) > 0
+      ? Number(param.step)
+      : fallbackStep;
+    const low = Math.min(min, max);
+    const high = Math.max(min, max);
+    let mapped = min + clamp01(value01) * (max - min);
+    if (Number.isFinite(step) && step > 0) {
+      mapped = Math.round((mapped - min) / step) * step + min;
+    }
+    return clamp(Number(mapped.toFixed(6)), low, high);
+  }, [layersCountParam, parameters]);
 
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
@@ -215,50 +238,43 @@ export function useMIDIHandlers({
     return unregister;
   }, [registerParamHandler, handleRandomizeAll, rndAllPrevRef]);
 
-  // Global Speed (0..5)
+  // Global Speed
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('globalSpeedMultiplier', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const scaled = +(v * 5).toFixed(2);
-      setGlobalSpeedMultiplier?.(scaled);
+      setGlobalSpeedMultiplier?.(mapMidiToConfiguredRange('globalSpeedMultiplier', value01, 0, 5, 0.01));
     });
     return unregister;
-  }, [registerParamHandler, setGlobalSpeedMultiplier]);
+  }, [mapMidiToConfiguredRange, registerParamHandler, setGlobalSpeedMultiplier]);
 
   // Legacy Layer Variation (0..3) -> now maps to all three split variations on every layer
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('variation', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variation', value01, 0, 3, 0.01);
       setLayers?.(prev => prev.map(l => ({ ...l, variation: mapped, variationShape: mapped, variationAnim: mapped, variationColor: mapped })));
       applyVariationValue('variationPosition', mapped);
     });
     return unregister;
-  }, [applyVariationValue, registerParamHandler, setLayers]);
+  }, [applyVariationValue, mapMidiToConfiguredRange, registerParamHandler, setLayers]);
 
   // Split variations: variationShape, variationAnim, variationColor (0..3) on every layer
   useEffect(() => {
     if (!registerParamHandler) return;
     const u0 = registerParamHandler('variationPosition', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variationPosition', value01, 0, 3, 0.1);
       applyVariationValue('variationPosition', mapped);
     });
     const u1 = registerParamHandler('variationShape', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variationShape', value01, 0, 3, 0.1);
       applyVariationValue('variationShape', mapped);
     });
     const u2 = registerParamHandler('variationAnim', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variationAnim', value01, 0, 3, 0.1);
       applyVariationValue('variationAnim', mapped);
     });
     const u3 = registerParamHandler('variationColor', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +(v * 3).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variationColor', value01, 0, 3, 0.1);
       applyVariationValue('variationColor', mapped);
     });
     return () => {
@@ -267,17 +283,16 @@ export function useMIDIHandlers({
       if (typeof u2 === 'function') u2();
       if (typeof u3 === 'function') u3();
     };
-  }, [applyVariationValue, registerParamHandler]);
+  }, [applyVariationValue, mapMidiToConfiguredRange, registerParamHandler]);
 
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('variationScale', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
-      const mapped = +((-3) + v * 6).toFixed(2);
+      const mapped = mapMidiToConfiguredRange('variationScale', value01, -3, 3, 0.1);
       applyVariationValue('variationScale', mapped);
     });
     return unregister;
-  }, [applyVariationValue, registerParamHandler]);
+  }, [applyVariationValue, mapMidiToConfiguredRange, registerParamHandler]);
 
   // Global Blend Mode (dropdown over blendModes)
   useEffect(() => {
@@ -295,17 +310,17 @@ export function useMIDIHandlers({
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('globalOpacity', ({ value01 }) => {
-      const v = Math.max(0, Math.min(1, value01));
+      const v = mapMidiToConfiguredRange('globalOpacity', value01, 0, 1, 0.01);
       setLayers?.(prev => prev.map(l => ({ ...l, opacity: v })));
     });
     return unregister;
-  }, [registerParamHandler, setLayers]);
+  }, [mapMidiToConfiguredRange, registerParamHandler, setLayers]);
 
-  // Layers Count (1..20)
+  // Layers Count
   useEffect(() => {
     if (!registerParamHandler) return;
     const unregister = registerParamHandler('layersCount', ({ value01 }) => {
-      const target = Math.max(1, Math.min(20, Math.round(1 + value01 * 19)));
+      const target = Math.max(1, Math.round(mapMidiToConfiguredRange('layersCount', value01, 1, 20, 1)));
       setLayers?.(prev => {
         let next = prev;
         if (target > prev.length) {
@@ -339,7 +354,7 @@ export function useMIDIHandlers({
       setSelectedLayerIndex?.(Math.max(0, target - 1));
     });
     return unregister;
-  }, [DEFAULT_LAYER, buildVariedLayerFrom, registerParamHandler, setLayers, setSelectedLayerIndex]);
+  }, [DEFAULT_LAYER, buildVariedLayerFrom, mapMidiToConfiguredRange, registerParamHandler, setLayers, setSelectedLayerIndex]);
 
   // (removed: global assign-one-per-layer variant to avoid duplicate id handlers)
 
