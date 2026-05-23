@@ -751,7 +751,7 @@
     "colorFadeWhileFrozen": true,
     "syncLayerColorsToFirst": false,
     "applyVariationInstantly": true,
-    "parameterTargetMode": "individual",
+    "parameterTargetMode": "global",
     "showLayerOutlines": false,
     "isolateMode": false,
     "selectedLayerIds": [
