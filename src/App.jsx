@@ -1886,6 +1886,7 @@ const MainApp = () => {
     setGlobalBlendMode,
     setGlobalPaletteIndex,
     setGlobalPaletteRef,
+    globalBlendMode,
     globalPaletteIndex,
     blendModes,
     parameters,

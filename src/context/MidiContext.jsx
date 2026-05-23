@@ -9,6 +9,7 @@ const LS_MIDI_MAPPINGS = 'artapp-midi-mappings';
 const LS_MIDI_SELECTED = 'artapp-midi-selected-input';
 const LS_ARCADE_JOYSTICK_MIDI_ENABLED = 'artapp-arcade-joystick-midi-enabled';
 const LS_ARCADE_KEYBOARD_MIDI_ENABLED = 'artapp-arcade-keyboard-midi-enabled';
+const LS_ARCADE_BUTTON_PAIRS_MIDI_ENABLED = 'artapp-arcade-button-pairs-midi-enabled';
 
 const DEFAULT_MIDI_CHANNEL = 1;
 const HIDDEN_IMAGE_EFFECT_MIDI_PARAMS = new Set([
@@ -32,6 +33,23 @@ const ARCADE_JOYSTICK_NOTE_MAP = {
   45: { cc: 35, direction: 1 },
   56: { cc: 35, direction: -1 },
 };
+const ARCADE_JOYSTICK_ACTION_NOTE_MAP = {
+  45: { action: 'wobbleNoise', direction: 1 },
+  56: { action: 'wobbleNoise', direction: -1 },
+};
+const ARCADE_BUTTON_PAIR_NOTE_MAP = {
+  30: { paramId: 'arcade:backgroundColorCycle', direction: 1 },
+  5: { paramId: 'arcade:backgroundColorCycle', direction: -1 },
+  32: { paramId: 'arcade:paletteCycle', direction: 1 },
+  51: { paramId: 'arcade:paletteCycle', direction: -1 },
+  40: { paramId: 'numSides', direction: 1, counter: 'numSides' },
+  6: { paramId: 'numSides', direction: -1, counter: 'numSides' },
+  14: { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },
+  12: { paramId: 'globalOpacity', direction: -1, counter: 'globalOpacity' },
+  4: { paramId: 'arcade:blendToggle', toggle: true },
+  13: { paramId: 'curviness', toggle: 'curviness' },
+};
+const ARCADE_BUTTON_COUNTER_STEP = 8;
 const ARCADE_KEYBOARD_NOTE_MAP = {
   KeyW: { channel: 1, number: 38 },
   KeyA: { channel: 1, number: 37 },
@@ -144,6 +162,9 @@ export const MidiProvider = ({ children }) => {
   const [arcadeKeyboardMidiEnabled, setArcadeKeyboardMidiEnabledState] = useState(() => {
     try { return localStorage.getItem(LS_ARCADE_KEYBOARD_MIDI_ENABLED) === 'true'; } catch { return false; }
   });
+  const [arcadeButtonPairsMidiEnabled, setArcadeButtonPairsMidiEnabledState] = useState(() => {
+    try { return localStorage.getItem(LS_ARCADE_BUTTON_PAIRS_MIDI_ENABLED) === 'true'; } catch { return false; }
+  });
 
   const [storedMappings, setStoredMappings] = useState(() => {
     try {
@@ -165,6 +186,17 @@ export const MidiProvider = ({ children }) => {
     37: ARCADE_JOYSTICK_DEFAULT_VALUE,
   });
   const arcadeJoystickDirectionsRef = useRef(new Map());
+  const arcadeJoystickActionValuesRef = useRef({
+    wobbleNoise: ARCADE_JOYSTICK_DEFAULT_VALUE,
+  });
+  const arcadeJoystickActionDirectionsRef = useRef(new Map());
+  const arcadeButtonCounterValuesRef = useRef({
+    numSides: ARCADE_JOYSTICK_DEFAULT_VALUE,
+    globalOpacity: ARCADE_JOYSTICK_DEFAULT_VALUE,
+  });
+  const arcadeButtonToggleValuesRef = useRef({
+    curviness: false,
+  });
   const arcadeJoystickTimerRef = useRef(null);
   const arcadeJoystickLastTickRef = useRef(0);
   const arcadeKeyboardPressedRef = useRef(new Set());
@@ -297,6 +329,11 @@ export const MidiProvider = ({ children }) => {
     setArcadeKeyboardMidiEnabledState(next);
     try { localStorage.setItem(LS_ARCADE_KEYBOARD_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
   }, []);
+  const setArcadeButtonPairsMidiEnabled = useCallback((enabled) => {
+    const next = !!enabled;
+    setArcadeButtonPairsMidiEnabledState(next);
+    try { localStorage.setItem(LS_ARCADE_BUTTON_PAIRS_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
+  }, []);
 
   useEffect(() => {
     if (!selectedInputId && learnParamId) {
@@ -362,7 +399,8 @@ export const MidiProvider = ({ children }) => {
 
   const tickArcadeJoystick = useCallback(() => {
     const directions = arcadeJoystickDirectionsRef.current;
-    if (!directions || directions.size === 0) {
+    const actionDirections = arcadeJoystickActionDirectionsRef.current;
+    if ((!directions || directions.size === 0) && (!actionDirections || actionDirections.size === 0)) {
       stopArcadeJoystickTimer();
       return;
     }
@@ -383,7 +421,30 @@ export const MidiProvider = ({ children }) => {
       arcadeJoystickValuesRef.current[cc] = next;
       emitArcadeJoystickCc(cc, Math.round(next));
     });
-  }, [emitArcadeJoystickCc, stopArcadeJoystickTimer]);
+
+    actionDirections.forEach((direction, action) => {
+      const current = Number(arcadeJoystickActionValuesRef.current[action] ?? ARCADE_JOYSTICK_DEFAULT_VALUE);
+      const next = Math.max(0, Math.min(127, current + (direction * step)));
+      if (Math.round(next) === Math.round(current)) {
+        arcadeJoystickActionValuesRef.current[action] = next;
+        return;
+      }
+      arcadeJoystickActionValuesRef.current[action] = next;
+      const raw = {
+        type: 'arcade-action',
+        channel: DEFAULT_MIDI_CHANNEL,
+        number: action,
+        value: Math.round(next),
+        source: 'arcadeJoystick',
+        arcadeAction: action,
+      };
+      if (action === 'wobbleNoise') {
+        const value01 = Math.max(0, Math.min(1, Math.round(next) / 127));
+        triggerHandlers('wobble', value01, raw);
+        triggerHandlers('noiseAmount', value01, raw);
+      }
+    });
+  }, [emitArcadeJoystickCc, stopArcadeJoystickTimer, triggerHandlers]);
 
   const ensureArcadeJoystickTimer = useCallback(() => {
     if (arcadeJoystickTimerRef.current) return;
@@ -400,6 +461,26 @@ export const MidiProvider = ({ children }) => {
 
   const handleArcadeJoystickNote = useCallback((msg) => {
     if ((!arcadeJoystickMidiEnabled && msg?.source !== 'arcadeKeyboard') || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
+    if (arcadeButtonPairsMidiEnabled) {
+      const actionControl = ARCADE_JOYSTICK_ACTION_NOTE_MAP[msg.number];
+      if (actionControl) {
+        const isPressed = Number(msg.value || 0) > 0;
+        if (isPressed) {
+          arcadeJoystickActionDirectionsRef.current.set(actionControl.action, actionControl.direction);
+          ensureArcadeJoystickTimer();
+        } else {
+          const currentDirection = arcadeJoystickActionDirectionsRef.current.get(actionControl.action);
+          if (currentDirection === actionControl.direction) {
+            arcadeJoystickActionDirectionsRef.current.delete(actionControl.action);
+          }
+          if (arcadeJoystickDirectionsRef.current.size === 0 && arcadeJoystickActionDirectionsRef.current.size === 0) {
+            stopArcadeJoystickTimer();
+          }
+        }
+        return true;
+      }
+    }
+
     const control = ARCADE_JOYSTICK_NOTE_MAP[msg.number];
     if (!control) return false;
 
@@ -417,11 +498,63 @@ export const MidiProvider = ({ children }) => {
       }
     }
     return true;
-  }, [arcadeJoystickMidiEnabled, ensureArcadeJoystickTimer, stopArcadeJoystickTimer]);
+  }, [arcadeButtonPairsMidiEnabled, arcadeJoystickMidiEnabled, ensureArcadeJoystickTimer, stopArcadeJoystickTimer]);
+
+  const handleArcadeButtonPairNote = useCallback((msg) => {
+    if (!arcadeButtonPairsMidiEnabled || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
+    const action = ARCADE_BUTTON_PAIR_NOTE_MAP[msg.number];
+    if (!action) return false;
+
+    const isPressed = Number(msg.value || 0) > 0;
+    if (!isPressed) return true;
+
+    if (action.counter) {
+      const current = Number(arcadeButtonCounterValuesRef.current[action.counter] ?? ARCADE_JOYSTICK_DEFAULT_VALUE);
+      const next = Math.max(0, Math.min(127, current + (action.direction * ARCADE_BUTTON_COUNTER_STEP)));
+      arcadeButtonCounterValuesRef.current[action.counter] = next;
+      triggerHandlers(action.paramId, next / 127, {
+        ...msg,
+        source: msg.source || 'arcadeButtonPairs',
+        arcadeDirection: action.direction,
+        arcadeCounter: action.counter,
+        value: Math.round(next),
+      });
+      return true;
+    }
+
+    if (action.toggle === 'curviness') {
+      const next = !arcadeButtonToggleValuesRef.current.curviness;
+      arcadeButtonToggleValuesRef.current.curviness = next;
+      triggerHandlers(action.paramId, next ? 1 : 0, {
+        ...msg,
+        source: msg.source || 'arcadeButtonPairs',
+        arcadeToggle: 'curviness',
+        value: next ? 127 : 0,
+      });
+      return true;
+    }
+
+    if (action.toggle) {
+      triggerHandlers(action.paramId, 1, {
+        ...msg,
+        source: msg.source || 'arcadeButtonPairs',
+        arcadeDirection: action.direction || 1,
+      });
+      return true;
+    }
+
+    triggerHandlers(action.paramId, action.direction > 0 ? 1 : 0, {
+      ...msg,
+      source: msg.source || 'arcadeButtonPairs',
+      arcadeDirection: action.direction,
+    });
+    return true;
+  }, [arcadeButtonPairsMidiEnabled, triggerHandlers]);
 
   useEffect(() => {
     if (arcadeJoystickMidiEnabled) return undefined;
     arcadeJoystickDirectionsRef.current.clear();
+    arcadeJoystickActionDirectionsRef.current.clear();
     stopArcadeJoystickTimer();
     return undefined;
   }, [arcadeJoystickMidiEnabled, stopArcadeJoystickTimer]);
@@ -445,10 +578,11 @@ export const MidiProvider = ({ children }) => {
       arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
     }
 
+    if (handleArcadeButtonPairNote(msg)) return;
     if (handleArcadeJoystickNote(msg)) return;
 
     dispatchMidiMessage(msg);
-  }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeJoystickNote, learnParamId, setMapping]);
+  }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeButtonPairNote, handleArcadeJoystickNote, learnParamId, setMapping]);
 
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]
@@ -565,7 +699,9 @@ export const MidiProvider = ({ children }) => {
     setArcadeJoystickMidiEnabled,
     arcadeKeyboardMidiEnabled,
     setArcadeKeyboardMidiEnabled,
-  }), [arcadeJoystickMidiEnabled, arcadeKeyboardMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, midiAvailable, registerParamHandler, selectedInputId, setArcadeJoystickMidiEnabled, setArcadeKeyboardMidiEnabled, setMapping, setMappingsFromExternal, supported]);
+    arcadeButtonPairsMidiEnabled,
+    setArcadeButtonPairsMidiEnabled,
+  }), [arcadeButtonPairsMidiEnabled, arcadeJoystickMidiEnabled, arcadeKeyboardMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, midiAvailable, registerParamHandler, selectedInputId, setArcadeButtonPairsMidiEnabled, setArcadeJoystickMidiEnabled, setArcadeKeyboardMidiEnabled, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>

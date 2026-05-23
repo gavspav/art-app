@@ -543,6 +543,8 @@ const BottomPanel = ({
     setArcadeJoystickMidiEnabled,
     arcadeKeyboardMidiEnabled,
     setArcadeKeyboardMidiEnabled,
+    arcadeButtonPairsMidiEnabled,
+    setArcadeButtonPairsMidiEnabled,
   } = useMidi() || {};
   useEffect(() => {
     if (midiInputId) lastMidiInputIdRef.current = midiInputId;
@@ -1430,6 +1432,23 @@ const BottomPanel = ({
                 onClick={(e) => e.stopPropagation()}
               />
               Cab keys
+            </label>
+            <label
+              className="compact-label toolbar-chip"
+              title="Treat arcade/keyboard button pairs as increment/decrement controls instead of note randomise triggers"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', height: '1.75rem', padding: '0 0.45rem' }}
+            >
+              <input
+                type="checkbox"
+                checked={!!arcadeButtonPairsMidiEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handlePanelInteraction();
+                  setArcadeButtonPairsMidiEnabled?.(e.target.checked);
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+              Button pairs
             </label>
           </div>
           <div className="toolbar-group toolbar-status">

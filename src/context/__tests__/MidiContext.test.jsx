@@ -172,6 +172,62 @@ function ArcadeKeyboardProbe() {
   );
 }
 
+function ArcadeButtonPairsProbe() {
+  const midi = useMidi();
+  const [backgroundDirections, setBackgroundDirections] = useState([]);
+  const [opacityValues, setOpacityValues] = useState([]);
+  const [curvinessValues, setCurvinessValues] = useState([]);
+  const [wobbleHits, setWobbleHits] = useState(0);
+  const [noiseHits, setNoiseHits] = useState(0);
+  const [randomizeHits, setRandomizeHits] = useState(0);
+  const registerParamHandler = midi?.registerParamHandler;
+  const setMapping = midi?.setMapping;
+
+  useEffect(() => {
+    if (!setMapping) return;
+    setMapping('randomize:backgroundColor', { type: 'note', channel: 1, number: 30 });
+  }, [setMapping]);
+
+  useEffect(() => {
+    if (!registerParamHandler) return undefined;
+    const unsubs = [
+      registerParamHandler('arcade:backgroundColorCycle', ({ raw }) => {
+        setBackgroundDirections(prev => [...prev, raw?.arcadeDirection || 0]);
+      }),
+      registerParamHandler('globalOpacity', ({ value01 }) => {
+        setOpacityValues(prev => [...prev, value01]);
+      }),
+      registerParamHandler('curviness', ({ value01 }) => {
+        setCurvinessValues(prev => [...prev, value01]);
+      }),
+      registerParamHandler('wobble', () => {
+        setWobbleHits(count => count + 1);
+      }),
+      registerParamHandler('noiseAmount', () => {
+        setNoiseHits(count => count + 1);
+      }),
+      registerParamHandler('randomize:backgroundColor', ({ value01 }) => {
+        if (value01 > 0.5) setRandomizeHits(count => count + 1);
+      }),
+    ];
+    return () => unsubs.forEach(unsub => unsub?.());
+  }, [registerParamHandler]);
+
+  return (
+    <div>
+      <div data-testid="pairs-enabled">{midi?.arcadeButtonPairsMidiEnabled ? 'yes' : 'no'}</div>
+      <div data-testid="background-directions">{backgroundDirections.join(',')}</div>
+      <div data-testid="opacity-values">{opacityValues.map(value => value.toFixed(3)).join(',')}</div>
+      <div data-testid="curviness-values">{curvinessValues.join(',')}</div>
+      <div data-testid="wobble-hits">{wobbleHits}</div>
+      <div data-testid="noise-hits">{noiseHits}</div>
+      <div data-testid="randomize-hits">{randomizeHits}</div>
+      <button type="button" onClick={() => midi?.setArcadeKeyboardMidiEnabled?.(true)}>Enable keyboard cabinet</button>
+      <button type="button" onClick={() => midi?.setArcadeButtonPairsMidiEnabled?.(true)}>Enable button pairs</button>
+    </div>
+  );
+}
+
 describe('MidiContext', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -317,5 +373,45 @@ describe('MidiContext', () => {
     fireEvent.keyDown(window, { code: 'KeyW', key: 'w' });
 
     await waitFor(() => expect(screen.getByTestId('keyboard-mapping')).toHaveTextContent('cc:1:37'));
+  });
+
+  it('routes arcade keyboard button pairs to paired actions when pair mode is enabled', async () => {
+    render(
+      <MidiProvider>
+        <ArcadeButtonPairsProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable keyboard cabinet' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable button pairs' }));
+
+    await waitFor(() => expect(screen.getByTestId('pairs-enabled')).toHaveTextContent('yes'));
+
+    fireEvent.keyDown(window, { code: 'KeyE', key: 'e' });
+    fireEvent.keyUp(window, { code: 'KeyE', key: 'e' });
+    fireEvent.keyDown(window, { code: 'KeyC', key: 'c' });
+    fireEvent.keyUp(window, { code: 'KeyC', key: 'c' });
+
+    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1,-1'));
+    expect(screen.getByTestId('randomize-hits')).toHaveTextContent('0');
+
+    fireEvent.keyDown(window, { code: 'KeyO', key: 'o' });
+    fireEvent.keyUp(window, { code: 'KeyO', key: 'o' });
+    fireEvent.keyDown(window, { code: 'Comma', key: ',' });
+    fireEvent.keyUp(window, { code: 'Comma', key: ',' });
+
+    await waitFor(() => expect(screen.getByTestId('opacity-values')).toHaveTextContent('0.567,0.504'));
+
+    fireEvent.keyDown(window, { code: 'KeyP', key: 'p' });
+    fireEvent.keyUp(window, { code: 'KeyP', key: 'p' });
+    fireEvent.keyDown(window, { code: 'KeyP', key: 'p' });
+    fireEvent.keyUp(window, { code: 'KeyP', key: 'p' });
+
+    await waitFor(() => expect(screen.getByTestId('curviness-values')).toHaveTextContent('1,0'));
+
+    fireEvent.keyDown(window, { code: 'KeyU', key: 'u' });
+    await waitFor(() => expect(Number(screen.getByTestId('wobble-hits').textContent)).toBeGreaterThan(0));
+    await waitFor(() => expect(Number(screen.getByTestId('noise-hits').textContent)).toBeGreaterThan(0));
+    fireEvent.keyUp(window, { code: 'KeyU', key: 'u' });
   });
 });

@@ -11,14 +11,24 @@ const makeRegister = (handlers) => (paramId, handler) => {
   };
 };
 
-const fire = (handlers, paramId, value01) => {
+const fire = (handlers, paramId, value01, raw = {}) => {
   const set = handlers.get(paramId);
   if (!set || set.size === 0) throw new Error(`No handler for ${paramId}`);
-  set.forEach(handler => handler({ value01 }));
+  set.forEach(handler => handler({ value01, raw }));
 };
 
-function Harness({ handlers, onBackgroundColor, onLayers, onGlobalSpeed }) {
+function Harness({
+  handlers,
+  onBackgroundColor,
+  onLayers,
+  onGlobalSpeed,
+  onGlobalBlendMode,
+  onGlobalPaletteIndex,
+  palettes = [{ colors: ['#ff0000', '#00ff00'] }],
+}) {
   const [backgroundColor, setBackgroundColor] = useState('#102030');
+  const [globalBlendMode, setGlobalBlendMode] = useState('source-over');
+  const [globalPaletteIndex, setGlobalPaletteIndex] = useState(0);
   const [layers, setLayers] = useState([
     { id: 'l1', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1 },
     { id: 'l2', variationShape: 0, variationAnim: 0, variationColor: 0, variationPosition: 0, variationScale: 0, opacity: 1, xOffset: 0 },
@@ -27,10 +37,18 @@ function Harness({ handlers, onBackgroundColor, onLayers, onGlobalSpeed }) {
   useMIDIHandlers({
     registerParamHandler: makeRegister(handlers),
     setGlobalSpeedMultiplier: onGlobalSpeed || (() => {}),
-    setGlobalBlendMode: () => {},
-    setGlobalPaletteIndex: () => {},
+    setGlobalBlendMode: (value) => {
+      setGlobalBlendMode(value);
+      onGlobalBlendMode?.(value);
+    },
+    setGlobalPaletteIndex: (value) => {
+      setGlobalPaletteIndex(value);
+      onGlobalPaletteIndex?.(value);
+    },
     setGlobalPaletteRef: () => {},
-    blendModes: ['normal'],
+    globalBlendMode,
+    globalPaletteIndex,
+    blendModes: ['source-over', 'difference'],
     parameters: [
       { id: 'globalOpacity', type: 'slider', min: 0, max: 1, step: 0.01, randomMin: 0.2, randomMax: 0.2 },
       { id: 'globalSpeedMultiplier', type: 'slider', min: 0, max: 5, step: 0.5, randomMin: 2, randomMax: 4 },
@@ -47,7 +65,7 @@ function Harness({ handlers, onBackgroundColor, onLayers, onGlobalSpeed }) {
     }),
     applyVariationInstantly: true,
     setSelectedLayerIndex: () => {},
-    palettes: [{ colors: ['#ff0000', '#00ff00'] }],
+    palettes,
     sampleColorsEven: (colors, count) => colors.slice(0, count),
     assignOneColorPerLayer: (colors) => {
       setLayers(prev => prev.map((layer, index) => ({
@@ -187,6 +205,55 @@ describe('useMIDIHandlers', () => {
       fire(handlers, 'layersCount', 0);
     });
     expect(latestLayers).toHaveLength(2);
+  });
+
+  test('arcade paired action handlers cycle colours, palettes, and blend mode', () => {
+    const handlers = new Map();
+    let latestBackgroundColor = '';
+    let latestBlendMode = '';
+    let latestPaletteIndex = null;
+    let latestLayers = [];
+
+    render(
+      <Harness
+        handlers={handlers}
+        onBackgroundColor={(color) => { latestBackgroundColor = color; }}
+        onGlobalBlendMode={(mode) => { latestBlendMode = mode; }}
+        onGlobalPaletteIndex={(index) => { latestPaletteIndex = index; }}
+        onLayers={(layers) => { latestLayers = layers; }}
+        palettes={[
+          { colors: ['#ff0000', '#00ff00'] },
+          { colors: ['#0000ff', '#ffff00'] },
+        ]}
+      />,
+    );
+
+    act(() => {
+      fire(handlers, 'arcade:backgroundColorCycle', 1, { arcadeDirection: 1 });
+    });
+    expect(latestBackgroundColor).toBe('#ffffff');
+
+    act(() => {
+      fire(handlers, 'arcade:backgroundColorCycle', 1, { arcadeDirection: -1 });
+    });
+    expect(latestBackgroundColor).toBe('#000000');
+
+    act(() => {
+      fire(handlers, 'arcade:paletteCycle', 1, { arcadeDirection: 1 });
+    });
+    expect(latestPaletteIndex).toBe(1);
+    expect(latestLayers[0].colors).toEqual(['#0000ff']);
+    expect(latestLayers[1].colors).toEqual(['#ffff00']);
+
+    act(() => {
+      fire(handlers, 'arcade:blendToggle', 1);
+    });
+    expect(latestBlendMode).toBe('difference');
+
+    act(() => {
+      fire(handlers, 'arcade:blendToggle', 1);
+    });
+    expect(latestBlendMode).toBe('source-over');
   });
 
   test('variation position midi applies the same instant visual update as the UI slider', () => {

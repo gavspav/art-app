@@ -3,6 +3,25 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const clamp01 = (value) => clamp(Number(value) || 0, 0, 1);
+const wrapIndex = (value, length) => ((value % length) + length) % length;
+const ARCADE_BACKGROUND_COLORS = Object.freeze([
+  '#000000',
+  '#ffffff',
+  '#ff1744',
+  '#ff9100',
+  '#ffd600',
+  '#00c853',
+  '#00bfa5',
+  '#00b0ff',
+  '#2962ff',
+  '#651fff',
+  '#d500f9',
+  '#ff4081',
+  '#8d6e63',
+  '#607d8b',
+  '#c6ff00',
+  '#ff6d00',
+]);
 
 // Consolidates all MIDI registerParamHandler effects
 export function useMIDIHandlers({
@@ -12,7 +31,8 @@ export function useMIDIHandlers({
   setGlobalBlendMode,
   setGlobalPaletteIndex,
   setGlobalPaletteRef,
-  globalPaletteIndex: _globalPaletteIndex,
+  globalBlendMode = 'source-over',
+  globalPaletteIndex,
   blendModes,
   parameters = [],
   layersCountParam,
@@ -42,6 +62,10 @@ export function useMIDIHandlers({
   clampedSelectedIndex,
 }) {
   const backgroundColorRef = useRef(backgroundColor || '#000000');
+  const globalBlendModeRef = useRef(globalBlendMode || 'source-over');
+  const globalPaletteIndexRef = useRef(globalPaletteIndex);
+  const arcadeBackgroundColorIndexRef = useRef(0);
+  const arcadePaletteIndexRef = useRef(0);
   const randomizePreviousValuesRef = useRef(new Map());
 
   const mapMidiToConfiguredRange = useCallback((paramId, value01, fallbackMin, fallbackMax, fallbackStep = null) => {
@@ -73,6 +97,18 @@ export function useMIDIHandlers({
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
   }, [backgroundColor]);
+
+  useEffect(() => {
+    globalBlendModeRef.current = globalBlendMode || 'source-over';
+  }, [globalBlendMode]);
+
+  useEffect(() => {
+    globalPaletteIndexRef.current = globalPaletteIndex;
+    const numericIndex = Number(globalPaletteIndex);
+    if (Number.isFinite(numericIndex)) {
+      arcadePaletteIndexRef.current = Math.max(0, Math.round(numericIndex));
+    }
+  }, [globalPaletteIndex]);
 
   const applyVariationValue = useCallback((prop, rawValue) => {
     setLayers?.(prev => {
@@ -311,6 +347,70 @@ export function useMIDIHandlers({
     });
     return unregister;
   }, [registerParamHandler, setGlobalBlendMode, blendModes]);
+
+  // Arcade paired buttons: deterministic cycle/toggle actions.
+  useEffect(() => {
+    if (!registerParamHandler) return;
+
+    const applyPaletteIndex = (index) => {
+      const list = Array.isArray(palettes) ? palettes : [];
+      if (!list.length) return;
+      const nextIndex = wrapIndex(index, list.length);
+      arcadePaletteIndexRef.current = nextIndex;
+      globalPaletteIndexRef.current = nextIndex;
+      const palette = list[nextIndex];
+      const colors = Array.isArray(palette) ? palette : palette?.colors;
+      setGlobalPaletteRef?.(null);
+      setGlobalPaletteIndex?.(nextIndex);
+      if (typeof assignOneColorPerLayer === 'function') {
+        const count = Math.max(1, Array.isArray(layers) ? layers.length : 1);
+        assignOneColorPerLayer(typeof sampleColorsEven === 'function'
+          ? sampleColorsEven(colors || [], count)
+          : (colors || []));
+      }
+    };
+
+    const u0 = registerParamHandler('arcade:backgroundColorCycle', ({ raw }) => {
+      const direction = Number(raw?.arcadeDirection) || 1;
+      const nextIndex = wrapIndex(arcadeBackgroundColorIndexRef.current + direction, ARCADE_BACKGROUND_COLORS.length);
+      arcadeBackgroundColorIndexRef.current = nextIndex;
+      const nextColor = ARCADE_BACKGROUND_COLORS[nextIndex];
+      backgroundColorRef.current = nextColor;
+      setBackgroundColor?.(nextColor);
+    });
+
+    const u1 = registerParamHandler('arcade:paletteCycle', ({ raw }) => {
+      const direction = Number(raw?.arcadeDirection) || 1;
+      const numericIndex = Number(globalPaletteIndexRef.current);
+      const currentIndex = Number.isFinite(numericIndex)
+        ? Math.round(numericIndex)
+        : arcadePaletteIndexRef.current;
+      applyPaletteIndex(currentIndex + direction);
+    });
+
+    const u2 = registerParamHandler('arcade:blendToggle', () => {
+      const current = globalBlendModeRef.current;
+      const next = current === 'difference' ? 'source-over' : 'difference';
+      globalBlendModeRef.current = next;
+      setGlobalBlendMode?.(next);
+    });
+
+    return () => {
+      if (typeof u0 === 'function') u0();
+      if (typeof u1 === 'function') u1();
+      if (typeof u2 === 'function') u2();
+    };
+  }, [
+    assignOneColorPerLayer,
+    layers,
+    palettes,
+    registerParamHandler,
+    sampleColorsEven,
+    setBackgroundColor,
+    setGlobalBlendMode,
+    setGlobalPaletteIndex,
+    setGlobalPaletteRef,
+  ]);
 
   // Global Opacity for all layers (0..1)
   useEffect(() => {
