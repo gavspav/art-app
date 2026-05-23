@@ -35,3 +35,6 @@ dist-ssr
 
 # Local TouchDesigner operator workspace
 touchdesigner_local/
+
+# Local arcade controls notes
+docs/ARCADE_CONTROLS.md
