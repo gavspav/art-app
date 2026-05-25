@@ -37,7 +37,7 @@ const ARCADE_JOYSTICK_ACTION_NOTE_MAP = {
   45: { action: 'wobbleNoise', direction: 1 },
   56: { action: 'wobbleNoise', direction: -1 },
 };
-const ARCADE_BUTTON_PAIR_NOTE_MAP = {
+const ARCADE_BUTTON_PAIR_KEYBOARD_NOTE_MAP = {
   30: { paramId: 'arcade:backgroundColorCycle', direction: 1 },
   5: { paramId: 'arcade:backgroundColorCycle', direction: -1 },
   32: { paramId: 'arcade:paletteCycle', direction: 1 },
@@ -49,17 +49,29 @@ const ARCADE_BUTTON_PAIR_NOTE_MAP = {
   4: { paramId: 'arcade:blendToggle', toggle: true },
   13: { paramId: 'curviness', toggle: 'curviness' },
 };
+const ARCADE_BUTTON_PAIR_PHYSICAL_NOTE_MAP = {
+  30: { paramId: 'arcade:backgroundColorCycle', direction: 1 },
+  4: { paramId: 'arcade:backgroundColorCycle', direction: -1 },
+  32: { paramId: 'arcade:paletteCycle', direction: 1 },
+  5: { paramId: 'arcade:paletteCycle', direction: -1 },
+  51: { paramId: 'numSides', direction: 1, counter: 'numSides' },
+  14: { paramId: 'numSides', direction: -1, counter: 'numSides' },
+  40: { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },
+  13: { paramId: 'globalOpacity', direction: -1, counter: 'globalOpacity' },
+  6: { paramId: 'arcade:blendToggle', toggle: true },
+  12: { paramId: 'curviness', toggle: 'curviness' },
+};
 const ARCADE_BUTTON_PAIR_MAPPING_ACTIONS = {
   'randomize:backgroundColor': { paramId: 'arcade:backgroundColorCycle', direction: 1 },
-  'randomize:globalOpacity': { paramId: 'arcade:paletteCycle', direction: -1 },
+  'randomize:globalBlendMode': { paramId: 'arcade:backgroundColorCycle', direction: -1 },
   'randomize:globalPaletteIndex': { paramId: 'arcade:paletteCycle', direction: 1 },
-  'randomize:numSides': { paramId: 'arcade:backgroundColorCycle', direction: -1 },
-  'randomize:wobble': { paramId: 'numSides', direction: 1, counter: 'numSides' },
-  'randomize:variationColor': { paramId: 'numSides', direction: -1, counter: 'numSides' },
-  'randomize:movementStyle': { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },
-  'randomize:variationAnim': { paramId: 'globalOpacity', direction: -1, counter: 'globalOpacity' },
-  'randomize:globalBlendMode': { paramId: 'arcade:blendToggle', toggle: true },
-  'randomize:variationPosition': { paramId: 'curviness', toggle: 'curviness' },
+  'randomize:globalOpacity': { paramId: 'arcade:paletteCycle', direction: -1 },
+  'randomize:numSides': { paramId: 'numSides', direction: 1, counter: 'numSides' },
+  'randomize:movementStyle': { paramId: 'numSides', direction: -1, counter: 'numSides' },
+  'randomize:wobble': { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },
+  'randomize:variationPosition': { paramId: 'globalOpacity', direction: -1, counter: 'globalOpacity' },
+  'randomize:variationColor': { paramId: 'arcade:blendToggle', toggle: true },
+  'randomize:variationAnim': { paramId: 'curviness', toggle: 'curviness' },
 };
 const ARCADE_BUTTON_COUNTER_STEP = 8;
 const ARCADE_KEYBOARD_NOTE_MAP = {
@@ -523,7 +535,10 @@ export const MidiProvider = ({ children }) => {
   const getArcadeButtonPairAction = useCallback((msg) => {
     if (!arcadeButtonPairsMidiEnabled || !msg) return null;
     if (msg.type === 'note' && msg.channel === DEFAULT_MIDI_CHANNEL) {
-      const fixedAction = ARCADE_BUTTON_PAIR_NOTE_MAP[msg.number];
+      const fixedMap = msg.source === 'arcadeKeyboard'
+        ? ARCADE_BUTTON_PAIR_KEYBOARD_NOTE_MAP
+        : ARCADE_BUTTON_PAIR_PHYSICAL_NOTE_MAP;
+      const fixedAction = fixedMap[msg.number];
       if (fixedAction) return fixedAction;
     }
     for (const [mappedParamId, action] of Object.entries(ARCADE_BUTTON_PAIR_MAPPING_ACTIONS)) {

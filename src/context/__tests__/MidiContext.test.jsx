@@ -177,7 +177,9 @@ function ArcadeButtonPairsProbe() {
   const [backgroundDirections, setBackgroundDirections] = useState([]);
   const [paletteDirections, setPaletteDirections] = useState([]);
   const [opacityValues, setOpacityValues] = useState([]);
+  const [numSidesValues, setNumSidesValues] = useState([]);
   const [curvinessValues, setCurvinessValues] = useState([]);
+  const [blendHits, setBlendHits] = useState(0);
   const [wobbleHits, setWobbleHits] = useState(0);
   const [noiseHits, setNoiseHits] = useState(0);
   const [randomizeHits, setRandomizeHits] = useState(0);
@@ -201,8 +203,14 @@ function ArcadeButtonPairsProbe() {
       registerParamHandler('globalOpacity', ({ value01 }) => {
         setOpacityValues(prev => [...prev, value01]);
       }),
+      registerParamHandler('numSides', ({ value01 }) => {
+        setNumSidesValues(prev => [...prev, value01]);
+      }),
       registerParamHandler('curviness', ({ value01 }) => {
         setCurvinessValues(prev => [...prev, value01]);
+      }),
+      registerParamHandler('arcade:blendToggle', () => {
+        setBlendHits(count => count + 1);
       }),
       registerParamHandler('wobble', () => {
         setWobbleHits(count => count + 1);
@@ -223,7 +231,9 @@ function ArcadeButtonPairsProbe() {
       <div data-testid="background-directions">{backgroundDirections.join(',')}</div>
       <div data-testid="palette-directions">{paletteDirections.join(',')}</div>
       <div data-testid="opacity-values">{opacityValues.map(value => value.toFixed(3)).join(',')}</div>
+      <div data-testid="num-sides-values">{numSidesValues.map(value => value.toFixed(3)).join(',')}</div>
       <div data-testid="curviness-values">{curvinessValues.join(',')}</div>
+      <div data-testid="blend-hits">{blendHits}</div>
       <div data-testid="wobble-hits">{wobbleHits}</div>
       <div data-testid="noise-hits">{noiseHits}</div>
       <div data-testid="randomize-hits">{randomizeHits}</div>
@@ -468,8 +478,57 @@ describe('MidiContext', () => {
     sendCc(input, 101, 127, 2);
     sendCc(input, 101, 0, 2);
 
-    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1,-1'));
+    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1'));
     await waitFor(() => expect(screen.getByTestId('palette-directions')).toHaveTextContent('-1'));
+    await waitFor(() => expect(screen.getByTestId('num-sides-values')).toHaveTextContent('0.567'));
     expect(screen.getByTestId('randomize-hits')).toHaveTextContent('0');
+  });
+
+  it('routes physical arcade note layout separately from the keyboard layout', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeButtonPairsProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable button pairs' }));
+
+    await waitFor(() => expect(screen.getByTestId('pairs-enabled')).toHaveTextContent('yes'));
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendNote(input, 30, 127);
+    sendNote(input, 30, 0);
+    sendNote(input, 4, 127);
+    sendNote(input, 4, 0);
+    sendNote(input, 32, 127);
+    sendNote(input, 32, 0);
+    sendNote(input, 5, 127);
+    sendNote(input, 5, 0);
+    sendNote(input, 6, 127);
+    sendNote(input, 6, 0);
+    sendNote(input, 51, 127);
+    sendNote(input, 51, 0);
+    sendNote(input, 14, 127);
+    sendNote(input, 14, 0);
+    sendNote(input, 40, 127);
+    sendNote(input, 40, 0);
+    sendNote(input, 13, 127);
+    sendNote(input, 13, 0);
+    sendNote(input, 12, 127);
+    sendNote(input, 12, 0);
+
+    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1,-1'));
+    await waitFor(() => expect(screen.getByTestId('palette-directions')).toHaveTextContent('1,-1'));
+    await waitFor(() => expect(screen.getByTestId('blend-hits')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.getByTestId('num-sides-values')).toHaveTextContent('0.567,0.504'));
+    await waitFor(() => expect(screen.getByTestId('opacity-values')).toHaveTextContent('0.567,0.504'));
+    await waitFor(() => expect(screen.getByTestId('curviness-values')).toHaveTextContent('1'));
   });
 });
