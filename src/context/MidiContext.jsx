@@ -51,9 +51,9 @@ const ARCADE_BUTTON_PAIR_NOTE_MAP = {
 };
 const ARCADE_BUTTON_PAIR_MAPPING_ACTIONS = {
   'randomize:backgroundColor': { paramId: 'arcade:backgroundColorCycle', direction: 1 },
-  'randomize:globalOpacity': { paramId: 'arcade:backgroundColorCycle', direction: -1 },
+  'randomize:globalOpacity': { paramId: 'arcade:paletteCycle', direction: -1 },
   'randomize:globalPaletteIndex': { paramId: 'arcade:paletteCycle', direction: 1 },
-  'randomize:numSides': { paramId: 'arcade:paletteCycle', direction: -1 },
+  'randomize:numSides': { paramId: 'arcade:backgroundColorCycle', direction: -1 },
   'randomize:wobble': { paramId: 'numSides', direction: 1, counter: 'numSides' },
   'randomize:variationColor': { paramId: 'numSides', direction: -1, counter: 'numSides' },
   'randomize:movementStyle': { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },

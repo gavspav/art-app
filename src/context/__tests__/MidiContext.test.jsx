@@ -175,6 +175,7 @@ function ArcadeKeyboardProbe() {
 function ArcadeButtonPairsProbe() {
   const midi = useMidi();
   const [backgroundDirections, setBackgroundDirections] = useState([]);
+  const [paletteDirections, setPaletteDirections] = useState([]);
   const [opacityValues, setOpacityValues] = useState([]);
   const [curvinessValues, setCurvinessValues] = useState([]);
   const [wobbleHits, setWobbleHits] = useState(0);
@@ -193,6 +194,9 @@ function ArcadeButtonPairsProbe() {
     const unsubs = [
       registerParamHandler('arcade:backgroundColorCycle', ({ raw }) => {
         setBackgroundDirections(prev => [...prev, raw?.arcadeDirection || 0]);
+      }),
+      registerParamHandler('arcade:paletteCycle', ({ raw }) => {
+        setPaletteDirections(prev => [...prev, raw?.arcadeDirection || 0]);
       }),
       registerParamHandler('globalOpacity', ({ value01 }) => {
         setOpacityValues(prev => [...prev, value01]);
@@ -217,6 +221,7 @@ function ArcadeButtonPairsProbe() {
     <div>
       <div data-testid="pairs-enabled">{midi?.arcadeButtonPairsMidiEnabled ? 'yes' : 'no'}</div>
       <div data-testid="background-directions">{backgroundDirections.join(',')}</div>
+      <div data-testid="palette-directions">{paletteDirections.join(',')}</div>
       <div data-testid="opacity-values">{opacityValues.map(value => value.toFixed(3)).join(',')}</div>
       <div data-testid="curviness-values">{curvinessValues.join(',')}</div>
       <div data-testid="wobble-hits">{wobbleHits}</div>
@@ -230,6 +235,18 @@ function ArcadeButtonPairsProbe() {
         onClick={() => midi?.setMapping?.('randomize:backgroundColor', { type: 'cc', channel: 2, number: 99 })}
       >
         Map background CC
+      </button>
+      <button
+        type="button"
+        onClick={() => midi?.setMapping?.('randomize:globalOpacity', { type: 'cc', channel: 2, number: 100 })}
+      >
+        Map physical C CC
+      </button>
+      <button
+        type="button"
+        onClick={() => midi?.setMapping?.('randomize:numSides', { type: 'cc', channel: 2, number: 101 })}
+      >
+        Map physical V CC
       </button>
     </div>
   );
@@ -438,14 +455,21 @@ describe('MidiContext', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
     fireEvent.click(screen.getByRole('button', { name: 'Enable button pairs' }));
     fireEvent.click(screen.getByRole('button', { name: 'Map background CC' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Map physical C CC' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Map physical V CC' }));
 
     await waitFor(() => expect(screen.getByTestId('pairs-enabled')).toHaveTextContent('yes'));
     await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
 
     sendCc(input, 99, 127, 2);
     sendCc(input, 99, 0, 2);
+    sendCc(input, 100, 127, 2);
+    sendCc(input, 100, 0, 2);
+    sendCc(input, 101, 127, 2);
+    sendCc(input, 101, 0, 2);
 
-    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1,-1'));
+    await waitFor(() => expect(screen.getByTestId('palette-directions')).toHaveTextContent('-1'));
     expect(screen.getByTestId('randomize-hits')).toHaveTextContent('0');
   });
 });
