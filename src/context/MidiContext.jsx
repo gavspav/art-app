@@ -49,6 +49,18 @@ const ARCADE_BUTTON_PAIR_NOTE_MAP = {
   4: { paramId: 'arcade:blendToggle', toggle: true },
   13: { paramId: 'curviness', toggle: 'curviness' },
 };
+const ARCADE_BUTTON_PAIR_MAPPING_ACTIONS = {
+  'randomize:backgroundColor': { paramId: 'arcade:backgroundColorCycle', direction: 1 },
+  'randomize:globalOpacity': { paramId: 'arcade:backgroundColorCycle', direction: -1 },
+  'randomize:globalPaletteIndex': { paramId: 'arcade:paletteCycle', direction: 1 },
+  'randomize:numSides': { paramId: 'arcade:paletteCycle', direction: -1 },
+  'randomize:wobble': { paramId: 'numSides', direction: 1, counter: 'numSides' },
+  'randomize:variationColor': { paramId: 'numSides', direction: -1, counter: 'numSides' },
+  'randomize:movementStyle': { paramId: 'globalOpacity', direction: 1, counter: 'globalOpacity' },
+  'randomize:variationAnim': { paramId: 'globalOpacity', direction: -1, counter: 'globalOpacity' },
+  'randomize:globalBlendMode': { paramId: 'arcade:blendToggle', toggle: true },
+  'randomize:variationPosition': { paramId: 'curviness', toggle: 'curviness' },
+};
 const ARCADE_BUTTON_COUNTER_STEP = 8;
 const ARCADE_KEYBOARD_NOTE_MAP = {
   KeyW: { channel: 1, number: 38 },
@@ -148,6 +160,14 @@ const mappingLabel = (m) => {
   if (m.type === 'note') return `Note ${m.number} (${ch})`;
   return 'Unknown mapping';
 };
+
+const messageMatchesMapping = (msg, mapping) => (
+  !!msg
+  && !!mapping
+  && msg.type === mapping.type
+  && (!mapping.channel || mapping.channel === msg.channel)
+  && mapping.number === msg.number
+);
 
 export const MidiProvider = ({ children }) => {
   const [supported, setSupported] = useState(false);
@@ -500,12 +520,25 @@ export const MidiProvider = ({ children }) => {
     return true;
   }, [arcadeButtonPairsMidiEnabled, arcadeJoystickMidiEnabled, ensureArcadeJoystickTimer, stopArcadeJoystickTimer]);
 
-  const handleArcadeButtonPairNote = useCallback((msg) => {
-    if (!arcadeButtonPairsMidiEnabled || msg?.type !== 'note' || msg.channel !== DEFAULT_MIDI_CHANNEL) return false;
-    const action = ARCADE_BUTTON_PAIR_NOTE_MAP[msg.number];
+  const getArcadeButtonPairAction = useCallback((msg) => {
+    if (!arcadeButtonPairsMidiEnabled || !msg) return null;
+    if (msg.type === 'note' && msg.channel === DEFAULT_MIDI_CHANNEL) {
+      const fixedAction = ARCADE_BUTTON_PAIR_NOTE_MAP[msg.number];
+      if (fixedAction) return fixedAction;
+    }
+    for (const [mappedParamId, action] of Object.entries(ARCADE_BUTTON_PAIR_MAPPING_ACTIONS)) {
+      if (messageMatchesMapping(msg, effectiveMappings[mappedParamId])) return action;
+    }
+    return null;
+  }, [arcadeButtonPairsMidiEnabled, effectiveMappings]);
+
+  const handleArcadeButtonPairMessage = useCallback((msg) => {
+    const action = getArcadeButtonPairAction(msg);
     if (!action) return false;
 
-    const isPressed = Number(msg.value || 0) > 0;
+    const isPressed = msg.type === 'cc'
+      ? Number(msg.value || 0) >= 64
+      : Number(msg.value || 0) > 0;
     if (!isPressed) return true;
 
     if (action.counter) {
@@ -549,7 +582,7 @@ export const MidiProvider = ({ children }) => {
       arcadeDirection: action.direction,
     });
     return true;
-  }, [arcadeButtonPairsMidiEnabled, triggerHandlers]);
+  }, [getArcadeButtonPairAction, triggerHandlers]);
 
   useEffect(() => {
     if (arcadeJoystickMidiEnabled) return undefined;
@@ -578,11 +611,11 @@ export const MidiProvider = ({ children }) => {
       arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
     }
 
-    if (handleArcadeButtonPairNote(msg)) return;
+    if (handleArcadeButtonPairMessage(msg)) return;
     if (handleArcadeJoystickNote(msg)) return;
 
     dispatchMidiMessage(msg);
-  }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeButtonPairNote, handleArcadeJoystickNote, learnParamId, setMapping]);
+  }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeButtonPairMessage, handleArcadeJoystickNote, learnParamId, setMapping]);
 
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]

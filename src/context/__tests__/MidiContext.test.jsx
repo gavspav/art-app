@@ -222,8 +222,15 @@ function ArcadeButtonPairsProbe() {
       <div data-testid="wobble-hits">{wobbleHits}</div>
       <div data-testid="noise-hits">{noiseHits}</div>
       <div data-testid="randomize-hits">{randomizeHits}</div>
+      <button type="button" onClick={() => midi?.setSelectedInputId?.('input-1')}>Select input</button>
       <button type="button" onClick={() => midi?.setArcadeKeyboardMidiEnabled?.(true)}>Enable keyboard cabinet</button>
       <button type="button" onClick={() => midi?.setArcadeButtonPairsMidiEnabled?.(true)}>Enable button pairs</button>
+      <button
+        type="button"
+        onClick={() => midi?.setMapping?.('randomize:backgroundColor', { type: 'cc', channel: 2, number: 99 })}
+      >
+        Map background CC
+      </button>
     </div>
   );
 }
@@ -413,5 +420,32 @@ describe('MidiContext', () => {
     await waitFor(() => expect(Number(screen.getByTestId('wobble-hits').textContent)).toBeGreaterThan(0));
     await waitFor(() => expect(Number(screen.getByTestId('noise-hits').textContent)).toBeGreaterThan(0));
     fireEvent.keyUp(window, { code: 'KeyU', key: 'u' });
+  });
+
+  it('routes mapped physical MIDI controls to paired actions when pair mode is enabled', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeButtonPairsProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable button pairs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Map background CC' }));
+
+    await waitFor(() => expect(screen.getByTestId('pairs-enabled')).toHaveTextContent('yes'));
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendCc(input, 99, 127, 2);
+    sendCc(input, 99, 0, 2);
+
+    await waitFor(() => expect(screen.getByTestId('background-directions')).toHaveTextContent('1'));
+    expect(screen.getByTestId('randomize-hits')).toHaveTextContent('0');
   });
 });
