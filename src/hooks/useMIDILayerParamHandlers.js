@@ -24,6 +24,25 @@ const mapMidiToParamValue = (value01, param) => {
   return clamp(mapped, Math.min(min, max), Math.max(min, max));
 };
 
+const mapParamValueToMidi = (value, param) => {
+  const absoluteMin = Number.isFinite(param?.min) ? param.min : 0;
+  const absoluteMax = Number.isFinite(param?.max) ? param.max : 1;
+  const absoluteLow = Math.min(absoluteMin, absoluteMax);
+  const absoluteHigh = Math.max(absoluteMin, absoluteMax);
+  const min = clamp(
+    Number.isFinite(param?.randomMin) ? param.randomMin : absoluteMin,
+    absoluteLow,
+    absoluteHigh,
+  );
+  const max = clamp(
+    Number.isFinite(param?.randomMax) ? param.randomMax : absoluteMax,
+    absoluteLow,
+    absoluteHigh,
+  );
+  if (Math.abs(max - min) < 1e-9) return 0;
+  return clamp((Number(value) - min) / (max - min), 0, 1);
+};
+
 const makeRegularNodes = (sides) => {
   const n = Math.max(3, Math.round(Number(sides) || 3));
   return Array.from({ length: n }, (_, i) => {
@@ -49,6 +68,9 @@ const buildLayerParamIds = (layer, paramId, layerIndex = null) => {
 
 export function useMIDILayerParamHandlers({
   registerParamHandler,
+  setArcadeVirtualCcValue,
+  setArcadeActionValue,
+  setArcadeButtonCounterValue,
   parameters,
   layers,
   setLayers,
@@ -77,6 +99,55 @@ export function useMIDILayerParamHandlers({
       param?.id && list.findIndex(candidate => candidate?.id === param.id) === index
     ));
   }, [parameters]);
+
+  useEffect(() => {
+    if (
+      typeof setArcadeVirtualCcValue !== 'function'
+      && typeof setArcadeActionValue !== 'function'
+      && typeof setArcadeButtonCounterValue !== 'function'
+    ) {
+      return;
+    }
+
+    const params = new Map(layerParams.map(param => [param.id, param]));
+    const list = Array.isArray(layers) ? layers : [];
+    if (!list.length) return;
+    const index = clamp(Math.round(Number(selectedLayerIndex) || 0), 0, Math.max(0, list.length - 1));
+    const layer = list[index] || list[0] || {};
+
+    const syncCc = (cc, paramId, fallbackParam) => {
+      if (typeof setArcadeVirtualCcValue !== 'function') return;
+      const param = params.get(paramId) || fallbackParam;
+      const raw = Number(layer?.[paramId]);
+      if (Number.isFinite(raw)) setArcadeVirtualCcValue(cc, mapParamValueToMidi(raw, param));
+    };
+
+    syncCc(37, 'radiusFactor', { id: 'radiusFactor', min: 0, max: 1 });
+    syncCc(35, 'curviness', { id: 'curviness', min: 0, max: 1 });
+
+    if (typeof setArcadeButtonCounterValue === 'function') {
+      const numSides = Number(layer?.numSides);
+      const numSidesParam = params.get('numSides') || { id: 'numSides', min: 3, max: 16 };
+      if (Number.isFinite(numSides)) {
+        setArcadeButtonCounterValue('numSides', mapParamValueToMidi(numSides, numSidesParam));
+      }
+    }
+
+    if (typeof setArcadeActionValue === 'function') {
+      const wobble = Number(layer?.wobble);
+      const wobbleParam = params.get('wobble') || { id: 'wobble', min: 0, max: 1 };
+      if (Number.isFinite(wobble)) {
+        setArcadeActionValue('wobbleNoise', mapParamValueToMidi(wobble, wobbleParam));
+      }
+    }
+  }, [
+    layerParams,
+    layers,
+    selectedLayerIndex,
+    setArcadeActionValue,
+    setArcadeButtonCounterValue,
+    setArcadeVirtualCcValue,
+  ]);
 
   useEffect(() => {
     if (!registerParamHandler || typeof setLayers !== 'function' || layerParams.length === 0) return undefined;

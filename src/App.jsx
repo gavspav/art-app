@@ -201,6 +201,9 @@ const MainApp = () => {
     setMappingsFromExternal,
     registerParamHandler,
     setArcadeJoystickMidiEnabled,
+    setArcadeVirtualCcValue,
+    setArcadeActionValue,
+    setArcadeButtonCounterValue,
     arcadeKeyboardMidiEnabled,
   } = useMidi() || {};
 
@@ -1882,6 +1885,10 @@ const MainApp = () => {
   const selectedIdxForMidi = Math.max(0, Math.min(selectedLayerIndex, Math.max(0, layers.length - 1)));
   useMIDIHandlers({
     registerParamHandler,
+    setArcadeVirtualCcValue,
+    setArcadeActionValue,
+    setArcadeButtonCounterValue,
+    globalSpeedMultiplier,
     setGlobalSpeedMultiplier,
     setGlobalBlendMode,
     setGlobalPaletteIndex,
@@ -1914,6 +1921,9 @@ const MainApp = () => {
 
   useMIDILayerParamHandlers({
     registerParamHandler,
+    setArcadeVirtualCcValue,
+    setArcadeActionValue,
+    setArcadeButtonCounterValue,
     parameters,
     layers,
     setLayers,

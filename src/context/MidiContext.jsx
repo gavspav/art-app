@@ -173,6 +173,8 @@ const mappingLabel = (m) => {
   return 'Unknown mapping';
 };
 
+const toMidiByte = (value01) => Math.max(0, Math.min(127, Math.round((Number(value01) || 0) * 127)));
+
 const messageMatchesMapping = (msg, mapping) => (
   !!msg
   && !!mapping
@@ -365,6 +367,21 @@ export const MidiProvider = ({ children }) => {
     const next = !!enabled;
     setArcadeButtonPairsMidiEnabledState(next);
     try { localStorage.setItem(LS_ARCADE_BUTTON_PAIRS_MIDI_ENABLED, next ? 'true' : 'false'); } catch { /* noop */ }
+  }, []);
+
+  const setArcadeVirtualCcValue = useCallback((cc, value01) => {
+    if (!Number.isFinite(Number(cc)) || !Object.hasOwn(arcadeJoystickValuesRef.current, Number(cc))) return;
+    arcadeJoystickValuesRef.current[Number(cc)] = toMidiByte(value01);
+  }, []);
+
+  const setArcadeActionValue = useCallback((action, value01) => {
+    if (!action || !Object.hasOwn(arcadeJoystickActionValuesRef.current, action)) return;
+    arcadeJoystickActionValuesRef.current[action] = toMidiByte(value01);
+  }, []);
+
+  const setArcadeButtonCounterValue = useCallback((counter, value01) => {
+    if (!counter || !Object.hasOwn(arcadeButtonCounterValuesRef.current, counter)) return;
+    arcadeButtonCounterValuesRef.current[counter] = toMidiByte(value01);
   }, []);
 
   useEffect(() => {
@@ -749,7 +766,10 @@ export const MidiProvider = ({ children }) => {
     setArcadeKeyboardMidiEnabled,
     arcadeButtonPairsMidiEnabled,
     setArcadeButtonPairsMidiEnabled,
-  }), [arcadeButtonPairsMidiEnabled, arcadeJoystickMidiEnabled, arcadeKeyboardMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, midiAvailable, registerParamHandler, selectedInputId, setArcadeButtonPairsMidiEnabled, setArcadeJoystickMidiEnabled, setArcadeKeyboardMidiEnabled, setMapping, setMappingsFromExternal, supported]);
+    setArcadeVirtualCcValue,
+    setArcadeActionValue,
+    setArcadeButtonCounterValue,
+  }), [arcadeButtonPairsMidiEnabled, arcadeJoystickMidiEnabled, arcadeKeyboardMidiEnabled, beginLearn, clearMapping, effectiveMappings, inputs, learnParamId, midiAvailable, registerParamHandler, selectedInputId, setArcadeActionValue, setArcadeButtonCounterValue, setArcadeButtonPairsMidiEnabled, setArcadeJoystickMidiEnabled, setArcadeKeyboardMidiEnabled, setArcadeVirtualCcValue, setMapping, setMappingsFromExternal, supported]);
 
   return (
     <MidiContext.Provider value={value}>

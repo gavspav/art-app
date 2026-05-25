@@ -26,7 +26,11 @@ const ARCADE_BACKGROUND_COLORS = Object.freeze([
 // Consolidates all MIDI registerParamHandler effects
 export function useMIDIHandlers({
   registerParamHandler,
+  setArcadeVirtualCcValue,
+  setArcadeActionValue,
+  setArcadeButtonCounterValue,
   // Globals
+  globalSpeedMultiplier,
   setGlobalSpeedMultiplier,
   setGlobalBlendMode,
   setGlobalPaletteIndex,
@@ -94,6 +98,24 @@ export function useMIDIHandlers({
     return clamp(Number(mapped.toFixed(6)), low, high);
   }, [layersCountParam, parameters]);
 
+  const mapConfiguredRangeToMidi = useCallback((paramId, rawValue, fallbackMin, fallbackMax) => {
+    const param = (
+      paramId === 'layersCount' && layersCountParam
+        ? layersCountParam
+        : (Array.isArray(parameters) ? parameters.find(candidate => candidate?.id === paramId) : null)
+    );
+    const absoluteMin = Number.isFinite(Number(param?.min)) ? Number(param.min) : fallbackMin;
+    const absoluteMax = Number.isFinite(Number(param?.max)) ? Number(param.max) : fallbackMax;
+    const absoluteLow = Math.min(absoluteMin, absoluteMax);
+    const absoluteHigh = Math.max(absoluteMin, absoluteMax);
+    const rangeMin = Number.isFinite(Number(param?.randomMin)) ? Number(param.randomMin) : absoluteMin;
+    const rangeMax = Number.isFinite(Number(param?.randomMax)) ? Number(param.randomMax) : absoluteMax;
+    const min = clamp(rangeMin, absoluteLow, absoluteHigh);
+    const max = clamp(rangeMax, absoluteLow, absoluteHigh);
+    if (Math.abs(max - min) < 1e-9) return 0;
+    return clamp01((Number(rawValue) - min) / (max - min));
+  }, [layersCountParam, parameters]);
+
   useEffect(() => {
     backgroundColorRef.current = backgroundColor || '#000000';
   }, [backgroundColor]);
@@ -109,6 +131,35 @@ export function useMIDIHandlers({
       arcadePaletteIndexRef.current = Math.max(0, Math.round(numericIndex));
     }
   }, [globalPaletteIndex]);
+
+  useEffect(() => {
+    if (typeof setArcadeVirtualCcValue !== 'function') return;
+    setArcadeVirtualCcValue(36, mapConfiguredRangeToMidi('globalSpeedMultiplier', globalSpeedMultiplier, 0, 5));
+  }, [globalSpeedMultiplier, mapConfiguredRangeToMidi, setArcadeVirtualCcValue]);
+
+  useEffect(() => {
+    if (typeof setArcadeVirtualCcValue !== 'function') return;
+    const count = Array.isArray(layers) ? layers.length : 1;
+    setArcadeVirtualCcValue(34, mapConfiguredRangeToMidi('layersCount', count, 1, 20));
+  }, [layers, mapConfiguredRangeToMidi, setArcadeVirtualCcValue]);
+
+  useEffect(() => {
+    if (typeof setArcadeButtonCounterValue !== 'function') return;
+    const list = Array.isArray(layers) ? layers : [];
+    const opacity = Number(list[0]?.opacity);
+    if (Number.isFinite(opacity)) {
+      setArcadeButtonCounterValue('globalOpacity', mapConfiguredRangeToMidi('globalOpacity', opacity, 0, 1));
+    }
+  }, [layers, mapConfiguredRangeToMidi, setArcadeButtonCounterValue]);
+
+  useEffect(() => {
+    if (typeof setArcadeActionValue !== 'function') return;
+    const list = Array.isArray(layers) ? layers : [];
+    const wobble = Number(list[0]?.wobble);
+    if (Number.isFinite(wobble)) {
+      setArcadeActionValue('wobbleNoise', mapConfiguredRangeToMidi('wobble', wobble, 0, 1));
+    }
+  }, [layers, mapConfiguredRangeToMidi, setArcadeActionValue]);
 
   const applyVariationValue = useCallback((prop, rawValue) => {
     setLayers?.(prev => {
