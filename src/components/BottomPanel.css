@@ -736,6 +736,7 @@
 }
 
 /* Hide panel in fullscreen */
-.fullscreen .bottom-panel {
+.fullscreen .bottom-panel,
+.arcade-launch .bottom-panel {
   display: none;
 }

@@ -224,6 +224,16 @@ const MainApp = () => {
   const variationBaseRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
+  const isArcadeLaunch = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      return ['1', 'true', 'yes', 'on'].includes((params.get('arcade') || '').toLowerCase());
+    } catch {
+      return false;
+    }
+  }, []);
+  const effectiveFullscreen = isFullscreen || isArcadeLaunch;
   const [isRecording, setIsRecording] = useState(false);
   const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
@@ -2198,7 +2208,7 @@ const MainApp = () => {
     onDownload: downloadImage,
     onRandomize: randomizeScene,
     onToggleFullscreen: toggleFullscreen,
-    isFullscreen,
+    isFullscreen: effectiveFullscreen,
     onStartRecording: startRecording,
     onStopRecording: stopRecording,
     isRecording,
@@ -2388,7 +2398,7 @@ const MainApp = () => {
   return (
     <div
       ref={containerRef}
-      className={`App ${isFullscreen ? 'fullscreen' : ''}`}
+      className={`App ${effectiveFullscreen ? 'fullscreen' : ''} ${isArcadeLaunch ? 'arcade-launch' : ''}`}
       tabIndex={-1}
     >
       <main className="main-layout">
@@ -2416,7 +2426,7 @@ const MainApp = () => {
         />
 
         <WorkspaceRouter
-          isFullscreen={isFullscreen}
+          isFullscreen={effectiveFullscreen}
           timelineMode={timelineMode}
           timelineVisible={timelineVisible}
           fullscreenWorkspaceProps={{

@@ -226,7 +226,9 @@ canvas {
 }
 
 /* Hide floating action buttons in fullscreen mode */
-.App.fullscreen .floating-actions {
+.App.fullscreen .floating-actions,
+.App.arcade-launch .floating-actions,
+.App.arcade-launch .workspace-toggle-btn {
   display: none !important;
 }
 
