@@ -198,9 +198,12 @@ const MainApp = () => {
   // MIDI context
   const {
     mappings: midiMappings,
+    inputs: midiInputs,
+    setSelectedInputId: setMidiInputId,
     setMappingsFromExternal,
     registerParamHandler,
     setArcadeJoystickMidiEnabled,
+    setArcadeButtonPairsMidiEnabled,
     setArcadeVirtualCcValue,
     setArcadeActionValue,
     setArcadeButtonCounterValue,
@@ -222,6 +225,7 @@ const MainApp = () => {
   const shapeTrackUpdatesRef = useRef(new Map());
   const nodeEditDeleteHandlerRef = useRef(null);
   const variationBaseRef = useRef(new Map());
+  const teensyAutoSelectedRef = useRef(false);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   const isArcadeLaunch = useMemo(() => {
@@ -239,6 +243,16 @@ const MainApp = () => {
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
   const latestRecordingNameRef = useRef('art-recording');
+
+  useEffect(() => {
+    if (teensyAutoSelectedRef.current || !Array.isArray(midiInputs) || midiInputs.length === 0) return;
+    const teensyInput = midiInputs.find((input) => (
+      `${input?.name || ''} ${input?.manufacturer || ''}`.toLowerCase().includes('teensy')
+    ));
+    if (!teensyInput?.id) return;
+    setMidiInputId?.(teensyInput.id);
+    teensyAutoSelectedRef.current = true;
+  }, [midiInputs, setMidiInputId]);
 
   const cleanupRecorder = useCallback(() => {
     try {
@@ -846,6 +860,7 @@ const MainApp = () => {
         setMappingsFromExternal?.(defaultArcadePreset.midiMappings);
       }
       setArcadeJoystickMidiEnabled?.(true);
+      setArcadeButtonPairsMidiEnabled?.(true);
       if (defaultArcadePreset?.audioConfig) {
         applyAudioSnapshot?.(defaultArcadePreset.audioConfig);
       }
@@ -865,6 +880,7 @@ const MainApp = () => {
       applyTimelineSnapshot,
       loadAppState,
       mergeCustomPaletteList,
+      setArcadeButtonPairsMidiEnabled,
       setArcadeJoystickMidiEnabled,
       setMappingsFromExternal,
       setIncludeRnd,
