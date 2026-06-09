@@ -37,7 +37,6 @@ export const paletteToSound = (colors = []) => {
   const source = Array.isArray(colors) && colors.length ? colors : ['#808080'];
   const hsl = source.map(hexToHsl);
   const averageHue = hsl.reduce((sum, color) => sum + color.hue, 0) / hsl.length;
-  const averageSaturation = hsl.reduce((sum, color) => sum + color.saturation, 0) / hsl.length;
   const scaleSets = [
     [0, 3, 5, 7, 10],
     [0, 2, 5, 7, 9],
@@ -45,7 +44,15 @@ export const paletteToSound = (colors = []) => {
     [0, 4, 5, 7, 11],
   ];
   const scale = scaleSets[Math.floor((averageHue / 360) * scaleSets.length) % scaleSets.length];
-  const oscillator = averageSaturation > 0.7 ? 'fatsawtooth' : averageSaturation > 0.35 ? 'triangle' : 'sine';
+  // Keep palette timbres varied but gentle. The colour signature spreads palettes
+  // across sine and triangle families instead of sending most saturated palettes
+  // to the same bright oscillator.
+  const oscillatorFamilies = ['sine', 'sine2', 'triangle', 'sine', 'triangle2', 'sine2', 'sine', 'triangle'];
+  const firstHue = hsl[0]?.hue || 0;
+  const timbreHue = (averageHue * 0.65 + firstHue * 0.35) % 360;
+  const oscillator = oscillatorFamilies[
+    Math.floor((timbreHue / 360) * oscillatorFamilies.length) % oscillatorFamilies.length
+  ];
   const rootMidi = colorToRootMidi(source[0]);
   return { scale, oscillator, rootMidi };
 };

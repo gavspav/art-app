@@ -329,11 +329,9 @@ export const SoundscapeProvider = ({ children }) => {
       const targetMidi = paletteRoot + 12 + baseInterval + sizeOctave + detuneSemitones;
       const targetFrequency = midiToFrequency(targetMidi);
       const padRamp = Math.max(0.12, 0.7 - speed * 0.08);
-      const desiredOscillator = sidesComplexity > 0.72 && tension > 0.25
+      const desiredOscillator = sidesComplexity > 0.72 && tension > 0.58
         ? 'fatsawtooth'
-        : sidesComplexity > 0.38
-          ? paletteSound.oscillator
-          : 'sine';
+        : paletteSound.oscillator;
       if (pad.oscillator !== desiredOscillator) {
         try {
           pad.synth.set({ oscillator: { type: desiredOscillator } });

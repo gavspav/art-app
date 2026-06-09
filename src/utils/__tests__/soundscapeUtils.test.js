@@ -17,6 +17,25 @@ describe('soundscape utilities', () => {
     expect(hexToHsl('#ffffff').lightness).toBeCloseTo(1);
   });
 
+  test('spreads palette timbres across gentle sine and triangle families', () => {
+    const palettes = [
+      ['#ff0000'],
+      ['#ffbf00'],
+      ['#80ff00'],
+      ['#00ff40'],
+      ['#00ffff'],
+      ['#0040ff'],
+      ['#8000ff'],
+      ['#ff00bf'],
+    ];
+    const oscillators = palettes.map(palette => paletteToSound(palette).oscillator);
+
+    expect(new Set(oscillators).size).toBeGreaterThanOrEqual(3);
+    expect(oscillators.filter(oscillator => oscillator.startsWith('sine')).length)
+      .toBeGreaterThanOrEqual(oscillators.length / 2);
+    expect(oscillators).not.toContain('fatsawtooth');
+  });
+
   test('summarizes layer values into bounded sound controls', () => {
     const summary = summarizeSoundscapeLayers([
       { radiusFactor: 3, opacity: 2, noiseAmount: 10, curviness: -1, wobble: 2, numSides: 30 },
