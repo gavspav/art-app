@@ -114,6 +114,8 @@ function ArcadeJoystickProbe() {
   const midi = useMidi();
   const [hits, setHits] = useState(0);
   const [lastValue, setLastValue] = useState(0);
+  const [pairHits, setPairHits] = useState(0);
+  const [syncWhileHeld, setSyncWhileHeld] = useState(false);
   const registerParamHandler = midi?.registerParamHandler;
   const setMapping = midi?.setMapping;
 
@@ -124,19 +126,37 @@ function ArcadeJoystickProbe() {
 
   useEffect(() => {
     if (!registerParamHandler) return undefined;
-    return registerParamHandler('globalSpeedMultiplier', ({ raw }) => {
-      setHits(count => count + 1);
-      setLastValue(raw?.value ?? 0);
-    });
-  }, [registerParamHandler]);
+    const unsubs = [
+      registerParamHandler('globalSpeedMultiplier', ({ raw }) => {
+        setHits(count => count + 1);
+        setLastValue(raw?.value ?? 0);
+        if (syncWhileHeld) midi?.setArcadeVirtualCcValue?.(36, 0.5);
+      }),
+      registerParamHandler('arcade:backgroundColorCycle', () => {
+        setPairHits(count => count + 1);
+      }),
+    ];
+    return () => unsubs.forEach(unsub => unsub?.());
+  }, [midi, registerParamHandler, syncWhileHeld]);
 
   return (
     <div>
       <div data-testid="arcade-enabled">{midi?.arcadeJoystickMidiEnabled ? 'yes' : 'no'}</div>
       <div data-testid="arcade-hits">{hits}</div>
       <div data-testid="arcade-last-value">{lastValue}</div>
+      <div data-testid="arcade-pair-hits">{pairHits}</div>
       <button type="button" onClick={() => midi?.setSelectedInputId?.('input-1')}>Select input</button>
       <button type="button" onClick={() => midi?.setArcadeJoystickMidiEnabled?.(true)}>Enable arcade joystick</button>
+      <button type="button" onClick={() => setSyncWhileHeld(true)}>Sync while held</button>
+      <button
+        type="button"
+        onClick={() => {
+          midi?.setArcadeButtonPairsMidiEnabled?.(true);
+          midi?.setMapping?.('randomize:backgroundColor', { type: 'note', channel: 1, number: 36 });
+        }}
+      >
+        Enable conflicting button pair
+      </button>
     </div>
   );
 }
@@ -373,6 +393,59 @@ describe('MidiContext', () => {
     sendNote(input, 36, 0);
 
     expect(Number(screen.getByTestId('arcade-last-value').textContent)).toBeGreaterThan(64);
+  });
+
+  it('prioritizes joystick notes over conflicting button-pair mappings', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeJoystickProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable arcade joystick' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable conflicting button pair' }));
+
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendNote(input, 36, 127);
+    await waitFor(() => expect(Number(screen.getByTestId('arcade-hits').textContent)).toBeGreaterThan(0));
+    sendNote(input, 36, 0);
+
+    expect(screen.getByTestId('arcade-pair-hits')).toHaveTextContent('0');
+  });
+
+  it('does not reset a virtual joystick counter while its direction is held', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeJoystickProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select input' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable arcade joystick' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync while held' }));
+
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendNote(input, 36, 127);
+    await waitFor(
+      () => expect(Number(screen.getByTestId('arcade-last-value').textContent)).toBeGreaterThan(68),
+      { timeout: 1500 },
+    );
+    sendNote(input, 36, 0);
   });
 
   it('emits arcade button notes from keyboard mode without a physical MIDI input', async () => {

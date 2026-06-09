@@ -9,6 +9,7 @@ import {
   LifeBuoy,
   Lock,
   Music4,
+  Radio,
   Palette,
   Piano,
   Play,
@@ -30,6 +31,7 @@ import GroupsControls from './global/GroupsControls.jsx';
 import { AudioReactiveSection, AudioDemoPresetsSection, AudioSpawnSection, BPMSection } from './global/sections/GlobalAutomationSections.jsx';
 import './BottomPanel.css';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
+import SoundscapeControls from './global/SoundscapeControls.jsx';
 
 // Compact beat indicator that shows BPM state with a pulsing circle
 const BeatIndicator = ({ panelExpanded = true }) => {
@@ -794,6 +796,7 @@ const BottomPanel = ({
     { id: 'layer-animation', label: 'Layer Animation', icon: Play },
     { id: 'layer-colour', label: 'Layer Colour', icon: Palette },
     { id: 'audio', label: 'Audio', icon: Music4 },
+    { id: 'sound', label: 'Sound', icon: Radio },
     { id: 'presets', label: 'Presets', icon: SlidersHorizontal },
     { id: 'groups', label: 'Groups', icon: Blocks },
   ]), []);
@@ -807,14 +810,14 @@ const BottomPanel = ({
     setPanelState(panelState === 'expanded' ? 'peek' : 'expanded');
   }, [panelState]);
 
-  // Keyboard shortcuts: 1..7 to switch tabs (no modifiers)
+  // Keyboard shortcuts: number keys switch tabs (no modifiers)
   useEffect(() => {
     const handler = (e) => {
       if (shouldIgnoreGlobalKey(e)) return;
       // Require no modifiers (Shift/Ctrl/Meta/Alt) so it's simple 1..7
       if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const key = e.key;
-      if (key >= '1' && key <= '7') {
+      if (key >= '1' && key <= String(tabs.length)) {
         const idx = parseInt(key, 10) - 1;
         const t = tabs[idx];
         if (t) {
@@ -1168,6 +1171,8 @@ const BottomPanel = ({
             </div>
           </div>
         );
+      case 'sound':
+        return <SoundscapeControls />;
       case 'groups':
         return (
           <div className="tab-content groups-tab">

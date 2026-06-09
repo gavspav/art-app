@@ -3,7 +3,7 @@ import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-const mapMidiToParamValue = (value01, param) => {
+const mapMidiToParamValue = (value01, param, continuous = false) => {
   const absoluteMin = Number.isFinite(param?.min) ? param.min : 0;
   const absoluteMax = Number.isFinite(param?.max) ? param.max : 1;
   const absoluteLow = Math.min(absoluteMin, absoluteMax);
@@ -20,7 +20,9 @@ const mapMidiToParamValue = (value01, param) => {
   );
   const step = Number.isFinite(param?.step) && param.step > 0 ? param.step : (max - min) / 1000;
   let mapped = min + Math.max(0, Math.min(1, value01)) * (max - min);
-  mapped = Math.round((mapped - min) / step) * step + min;
+  if (!continuous || step === 1) {
+    mapped = Math.round((mapped - min) / step) * step + min;
+  }
   return clamp(mapped, Math.min(min, max), Math.max(min, max));
 };
 
@@ -189,7 +191,7 @@ export function useMIDILayerParamHandlers({
       return index === targets.selectedIndex;
     };
 
-    const applyParamUpdate = (paramId, value01, sourceIndex = null, forceAll = false) => {
+    const applyParamUpdate = (paramId, value01, sourceIndex = null, forceAll = false, raw = null) => {
       const param = paramMap.get(paramId);
       if (!param) return;
 
@@ -223,7 +225,8 @@ export function useMIDILayerParamHandlers({
             const optionIndex = Math.round(Math.max(0, Math.min(1, value01)) * (param.options.length - 1));
             patch = { [paramId]: param.options[clamp(optionIndex, 0, param.options.length - 1)] };
           } else {
-            const mapped = mapMidiToParamValue(value01, param);
+            const useContinuousValue = raw?.source === 'arcadeJoystick' && param.step !== 1;
+            const mapped = mapMidiToParamValue(value01, param, useContinuousValue);
 
             if (paramId === 'scale') {
               patch = { position: { ...(layer?.position || {}), scale: mapped } };
@@ -289,8 +292,8 @@ export function useMIDILayerParamHandlers({
     };
 
     layerParams.forEach((param) => {
-      unsubs.push(registerParamHandler(param.id, ({ value01 }) => {
-        applyParamUpdate(param.id, value01);
+      unsubs.push(registerParamHandler(param.id, ({ value01, raw }) => {
+        applyParamUpdate(param.id, value01, null, false, raw);
       }));
     });
 
@@ -349,8 +352,8 @@ export function useMIDILayerParamHandlers({
         buildLayerParamIds(layer, paramId, index).forEach((aliasId) => {
           if (registeredAliasIds.has(aliasId)) return;
           registeredAliasIds.add(aliasId);
-          unsubs.push(registerParamHandler(aliasId, ({ value01 }) => {
-            applyParamUpdate(paramId, value01, index, aliasId === `layer:all:${paramId}`);
+          unsubs.push(registerParamHandler(aliasId, ({ value01, raw }) => {
+            applyParamUpdate(paramId, value01, index, aliasId === `layer:all:${paramId}`, raw);
           }));
         });
       });

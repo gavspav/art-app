@@ -442,6 +442,7 @@ const _applyAudioModulations = (layer, audioContext) => {
  * @param {Object} sourceLayersRef - Optional ref to base layers (for ref-mode animation)
  * @param {Object} animatedLayersRef - Optional ref to write animated layers into (avoids React updates)
  * @param {Object} timelineContext - Optional timeline context for direct shape track evaluation
+ * @param {Function} onBounceCollision - Optional callback for sound/feedback on wall hits
  */
 export const useAnimation = (
     setLayers,
@@ -453,6 +454,7 @@ export const useAnimation = (
     sourceLayersRef = null,
     animatedLayersRef = null,
     timelineContext = null,
+    onBounceCollision = null,
 ) => {
     const animationFrameId = useRef(null);
     const {
@@ -496,6 +498,8 @@ export const useAnimation = (
     // Timeline context ref for direct shape track evaluation during playback
     const timelineContextRef = useRef(timelineContext);
     useEffect(() => { timelineContextRef.current = timelineContext; }, [timelineContext]);
+    const onBounceCollisionRef = useRef(onBounceCollision);
+    useEffect(() => { onBounceCollisionRef.current = onBounceCollision; }, [onBounceCollision]);
 
     // Store setLayers and runWithoutDirty in refs to avoid recreating animate callback
     const setLayersRef = useRef(setLayers);
@@ -918,6 +922,17 @@ export const useAnimation = (
             let updatedLayer = (hasShapeUpdate || timelinePaused)
                 ? { ...layer }
                 : updateLayerAnimation(layer, speedMultiplier, zIgnoreVal);
+            if (
+                !hasShapeUpdate
+                && !timelinePaused
+                && layer?.movementStyle === 'bounce'
+                && updatedLayer?.movementAngle !== layer?.movementAngle
+            ) {
+                onBounceCollisionRef.current?.({
+                    layerId: layer?.id || layer?.name || String(_idx),
+                    speed: (Number(layer?.movementSpeed) || 0) * speedMultiplier,
+                });
+            }
 
             // 2. Apply shape track updates if present (at animation loop framerate for smoothness)
             // During playback, timeline is authoritative - always apply geometry

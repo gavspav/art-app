@@ -16,6 +16,8 @@ export function useSceneSnapshots({
   applyBPMSnapshot,
   getTimelineSnapshot,
   applyTimelineSnapshot,
+  getSoundscapeSnapshot,
+  applySoundscapeSnapshot,
   quickPreset,
   setQuickPresetSnapshot,
   applyParametersSnapshot,
@@ -84,12 +86,13 @@ export function useSceneSnapshots({
       audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
       bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
       timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
+      soundscapeConfig: getSoundscapeSnapshot ? getSoundscapeSnapshot() : null,
       savedAt: new Date().toISOString(),
       version: '2.2',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, customPalettes]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, getSoundscapeSnapshot, customPalettes]);
 
   const handleRamPresetSave = useCallback(() => {
     if (typeof setQuickPresetSnapshot !== 'function') return;
@@ -100,6 +103,7 @@ export function useSceneSnapshots({
         audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
         bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
         timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
+        soundscapeConfig: getSoundscapeSnapshot ? getSoundscapeSnapshot() : null,
         exportMeta: getExportMeta(),
         savedAt: new Date().toISOString(),
       };
@@ -107,7 +111,7 @@ export function useSceneSnapshots({
     } catch (error) {
       console.warn('[RAM Preset] Failed to capture snapshot', error);
     }
-  }, [getFullAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
+  }, [getFullAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, getSoundscapeSnapshot]);
 
   const handleRamPresetRecall = useCallback(() => {
     if (!quickPreset) {
@@ -136,10 +140,13 @@ export function useSceneSnapshots({
       if (quickPreset.timelineConfig && applyTimelineSnapshot) {
         applyTimelineSnapshot(quickPreset.timelineConfig);
       }
+      if (quickPreset.soundscapeConfig && applySoundscapeSnapshot) {
+        applySoundscapeSnapshot(quickPreset.soundscapeConfig);
+      }
     } catch (error) {
       console.warn('[RAM Preset] Failed to recall snapshot', error);
     }
-  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, setIncludeRnd, defaultIncludeRnd]);
+  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, applySoundscapeSnapshot, setIncludeRnd, defaultIncludeRnd]);
 
   const handleImportFile = useCallback(async (e) => {
     const file = e.target.files[0];
@@ -164,6 +171,9 @@ export function useSceneSnapshots({
 
       try {
         if (data && data.timelineConfig && applyTimelineSnapshot) applyTimelineSnapshot(data.timelineConfig);
+      } catch { /* noop */ }
+      try {
+        if (data && data.soundscapeConfig && applySoundscapeSnapshot) applySoundscapeSnapshot(data.soundscapeConfig);
       } catch { /* noop */ }
 
       const base = file.name.replace(/\.json$/i, '') || 'imported';
@@ -231,7 +241,7 @@ export function useSceneSnapshots({
     } finally {
       e.target.value = '';
     }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, mergeCustomPaletteList, setIncludeRnd, defaultIncludeRnd]);
+  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, applySoundscapeSnapshot, mergeCustomPaletteList, setIncludeRnd, defaultIncludeRnd]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();

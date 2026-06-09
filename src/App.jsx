@@ -5,6 +5,7 @@ import { useMidi } from './context/MidiContext.jsx';
 import { useAudioReactive } from './context/AudioContext.jsx';
 import { useBPM } from './context/BPMContext.jsx';
 import { useTimeline } from './context/TimelineContext.jsx';
+import { useSoundscape } from './context/SoundscapeContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -37,6 +38,8 @@ import AppProviders from './components/app/AppProviders.jsx';
 import WorkspaceRouter from './components/workspaces/WorkspaceRouter.jsx';
 import { useTimelineModulation } from './hooks/useTimelineModulation.js';
 import defaultArcadePreset from './config/defaultArcadePreset.json';
+import { getRuntimeProfile } from './utils/runtimeProfile.js';
+import { summarizeSoundscapeLayers } from './utils/soundscapeUtils.js';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -228,15 +231,10 @@ const MainApp = () => {
   const teensyAutoSelectedRef = useRef(false);
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
-  const isArcadeLaunch = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      const params = new URLSearchParams(window.location.search || '');
-      return ['1', 'true', 'yes', 'on'].includes((params.get('arcade') || '').toLowerCase());
-    } catch {
-      return false;
-    }
-  }, []);
+  const isArcadeLaunch = useMemo(() => getRuntimeProfile().isArcade, []);
+  const soundscape = useSoundscape();
+  const soundscapeStarted = !!soundscape?.started;
+  const updateSoundscapeVisualState = soundscape?.updateVisualState;
   const effectiveFullscreen = isFullscreen || isArcadeLaunch;
   const [isRecording, setIsRecording] = useState(false);
   const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
@@ -541,6 +539,7 @@ const MainApp = () => {
   // Global key handler for toggling shortcuts overlay
   useEffect(() => {
     const onKey = (e) => {
+      if (isArcadeLaunch) return;
       if (shouldIgnoreGlobalKey(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return; // allow Shift-k as well
       const key = (e.key || '').toLowerCase();
@@ -554,7 +553,7 @@ const MainApp = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showShortcuts]);
+  }, [isArcadeLaunch, showShortcuts]);
 
   // Sidebar resize handlers
   // --- Import adjust panel state (moved to hook) ---
@@ -592,6 +591,29 @@ const MainApp = () => {
 
   const { timelineMode, setTimelineMode } = appStateCtx;
   const defaultPresetAppliedRef = useRef(false);
+  const arcadeRuntimeGateAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isArcadeLaunch || arcadeRuntimeGateAppliedRef.current) return;
+    arcadeRuntimeGateAppliedRef.current = true;
+    setTimelineMode?.(false);
+    setMorphEnabled?.(false);
+    setAudioSpawnEnabled?.(false);
+    setAudioSpawnPresetActive?.(false);
+    audioReactive?.setAudioEnabled?.(false);
+    audioReactive?.stopAudio?.();
+    bpmForAnimation?.pause?.();
+    timelineContext?.stop?.();
+  }, [
+    audioReactive,
+    bpmForAnimation,
+    isArcadeLaunch,
+    setAudioSpawnEnabled,
+    setAudioSpawnPresetActive,
+    setMorphEnabled,
+    setTimelineMode,
+    timelineContext,
+  ]);
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
@@ -662,7 +684,7 @@ const MainApp = () => {
 	    overlayLayersRef: audioSpawnOverlayLayersRef,
 	    triggerAudioSpawn,
 	  } = useAudioSpawnLayers({
-	    enabled: !!audioSpawnEnabled && !timelineMode,
+	    enabled: !isArcadeLaunch && !!audioSpawnEnabled && !timelineMode,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
       zIgnore: !!zIgnore,
       getIsRnd: (id) => !!includeRndRef.current?.[id],
@@ -817,7 +839,43 @@ const MainApp = () => {
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
   // Shape track updates are evaluated directly during playback for frame-accurate interpolation
-  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
+  useAnimation(
+    null,
+    isFrozen,
+    globalSpeedMultiplier,
+    zIgnore,
+    modulationStore,
+    shapeTrackUpdatesRef,
+    layersRef,
+    animatedLayersRef,
+    timelineContext,
+    soundscape?.triggerCollision,
+  );
+
+  useEffect(() => {
+    if (!soundscapeStarted || !updateSoundscapeVisualState) return undefined;
+    const publish = () => {
+      updateSoundscapeVisualState({
+        backgroundColor,
+        paletteColors: generationPaletteColors,
+        paletteIndex: globalPaletteIndex,
+        speed: globalSpeedMultiplier,
+        blendMode: globalBlendMode,
+        layers: summarizeSoundscapeLayers(animatedLayersRef.current),
+      });
+    };
+    publish();
+    const timer = window.setInterval(publish, 80);
+    return () => window.clearInterval(timer);
+  }, [
+    backgroundColor,
+    generationPaletteColors,
+    globalBlendMode,
+    globalPaletteIndex,
+    globalSpeedMultiplier,
+    soundscapeStarted,
+    updateSoundscapeVisualState,
+  ]);
 
   // Config save/load from contexts
   const {
@@ -861,14 +919,17 @@ const MainApp = () => {
       }
       setArcadeJoystickMidiEnabled?.(true);
       setArcadeButtonPairsMidiEnabled?.(true);
-      if (defaultArcadePreset?.audioConfig) {
+      if (!isArcadeLaunch && defaultArcadePreset?.audioConfig) {
         applyAudioSnapshot?.(defaultArcadePreset.audioConfig);
       }
-      if (defaultArcadePreset?.bpmConfig) {
+      if (!isArcadeLaunch && defaultArcadePreset?.bpmConfig) {
         applyBPMSnapshot?.(defaultArcadePreset.bpmConfig);
       }
-      if (defaultArcadePreset?.timelineConfig) {
+      if (!isArcadeLaunch && defaultArcadePreset?.timelineConfig) {
         applyTimelineSnapshot?.(defaultArcadePreset.timelineConfig);
+      }
+      if (defaultArcadePreset?.soundscapeConfig) {
+        soundscape?.applySoundscapeSnapshot?.(defaultArcadePreset.soundscapeConfig);
       }
       if (defaultArcadePreset?.exportMeta && typeof window !== 'undefined') {
         window.__artapp_lastImportMeta = defaultArcadePreset.exportMeta;
@@ -878,12 +939,14 @@ const MainApp = () => {
       applyBPMSnapshot,
       applyParametersSnapshot,
       applyTimelineSnapshot,
+      isArcadeLaunch,
       loadAppState,
       mergeCustomPaletteList,
       setArcadeButtonPairsMidiEnabled,
       setArcadeJoystickMidiEnabled,
       setMappingsFromExternal,
       setIncludeRnd,
+      soundscape,
     ]);
 	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
 	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
@@ -953,6 +1016,8 @@ const MainApp = () => {
     applyBPMSnapshot,
     getTimelineSnapshot,
     applyTimelineSnapshot,
+    getSoundscapeSnapshot: soundscape?.getSoundscapeSnapshot,
+    applySoundscapeSnapshot: soundscape?.applySoundscapeSnapshot,
     quickPreset,
     setQuickPresetSnapshot,
     applyParametersSnapshot,
@@ -1902,6 +1967,7 @@ const MainApp = () => {
       overwriteSelectedTimelineKeyframe: () => panelOverwriteSelectedKeyframeRef.current?.() || false,
       onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
       arcadeKeyboardMidiEnabled,
+      arcadeRuntimeMode: isArcadeLaunch,
 	  });
 
   // MIDI helper refs and handlers integration

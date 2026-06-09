@@ -11,10 +11,10 @@ const makeRegister = (handlers) => (paramId, handler) => {
   };
 };
 
-const fire = (handlers, paramId, value01) => {
+const fire = (handlers, paramId, value01, raw = null) => {
   const set = handlers.get(paramId);
   if (!set || set.size === 0) throw new Error(`No handler for ${paramId}`);
-  set.forEach(handler => handler({ value01 }));
+  set.forEach(handler => handler({ value01, raw }));
 };
 
 function Harness({
@@ -104,6 +104,19 @@ describe('useMIDILayerParamHandlers', () => {
     expect(latestLayers[0].radiusFactorX).toBeCloseTo(2);
     expect(latestLayers[0].radiusFactorY).toBeCloseTo(2);
     expect(latestLayers[1].radiusFactor).toBeCloseTo(2);
+  });
+
+  test('arcade joystick size movement bypasses visible step quantization', () => {
+    const handlers = new Map();
+    let latestLayers = [];
+
+    render(<Harness handlers={handlers} onLayers={(layers) => { latestLayers = layers; }} />);
+
+    act(() => {
+      fire(handlers, 'radiusFactor', 0.501, { source: 'arcadeJoystick' });
+    });
+
+    expect(latestLayers[0].radiusFactor).toBeCloseTo(2.004, 5);
   });
 
   test('layer parameter mappings respect configured random bounds', () => {

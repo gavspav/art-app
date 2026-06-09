@@ -40,6 +40,7 @@ export function useKeyboardShortcuts({
   overwriteSelectedTimelineKeyframe,
   onCaptureGlobalKeyframe,
   arcadeKeyboardMidiEnabled = false,
+  arcadeRuntimeMode = false,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -56,6 +57,7 @@ export function useKeyboardShortcuts({
       if (arcadeKeyboardMidiEnabled && !e.metaKey && !e.ctrlKey && !e.altKey && ARCADE_KEYBOARD_MIDI_CODE_SET.has(e.code)) {
         return;
       }
+      if (arcadeRuntimeMode) return;
 
       if (shouldIgnoreGlobalKey(e)) return;
       // Spacebar -> toggle Freeze, and when timeline is visible also toggle timeline play/pause
@@ -285,5 +287,6 @@ export function useKeyboardShortcuts({
     overwriteSelectedTimelineKeyframe,
     onCaptureGlobalKeyframe,
     arcadeKeyboardMidiEnabled,
+    arcadeRuntimeMode,
   ]);
 }

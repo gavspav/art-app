@@ -3,6 +3,7 @@ import { useAppState } from '../../context/AppStateContext.jsx';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
+import { useSoundscape } from '../../context/SoundscapeContext.jsx';
 import { useBPM } from '../../context/BPMContext.jsx';
 import { usePresetMorph } from '../../hooks/usePresetMorph.js';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
@@ -41,6 +42,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
   const { parameters, loadFullConfiguration } = useParameters() || {};
   const { registerParamHandler, beginLearn, clearMapping, mappings: midiMappings, mappingLabel, supported: midiSupported, learnParamId } = useMidi() || {};
   const { getAudioSnapshot, applyAudioSnapshot } = useAudioReactive() || {};
+  const { getSoundscapeSnapshot, applySoundscapeSnapshot } = useSoundscape() || {};
   const { getBPMSnapshot, applyBPMSnapshot } = useBPM() || {};
 
   const getExportMeta = useCallback(() => {
@@ -142,6 +144,9 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
         if (slot.payload.audioConfig && applyAudioSnapshot) {
           applyAudioSnapshot(slot.payload.audioConfig);
         }
+        if (slot.payload.soundscapeConfig && applySoundscapeSnapshot) {
+          applySoundscapeSnapshot(slot.payload.soundscapeConfig);
+        }
       } catch { /* noop */ }
       // Apply BPM config if present
       try {
@@ -170,6 +175,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
     setMorphMode,
     setMorphRoute,
     applyAudioSnapshot,
+    applySoundscapeSnapshot,
     applyBPMSnapshot,
   ]);
 
@@ -187,6 +193,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
           parameters: paramPayload,
           appState: appStatePayload,
           audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
+          soundscapeConfig: getSoundscapeSnapshot ? getSoundscapeSnapshot() : null,
           bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
           savedAt: now,
           version: '2.1',
@@ -199,7 +206,7 @@ export default function PresetControls({ setLayers, setBackgroundColor, setGloba
       return;
     }
     recallPreset(slotId);
-  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot, getAudioSnapshot, getBPMSnapshot]);
+  }, [getCurrentAppState, getExportMeta, getPresetSlot, parameters, recallPreset, setPresetSlot, getAudioSnapshot, getBPMSnapshot, getSoundscapeSnapshot]);
 
   // MIDI: per-preset triggers. Each preset i (1..16) gets its own mapping id 'preset:i'
   useEffect(() => {

@@ -51,15 +51,16 @@ Panel state is remembered in local storage.
 
 ## 4. Bottom Panel Tabs
 
-Hotkeys `1` to `7` switch tabs:
+Hotkeys `1` to `8` switch tabs:
 
 1. Global
 2. Layer Shape
 3. Layer Animation
 4. Layer Colour
 5. Audio
-6. Presets
-7. Groups
+6. Sound
+7. Presets
+8. Groups
 
 ### 4.1 Global Tab
 
@@ -124,7 +125,39 @@ Also includes:
 - Audio Spawn controls (live ephemeral layer generation)
 - BPM section (tempo play/pause/reset/tap)
 
-### 4.6 Presets Tab
+### 4.6 Sound Tab
+
+The Sound tab configures the generated ambient soundscape. It is separate from the Audio tab, which uses microphone or file input to change visuals.
+
+- Start or mute the soundscape
+- Set master, ambient drone, and moving layer-pad levels
+- Limit the number of synth voices
+- Adjust each cabinet-controlled mapping's amount, output range, and inversion
+- Configure optional wall-bounce accents
+- Audition bounce accents from the editor
+- Override the generated oscillator for a palette index or transpose a specific background colour
+- Save and recall reusable sound patches
+
+Sound settings are included in exported configurations and quick presets.
+
+When launched with `?arcade=1`, the app loads the default cabinet sound configuration and attempts to start it automatically. Browser autoplay rules may require one initial interaction unless the kiosk browser is launched with autoplay enabled.
+
+Example macOS Chrome launch command:
+
+```bash
+open -a "Google Chrome" --args --kiosk --autoplay-policy=no-user-gesture-required "http://localhost:5173/?arcade=1"
+```
+
+### 4.7 Cabinet Runtime
+
+Arcade launch mode is intended for the installed cabinet:
+
+- Controls and editor panels remain hidden
+- MIDI, cabinet keyboard emulation, and generated sound remain active
+- Timeline, BPM automation, input-reactive Audio, Audio Spawn, and preset morphing are forced inactive
+- Sound configuration is edited in the normal app and then loaded by the cabinet configuration
+
+### 4.8 Presets Tab
 
 - 16 preset slots (`P1` to `P16`)
 - Click a slot to recall
@@ -132,7 +165,7 @@ Also includes:
 - Per-slot MIDI learn/clear for hardware triggering
 - Morph engine controls (enable, route, duration per leg, easing, loop mode, morph mode)
 
-### 4.7 Groups Tab
+### 4.9 Groups Tab
 
 - Create groups from current selection or create empty group
 - Color + name for each group

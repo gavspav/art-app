@@ -21,7 +21,7 @@ const HIDDEN_IMAGE_EFFECT_MIDI_PARAMS = new Set([
   'imageDistortion',
 ]);
 const ARCADE_JOYSTICK_CC_RATE_PER_SECOND = 30;
-const ARCADE_JOYSTICK_TICK_MS = 33;
+const ARCADE_JOYSTICK_TICK_MS = 16;
 const ARCADE_JOYSTICK_DEFAULT_VALUE = 64;
 const ARCADE_JOYSTICK_NOTE_MAP = {
   37: { cc: 36, direction: -1 },
@@ -370,12 +370,16 @@ export const MidiProvider = ({ children }) => {
   }, []);
 
   const setArcadeVirtualCcValue = useCallback((cc, value01) => {
-    if (!Number.isFinite(Number(cc)) || !Object.hasOwn(arcadeJoystickValuesRef.current, Number(cc))) return;
-    arcadeJoystickValuesRef.current[Number(cc)] = toMidiByte(value01);
+    const normalizedCc = Number(cc);
+    if (!Number.isFinite(normalizedCc) || !Object.hasOwn(arcadeJoystickValuesRef.current, normalizedCc)) return;
+    // Do not overwrite the accumulating virtual value while its joystick axis is held.
+    if (arcadeJoystickDirectionsRef.current.has(normalizedCc)) return;
+    arcadeJoystickValuesRef.current[normalizedCc] = toMidiByte(value01);
   }, []);
 
   const setArcadeActionValue = useCallback((action, value01) => {
     if (!action || !Object.hasOwn(arcadeJoystickActionValuesRef.current, action)) return;
+    if (arcadeJoystickActionDirectionsRef.current.has(action)) return;
     arcadeJoystickActionValuesRef.current[action] = toMidiByte(value01);
   }, []);
 
@@ -643,8 +647,8 @@ export const MidiProvider = ({ children }) => {
       arcadeJoystickValuesRef.current[msg.number] = Math.max(0, Math.min(127, Number(msg.value) || 0));
     }
 
-    if (handleArcadeButtonPairMessage(msg)) return;
     if (handleArcadeJoystickNote(msg)) return;
+    if (handleArcadeButtonPairMessage(msg)) return;
 
     dispatchMidiMessage(msg);
   }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeButtonPairMessage, handleArcadeJoystickNote, learnParamId, setMapping]);

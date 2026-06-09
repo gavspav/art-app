@@ -1090,6 +1090,46 @@
       "timelineDamping": 0
     }
   },
+  "soundscapeConfig": {
+    "version": 1,
+    "enabled": true,
+    "masterVolume": 0.55,
+    "voiceLimit": 8,
+    "ambientLevel": 0.7,
+    "pulseLevel": 0.32,
+    "collisionEnabled": true,
+    "collisionLevel": 0.18,
+    "collisionCooldownMs": 180,
+    "smoothing": 0.35,
+    "mappings": {
+      "palette": 0.8,
+      "background": 0.8,
+      "speed": 0.8,
+      "layers": 0.7,
+      "size": 0.65,
+      "opacity": 0.8,
+      "noise": 0.6,
+      "blend": 0.7,
+      "curviness": 0.7,
+      "wobble": 0.55,
+      "sides": 0.5
+    },
+    "mappingRanges": {
+      "palette": { "min": 0, "max": 1, "invert": false },
+      "background": { "min": 0, "max": 1, "invert": false },
+      "speed": { "min": 0, "max": 1, "invert": false },
+      "layers": { "min": 0, "max": 1, "invert": false },
+      "size": { "min": 0, "max": 1, "invert": false },
+      "opacity": { "min": 0, "max": 1, "invert": false },
+      "noise": { "min": 0, "max": 1, "invert": false },
+      "blend": { "min": 0, "max": 1, "invert": false },
+      "curviness": { "min": 0, "max": 1, "invert": false },
+      "wobble": { "min": 0, "max": 1, "invert": false },
+      "sides": { "min": 0, "max": 1, "invert": false }
+    },
+    "paletteOverrides": {},
+    "backgroundOverrides": {}
+  },
   "savedAt": "2026-05-22T12:38:01.443Z",
   "version": "2.2",
   "exportMeta": {
