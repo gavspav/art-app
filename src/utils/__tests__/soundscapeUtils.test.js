@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
+import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
+import defaultArcadePreset from '../../config/defaultArcadePreset.json';
 import {
   colorToRootMidi,
   calculateSoundscapeTension,
+  getPaletteIdentity,
   hexToHsl,
   paletteToSound,
   summarizeSoundscapeLayers,
@@ -15,6 +18,7 @@ describe('soundscape utilities', () => {
     );
     expect(paletteToSound(['#ff0000']).rootMidi).not.toBe(paletteToSound(['#0000ff']).rootMidi);
     expect(hexToHsl('#ffffff').lightness).toBeCloseTo(1);
+    expect(getPaletteIdentity(['#FF0000', '#00ff00'])).toBe('#ff0000|#00ff00');
   });
 
   test('spreads palette timbres across gentle sine and triangle families', () => {
@@ -34,6 +38,12 @@ describe('soundscape utilities', () => {
     expect(oscillators.filter(oscillator => oscillator.startsWith('sine')).length)
       .toBeGreaterThanOrEqual(oscillators.length / 2);
     expect(oscillators).not.toContain('fatsawtooth');
+  });
+
+  test('assigns cabinet palettes across every curated sound program', () => {
+    const assignments = Object.values(defaultArcadePreset.soundscapeConfig.paletteProgramMap);
+    expect(new Set(assignments)).toEqual(new Set(Object.keys(SOUND_PROGRAMS)));
+    expect(Math.max(...Object.keys(SOUND_PROGRAMS).map(id => assignments.filter(value => value === id).length))).toBeLessThanOrEqual(3);
   });
 
   test('summarizes layer values into bounded sound controls', () => {

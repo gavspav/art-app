@@ -130,15 +130,16 @@ Also includes:
 The Sound tab configures the generated ambient soundscape. It is separate from the Audio tab, which uses microphone or file input to change visuals.
 
 - Start or mute the soundscape
-- Set master, ambient drone, and moving layer-pad levels
-- Limit the number of synth voices
-- Adjust each cabinet-controlled mapping's amount, output range, and inversion
+- Assign one of the curated sound programs to the current palette; assignments use the palette colours rather than its position in the list
+- View live normalized visual-source and resolved audio-destination meters
+- Add, edit, disable, or remove continuous visual-to-audio routes, including input/output ranges, curve, inversion, depth, and smoothing
+- Set master, ambient drone, moving layer-pad levels, voice limit, and default smoothing
 - Configure optional wall-bounce accents
 - Audition bounce accents from the editor
-- Override the generated oscillator for a palette index or transpose a specific background colour
-- Save and recall reusable sound patches
+- Save, recall, export, and import reusable sound patches
 
 Sound settings are included in exported configurations and quick presets.
+Older version-1 soundscape settings are converted to the route-based format when loaded.
 
 When launched with `?arcade=1`, the app loads the default cabinet sound configuration and attempts to start it automatically. Browser autoplay rules may require one initial interaction unless the kiosk browser is launched with autoplay enabled.
 

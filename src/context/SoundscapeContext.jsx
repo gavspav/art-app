@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as Tone from 'tone';
+import { DEFAULT_PROGRAM_IDS, SOUND_PROGRAMS } from '../constants/soundscapeParams.js';
 import { calculateSoundscapeTension, clamp01, colorToRootMidi, hexToHsl, paletteToSound } from '../utils/soundscapeUtils.js';
+import { migrateLegacySoundscapeRoutes, normalizeSoundscapeRoutes, resolveSoundscapeRoutes } from '../utils/soundscapeRouting.js';
 import { getRuntimeProfile } from '../utils/runtimeProfile.js';
 
 const SoundscapeContext = createContext(null);
@@ -10,7 +12,7 @@ const MAPPING_KEYS = ['palette', 'background', 'speed', 'layers', 'size', 'opaci
 const DEFAULT_MAPPING_RANGES = Object.fromEntries(MAPPING_KEYS.map(key => [key, { min: 0, max: 1, invert: false }]));
 
 export const DEFAULT_SOUNDSCAPE_CONFIG = Object.freeze({
-  version: 1,
+  version: 2,
   enabled: true,
   masterVolume: 0.55,
   voiceLimit: 8,
@@ -34,22 +36,31 @@ export const DEFAULT_SOUNDSCAPE_CONFIG = Object.freeze({
     sides: 0.5,
   },
   mappingRanges: DEFAULT_MAPPING_RANGES,
+  routes: migrateLegacySoundscapeRoutes({}),
+  paletteProgramMap: {},
   paletteOverrides: {},
   backgroundOverrides: {},
 });
 
-const normalizeConfig = (config) => ({
-  ...DEFAULT_SOUNDSCAPE_CONFIG,
-  ...(config || {}),
-  mappings: { ...DEFAULT_SOUNDSCAPE_CONFIG.mappings, ...(config?.mappings || {}) },
-  mappingRanges: Object.fromEntries(MAPPING_KEYS.map(key => [
-    key,
-    { ...DEFAULT_MAPPING_RANGES[key], ...(config?.mappingRanges?.[key] || {}) },
-  ])),
-  paletteOverrides: { ...(config?.paletteOverrides || {}) },
-  backgroundOverrides: { ...(config?.backgroundOverrides || {}) },
-  version: 1,
-});
+const normalizeConfig = (config) => {
+  const source = config || {};
+  return {
+    ...DEFAULT_SOUNDSCAPE_CONFIG,
+    ...source,
+    mappings: { ...DEFAULT_SOUNDSCAPE_CONFIG.mappings, ...(source.mappings || {}) },
+    mappingRanges: Object.fromEntries(MAPPING_KEYS.map(key => [
+      key,
+      { ...DEFAULT_MAPPING_RANGES[key], ...(source.mappingRanges?.[key] || {}) },
+    ])),
+    routes: source.version >= 2
+      ? normalizeSoundscapeRoutes(source.routes)
+      : migrateLegacySoundscapeRoutes(source),
+    paletteProgramMap: { ...(source.paletteProgramMap || {}) },
+    paletteOverrides: { ...(source.paletteOverrides || {}) },
+    backgroundOverrides: { ...(source.backgroundOverrides || {}) },
+    version: 2,
+  };
+};
 
 const readStored = (key, fallback) => {
   try {
@@ -69,11 +80,7 @@ const hashString = (value) => {
   }
   return hash >>> 0;
 };
-const mapVisualValue = (config, key, value) => {
-  const range = config.mappingRanges?.[key] || DEFAULT_MAPPING_RANGES[key];
-  const normalized = range.invert ? 1 - clamp01(value) : clamp01(value);
-  return Number(range.min) + normalized * (Number(range.max) - Number(range.min));
-};
+const getGeneratedProgramId = identity => DEFAULT_PROGRAM_IDS[hashString(identity) % DEFAULT_PROGRAM_IDS.length];
 
 export const SoundscapeProvider = ({ children }) => {
   const isArcade = useMemo(() => getRuntimeProfile().isArcade, []);
@@ -81,11 +88,14 @@ export const SoundscapeProvider = ({ children }) => {
   const [patches, setPatches] = useState(() => readStored(PATCHES_KEY, {}));
   const [started, setStarted] = useState(false);
   const [startError, setStartError] = useState('');
+  const [liveValues, setLiveValues] = useState({ sources: {}, destinations: {}, paletteIdentity: '', programId: '' });
   const nodesRef = useRef(null);
   const visualRef = useRef(null);
   const configRef = useRef(config);
   const collisionTimesRef = useRef(new Map());
   const lastAppliedRef = useRef({});
+  const lastLivePublishRef = useRef(0);
+  const liveMonitoringRef = useRef(false);
 
   const setConfig = useCallback((updater) => {
     setConfigState(previous => normalizeConfig(typeof updater === 'function' ? updater(previous) : updater));
@@ -146,6 +156,8 @@ export const SoundscapeProvider = ({ children }) => {
         layerId: null,
         active: false,
         oscillator: index % 3 === 0 ? 'sine' : 'triangle',
+        pendingOscillator: '',
+        last: {},
       };
     });
     const noiseFilter = new Tone.Filter(500, 'lowpass').connect(reverb);
@@ -161,6 +173,8 @@ export const SoundscapeProvider = ({ children }) => {
       master, compressor, distortion, reverb, filter, drone, padVoices, noiseFilter, noise, collision,
       droneStarted: false,
       droneOscillator: 'sine',
+      noiseType: 'pink',
+      programId: '',
     };
     return nodesRef.current;
   }, []);
@@ -222,23 +236,40 @@ export const SoundscapeProvider = ({ children }) => {
     const nodes = ensureNodes();
     const last = lastAppliedRef.current;
     const layers = visual?.layers || {};
-    const mappings = config.mappings;
     const speed = Math.max(0.1, Math.min(5, Number(visual?.speed) || 1));
     const generatedPaletteSound = paletteToSound(visual?.paletteColors);
-    const paletteOverride = config.paletteOverrides?.[String(visual?.paletteIndex)] || {};
+    const paletteIdentity = generatedPaletteSound.identity;
+    const paletteOverride = config.paletteOverrides?.[paletteIdentity]
+      || config.paletteOverrides?.[String(visual?.paletteIndex)]
+      || {};
     const paletteSound = { ...generatedPaletteSound, ...paletteOverride };
+    const programId = config.paletteProgramMap?.[paletteIdentity] || getGeneratedProgramId(paletteIdentity);
+    const program = SOUND_PROGRAMS[programId] || SOUND_PROGRAMS.velvet;
     const backgroundOverride = config.backgroundOverrides?.[String(visual?.backgroundColor || '').toLowerCase()] || {};
     const backgroundRoot = colorToRootMidi(visual?.backgroundColor) + (Number(backgroundOverride.rootOffset) || 0);
-    const paletteRoot = paletteSound.rootMidi + Math.round((Number(paletteOverride.rootOffset) || 0) * mappings.palette);
+    const paletteRoot = paletteSound.rootMidi + (Number(paletteOverride.rootOffset) || 0);
     const backgroundHsl = hexToHsl(visual?.backgroundColor);
     const ramp = Math.max(0.08, config.smoothing);
-    const mappedSpeed = mapVisualValue(config, 'speed', (speed - 0.1) / 4.9);
-    const mappedOpacity = mapVisualValue(config, 'opacity', layers.opacity);
-    const mappedSize = mapVisualValue(config, 'size', layers.size);
-    const mappedNoise = mapVisualValue(config, 'noise', layers.noise);
-    const mappedCurviness = mapVisualValue(config, 'curviness', layers.curviness);
-    const mappedWobble = mapVisualValue(config, 'wobble', layers.wobble);
-    const mappedBackground = mapVisualValue(config, 'background', backgroundHsl.lightness);
+    const tension = calculateSoundscapeTension({
+      speed,
+      noise: layers.noise,
+      curviness: layers.curviness,
+      wobble: layers.wobble,
+    });
+    const sources = {
+      speed: clamp01((speed - 0.1) / 4.9),
+      layers: clamp01((Number(layers.count) || 0) / Math.max(1, config.voiceLimit)),
+      size: clamp01(layers.size),
+      opacity: clamp01(layers.opacity, 1),
+      noise: clamp01(layers.noise),
+      blend: visual?.blendMode === 'difference' ? 1 : 0,
+      curviness: clamp01(layers.curviness, 1),
+      wobble: clamp01(layers.wobble),
+      sides: clamp01(((Number(layers.sides) || 3) - 3) / 17),
+      tension,
+      backgroundLightness: clamp01(backgroundHsl.lightness),
+    };
+    const { destinations, smoothing } = resolveSoundscapeRoutes(sources, config.routes);
     const changed = (key, value, epsilon = 0.0001) => {
       const previous = last[key];
       if (typeof value === 'number' && typeof previous === 'number' && Math.abs(value - previous) <= epsilon) return false;
@@ -246,34 +277,38 @@ export const SoundscapeProvider = ({ children }) => {
       last[key] = value;
       return true;
     };
-    const rampIfChanged = (key, param, value, epsilon) => {
-      if (changed(key, value, epsilon)) param.rampTo(value, ramp);
+    const rampIfChanged = (key, param, value, epsilon, duration = ramp) => {
+      if (changed(key, value, epsilon)) param.rampTo(value, duration);
     };
 
-    rampIfChanged('bpm', Tone.getTransport().bpm, 42 + mappedSpeed * 120 * mappings.speed, 0.05);
-    rampIfChanged('masterGain', nodes.master.gain, config.masterVolume * (0.25 + mappedOpacity * 0.75 * mappings.opacity));
-    rampIfChanged('reverbWet', nodes.reverb.wet, clamp01(0.08 + mappedSize * 0.88 * mappings.size));
-    const distortionAmount = clamp01(mappedNoise * 0.75 * mappings.noise);
+    rampIfChanged('bpm', Tone.getTransport().bpm, destinations.bpm ?? 72, 0.05, smoothing.bpm);
+    rampIfChanged('masterGain', nodes.master.gain, config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
+    rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
+    const distortionAmount = destinations.distortion ?? 0.05;
     if (changed('distortion', distortionAmount, 0.002)) nodes.distortion.distortion = distortionAmount;
-    const tension = calculateSoundscapeTension({
-      speed,
-      noise: layers.noise,
-      curviness: layers.curviness,
-      wobble: layers.wobble,
-    });
-    rampIfChanged('filterFrequency', nodes.filter.frequency, 240 + mappedCurviness * 2200 * mappings.curviness + tension * 1800, 1);
-    rampIfChanged('filterQ', nodes.filter.Q, 0.5 + mappedWobble * 7 * mappings.wobble, 0.01);
-    rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, 180 + mappedBackground * 1300 * mappings.background, 1);
-    rampIfChanged('noiseVolume', nodes.noise.volume, -48 + mappedNoise * 28 * mappings.noise, 0.05);
+    rampIfChanged('filterFrequency', nodes.filter.frequency, Math.max(120, (destinations.filterFrequency ?? 900) + program.filterOffset), 1, smoothing.filterFrequency);
+    rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset), 0.01, smoothing.filterQ);
+    rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, destinations.noiseFilterFrequency ?? 500, 1, smoothing.noiseFilterFrequency);
+    rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset, 0.05, smoothing.noiseVolume);
     rampIfChanged('compressorThreshold', nodes.compressor.threshold, visual?.blendMode === 'difference' ? -30 : -18);
     rampIfChanged('compressorRatio', nodes.compressor.ratio, visual?.blendMode === 'difference' ? 8 : 3);
     rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16, 0.05);
-    const droneOscillator = backgroundHsl.saturation > 0.65 ? 'triangle' : 'sine';
+    const droneOscillator = program.droneOscillator || (backgroundHsl.saturation > 0.65 ? 'triangle' : 'sine');
     if (nodes.droneOscillator !== droneOscillator) {
       try {
         nodes.drone.set({ oscillator: { type: droneOscillator } });
         nodes.droneOscillator = droneOscillator;
       } catch { /* noop */ }
+    }
+    if (nodes.noiseType !== program.noiseType) {
+      try {
+        nodes.noise.type = program.noiseType;
+        nodes.noiseType = program.noiseType;
+      } catch { /* noop */ }
+    }
+    if (liveMonitoringRef.current && performance.now() - lastLivePublishRef.current > 250) {
+      lastLivePublishRef.current = performance.now();
+      setLiveValues({ sources, destinations, paletteIdentity, programId });
     }
     const droneFrequency = midiToFrequency(backgroundRoot - 12);
     if (!nodes.droneStarted) {
@@ -322,39 +357,55 @@ export const SoundscapeProvider = ({ children }) => {
       const traversalCycle = Math.sin(voice.x * Math.PI * 2 + (hash % 7));
       const verticalCycle = Math.cos(voice.y * Math.PI * 2 + ((hash >>> 5) % 5));
       const sideHarmonicMotion = Math.sin((voice.x + voice.y) * Math.PI * (2 + Math.round(sidesComplexity * 5)));
-      const detuneSemitones = traversalCycle * (0.012 + tension * 1.45)
-        + verticalCycle * tension * 0.6
+      const detuneAmount = destinations.detuneAmount ?? 0.2;
+      const detuneSemitones = traversalCycle * detuneAmount
+        + verticalCycle * tension * detuneAmount * 0.45
         + sideHarmonicMotion * discord * tension * 0.8;
       const sizeOctave = voice.size > 0.55 ? -12 : voice.size < 0.1 ? 12 : 0;
-      const targetMidi = paletteRoot + 12 + baseInterval + sizeOctave + detuneSemitones;
+      const targetMidi = paletteRoot + 12 + program.octaveOffset + baseInterval + sizeOctave + detuneSemitones;
       const targetFrequency = midiToFrequency(targetMidi);
       const padRamp = Math.max(0.12, 0.7 - speed * 0.08);
       const desiredOscillator = sidesComplexity > 0.72 && tension > 0.58
         ? 'fatsawtooth'
-        : paletteSound.oscillator;
-      if (pad.oscillator !== desiredOscillator) {
-        try {
-          pad.synth.set({ oscillator: { type: desiredOscillator } });
-          pad.oscillator = desiredOscillator;
-        } catch { /* noop */ }
+        : program.padOscillator || paletteSound.oscillator;
+      if (pad.oscillator !== desiredOscillator && pad.pendingOscillator !== desiredOscillator) {
+        pad.pendingOscillator = desiredOscillator;
+        pad.transitionUntil = performance.now() + 260;
+        pad.gain.gain.rampTo(0, 0.12);
+        window.setTimeout(() => {
+          try {
+            pad.synth.set({ oscillator: { type: desiredOscillator } });
+            pad.oscillator = desiredOscillator;
+          } catch { /* noop */ }
+          pad.pendingOscillator = '';
+        }, 130);
       }
-      pad.panner.pan.rampTo(voice.x * 2 - 1, padRamp);
-      pad.filter.frequency.rampTo(
-        240 + (1 - voice.y) * 1500 + voice.size * 850 + tension * 1800 + sidesComplexity * 1500 + discord * 900,
-        padRamp,
+      const padRampIfChanged = (key, param, value, epsilon = 0.001) => {
+        const previous = pad.last[key];
+        if (typeof previous === 'number' && Math.abs(previous - value) <= epsilon) return;
+        pad.last[key] = value;
+        param.rampTo(value, padRamp);
+      };
+      const stereoSpread = destinations.stereoSpread ?? 1;
+      padRampIfChanged('pan', pad.panner.pan, (voice.x * 2 - 1) * stereoSpread, 0.002);
+      padRampIfChanged(
+        'filterFrequency',
+        pad.filter.frequency,
+        Math.max(80, 240 + program.filterOffset + (1 - voice.y) * 1500 + voice.size * 850 + tension * 1800 + sidesComplexity * 1500 + discord * 900),
+        1,
       );
-      pad.filter.Q.rampTo(0.45 + tension * 4 + layers.wobble * 1.5 + discord * 4, padRamp);
-      pad.gain.gain.rampTo(
-        config.pulseLevel * voice.opacity * (0.16 + voice.size * 0.7) * voiceGainCompensation,
-        padRamp,
-      );
+      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + tension * 4 + layers.wobble * 1.5 + discord * 4), 0.01);
+      const targetGain = performance.now() < (pad.transitionUntil || 0)
+        ? 0
+        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.16 + voice.size * 0.7) * voiceGainCompensation;
+      padRampIfChanged('gain', pad.gain.gain, targetGain, 0.001);
       if (!pad.active || pad.layerId !== voice.id) {
         if (pad.active) pad.synth.triggerRelease();
         pad.layerId = voice.id;
         pad.active = true;
         pad.synth.triggerAttack(targetFrequency, undefined, 0.28);
       } else {
-        pad.synth.frequency.rampTo(targetFrequency, padRamp);
+        padRampIfChanged('frequency', pad.synth.frequency, targetFrequency, 0.02);
       }
     });
   }, [config, ensureNodes, started]);
@@ -385,6 +436,41 @@ export const SoundscapeProvider = ({ children }) => {
     });
   }, []);
 
+  const addRoute = useCallback((route) => {
+    setConfig(previous => ({
+      ...previous,
+      routes: normalizeSoundscapeRoutes([
+        ...previous.routes,
+        { ...route, id: route?.id || `route-${Date.now()}` },
+      ]),
+    }));
+  }, [setConfig]);
+
+  const updateRoute = useCallback((id, patch) => {
+    setConfig(previous => ({
+      ...previous,
+      routes: normalizeSoundscapeRoutes(previous.routes.map(route => (
+        route.id === id ? { ...route, ...patch, id } : route
+      ))),
+    }));
+  }, [setConfig]);
+
+  const deleteRoute = useCallback((id) => {
+    setConfig(previous => ({ ...previous, routes: previous.routes.filter(route => route.id !== id) }));
+  }, [setConfig]);
+
+  const assignPaletteProgram = useCallback((paletteIdentity, programId) => {
+    if (!paletteIdentity || !SOUND_PROGRAMS[programId]) return;
+    setConfig(previous => ({
+      ...previous,
+      paletteProgramMap: { ...previous.paletteProgramMap, [paletteIdentity]: programId },
+    }));
+  }, [setConfig]);
+
+  const setLiveMonitoring = useCallback((enabled) => {
+    liveMonitoringRef.current = !!enabled;
+  }, []);
+
   const getSoundscapeSnapshot = useCallback(() => normalizeConfig(config), [config]);
   const applySoundscapeSnapshot = useCallback((snapshot) => {
     if (snapshot && typeof snapshot === 'object') setConfig(snapshot);
@@ -400,15 +486,23 @@ export const SoundscapeProvider = ({ children }) => {
     updateVisualState,
     triggerCollision,
     patches,
+    liveValues,
+    programs: SOUND_PROGRAMS,
     savePatch,
     deletePatch,
+    addRoute,
+    updateRoute,
+    deleteRoute,
+    assignPaletteProgram,
+    setLiveMonitoring,
     applyPatch: name => patches[name] && setConfig(patches[name]),
     getSoundscapeSnapshot,
     applySoundscapeSnapshot,
     resetConfig: () => setConfig(DEFAULT_SOUNDSCAPE_CONFIG),
   }), [
-    applySoundscapeSnapshot, config, deletePatch, getSoundscapeSnapshot, patches, savePatch, setConfig,
-    start, startError, started, stop, triggerCollision, updateVisualState,
+    addRoute, applySoundscapeSnapshot, assignPaletteProgram, config, deletePatch, deleteRoute,
+    getSoundscapeSnapshot, liveValues, patches, savePatch, setConfig, start, startError, started,
+    setLiveMonitoring, stop, triggerCollision, updateRoute, updateVisualState,
   ]);
 
   return <SoundscapeContext.Provider value={value}>{children}</SoundscapeContext.Provider>;

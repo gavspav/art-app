@@ -33,6 +33,11 @@ export const colorToRootMidi = (color) => {
   return 36 + pitchClass + (lightness > 0.65 ? 12 : 0);
 };
 
+export const getPaletteIdentity = (colors = []) => {
+  const source = Array.isArray(colors) && colors.length ? colors : ['#808080'];
+  return source.map(color => String(color || '').trim().toLowerCase()).filter(Boolean).join('|');
+};
+
 export const paletteToSound = (colors = []) => {
   const source = Array.isArray(colors) && colors.length ? colors : ['#808080'];
   const hsl = source.map(hexToHsl);
@@ -54,7 +59,7 @@ export const paletteToSound = (colors = []) => {
     Math.floor((timbreHue / 360) * oscillatorFamilies.length) % oscillatorFamilies.length
   ];
   const rootMidi = colorToRootMidi(source[0]);
-  return { scale, oscillator, rootMidi };
+  return { scale, oscillator, rootMidi, identity: getPaletteIdentity(source) };
 };
 
 export const calculateSoundscapeTension = ({ speed = 1, noise = 0, curviness = 1, wobble = 0 } = {}) => {

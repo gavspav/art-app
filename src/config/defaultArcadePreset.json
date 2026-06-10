@@ -1091,7 +1091,7 @@
     }
   },
   "soundscapeConfig": {
-    "version": 1,
+    "version": 2,
     "enabled": true,
     "masterVolume": 0.55,
     "voiceLimit": 8,
@@ -1126,6 +1126,38 @@
       "curviness": { "min": 0, "max": 1, "invert": false },
       "wobble": { "min": 0, "max": 1, "invert": false },
       "sides": { "min": 0, "max": 1, "invert": false }
+    },
+    "routes": [
+      { "id": "speed-bpm", "source": "speed", "dest": "bpm", "inMin": 0, "inMax": 1, "outMin": 42, "outMax": 162, "curve": "linear", "invert": false, "depth": 0.8, "smoothing": 0.3, "enabled": true },
+      { "id": "opacity-master", "source": "opacity", "dest": "masterGain", "inMin": 0, "inMax": 1, "outMin": 0.25, "outMax": 1, "curve": "linear", "invert": false, "depth": 0.8, "smoothing": 0.25, "enabled": true },
+      { "id": "size-reverb", "source": "size", "dest": "reverbWet", "inMin": 0, "inMax": 1, "outMin": 0.08, "outMax": 0.96, "curve": "linear", "invert": false, "depth": 0.65, "smoothing": 0.45, "enabled": true },
+      { "id": "noise-distortion", "source": "noise", "dest": "distortion", "inMin": 0, "inMax": 1, "outMin": 0, "outMax": 0.75, "curve": "exp", "invert": false, "depth": 0.6, "smoothing": 0.2, "enabled": true },
+      { "id": "curviness-filter", "source": "curviness", "dest": "filterFrequency", "inMin": 0, "inMax": 1, "outMin": 240, "outMax": 2440, "curve": "log", "invert": false, "depth": 0.7, "smoothing": 0.35, "enabled": true },
+      { "id": "tension-filter", "source": "tension", "dest": "filterFrequency", "inMin": 0, "inMax": 1, "outMin": 0, "outMax": 1800, "curve": "linear", "invert": false, "depth": 1, "smoothing": 0.25, "enabled": true },
+      { "id": "wobble-q", "source": "wobble", "dest": "filterQ", "inMin": 0, "inMax": 1, "outMin": 0.5, "outMax": 7.5, "curve": "linear", "invert": false, "depth": 0.55, "smoothing": 0.25, "enabled": true },
+      { "id": "background-noise-filter", "source": "backgroundLightness", "dest": "noiseFilterFrequency", "inMin": 0, "inMax": 1, "outMin": 180, "outMax": 1480, "curve": "log", "invert": false, "depth": 1, "smoothing": 0.5, "enabled": true },
+      { "id": "noise-level", "source": "noise", "dest": "noiseVolume", "inMin": 0, "inMax": 1, "outMin": -48, "outMax": -20, "curve": "exp", "invert": false, "depth": 0.6, "smoothing": 0.25, "enabled": true },
+      { "id": "layers-pad-level", "source": "layers", "dest": "padLevel", "inMin": 0, "inMax": 1, "outMin": 1, "outMax": 0.62, "curve": "linear", "invert": false, "depth": 0.7, "smoothing": 0.35, "enabled": true },
+      { "id": "layers-spread", "source": "layers", "dest": "stereoSpread", "inMin": 0, "inMax": 1, "outMin": 0.55, "outMax": 1, "curve": "linear", "invert": false, "depth": 0.7, "smoothing": 0.35, "enabled": true },
+      { "id": "wobble-detune", "source": "wobble", "dest": "detuneAmount", "inMin": 0, "inMax": 1, "outMin": 0.02, "outMax": 1.2, "curve": "exp", "invert": false, "depth": 0.55, "smoothing": 0.25, "enabled": true },
+      { "id": "tension-detune", "source": "tension", "dest": "detuneAmount", "inMin": 0, "inMax": 1, "outMin": 0, "outMax": 1.2, "curve": "exp", "invert": false, "depth": 1, "smoothing": 0.25, "enabled": true }
+    ],
+    "paletteProgramMap": {
+      "#0d47a1|#1565c0|#1976d2|#1e88e5|#2196f3": "glass",
+      "#39ff14|#00e5ff|#ffea00|#ff0266|#b388ff": "prism",
+      "#ff6e40|#ffa040|#ffd740|#ffab40|#ff7043": "ember",
+      "#003f5c|#2f4b7c|#665191|#a05195|#d45087": "tide",
+      "#0a2e36|#2e8b57|#83cb9e|#c7f1e8|#f1faee": "aurora",
+      "#ff0090|#ff4d00|#00eaff|#2400ff|#8fff00": "prism",
+      "#ffd1dc|#faffd1|#d1ffd6|#d1e0ff|#f1d1ff": "glass",
+      "#004d00|#33691e|#558b2f|#8bc34a|#aed581": "velvet",
+      "#4e342e|#bf360c|#d84315|#ff8f00|#ffb300": "ember",
+      "#1b0039|#36007d|#4b00b5|#7900f5|#c800ff": "aurora",
+      "#ffb347|#ffcc33|#ffee93|#a4de02|#ff5e5b": "prism",
+      "#ff6b6b|#ffb6b9|#fae3d9|#bbded6|#61c0bf": "glass",
+      "#7b2d26|#b33f62|#e19c6d|#f2b880|#d6903d": "velvet",
+      "#000024|#001b44|#00335b|#00467f|#005d8f": "velvet",
+      "#d62828|#ff3b30|#b91c1c|#d4af37|#ffd60a|#f59e0b|#1b5e20|#2e7d32|#00c853": "tide"
     },
     "paletteOverrides": {},
     "backgroundOverrides": {}
