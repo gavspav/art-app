@@ -600,6 +600,7 @@ const MainApp = () => {
     setMorphEnabled?.(false);
     setAudioSpawnEnabled?.(false);
     setAudioSpawnPresetActive?.(false);
+    setParameterTargetMode?.('global');
     audioReactive?.setAudioEnabled?.(false);
     audioReactive?.stopAudio?.();
     bpmForAnimation?.pause?.();
@@ -611,9 +612,15 @@ const MainApp = () => {
     setAudioSpawnEnabled,
     setAudioSpawnPresetActive,
     setMorphEnabled,
+    setParameterTargetMode,
     setTimelineMode,
     timelineContext,
   ]);
+
+  useEffect(() => {
+    if (!isArcadeLaunch || parameterTargetMode === 'global') return;
+    setParameterTargetMode?.('global');
+  }, [isArcadeLaunch, parameterTargetMode, setParameterTargetMode]);
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
