@@ -9,29 +9,42 @@ export const computeInitialNodes = (source) => {
   return nodes;
 };
 
-export const resizeNodes = (nodes, desired) => {
-  const target = Math.max(3, Math.round(Number(desired) || 0));
-  if (target < 3) return computeInitialNodes(target);
+export const resizeNodes = (nodes, desired, options = {}) => {
+  const closed = options?.closed !== false;
+  const minimum = closed ? 3 : 2;
+  const target = Math.max(minimum, Math.round(Number(desired) || 0));
   if (!Array.isArray(nodes) || nodes.length === 0) {
-    return computeInitialNodes(target);
+    return closed
+      ? computeInitialNodes(target)
+      : Array.from({ length: target }, (_, index) => ({
+        x: target === 1 ? 0 : -1 + (index / (target - 1)) * 2,
+        y: 0,
+      }));
   }
-  const toPoint = (node) => ({
+  const cloneNode = (node) => ({
+    ...(node && typeof node === 'object' ? node : {}),
     x: Number.isFinite(node?.x) ? Number(node.x) : 0,
     y: Number.isFinite(node?.y) ? Number(node.y) : 0,
   });
   const distance = (a, b) => Math.hypot((b?.x || 0) - (a?.x || 0), (b?.y || 0) - (a?.y || 0));
   const EPSILON = 1e-9;
-  let curr = nodes.map(toPoint);
-  if (curr.length < 3) {
-    return computeInitialNodes(target);
+  let curr = nodes.map(cloneNode);
+  if (curr.length < minimum) {
+    if (closed) return computeInitialNodes(target);
+    const start = curr[0] || { x: -1, y: 0 };
+    return Array.from({ length: target }, (_, index) => ({
+      ...start,
+      x: start.x + (target === 1 ? 0 : index / (target - 1)),
+    }));
   }
   if (curr.length === target) return curr;
   // Expand by repeatedly splitting the longest edge so new points spread around the shape
   while (curr.length < target) {
     let longestIndex = -1;
     let longestLength = -Infinity;
-    for (let i = 0; i < curr.length; i++) {
-      const nextIndex = (i + 1) % curr.length;
+    const segmentCount = closed ? curr.length : curr.length - 1;
+    for (let i = 0; i < segmentCount; i++) {
+      const nextIndex = closed ? (i + 1) % curr.length : i + 1;
       const len = distance(curr[i], curr[nextIndex]);
       if (len > longestLength) {
         longestLength = len;
@@ -41,7 +54,7 @@ export const resizeNodes = (nodes, desired) => {
     if (!(longestLength > EPSILON) || longestIndex < 0) {
       return computeInitialNodes(target);
     }
-    const insertIndex = (longestIndex + 1) % curr.length;
+    const insertIndex = longestIndex + 1;
     const a = curr[longestIndex];
     const b = curr[insertIndex];
     const midpoint = {
@@ -54,7 +67,9 @@ export const resizeNodes = (nodes, desired) => {
   while (curr.length > target) {
     let removalIndex = -1;
     let minPenalty = Infinity;
-    for (let i = 0; i < curr.length; i++) {
+    const firstRemovable = closed ? 0 : 1;
+    const lastRemovable = closed ? curr.length - 1 : curr.length - 2;
+    for (let i = firstRemovable; i <= lastRemovable; i++) {
       const prev = curr[(i - 1 + curr.length) % curr.length];
       const next = curr[(i + 1) % curr.length];
       const penalty = distance(prev, curr[i]) + distance(curr[i], next) - distance(prev, next);

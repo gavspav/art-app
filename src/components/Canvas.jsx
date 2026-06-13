@@ -2692,18 +2692,21 @@ const Canvas = forwardRef(({
         const layer = layers[selIndex];
         if (!layer || layer.layerType !== 'shape' || isLayerContentDeleted(layer)) return;
         const currentNodes = Array.isArray(layer.nodes) ? layer.nodes : [];
-        if (isOpenPathLayer(layer)) {
-            nodesCacheRef.current.set(selIndex, Array.isArray(currentNodes) ? currentNodes.map(n => ({ ...n })) : []);
-            return;
-        }
+        const isOpenPath = isOpenPathLayer(layer) && layer?.pathClosed !== true;
         const desiredRaw = Number(layer?.numSides);
-        const desired = Math.max(3, Number.isFinite(desiredRaw) ? Math.round(desiredRaw) : (currentNodes.length || 3));
+        const minimum = isOpenPath ? 2 : 3;
+        const desired = Math.max(minimum, Number.isFinite(desiredRaw) ? Math.round(desiredRaw) : (currentNodes.length || minimum));
 
         if (layer.syncNodesToNumSides === false) {
-            const hasNodes = currentNodes.length >= 3;
-            const baseNodes = hasNodes ? currentNodes : computeInitialNodes(desired);
+            const hasNodes = currentNodes.length >= minimum;
+            const cachedNodes = nodesCacheRef.current.get(selIndex);
+            const baseNodes = Array.isArray(cachedNodes) && cachedNodes.length >= minimum
+                ? cachedNodes
+                : (hasNodes ? currentNodes : computeInitialNodes(desired));
             const baseClones = baseNodes.map(n => ({ ...n }));
-            nodesCacheRef.current.set(selIndex, baseClones);
+            if (!Array.isArray(cachedNodes) || cachedNodes.length < minimum) {
+                nodesCacheRef.current.set(selIndex, baseClones);
+            }
 
             if (!hasNodes) {
                 setLayers(prev => prev.map((l, i) => (
@@ -2712,10 +2715,11 @@ const Canvas = forwardRef(({
                 return;
             }
 
-            if (desired !== baseNodes.length) {
-                const resized = resizeNodes(baseNodes, desired);
+            if (desired !== currentNodes.length) {
+                const resized = desired === baseNodes.length
+                    ? baseClones
+                    : resizeNodes(baseNodes, desired, { closed: !isOpenPath });
                 const resizedClones = resized.map(n => ({ ...n }));
-                nodesCacheRef.current.set(selIndex, resizedClones);
                 if (!nodesEqual(currentNodes, resizedClones)) {
                     setLayers(prev => prev.map((l, i) => (
                         i === selIndex ? { ...l, nodes: resizedClones, syncNodesToNumSides: false } : l
@@ -2745,7 +2749,7 @@ const Canvas = forwardRef(({
             // Need to add new points: derive using current best resize, then append to cache
             const target = desired;
             const current = Array.isArray(layer.nodes) && layer.nodes.length ? layer.nodes : (cache.length ? cache.slice(0) : computeInitialNodes(layer));
-            const resized = resizeNodes(current, target);
+            const resized = resizeNodes(current, target, { closed: true });
             // Append any new points beyond cache length to cache
             for (let i = cache.length; i < resized.length; i++) {
                 cache.push({ ...resized[i] });

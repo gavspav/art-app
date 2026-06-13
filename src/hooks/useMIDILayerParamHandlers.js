@@ -181,7 +181,7 @@ export function useMIDILayerParamHandlers({
                 : { [paramId]: targetAxis };
             } else if (paramId === 'numSides') {
               const sides = Math.max(3, Math.round(mapped));
-              if (layer?.layerType !== 'shape' || (layer?.pathMode === 'open' && layer?.pathClosed !== true)) {
+              if (layer?.layerType !== 'shape') {
                 patch = { numSides: sides };
               } else if (layer?.syncNodesToNumSides) {
                 patch = { numSides: sides, nodes: makeRegularNodes(sides) };
@@ -189,7 +189,8 @@ export function useMIDILayerParamHandlers({
                 const existing = Array.isArray(layer?.nodes) && layer.nodes.length
                   ? layer.nodes
                   : computeInitialNodes(sides);
-                patch = { numSides: sides, nodes: resizeNodes(existing, sides), syncNodesToNumSides: false };
+                const closed = layer?.pathMode !== 'open' || layer?.pathClosed === true;
+                patch = { numSides: sides, nodes: resizeNodes(existing, sides, { closed }), syncNodesToNumSides: false };
               }
             } else {
               patch = { [paramId]: mapped };

@@ -1,6 +1,7 @@
 import { useRef, useCallback, useMemo } from 'react';
 import { MOVEMENT_STYLES } from './movementStyles.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
+import { resizeNodes } from '../utils/nodeUtils.js';
 
 // Rate-limit movement style switching to avoid rapid audio-driven visual popping.
 const movementStyleSwitchState = new Map(); // layerId -> { style, changedAtMs }
@@ -342,24 +343,28 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
         };
       }
     } else if (paramId === 'numSides') {
+      const minimum = modifiedLayer?.pathMode === 'open' && modifiedLayer?.pathClosed !== true ? 2 : 3;
+      let nextSides;
       if (isTimelineMod) {
         const baseSides = additiveBaseLayer.numSides ?? layer.numSides ?? 6;
-        modifiedLayer = {
-          ...modifiedLayer,
-          numSides: Math.max(3, Math.min(256, Math.round(baseSides + value))),
-        };
+        nextSides = Math.max(minimum, Math.min(256, Math.round(baseSides + value)));
       } else {
         const v = Number(value);
         // Keep polygon sides discrete + sane; fractional sides can cause visual "no change"
         // and excessive churn from tiny per-frame updates.
-        const nextSides = Number.isFinite(v)
-          ? Math.max(3, Math.min(256, Math.round(v)))
+        nextSides = Number.isFinite(v)
+          ? Math.max(minimum, Math.min(256, Math.round(v)))
           : modifiedLayer.numSides;
-        modifiedLayer = {
-          ...modifiedLayer,
-          numSides: nextSides,
-        };
       }
+      const sourceNodes = Array.isArray(additiveBaseLayer.nodes) ? additiveBaseLayer.nodes : modifiedLayer.nodes;
+      const closed = modifiedLayer?.pathMode !== 'open' || modifiedLayer?.pathClosed === true;
+      modifiedLayer = {
+        ...modifiedLayer,
+        numSides: nextSides,
+        ...(Array.isArray(sourceNodes) && sourceNodes.length >= minimum
+          ? { nodes: resizeNodes(sourceNodes, nextSides, { closed }) }
+          : {}),
+      };
     } else if (paramId === 'radiusFactor') {
       const baseRadius = Number(additiveBaseLayer.radiusFactor ?? layer.radiusFactor);
       const nextRadius = isTimelineMod

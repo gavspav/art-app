@@ -37,3 +37,29 @@ describe('applyModulationsToLayer size modulation', () => {
     expect(result.radiusFactorY).toBeCloseTo(0.4);
   });
 });
+
+describe('applyModulationsToLayer side-count modulation', () => {
+  test('resamples an open path without closing or replacing it', () => {
+    const openLayer = {
+      id: 'line-1',
+      pathMode: 'open',
+      pathClosed: false,
+      numSides: 3,
+      nodes: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 1 }],
+    };
+    const result = applyModulationsToLayer(
+      openLayer,
+      { 'line-1': { numSides: 4 } },
+      {},
+      {},
+      openLayer,
+    );
+
+    expect(result.nodes).toEqual([
+      { x: 0, y: 0 },
+      { x: 5, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 1 },
+    ]);
+  });
+});
