@@ -56,7 +56,7 @@ export const resizeNodes = (nodes, desired, options = {}) => {
     }
     const insertIndex = longestIndex + 1;
     const a = curr[longestIndex];
-    const b = curr[insertIndex];
+    const b = curr[closed ? insertIndex % curr.length : insertIndex];
     const midpoint = {
       x: (a.x + b.x) / 2,
       y: (a.y + b.y) / 2,

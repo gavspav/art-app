@@ -4504,6 +4504,24 @@ const Canvas = forwardRef(({
         }
     }, []);
 
+    useEffect(() => {
+        const canvas = localCanvasRef.current;
+        if (!canvas) return undefined;
+        const nonPassive = { passive: false };
+        canvas.addEventListener('wheel', onWheel, nonPassive);
+        canvas.addEventListener('touchstart', onTouchStart, nonPassive);
+        canvas.addEventListener('touchmove', onTouchMove, nonPassive);
+        canvas.addEventListener('touchend', onTouchEnd, nonPassive);
+        canvas.addEventListener('touchcancel', onTouchEnd, nonPassive);
+        return () => {
+            canvas.removeEventListener('wheel', onWheel, nonPassive);
+            canvas.removeEventListener('touchstart', onTouchStart, nonPassive);
+            canvas.removeEventListener('touchmove', onTouchMove, nonPassive);
+            canvas.removeEventListener('touchend', onTouchEnd, nonPassive);
+            canvas.removeEventListener('touchcancel', onTouchEnd, nonPassive);
+        };
+    }, [onTouchEnd, onTouchMove, onTouchStart, onWheel]);
+
     return (
         <>
           <canvas
@@ -4512,11 +4530,6 @@ const Canvas = forwardRef(({
               onMouseDown={onMouseDown}
               onMouseMove={onMouseMove}
               onMouseUp={onMouseUp}
-              onWheel={onWheel}
-              onTouchStart={onTouchStart}
-              onTouchMove={onTouchMove}
-              onTouchEnd={onTouchEnd}
-              onTouchCancel={onTouchEnd}
               onDoubleClick={() => {
                   if (draftPathRef.current) {
                       closeDraftPath();

@@ -36,4 +36,20 @@ describe('resizeNodes', () => {
     expect(resized[0]).toEqual(nodes[0]);
     expect(resized[2]).toEqual(nodes[1]);
   });
+
+  test('splits the closing edge of a closed shape', () => {
+    const nodes = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 10, y: 0 },
+    ];
+    const resized = resizeNodes(nodes, 4);
+
+    expect(resized).toEqual([
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 10, y: 0 },
+      { x: 5, y: 0 },
+    ]);
+  });
 });
