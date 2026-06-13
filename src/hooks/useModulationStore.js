@@ -360,6 +360,30 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
           numSides: nextSides,
         };
       }
+    } else if (paramId === 'radiusFactor') {
+      const baseRadius = Number(additiveBaseLayer.radiusFactor ?? layer.radiusFactor);
+      const nextRadius = isTimelineMod
+        ? baseRadius + Number(value)
+        : Number(value);
+      if (!Number.isFinite(nextRadius)) continue;
+
+      const ratio = Number.isFinite(baseRadius) && Math.abs(baseRadius) > 1e-9
+        ? nextRadius / baseRadius
+        : 1;
+      const patch = { radiusFactor: nextRadius };
+
+      // Rendering prefers the explicit axes, so Size must keep them in sync.
+      // Explicit Size X/Y mappings still take precedence over this coupled update.
+      if (!('radiusFactorX' in mods)) {
+        const baseX = Number(additiveBaseLayer.radiusFactorX ?? layer.radiusFactorX ?? baseRadius);
+        patch.radiusFactorX = Number.isFinite(baseX) ? baseX * ratio : nextRadius;
+      }
+      if (!('radiusFactorY' in mods)) {
+        const baseY = Number(additiveBaseLayer.radiusFactorY ?? layer.radiusFactorY ?? baseRadius);
+        patch.radiusFactorY = Number.isFinite(baseY) ? baseY * ratio : nextRadius;
+      }
+
+      modifiedLayer = { ...modifiedLayer, ...patch };
     } else if (paramId === 'movementStyle') {
       // Map numeric value to discrete movement style string (always absolute)
       const styles = Array.isArray(MOVEMENT_STYLES) && MOVEMENT_STYLES.length
