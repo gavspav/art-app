@@ -157,6 +157,8 @@ Arcade launch mode is intended for the installed cabinet:
 - MIDI, cabinet keyboard emulation, and generated sound remain active
 - Timeline, BPM automation, input-reactive Audio, Audio Spawn, and preset morphing are forced inactive
 - Sound configuration is edited in the normal app and then loaded by the cabinet configuration
+- If there is no keyboard or MIDI activity for 10 seconds, the app fades to a looping screensaver video. Keyboard or MIDI activity immediately restores the artwork.
+- The default screensaver file is `/screensaver.mp4`; place `screensaver.mp4` in `public/`, or override the URL with `?screensaver=/path/to/video.mp4`. The idle delay can be overridden for testing with `?screensaverIdleMs=1000`; use `?screensaverEnabled=1&screensaverDebug=1` to test it outside arcade mode.
 
 ### 4.8 Presets Tab
 

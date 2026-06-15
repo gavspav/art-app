@@ -183,6 +183,25 @@ const messageMatchesMapping = (msg, mapping) => (
   && mapping.number === msg.number
 );
 
+const midiActivityValues = new Map();
+
+const shouldEmitMidiActivity = (msg) => {
+  if (!msg) return false;
+  const value = Number(msg.value) || 0;
+  if (msg.type === 'note') return value > 0;
+  if (msg.type !== 'cc') return false;
+
+  const key = `${msg.source || 'midi'}:${msg.channel}:${msg.number}`;
+  const previous = midiActivityValues.get(key);
+  midiActivityValues.set(key, value);
+  return previous == null || Math.abs(value - previous) >= 4;
+};
+
+const emitMidiActivity = (msg) => {
+  if (typeof window === 'undefined' || !shouldEmitMidiActivity(msg)) return;
+  window.dispatchEvent(new CustomEvent('artapp:midi-activity', { detail: msg }));
+};
+
 export const MidiProvider = ({ children }) => {
   const [supported, setSupported] = useState(false);
   const [access, setAccess] = useState(null);
@@ -634,6 +653,7 @@ export const MidiProvider = ({ children }) => {
 
   const processMidiMessage = useCallback((msg) => {
     if (!msg) return;
+    emitMidiActivity(msg);
 
     // Learn mode: bind first incoming message
     if (learnParamId) {

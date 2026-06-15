@@ -36,6 +36,7 @@ import { createSeededRandom } from './utils/randomUtils.js';
 import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 import AppProviders from './components/app/AppProviders.jsx';
 import WorkspaceRouter from './components/workspaces/WorkspaceRouter.jsx';
+import ArcadeScreensaver, { isScreensaverForced } from './components/ArcadeScreensaver.jsx';
 import { useTimelineModulation } from './hooks/useTimelineModulation.js';
 import defaultArcadePreset from './config/defaultArcadePreset.json';
 import { getRuntimeProfile } from './utils/runtimeProfile.js';
@@ -2548,6 +2549,7 @@ const MainApp = () => {
             timelinePanelProps,
           }}
         />
+        <ArcadeScreensaver enabled={isArcadeLaunch || isScreensaverForced()} />
       </main>
     </div>
   );
