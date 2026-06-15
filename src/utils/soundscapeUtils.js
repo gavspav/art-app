@@ -47,12 +47,14 @@ export const paletteToSound = (colors = []) => {
     [0, 2, 5, 7, 9],
     [0, 2, 3, 7, 10],
     [0, 4, 5, 7, 11],
+    [0, 2, 4, 7, 9],
+    [0, 3, 5, 8, 10],
   ];
   const scale = scaleSets[Math.floor((averageHue / 360) * scaleSets.length) % scaleSets.length];
   // Keep palette timbres varied but gentle. The colour signature spreads palettes
   // across sine and triangle families instead of sending most saturated palettes
   // to the same bright oscillator.
-  const oscillatorFamilies = ['sine', 'sine2', 'triangle', 'sine', 'triangle2', 'sine2', 'sine', 'triangle'];
+  const oscillatorFamilies = ['sine', 'sine2', 'triangle', 'sine4', 'triangle2', 'sine2', 'sine', 'triangle'];
   const firstHue = hsl[0]?.hue || 0;
   const timbreHue = (averageHue * 0.65 + firstHue * 0.35) % 360;
   const oscillator = oscillatorFamilies[
