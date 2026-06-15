@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
+import { buildRadiusFactorPatch, getEffectiveRadiusFactor } from '../utils/layerSize.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -146,28 +147,18 @@ export function useMIDILayerParamHandlers({
               patch = { position: { ...(layer?.position || {}), scale: mapped } };
             } else if (paramId === 'radiusFactor') {
               const targetRF = Number(mapped);
-              const refRF = Number(referenceLayer?.radiusFactor);
+              const refRF = getEffectiveRadiusFactor(referenceLayer);
               const globalRatio = parameterTargetMode === 'global' && Number.isFinite(refRF) && Math.abs(refRF) > 1e-9
                 ? targetRF / refRF
                 : null;
-              const prevRF = Number(layer?.radiusFactor);
-              const prevX = Number(layer?.radiusFactorX);
-              const prevY = Number(layer?.radiusFactorY);
               if (Number.isFinite(globalRatio)) {
-                const scaledRF = Number.isFinite(prevRF) ? prevRF * globalRatio : targetRF;
-                patch = {
-                  radiusFactor: scaledRF,
-                  radiusFactorX: Number.isFinite(prevX) ? prevX * globalRatio : scaledRF,
-                  radiusFactorY: Number.isFinite(prevY) ? prevY * globalRatio : scaledRF,
-                };
+                patch = buildRadiusFactorPatch(
+                  layer,
+                  getEffectiveRadiusFactor(layer) * globalRatio,
+                  globalRatio,
+                );
               } else {
-                const ratioRaw = Number.isFinite(prevRF) && Math.abs(prevRF) > 1e-9 ? targetRF / prevRF : targetRF;
-                const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-                patch = {
-                  radiusFactor: targetRF,
-                  radiusFactorX: (Number.isFinite(prevX) ? prevX : 1) * ratio,
-                  radiusFactorY: (Number.isFinite(prevY) ? prevY : 1) * ratio,
-                };
+                patch = buildRadiusFactorPatch(layer, targetRF);
               }
             } else if (paramId === 'radiusFactorX' || paramId === 'radiusFactorY') {
               const targetAxis = Number(mapped);

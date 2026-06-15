@@ -2,6 +2,7 @@ import { useRef, useCallback, useMemo } from 'react';
 import { MOVEMENT_STYLES } from './movementStyles.js';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resizeNodes } from '../utils/nodeUtils.js';
+import { buildRadiusFactorPatch, getEffectiveRadiusFactor } from '../utils/layerSize.js';
 
 // Rate-limit movement style switching to avoid rapid audio-driven visual popping.
 const movementStyleSwitchState = new Map(); // layerId -> { style, changedAtMs }
@@ -366,7 +367,7 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
           : {}),
       };
     } else if (paramId === 'radiusFactor') {
-      const baseRadius = Number(additiveBaseLayer.radiusFactor ?? layer.radiusFactor);
+      const baseRadius = getEffectiveRadiusFactor(additiveBaseLayer);
       const nextRadius = isTimelineMod
         ? baseRadius + Number(value)
         : Number(value);
@@ -375,20 +376,28 @@ export function applyModulationsToLayer(layer, bpmMods, audioMods, timelineMods 
       const ratio = Number.isFinite(baseRadius) && Math.abs(baseRadius) > 1e-9
         ? nextRadius / baseRadius
         : 1;
-      const patch = { radiusFactor: nextRadius };
+      modifiedLayer = {
+        ...modifiedLayer,
+        ...buildRadiusFactorPatch(additiveBaseLayer, nextRadius, ratio),
+      };
+    } else if (paramId === 'radiusFactorX' || paramId === 'radiusFactorY') {
+      const baseRadius = getEffectiveRadiusFactor(additiveBaseLayer);
+      const baseAxis = additiveBaseLayer?.viewBoxMapped
+        ? 0.5
+        : Number(additiveBaseLayer?.[paramId] ?? baseRadius);
+      const nextAxis = isTimelineMod ? baseAxis + Number(value) : Number(value);
+      if (!Number.isFinite(nextAxis)) continue;
 
-      // Rendering prefers the explicit axes, so Size must keep them in sync.
-      // Explicit Size X/Y mappings still take precedence over this coupled update.
-      if (!('radiusFactorX' in mods)) {
-        const baseX = Number(additiveBaseLayer.radiusFactorX ?? layer.radiusFactorX ?? baseRadius);
-        patch.radiusFactorX = Number.isFinite(baseX) ? baseX * ratio : nextRadius;
-      }
-      if (!('radiusFactorY' in mods)) {
-        const baseY = Number(additiveBaseLayer.radiusFactorY ?? layer.radiusFactorY ?? baseRadius);
-        patch.radiusFactorY = Number.isFinite(baseY) ? baseY * ratio : nextRadius;
-      }
-
-      modifiedLayer = { ...modifiedLayer, ...patch };
+      modifiedLayer = {
+        ...modifiedLayer,
+        ...(additiveBaseLayer?.viewBoxMapped ? {
+          radiusFactor: 0.5,
+          radiusFactorX: 0.5,
+          radiusFactorY: 0.5,
+          viewBoxMapped: false,
+        } : {}),
+        [paramId]: nextAxis,
+      };
     } else if (paramId === 'movementStyle') {
       // Map numeric value to discrete movement style string (always absolute)
       const styles = Array.isArray(MOVEMENT_STYLES) && MOVEMENT_STYLES.length

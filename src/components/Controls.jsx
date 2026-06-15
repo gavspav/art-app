@@ -11,6 +11,7 @@ import { useBPM } from '../context/BPMContext.jsx';
 import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { resolveLayerTargets, applyWithVary } from '../utils/varyUtils.js';
 import { resizeNodes, computeInitialNodes } from '../utils/nodeUtils.js';
+import { buildRadiusFactorPatch, getEffectiveRadiusFactor } from '../utils/layerSize.js';
 import { isSettingsDebugEnabled, throttledSettingsDebugLog } from '../utils/settingsDebug.js';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from './common/BPMEnvelopeEditor.jsx';
 import { AUDIO_MAPPING_MODES, DEFAULT_MODE_SETTINGS } from '../utils/audioMappingModes.js';
@@ -885,6 +886,9 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
   if (id === 'scale') {
     value = currentLayer.position?.scale || 1;
   }
+  if (currentLayer?.viewBoxMapped && (id === 'radiusFactor' || id === 'radiusFactorX' || id === 'radiusFactorY')) {
+    value = 0.5;
+  }
 
   const applyUpdateToTargets = useCallback((patchFactory) => {
     const { effective: targets } = resolveLayerTargets({
@@ -963,27 +967,14 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
 
     if (id === 'radiusFactor') {
       const targetRF = Number(newValue);
-      const refRF = Number(currentLayer?.radiusFactor);
+      const refRF = getEffectiveRadiusFactor(currentLayer);
       const hasGlobalRatio = targetMode === 'global' && Number.isFinite(refRF) && Math.abs(refRF) > 1e-9;
       const globalRatio = hasGlobalRatio ? (targetRF / refRF) : null;
-      applyUpdateToTargets((layer) => {
-        const prevRF = Number(layer?.radiusFactor);
-        const prevX = Number(layer?.radiusFactorX);
-        const prevY = Number(layer?.radiusFactorY);
-        if (hasGlobalRatio && Number.isFinite(prevRF)) {
-          const scaledRF = prevRF * globalRatio;
-          const nextX = Number.isFinite(prevX) ? prevX * globalRatio : scaledRF;
-          const nextY = Number.isFinite(prevY) ? prevY * globalRatio : scaledRF;
-          return { radiusFactor: scaledRF, radiusFactorX: nextX, radiusFactorY: nextY };
-        }
-        const ratioRaw = (Number.isFinite(prevRF) && Math.abs(prevRF) > 1e-9) ? (targetRF / prevRF) : targetRF;
-        const ratio = Number.isFinite(ratioRaw) && ratioRaw > 0 ? ratioRaw : 1;
-        const baseX = Number.isFinite(prevX) ? prevX : 1;
-        const baseY = Number.isFinite(prevY) ? prevY : 1;
-        const nextX = baseX * ratio;
-        const nextY = baseY * ratio;
-        return { radiusFactor: targetRF, radiusFactorX: nextX, radiusFactorY: nextY };
-      });
+      applyUpdateToTargets((layer) => buildRadiusFactorPatch(
+        layer,
+        hasGlobalRatio ? getEffectiveRadiusFactor(layer) * globalRatio : targetRF,
+        hasGlobalRatio ? globalRatio : null,
+      ));
       return;
     }
 

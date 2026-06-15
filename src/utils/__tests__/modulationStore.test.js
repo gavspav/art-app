@@ -36,6 +36,27 @@ describe('applyModulationsToLayer size modulation', () => {
     expect(result.radiusFactorX).toBeCloseTo(0.9);
     expect(result.radiusFactorY).toBeCloseTo(0.4);
   });
+
+  test('makes viewBox-mapped layers respond to size modulation', () => {
+    const mappedLayer = {
+      id: 'mapped',
+      viewBoxMapped: true,
+      radiusFactor: 0.1,
+      radiusFactorX: 0.1,
+      radiusFactorY: 0.1,
+    };
+    const result = applyModulationsToLayer(
+      mappedLayer,
+      { mapped: { radiusFactor: 0.75 } },
+      {},
+      {},
+      mappedLayer,
+    );
+
+    expect(result.viewBoxMapped).toBe(false);
+    expect(result.radiusFactorX).toBeCloseTo(0.75);
+    expect(result.radiusFactorY).toBeCloseTo(0.75);
+  });
 });
 
 describe('applyModulationsToLayer side-count modulation', () => {
