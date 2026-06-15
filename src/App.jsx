@@ -236,6 +236,7 @@ const MainApp = () => {
   const soundscape = useSoundscape();
   const soundscapeStarted = !!soundscape?.started;
   const updateSoundscapeVisualState = soundscape?.updateVisualState;
+  const setScreensaverMuted = soundscape?.setScreensaverMuted;
   const effectiveFullscreen = isFullscreen || isArcadeLaunch;
   const [isRecording, setIsRecording] = useState(false);
   const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
@@ -2549,7 +2550,10 @@ const MainApp = () => {
             timelinePanelProps,
           }}
         />
-        <ArcadeScreensaver enabled={isArcadeLaunch || isScreensaverForced()} />
+        <ArcadeScreensaver
+          enabled={isArcadeLaunch || isScreensaverForced()}
+          onActiveChange={setScreensaverMuted}
+        />
       </main>
     </div>
   );

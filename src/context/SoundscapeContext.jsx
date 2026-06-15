@@ -88,6 +88,7 @@ export const SoundscapeProvider = ({ children }) => {
   const [patches, setPatches] = useState(() => readStored(PATCHES_KEY, {}));
   const [started, setStarted] = useState(false);
   const [startError, setStartError] = useState('');
+  const [screensaverMuted, setScreensaverMuted] = useState(false);
   const [liveValues, setLiveValues] = useState({ sources: {}, destinations: {}, paletteIdentity: '', programId: '' });
   const nodesRef = useRef(null);
   const visualRef = useRef(null);
@@ -213,8 +214,8 @@ export const SoundscapeProvider = ({ children }) => {
   useEffect(() => {
     const nodes = nodesRef.current;
     if (!nodes || !started) return;
-    nodes.master.gain.rampTo(config.enabled ? config.masterVolume : 0, 0.15);
-  }, [config.enabled, config.masterVolume, started]);
+    nodes.master.gain.rampTo(config.enabled && !screensaverMuted ? config.masterVolume : 0, 0.15);
+  }, [config.enabled, config.masterVolume, screensaverMuted, started]);
 
   useEffect(() => disposeNodes, [disposeNodes]);
 
@@ -282,7 +283,7 @@ export const SoundscapeProvider = ({ children }) => {
     };
 
     rampIfChanged('bpm', Tone.getTransport().bpm, destinations.bpm ?? 72, 0.05, smoothing.bpm);
-    rampIfChanged('masterGain', nodes.master.gain, config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
+    rampIfChanged('masterGain', nodes.master.gain, screensaverMuted ? 0 : config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
     rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
     const distortionAmount = destinations.distortion ?? 0.05;
     if (changed('distortion', distortionAmount, 0.002)) nodes.distortion.distortion = distortionAmount;
@@ -408,7 +409,7 @@ export const SoundscapeProvider = ({ children }) => {
         padRampIfChanged('frequency', pad.synth.frequency, targetFrequency, 0.02);
       }
     });
-  }, [config, ensureNodes, started]);
+  }, [config, ensureNodes, screensaverMuted, started]);
 
   const triggerCollision = useCallback(({ layerId = 'layer', speed = 1 } = {}) => {
     if (!started || !config.enabled || !config.collisionEnabled) return;
@@ -495,6 +496,7 @@ export const SoundscapeProvider = ({ children }) => {
     deleteRoute,
     assignPaletteProgram,
     setLiveMonitoring,
+    setScreensaverMuted,
     applyPatch: name => patches[name] && setConfig(patches[name]),
     getSoundscapeSnapshot,
     applySoundscapeSnapshot,

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const DEFAULT_IDLE_MS = 10_000;
+const DEFAULT_IDLE_MS = 60_000;
+const DEBUG_IDLE_MS = 10_000;
 const DEFAULT_VIDEO_SRC = '/screensaver.mp4';
 
 const readScreensaverVideoSrc = () => {
@@ -28,7 +29,7 @@ const isScreensaverDebug = () => {
   return ['1', 'true', 'yes', 'on'].includes((params.get('screensaverDebug') || '').toLowerCase());
 };
 
-const ArcadeScreensaver = ({ enabled = false, idleMs = DEFAULT_IDLE_MS }) => {
+const ArcadeScreensaver = ({ enabled = false, idleMs = DEFAULT_IDLE_MS, onActiveChange }) => {
   const [active, setActive] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(Math.ceil(idleMs / 1000));
   const [videoAvailable, setVideoAvailable] = useState(true);
@@ -37,12 +38,16 @@ const ArcadeScreensaver = ({ enabled = false, idleMs = DEFAULT_IDLE_MS }) => {
   const tickerRef = useRef(null);
   const videoRef = useRef(null);
   const videoSrc = useMemo(readScreensaverVideoSrc, []);
-  const resolvedIdleMs = useMemo(() => readScreensaverIdleMs(idleMs), [idleMs]);
   const debug = useMemo(isScreensaverDebug, []);
+  const resolvedIdleMs = useMemo(
+    () => readScreensaverIdleMs(debug ? DEBUG_IDLE_MS : idleMs),
+    [debug, idleMs],
+  );
 
   useEffect(() => {
     if (!enabled) {
       setActive(false);
+      onActiveChange?.(false);
       return undefined;
     }
 
@@ -81,7 +86,12 @@ const ArcadeScreensaver = ({ enabled = false, idleMs = DEFAULT_IDLE_MS }) => {
       window.removeEventListener('keyup', markActivity, true);
       window.removeEventListener('artapp:midi-activity', markActivity);
     };
-  }, [enabled, resolvedIdleMs]);
+  }, [enabled, onActiveChange, resolvedIdleMs]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    onActiveChange?.(active);
+  }, [active, enabled, onActiveChange]);
 
   useEffect(() => {
     const video = videoRef.current;
