@@ -1093,6 +1093,7 @@
   "soundscapeConfig": {
     "version": 2,
     "enabled": true,
+    "mode": "harmonic",
     "masterVolume": 0.55,
     "voiceLimit": 8,
     "ambientLevel": 0.7,

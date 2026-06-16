@@ -46,6 +46,10 @@ describe('soundscape utilities', () => {
     expect(Math.max(...Object.keys(SOUND_PROGRAMS).map(id => assignments.filter(value => value === id).length))).toBeLessThanOrEqual(3);
   });
 
+  test('loads the cabinet soundscape in harmonic mode', () => {
+    expect(defaultArcadePreset.soundscapeConfig.mode).toBe('harmonic');
+  });
+
   test('summarizes layer values into bounded sound controls', () => {
     const summary = summarizeSoundscapeLayers([
       { radiusFactor: 3, opacity: 2, noiseAmount: 10, curviness: -1, wobble: 2, numSides: 30 },

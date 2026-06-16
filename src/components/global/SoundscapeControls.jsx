@@ -72,6 +72,18 @@ const SoundscapeControls = () => {
         <label className="compact-label">
           <input type="checkbox" checked={config.enabled} onChange={event => update({ enabled: event.target.checked })} /> Enabled
         </label>
+        <label className="compact-label">
+          Mode
+          <select
+            className="compact-select"
+            value={config.mode || 'textural'}
+            onChange={event => update({ mode: event.target.value })}
+            style={{ marginLeft: '0.35rem' }}
+          >
+            <option value="textural">Textural</option>
+            <option value="harmonic">Harmonic</option>
+          </select>
+        </label>
         <span style={{ opacity: 0.7 }}>{sound.started ? 'Soundscape running' : 'Soundscape stopped'}</span>
         {sound.startError && <span style={{ color: '#fca5a5' }}>{sound.startError}</span>}
       </div>
