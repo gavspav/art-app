@@ -207,6 +207,7 @@ const MainApp = () => {
     setMappingsFromExternal,
     registerParamHandler,
     setArcadeJoystickMidiEnabled,
+    setArcadeKeyboardMidiEnabled,
     setArcadeButtonPairsMidiEnabled,
     setArcadeVirtualCcValue,
     setArcadeActionValue,
@@ -928,6 +929,9 @@ const MainApp = () => {
       }
       setArcadeJoystickMidiEnabled?.(true);
       setArcadeButtonPairsMidiEnabled?.(true);
+      if (isArcadeLaunch) {
+        setArcadeKeyboardMidiEnabled?.(true);
+      }
       if (!isArcadeLaunch && defaultArcadePreset?.audioConfig) {
         applyAudioSnapshot?.(defaultArcadePreset.audioConfig);
       }
@@ -953,6 +957,7 @@ const MainApp = () => {
       mergeCustomPaletteList,
       setArcadeButtonPairsMidiEnabled,
       setArcadeJoystickMidiEnabled,
+      setArcadeKeyboardMidiEnabled,
       setMappingsFromExternal,
       setIncludeRnd,
       soundscape,
