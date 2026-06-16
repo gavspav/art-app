@@ -10,12 +10,14 @@ const STORAGE_KEY = 'artapp-soundscape-config';
 const PATCHES_KEY = 'artapp-soundscape-patches';
 const MAPPING_KEYS = ['palette', 'background', 'speed', 'layers', 'density', 'chaos', 'size', 'opacity', 'noise', 'blend', 'curviness', 'wobble', 'sides'];
 const DEFAULT_MAPPING_RANGES = Object.fromEntries(MAPPING_KEYS.map(key => [key, { min: 0, max: 1, invert: false }]));
+const DEFAULT_MASTER_VOLUME = 1;
+const HARMONIC_MASTER_MAKEUP = 1.18;
 
 export const DEFAULT_SOUNDSCAPE_CONFIG = Object.freeze({
   version: 2,
   enabled: true,
   mode: 'textural',
-  masterVolume: 0.55,
+  masterVolume: DEFAULT_MASTER_VOLUME,
   voiceLimit: 8,
   ambientLevel: 0.7,
   pulseLevel: 0.32,
@@ -70,6 +72,17 @@ const normalizeConfig = (config) => {
 export const resolveSoundscapeMode = ({ mode, blendMode, isArcade = false } = {}) => {
   if (isArcade) return blendMode === 'difference' ? 'textural' : 'harmonic';
   return mode === 'harmonic' ? 'harmonic' : 'textural';
+};
+
+export const calculateSoundscapeMasterGain = ({
+  masterVolume = DEFAULT_MASTER_VOLUME,
+  destinationGain = 1,
+  harmonicMode = false,
+  screensaverMuted = false,
+} = {}) => {
+  if (screensaverMuted) return 0;
+  const makeup = harmonicMode ? HARMONIC_MASTER_MAKEUP : 1;
+  return Math.min(1, Math.max(0, Number(masterVolume) || 0) * Math.max(0, Number(destinationGain) || 0) * makeup);
 };
 
 const readStored = (key, fallback) => {
@@ -296,7 +309,7 @@ export const SoundscapeProvider = ({ children }) => {
     const chaos = clamp01(Number(layers.chaos), clamp01((layerCount - 8) / 12));
     const noiseAmount = clamp01(layers.noise);
     const wobbleAmount = clamp01(layers.wobble);
-    const sparseLift = Math.max(0, 1 - density) * 0.22;
+    const sparseLift = Math.max(0, 1 - density) * 0.34;
     const sources = {
       speed: clamp01((speed - 0.1) / 4.9),
       layers: clamp01(primaryVoiceCount / Math.max(1, config.voiceLimit)),
@@ -325,7 +338,12 @@ export const SoundscapeProvider = ({ children }) => {
     };
 
     rampIfChanged('bpm', Tone.getTransport().bpm, destinations.bpm ?? 72, 0.05, smoothing.bpm);
-    rampIfChanged('masterGain', nodes.master.gain, screensaverMuted ? 0 : config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
+    rampIfChanged('masterGain', nodes.master.gain, calculateSoundscapeMasterGain({
+      masterVolume: config.masterVolume,
+      destinationGain: destinations.masterGain ?? 1,
+      harmonicMode,
+      screensaverMuted,
+    }), 0.001, smoothing.masterGain);
     rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
     const distortionAmount = harmonicMode
       ? Math.min(0.28, (destinations.distortion ?? 0.05) * 0.35 + noiseAmount * 0.025 + chaos * 0.02)
@@ -338,7 +356,7 @@ export const SoundscapeProvider = ({ children }) => {
     rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset + noiseAmount * (harmonicMode ? 1.5 : 5) + chaos * (harmonicMode ? 1.5 : 6), 0.05, smoothing.noiseVolume);
     rampIfChanged('compressorThreshold', nodes.compressor.threshold, visual?.blendMode === 'difference' ? -30 : -18);
     rampIfChanged('compressorRatio', nodes.compressor.ratio, visual?.blendMode === 'difference' ? 8 : 3);
-    rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16 + (program.droneLevelOffset || 0) + sparseLift * 7, 0.05);
+    rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16 + (program.droneLevelOffset || 0) + sparseLift * 8 + (harmonicMode ? 2 : 0), 0.05);
     const droneOscillator = harmonicMode ? 'sine' : program.droneOscillator || (backgroundHsl.saturation > 0.65 ? 'triangle' : 'sine');
     if (nodes.droneOscillator !== droneOscillator) {
       try {
@@ -480,6 +498,7 @@ export const SoundscapeProvider = ({ children }) => {
       };
       const stereoSpread = destinations.stereoSpread ?? 1;
       const panMotion = Math.sin((voice.x + voice.y + density) * Math.PI * 2 + hash) * density * 0.18;
+      const harmonicVoiceMakeup = harmonicMode ? 1.34 - density * 0.14 : 1;
       padRampIfChanged('pan', pad.panner.pan, Math.max(-1, Math.min(1, ((voice.x * 2 - 1) + panMotion) * stereoSpread * (program.stereoWidth || 1))), 0.002);
       padRampIfChanged(
         'filterFrequency',
@@ -490,7 +509,7 @@ export const SoundscapeProvider = ({ children }) => {
       padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * (harmonicMode ? 1.1 : 3.2) + wobbleAmount * (harmonicMode ? 1.1 : 3.2) + noiseAmount * (harmonicMode ? 0.25 : 1.2) + discord * (harmonicMode ? 0.8 : 4) + chaos * (harmonicMode ? 0.55 : 2.2)), 0.01);
       const targetGain = performance.now() < (pad.transitionUntil || 0)
         ? 0
-        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.2 + sparseLift * 0.14 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * (harmonicMode ? 0.7 : 0.45) + chaos * (harmonicMode ? 0.25 : 0.55) : 1);
+        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.2 + sparseLift * 0.14 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * harmonicVoiceMakeup * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * (harmonicMode ? 0.7 : 0.45) + chaos * (harmonicMode ? 0.25 : 0.55) : 1);
       padRampIfChanged('gain', pad.gain.gain, targetGain, 0.001);
       if (!pad.active || pad.layerId !== voice.id) {
         if (pad.active) pad.synth.triggerRelease();

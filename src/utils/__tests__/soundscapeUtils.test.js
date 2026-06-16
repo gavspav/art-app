@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
 import defaultArcadePreset from '../../config/defaultArcadePreset.json';
-import { resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
+import { calculateSoundscapeMasterGain, resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
 import {
   colorToRootMidi,
   calculateSoundscapeTension,
@@ -55,6 +55,16 @@ describe('soundscape utilities', () => {
     expect(resolveSoundscapeMode({ mode: 'textural', blendMode: 'source-over', isArcade: true })).toBe('harmonic');
     expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: true })).toBe('textural');
     expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: false })).toBe('harmonic');
+  });
+
+  test('applies harmonic makeup gain while preserving mute and dynamics', () => {
+    const textural = calculateSoundscapeMasterGain({ masterVolume: 1, destinationGain: 0.5, harmonicMode: false });
+    const harmonic = calculateSoundscapeMasterGain({ masterVolume: 1, destinationGain: 0.5, harmonicMode: true });
+
+    expect(harmonic).toBeGreaterThan(textural);
+    expect(harmonic).toBeLessThan(1);
+    expect(calculateSoundscapeMasterGain({ masterVolume: 1, destinationGain: 1, harmonicMode: true })).toBe(1);
+    expect(calculateSoundscapeMasterGain({ masterVolume: 1, destinationGain: 1, harmonicMode: true, screensaverMuted: true })).toBe(0);
   });
 
   test('summarizes layer values into bounded sound controls', () => {
