@@ -271,6 +271,9 @@ export const SoundscapeProvider = ({ children }) => {
     const primaryVoiceCount = Math.max(0, Math.min(8, Number(layers.primaryVoiceCount) || Math.min(layerCount, config.voiceLimit)));
     const density = clamp01(Number(layers.density), clamp01(layerCount / 20));
     const chaos = clamp01(Number(layers.chaos), clamp01((layerCount - 8) / 12));
+    const noiseAmount = clamp01(layers.noise);
+    const wobbleAmount = clamp01(layers.wobble);
+    const sparseLift = Math.max(0, 1 - density) * 0.22;
     const sources = {
       speed: clamp01((speed - 0.1) / 4.9),
       layers: clamp01(primaryVoiceCount / Math.max(1, config.voiceLimit)),
@@ -278,10 +281,10 @@ export const SoundscapeProvider = ({ children }) => {
       chaos,
       size: clamp01(layers.size),
       opacity: clamp01(layers.opacity, 1),
-      noise: clamp01(layers.noise),
+      noise: noiseAmount,
       blend: visual?.blendMode === 'difference' ? 1 : 0,
       curviness: clamp01(layers.curviness, 1),
-      wobble: clamp01(layers.wobble),
+      wobble: wobbleAmount,
       sides: clamp01(((Number(layers.sides) || 3) - 3) / 17),
       tension,
       backgroundLightness: clamp01(backgroundHsl.lightness),
@@ -301,16 +304,16 @@ export const SoundscapeProvider = ({ children }) => {
     rampIfChanged('bpm', Tone.getTransport().bpm, destinations.bpm ?? 72, 0.05, smoothing.bpm);
     rampIfChanged('masterGain', nodes.master.gain, screensaverMuted ? 0 : config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
     rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
-    const distortionAmount = Math.min(0.75, (destinations.distortion ?? 0.05) + chaos * 0.08);
+    const distortionAmount = Math.min(0.75, (destinations.distortion ?? 0.05) + noiseAmount * 0.1 + chaos * 0.08);
     if (changed('distortion', distortionAmount, 0.002)) nodes.distortion.distortion = distortionAmount;
     const sizeWarmth = 1 - clamp01(layers.size, 0.2);
     rampIfChanged('filterFrequency', nodes.filter.frequency, Math.max(120, (destinations.filterFrequency ?? 900) + program.filterOffset - layers.size * 560 + sizeWarmth * 240), 1, smoothing.filterFrequency);
-    rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset), 0.01, smoothing.filterQ);
-    rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, destinations.noiseFilterFrequency ?? 500, 1, smoothing.noiseFilterFrequency);
-    rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset + chaos * 6, 0.05, smoothing.noiseVolume);
+    rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset + wobbleAmount * 1.2), 0.01, smoothing.filterQ);
+    rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, (destinations.noiseFilterFrequency ?? 500) + noiseAmount * 650, 1, smoothing.noiseFilterFrequency);
+    rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset + noiseAmount * 5 + chaos * 6, 0.05, smoothing.noiseVolume);
     rampIfChanged('compressorThreshold', nodes.compressor.threshold, visual?.blendMode === 'difference' ? -30 : -18);
     rampIfChanged('compressorRatio', nodes.compressor.ratio, visual?.blendMode === 'difference' ? 8 : 3);
-    rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16 + (program.droneLevelOffset || 0), 0.05);
+    rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16 + (program.droneLevelOffset || 0) + sparseLift * 7, 0.05);
     const droneOscillator = program.droneOscillator || (backgroundHsl.saturation > 0.65 ? 'triangle' : 'sine');
     if (nodes.droneOscillator !== droneOscillator) {
       try {
@@ -343,13 +346,13 @@ export const SoundscapeProvider = ({ children }) => {
     const sixth = paletteSound.scale.find(interval => interval === 8 || interval === 9) ?? 9;
     const harmony = clamp01((layers.sides - 3) / 17);
     const angularity = 1 - harmony;
-    const discord = clamp01(angularity * (0.18 + tension * 1.35) + chaos * 0.28);
+    const discord = clamp01(angularity * (0.18 + tension * 1.35) + noiseAmount * 0.18 + wobbleAmount * 0.12 + chaos * 0.28);
     const calmness = clamp01(1 - tension);
     const simpleIntervals = [0, fifth, 12, 12 + fifth, 19, 24];
     const richIntervals = [0, third, fifth, sixth, 12, 12 + third, 12 + fifth, 19, 24, 24 + third, 31, 36];
     const discordantIntervals = [0, 1, 6, 11, 13, 18, 25, 30, 37];
     const clearVoiceIntervals = [0, fifth, 12, third || 5, 19, 24, 24 + sixth, 31];
-    const voiceGainCompensation = 1 / Math.sqrt(Math.max(1, voices.length)) * (1 + density * 0.12);
+    const voiceGainCompensation = 1 / Math.sqrt(Math.max(1, voices.length)) * (1 + density * 0.12 + sparseLift);
     nodes.padVoices.forEach((pad, index) => {
       const voice = voices[index];
       if (!voice) {
@@ -379,11 +382,11 @@ export const SoundscapeProvider = ({ children }) => {
       const verticalCycle = Math.cos(voice.y * Math.PI * 2 + ((hash >>> 5) % 5));
       const sideHarmonicMotion = Math.sin((voice.x + voice.y) * Math.PI * (2 + Math.round(sidesComplexity * 5)));
       const detuneAmount = destinations.detuneAmount ?? 0.2;
-      const motionDepth = (program.motionDepth || 1) * role.motion * (1 + density * 0.35 + chaos * 0.65);
+      const motionDepth = (program.motionDepth || 1) * role.motion * (1 + wobbleAmount * 1.15 + noiseAmount * 0.35 + density * 0.35 + chaos * 0.65);
       const detuneSemitones = (
         traversalCycle * detuneAmount * (0.18 + tension * 0.82)
-        + verticalCycle * tension * detuneAmount * 0.45
-        + sideHarmonicMotion * (discord + chaos * 0.45) * detuneAmount * 0.75
+        + verticalCycle * (tension + wobbleAmount * 0.5) * detuneAmount * 0.45
+        + sideHarmonicMotion * (discord + noiseAmount * 0.25 + chaos * 0.45) * detuneAmount * 0.75
       ) * motionDepth;
       const sizeRegister = Math.round((0.5 - voice.size) * 18);
       const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + role.octave + baseInterval + sizeRegister + detuneSemitones));
@@ -432,10 +435,10 @@ export const SoundscapeProvider = ({ children }) => {
         Math.max(80, (240 + program.filterOffset + (1 - voice.y) * 1450 + (1 - voice.size) * 1100 + tension * 1800 + sidesComplexity * 1150 + discord * 950 + density * 650 + chaos * 1100) * role.filter),
         1,
       );
-      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * 3.2 + layers.wobble * 1.5 + discord * 4 + chaos * 2.2), 0.01);
+      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * 3.2 + wobbleAmount * 3.2 + noiseAmount * 1.2 + discord * 4 + chaos * 2.2), 0.01);
       const targetGain = performance.now() < (pad.transitionUntil || 0)
         ? 0
-        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.16 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * 0.45 + chaos * 0.55 : 1);
+        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.2 + sparseLift * 0.14 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * 0.45 + chaos * 0.55 : 1);
       padRampIfChanged('gain', pad.gain.gain, targetGain, 0.001);
       if (!pad.active || pad.layerId !== voice.id) {
         if (pad.active) pad.synth.triggerRelease();
