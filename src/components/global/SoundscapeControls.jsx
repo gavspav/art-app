@@ -183,7 +183,7 @@ const SoundscapeControls = () => {
           <Slider label="Master volume" value={config.masterVolume} onChange={value => update({ masterVolume: value })} />
           <Slider label="Ambient level" value={config.ambientLevel} onChange={value => update({ ambientLevel: value })} />
           <Slider label="Layer pad level" value={config.pulseLevel} onChange={value => update({ pulseLevel: value })} />
-          <Slider label="Voice limit" value={config.voiceLimit} min={1} max={12} step={1} onChange={value => update({ voiceLimit: value })} />
+          <Slider label="Clear voice limit" value={config.voiceLimit} min={1} max={8} step={1} onChange={value => update({ voiceLimit: value })} />
           <Slider label="Default smoothing" value={config.smoothing} min={0.08} max={1.5} step={0.01} onChange={value => update({ smoothing: value })} />
           <h3 style={{ margin: '1rem 0 0.6rem' }}>Bounce accents</h3>
           <label className="compact-label">

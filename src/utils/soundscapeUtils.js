@@ -74,6 +74,7 @@ export const calculateSoundscapeTension = ({ speed = 1, noise = 0, curviness = 1
 
 export const summarizeSoundscapeLayers = (layers = []) => {
   const source = Array.isArray(layers) ? layers.filter(layer => layer && layer.visible !== false) : [];
+  const primaryVoiceCount = Math.min(8, source.length);
   const average = (key, fallback = 0) => {
     if (!source.length) return fallback;
     return source.reduce((sum, layer) => sum + (Number(layer?.[key]) || 0), 0) / source.length;
@@ -83,13 +84,16 @@ export const summarizeSoundscapeLayers = (layers = []) => {
     : 1;
   return {
     count: source.length,
+    primaryVoiceCount,
+    density: clamp01(source.length / 20),
+    chaos: clamp01((source.length - 8) / 12),
     size: clamp01(average('radiusFactor', 0.4) / 2, 0.2),
     opacity: averageOpacity,
     noise: clamp01(average('noiseAmount', 0) / 8),
     curviness: clamp01(average('curviness', 1), 1),
     wobble: clamp01(average('wobble', 0)),
     sides: Math.max(3, Math.min(20, Math.round(average('numSides', 6)))),
-    voices: source.map((layer, index) => ({
+    voices: source.slice(0, primaryVoiceCount).map((layer, index) => ({
       id: String(layer.id || layer.name || index),
       x: clamp01(layer.position?.x, 0.5),
       y: clamp01(layer.position?.y, 0.5),

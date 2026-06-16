@@ -8,7 +8,7 @@ import { getRuntimeProfile } from '../utils/runtimeProfile.js';
 const SoundscapeContext = createContext(null);
 const STORAGE_KEY = 'artapp-soundscape-config';
 const PATCHES_KEY = 'artapp-soundscape-patches';
-const MAPPING_KEYS = ['palette', 'background', 'speed', 'layers', 'size', 'opacity', 'noise', 'blend', 'curviness', 'wobble', 'sides'];
+const MAPPING_KEYS = ['palette', 'background', 'speed', 'layers', 'density', 'chaos', 'size', 'opacity', 'noise', 'blend', 'curviness', 'wobble', 'sides'];
 const DEFAULT_MAPPING_RANGES = Object.fromEntries(MAPPING_KEYS.map(key => [key, { min: 0, max: 1, invert: false }]));
 
 export const DEFAULT_SOUNDSCAPE_CONFIG = Object.freeze({
@@ -27,6 +27,8 @@ export const DEFAULT_SOUNDSCAPE_CONFIG = Object.freeze({
     background: 0.8,
     speed: 0.8,
     layers: 0.7,
+    density: 0.75,
+    chaos: 0.75,
     size: 0.65,
     opacity: 0.8,
     noise: 0.6,
@@ -47,6 +49,7 @@ const normalizeConfig = (config) => {
   return {
     ...DEFAULT_SOUNDSCAPE_CONFIG,
     ...source,
+    voiceLimit: Math.max(1, Math.min(8, Number(source.voiceLimit) || DEFAULT_SOUNDSCAPE_CONFIG.voiceLimit)),
     mappings: { ...DEFAULT_SOUNDSCAPE_CONFIG.mappings, ...(source.mappings || {}) },
     mappingRanges: Object.fromEntries(MAPPING_KEYS.map(key => [
       key,
@@ -264,9 +267,15 @@ export const SoundscapeProvider = ({ children }) => {
       curviness: layers.curviness,
       wobble: layers.wobble,
     });
+    const layerCount = Math.max(0, Number(layers.count) || 0);
+    const primaryVoiceCount = Math.max(0, Math.min(8, Number(layers.primaryVoiceCount) || Math.min(layerCount, config.voiceLimit)));
+    const density = clamp01(Number(layers.density), clamp01(layerCount / 20));
+    const chaos = clamp01(Number(layers.chaos), clamp01((layerCount - 8) / 12));
     const sources = {
       speed: clamp01((speed - 0.1) / 4.9),
-      layers: clamp01((Number(layers.count) || 0) / Math.max(1, config.voiceLimit)),
+      layers: clamp01(primaryVoiceCount / Math.max(1, config.voiceLimit)),
+      density,
+      chaos,
       size: clamp01(layers.size),
       opacity: clamp01(layers.opacity, 1),
       noise: clamp01(layers.noise),
@@ -292,13 +301,13 @@ export const SoundscapeProvider = ({ children }) => {
     rampIfChanged('bpm', Tone.getTransport().bpm, destinations.bpm ?? 72, 0.05, smoothing.bpm);
     rampIfChanged('masterGain', nodes.master.gain, screensaverMuted ? 0 : config.masterVolume * (destinations.masterGain ?? 1), 0.001, smoothing.masterGain);
     rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
-    const distortionAmount = destinations.distortion ?? 0.05;
+    const distortionAmount = Math.min(0.75, (destinations.distortion ?? 0.05) + chaos * 0.08);
     if (changed('distortion', distortionAmount, 0.002)) nodes.distortion.distortion = distortionAmount;
     const sizeWarmth = 1 - clamp01(layers.size, 0.2);
     rampIfChanged('filterFrequency', nodes.filter.frequency, Math.max(120, (destinations.filterFrequency ?? 900) + program.filterOffset - layers.size * 560 + sizeWarmth * 240), 1, smoothing.filterFrequency);
     rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset), 0.01, smoothing.filterQ);
     rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, destinations.noiseFilterFrequency ?? 500, 1, smoothing.noiseFilterFrequency);
-    rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset, 0.05, smoothing.noiseVolume);
+    rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset + chaos * 6, 0.05, smoothing.noiseVolume);
     rampIfChanged('compressorThreshold', nodes.compressor.threshold, visual?.blendMode === 'difference' ? -30 : -18);
     rampIfChanged('compressorRatio', nodes.compressor.ratio, visual?.blendMode === 'difference' ? 8 : 3);
     rampIfChanged('droneVolume', nodes.drone.volume, -24 + config.ambientLevel * 16 + (program.droneLevelOffset || 0), 0.05);
@@ -328,19 +337,19 @@ export const SoundscapeProvider = ({ children }) => {
       nodes.drone.frequency.rampTo(droneFrequency, ramp);
     }
 
-    const voices = Array.isArray(layers.voices) ? layers.voices.slice(0, config.voiceLimit) : [];
+    const voices = Array.isArray(layers.voices) ? layers.voices.slice(0, Math.min(8, config.voiceLimit)) : [];
     const third = paletteSound.scale.find(interval => interval === 3 || interval === 4) ?? 3;
     const fifth = paletteSound.scale.find(interval => interval === 7) ?? 7;
     const sixth = paletteSound.scale.find(interval => interval === 8 || interval === 9) ?? 9;
     const harmony = clamp01((layers.sides - 3) / 17);
     const angularity = 1 - harmony;
-    const discord = clamp01(angularity * (0.18 + tension * 1.35));
+    const discord = clamp01(angularity * (0.18 + tension * 1.35) + chaos * 0.28);
     const calmness = clamp01(1 - tension);
     const simpleIntervals = [0, fifth, 12, 12 + fifth, 19, 24];
     const richIntervals = [0, third, fifth, sixth, 12, 12 + third, 12 + fifth, 19, 24, 24 + third, 31, 36];
     const discordantIntervals = [0, 1, 6, 11, 13, 18, 25, 30, 37];
-    const calmVoicing = [0, fifth, 12, 12 + third, 19, 24, 24 + fifth, 36];
-    const voiceGainCompensation = 1 / Math.sqrt(Math.max(1, voices.length));
+    const clearVoiceIntervals = [0, fifth, 12, third || 5, 19, 24, 24 + sixth, 31];
+    const voiceGainCompensation = 1 / Math.sqrt(Math.max(1, voices.length)) * (1 + density * 0.12);
     nodes.padVoices.forEach((pad, index) => {
       const voice = voices[index];
       if (!voice) {
@@ -359,7 +368,7 @@ export const SoundscapeProvider = ({ children }) => {
       const intervalSet = discord > 0.62
         ? discordantIntervals
         : tension < 0.28
-          ? calmVoicing
+          ? clearVoiceIntervals
           : harmony > 0.72
             ? simpleIntervals
             : richIntervals;
@@ -370,11 +379,11 @@ export const SoundscapeProvider = ({ children }) => {
       const verticalCycle = Math.cos(voice.y * Math.PI * 2 + ((hash >>> 5) % 5));
       const sideHarmonicMotion = Math.sin((voice.x + voice.y) * Math.PI * (2 + Math.round(sidesComplexity * 5)));
       const detuneAmount = destinations.detuneAmount ?? 0.2;
-      const motionDepth = (program.motionDepth || 1) * role.motion;
+      const motionDepth = (program.motionDepth || 1) * role.motion * (1 + density * 0.35 + chaos * 0.65);
       const detuneSemitones = (
         traversalCycle * detuneAmount * (0.18 + tension * 0.82)
         + verticalCycle * tension * detuneAmount * 0.45
-        + sideHarmonicMotion * discord * detuneAmount * 0.75
+        + sideHarmonicMotion * (discord + chaos * 0.45) * detuneAmount * 0.75
       ) * motionDepth;
       const sizeRegister = Math.round((0.5 - voice.size) * 18);
       const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + role.octave + baseInterval + sizeRegister + detuneSemitones));
@@ -415,17 +424,18 @@ export const SoundscapeProvider = ({ children }) => {
         param.rampTo(value, padRamp);
       };
       const stereoSpread = destinations.stereoSpread ?? 1;
-      padRampIfChanged('pan', pad.panner.pan, (voice.x * 2 - 1) * stereoSpread * (program.stereoWidth || 1), 0.002);
+      const panMotion = Math.sin((voice.x + voice.y + density) * Math.PI * 2 + hash) * density * 0.18;
+      padRampIfChanged('pan', pad.panner.pan, Math.max(-1, Math.min(1, ((voice.x * 2 - 1) + panMotion) * stereoSpread * (program.stereoWidth || 1))), 0.002);
       padRampIfChanged(
         'filterFrequency',
         pad.filter.frequency,
-        Math.max(80, (240 + program.filterOffset + (1 - voice.y) * 1450 + (1 - voice.size) * 1100 + tension * 1800 + sidesComplexity * 1150 + discord * 950) * role.filter),
+        Math.max(80, (240 + program.filterOffset + (1 - voice.y) * 1450 + (1 - voice.size) * 1100 + tension * 1800 + sidesComplexity * 1150 + discord * 950 + density * 650 + chaos * 1100) * role.filter),
         1,
       );
-      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * 3.2 + layers.wobble * 1.5 + discord * 4), 0.01);
+      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * 3.2 + layers.wobble * 1.5 + discord * 4 + chaos * 2.2), 0.01);
       const targetGain = performance.now() < (pad.transitionUntil || 0)
         ? 0
-        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.16 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16);
+        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.16 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * 0.45 + chaos * 0.55 : 1);
       padRampIfChanged('gain', pad.gain.gain, targetGain, 0.001);
       if (!pad.active || pad.layerId !== voice.id) {
         if (pad.active) pad.synth.triggerRelease();
@@ -440,13 +450,18 @@ export const SoundscapeProvider = ({ children }) => {
 
   const triggerCollision = useCallback(({ layerId = 'layer', speed = 1 } = {}) => {
     if (!started || !config.enabled || !config.collisionEnabled) return;
+    const visualLayers = visualRef.current?.layers || {};
+    const layerCount = Math.max(0, Number(visualLayers.count) || 0);
+    const density = clamp01(Number(visualLayers.density), clamp01(layerCount / 20));
+    const chaos = clamp01(Number(visualLayers.chaos), clamp01((layerCount - 8) / 12));
     const now = performance.now();
     const previous = collisionTimesRef.current.get(layerId) || 0;
-    if (now - previous < config.collisionCooldownMs) return;
+    const cooldown = Math.max(60, config.collisionCooldownMs * (1 - density * 0.28 - chaos * 0.32));
+    if (now - previous < cooldown) return;
     collisionTimesRef.current.set(layerId, now);
     const nodes = ensureNodes();
-    nodes.collision.volume.rampTo(-34 + config.collisionLevel * 24, 0.03);
-    nodes.collision.triggerAttackRelease(45 + Math.min(50, Math.max(0, speed) * 8), '16n');
+    nodes.collision.volume.rampTo(-34 + config.collisionLevel * 24 + density * 3 + chaos * 5, 0.03);
+    nodes.collision.triggerAttackRelease(45 + Math.min(50, Math.max(0, speed) * 8) + chaos * 16, chaos > 0.65 ? '32n' : '16n');
   }, [config, ensureNodes, started]);
 
   const savePatch = useCallback((name) => {

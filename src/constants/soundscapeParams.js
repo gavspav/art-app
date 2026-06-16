@@ -1,6 +1,8 @@
 export const SOUNDSCAPE_SOURCES = Object.freeze({
   speed: { label: 'Speed', defaultSmoothing: 0.3 },
   layers: { label: 'Layer count', defaultSmoothing: 0.35 },
+  density: { label: 'Layer density', defaultSmoothing: 0.35 },
+  chaos: { label: 'Layer chaos', defaultSmoothing: 0.25 },
   size: { label: 'Size', defaultSmoothing: 0.45 },
   opacity: { label: 'Opacity', defaultSmoothing: 0.25 },
   noise: { label: 'Noise', defaultSmoothing: 0.2 },
@@ -38,6 +40,10 @@ export const DEFAULT_SOUNDSCAPE_ROUTES = Object.freeze([
   { id: 'noise-level', source: 'noise', dest: 'noiseVolume', inMin: 0, inMax: 1, outMin: -48, outMax: -20, curve: 'exp', invert: false, depth: 1, smoothing: 0.25 },
   { id: 'layers-pad-level', source: 'layers', dest: 'padLevel', inMin: 0, inMax: 1, outMin: 1, outMax: 0.62, curve: 'linear', invert: false, depth: 1, smoothing: 0.35 },
   { id: 'layers-spread', source: 'layers', dest: 'stereoSpread', inMin: 0, inMax: 1, outMin: 0.55, outMax: 1, curve: 'linear', invert: false, depth: 1, smoothing: 0.35 },
+  { id: 'density-spread', source: 'density', dest: 'stereoSpread', inMin: 0, inMax: 1, outMin: 0.55, outMax: 1, curve: 'linear', invert: false, depth: 0.75, smoothing: 0.35 },
+  { id: 'chaos-distortion', source: 'chaos', dest: 'distortion', inMin: 0.58, inMax: 1, outMin: 0, outMax: 0.5, curve: 'exp', invert: false, depth: 0.7, smoothing: 0.2 },
+  { id: 'chaos-noise-level', source: 'chaos', dest: 'noiseVolume', inMin: 0, inMax: 1, outMin: -48, outMax: -18, curve: 'exp', invert: false, depth: 0.65, smoothing: 0.25 },
+  { id: 'density-detune', source: 'density', dest: 'detuneAmount', inMin: 0.4, inMax: 1, outMin: 0, outMax: 0.9, curve: 'exp', invert: false, depth: 0.65, smoothing: 0.25 },
   { id: 'wobble-detune', source: 'wobble', dest: 'detuneAmount', inMin: 0, inMax: 1, outMin: 0.02, outMax: 1.2, curve: 'exp', invert: false, depth: 1, smoothing: 0.25 },
   { id: 'tension-detune', source: 'tension', dest: 'detuneAmount', inMin: 0, inMax: 1, outMin: 0, outMax: 1.2, curve: 'exp', invert: false, depth: 1, smoothing: 0.25 },
 ]);
