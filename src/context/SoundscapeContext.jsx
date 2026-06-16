@@ -67,6 +67,11 @@ const normalizeConfig = (config) => {
   };
 };
 
+export const resolveSoundscapeMode = ({ mode, blendMode, isArcade = false } = {}) => {
+  if (isArcade) return blendMode === 'difference' ? 'textural' : 'harmonic';
+  return mode === 'harmonic' ? 'harmonic' : 'textural';
+};
+
 const readStored = (key, fallback) => {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || 'null');
@@ -272,7 +277,8 @@ export const SoundscapeProvider = ({ children }) => {
     const paletteSound = { ...generatedPaletteSound, ...paletteOverride };
     const programId = config.paletteProgramMap?.[paletteIdentity] || getGeneratedProgramId(paletteIdentity);
     const program = SOUND_PROGRAMS[programId] || SOUND_PROGRAMS.velvet;
-    const harmonicMode = config.mode === 'harmonic';
+    const soundMode = resolveSoundscapeMode({ mode: config.mode, blendMode: visual?.blendMode, isArcade });
+    const harmonicMode = soundMode === 'harmonic';
     const backgroundOverride = config.backgroundOverrides?.[String(visual?.backgroundColor || '').toLowerCase()] || {};
     const backgroundRoot = colorToRootMidi(visual?.backgroundColor) + (Number(backgroundOverride.rootOffset) || 0);
     const paletteRoot = paletteSound.rootMidi + (Number(paletteOverride.rootOffset) || 0);
@@ -495,7 +501,7 @@ export const SoundscapeProvider = ({ children }) => {
         padRampIfChanged('frequency', pad.synth.frequency, targetFrequency, 0.02);
       }
     });
-  }, [config, ensureNodes, screensaverMuted, started]);
+  }, [config, ensureNodes, isArcade, screensaverMuted, started]);
 
   const triggerCollision = useCallback(({ layerId = 'layer', speed = 1 } = {}) => {
     if (!started || !config.enabled || !config.collisionEnabled) return;
@@ -503,7 +509,8 @@ export const SoundscapeProvider = ({ children }) => {
     const layerCount = Math.max(0, Number(visualLayers.count) || 0);
     const density = clamp01(Number(visualLayers.density), clamp01(layerCount / 20));
     const chaos = clamp01(Number(visualLayers.chaos), clamp01((layerCount - 8) / 12));
-    const harmonicMode = config.mode === 'harmonic';
+    const soundMode = resolveSoundscapeMode({ mode: config.mode, blendMode: visualRef.current?.blendMode, isArcade });
+    const harmonicMode = soundMode === 'harmonic';
     const now = performance.now();
     const previous = collisionTimesRef.current.get(layerId) || 0;
     const cooldown = Math.max(60, config.collisionCooldownMs * (1 - density * 0.28 - chaos * 0.32));
@@ -515,7 +522,7 @@ export const SoundscapeProvider = ({ children }) => {
       ? 48 + HARMONIC_DENSITY_INTERVALS[(hashString(layerId) + Math.round(density * 8)) % HARMONIC_DENSITY_INTERVALS.length]
       : 45 + Math.min(50, Math.max(0, speed) * 8) + chaos * 16;
     nodes.collision.triggerAttackRelease(harmonicMode ? midiToFrequency(accentFrequency) : accentFrequency, chaos > 0.65 && !harmonicMode ? '32n' : '16n');
-  }, [config, ensureNodes, started]);
+  }, [config, ensureNodes, isArcade, started]);
 
   const savePatch = useCallback((name) => {
     const trimmed = String(name || '').trim();

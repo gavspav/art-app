@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
 import defaultArcadePreset from '../../config/defaultArcadePreset.json';
+import { resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
 import {
   colorToRootMidi,
   calculateSoundscapeTension,
@@ -48,6 +49,12 @@ describe('soundscape utilities', () => {
 
   test('loads the cabinet soundscape in harmonic mode', () => {
     expect(defaultArcadePreset.soundscapeConfig.mode).toBe('harmonic');
+  });
+
+  test('lets arcade blend mode choose the soundscape mode', () => {
+    expect(resolveSoundscapeMode({ mode: 'textural', blendMode: 'source-over', isArcade: true })).toBe('harmonic');
+    expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: true })).toBe('textural');
+    expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: false })).toBe('harmonic');
   });
 
   test('summarizes layer values into bounded sound controls', () => {
