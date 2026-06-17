@@ -118,12 +118,6 @@ const uniqueSortedIntervals = intervals => Array.from(new Set(
     .map(value => Math.round(Number(value) || 0))
     .filter(value => value >= 0 && value <= 36),
 )).sort((a, b) => a - b);
-const nearestInterval = (value, intervals) => {
-  const candidates = intervals.length ? intervals : HARMONIC_DENSITY_INTERVALS;
-  return candidates.reduce((best, candidate) => (
-    Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best
-  ), candidates[0]);
-};
 export const buildHarmonicVoiceIntervals = (scale = []) => {
   const third = scale.find(interval => interval === 3 || interval === 4) ?? 4;
   const fifth = scale.find(interval => interval === 7) ?? 7;
@@ -392,7 +386,6 @@ export const SoundscapeProvider = ({ children }) => {
     const third = paletteSound.scale.find(interval => interval === 3 || interval === 4) ?? 3;
     const fifth = paletteSound.scale.find(interval => interval === 7) ?? 7;
     const sixth = paletteSound.scale.find(interval => interval === 8 || interval === 9) ?? 9;
-    const seventh = paletteSound.scale.find(interval => interval === 10 || interval === 11) ?? 10;
     const harmonicVoiceIntervals = buildHarmonicVoiceIntervals(paletteSound.scale);
     const harmony = clamp01((layers.sides - 3) / 17);
     const angularity = 1 - harmony;
@@ -402,17 +395,6 @@ export const SoundscapeProvider = ({ children }) => {
     const richIntervals = [0, third, fifth, sixth, 12, 12 + third, 12 + fifth, 19, 24, 24 + third, 31, 36];
     const discordantIntervals = [0, 1, 6, 11, 13, 18, 25, 30, 37];
     const clearVoiceIntervals = [0, fifth, 12, third || 5, 19, 24, 24 + sixth, 31];
-    const harmonicChordIntervals = uniqueSortedIntervals([
-      0,
-      third,
-      fifth,
-      12,
-      seventh,
-      12 + fifth,
-      24,
-      24 + third,
-      24 + fifth,
-    ]);
     const harmonicDensityIntervals = uniqueSortedIntervals([
       ...HARMONIC_DENSITY_INTERVALS,
       ...paletteSound.scale,
@@ -450,7 +432,7 @@ export const SoundscapeProvider = ({ children }) => {
           ? intervalSet[index % intervalSet.length]
           : intervalSet[(hash + index) % intervalSet.length];
       const baseInterval = harmonicMode
-        ? nearestInterval(rawInterval, index < 8 ? harmonicChordIntervals : harmonicDensityIntervals)
+        ? rawInterval
         : rawInterval;
       const traversalCycle = Math.sin(voice.x * Math.PI * 2 + (hash % 7));
       const verticalCycle = Math.cos(voice.y * Math.PI * 2 + ((hash >>> 5) % 5));
@@ -464,8 +446,9 @@ export const SoundscapeProvider = ({ children }) => {
         + verticalCycle * (harmonicMode ? wobbleAmount * 0.22 : tension + wobbleAmount * 0.5) * detuneAmount * 0.45
         + sideHarmonicMotion * (harmonicMode ? density * 0.08 : discord + noiseAmount * 0.25 + chaos * 0.45) * detuneAmount * 0.75
       ) * motionDepth;
-      const sizeRegister = Math.round((0.5 - voice.size) * 18);
-      const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + role.octave + baseInterval + sizeRegister + detuneSemitones));
+      const sizeRegister = harmonicMode ? 0 : Math.round((0.5 - voice.size) * 18);
+      const roleOctave = harmonicMode ? 0 : role.octave;
+      const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + roleOctave + baseInterval + sizeRegister + detuneSemitones));
       const targetFrequency = midiToFrequency(targetMidi);
       const padRamp = Math.max(0.12, 0.7 - speed * 0.08);
       const desiredOscillator = harmonicMode
