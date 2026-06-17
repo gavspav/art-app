@@ -103,7 +103,6 @@ const VOICE_ROLES = Object.freeze([
   { name: 'texture', octave: 7, gain: 0.58, filter: 1.15, q: 0.65, motion: 1.35 },
 ]);
 const HARMONIC_OSCILLATORS = Object.freeze(['sine', 'sine2', 'sine4', 'sine2', 'sine']);
-const HARMONIC_CLEAR_INTERVALS = Object.freeze([0, 7, 12, 4, 19, 24, 16, 31]);
 const HARMONIC_DENSITY_INTERVALS = Object.freeze([0, 4, 7, 9, 12, 16, 19, 24, 28, 31, 36]);
 const hashString = (value) => {
   let hash = 2166136261;
@@ -124,6 +123,12 @@ const nearestInterval = (value, intervals) => {
   return candidates.reduce((best, candidate) => (
     Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best
   ), candidates[0]);
+};
+export const buildHarmonicVoiceIntervals = (scale = []) => {
+  const third = scale.find(interval => interval === 3 || interval === 4) ?? 4;
+  const fifth = scale.find(interval => interval === 7) ?? 7;
+  const seventh = scale.find(interval => interval === 10 || interval === 11) ?? 10;
+  return [0, third, fifth, 12, seventh, 12 + third, 12 + fifth, 24];
 };
 
 export const SoundscapeProvider = ({ children }) => {
@@ -387,6 +392,8 @@ export const SoundscapeProvider = ({ children }) => {
     const third = paletteSound.scale.find(interval => interval === 3 || interval === 4) ?? 3;
     const fifth = paletteSound.scale.find(interval => interval === 7) ?? 7;
     const sixth = paletteSound.scale.find(interval => interval === 8 || interval === 9) ?? 9;
+    const seventh = paletteSound.scale.find(interval => interval === 10 || interval === 11) ?? 10;
+    const harmonicVoiceIntervals = buildHarmonicVoiceIntervals(paletteSound.scale);
     const harmony = clamp01((layers.sides - 3) / 17);
     const angularity = 1 - harmony;
     const discord = clamp01(angularity * (0.18 + tension * 1.35) + noiseAmount * 0.18 + wobbleAmount * 0.12 + chaos * 0.28);
@@ -397,9 +404,10 @@ export const SoundscapeProvider = ({ children }) => {
     const clearVoiceIntervals = [0, fifth, 12, third || 5, 19, 24, 24 + sixth, 31];
     const harmonicChordIntervals = uniqueSortedIntervals([
       0,
+      third,
       fifth,
       12,
-      third,
+      seventh,
       12 + fifth,
       24,
       24 + third,
@@ -425,7 +433,7 @@ export const SoundscapeProvider = ({ children }) => {
       }
 
       const hash = hashString(voice.id);
-      const role = VOICE_ROLES[(hash + index) % VOICE_ROLES.length];
+      const role = harmonicMode ? VOICE_ROLES[index % VOICE_ROLES.length] : VOICE_ROLES[(hash + index) % VOICE_ROLES.length];
       const sidesComplexity = clamp01((voice.sides - 3) / 17);
       const intervalSet = harmonicMode
         ? harmonicDensityIntervals
@@ -437,7 +445,7 @@ export const SoundscapeProvider = ({ children }) => {
               ? simpleIntervals
               : richIntervals;
       const rawInterval = harmonicMode
-        ? (HARMONIC_CLEAR_INTERVALS[index % HARMONIC_CLEAR_INTERVALS.length] + Math.round(density * 2) * 12)
+        ? harmonicVoiceIntervals[index % harmonicVoiceIntervals.length]
         : tension < 0.28
           ? intervalSet[index % intervalSet.length]
           : intervalSet[(hash + index) % intervalSet.length];

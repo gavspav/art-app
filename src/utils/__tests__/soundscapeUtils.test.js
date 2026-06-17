@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
 import defaultArcadePreset from '../../config/defaultArcadePreset.json';
-import { calculateSoundscapeMasterGain, resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
+import { buildHarmonicVoiceIntervals, calculateSoundscapeMasterGain, resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
 import {
   colorToRootMidi,
   calculateSoundscapeTension,
@@ -55,6 +55,11 @@ describe('soundscape utilities', () => {
     expect(resolveSoundscapeMode({ mode: 'textural', blendMode: 'source-over', isArcade: true })).toBe('harmonic');
     expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: true })).toBe('textural');
     expect(resolveSoundscapeMode({ mode: 'harmonic', blendMode: 'difference', isArcade: false })).toBe('harmonic');
+  });
+
+  test('builds harmonic voices as chord tones before upper octaves', () => {
+    expect(buildHarmonicVoiceIntervals([0, 4, 7, 11])).toEqual([0, 4, 7, 12, 11, 16, 19, 24]);
+    expect(buildHarmonicVoiceIntervals([0, 3, 7, 10])).toEqual([0, 3, 7, 12, 10, 15, 19, 24]);
   });
 
   test('applies harmonic makeup gain while preserving mute and dynamics', () => {
