@@ -118,11 +118,38 @@ const uniqueSortedIntervals = intervals => Array.from(new Set(
     .map(value => Math.round(Number(value) || 0))
     .filter(value => value >= 0 && value <= 36),
 )).sort((a, b) => a - b);
+const hueDistance = (a = 0, b = 0) => {
+  const diff = Math.abs((((Number(a) || 0) - (Number(b) || 0) + 180 + 360) % 360) - 180);
+  return diff / 180;
+};
+export const calculateBackgroundClash = ({ backgroundHsl = {}, paletteHsl = [] } = {}) => {
+  if (!Array.isArray(paletteHsl) || !paletteHsl.length) return 0;
+  const averagePaletteHue = paletteHsl.reduce((sum, color) => sum + (Number(color?.hue) || 0), 0) / paletteHsl.length;
+  const saturation = clamp01(backgroundHsl.saturation);
+  return clamp01(hueDistance(backgroundHsl.hue, averagePaletteHue) * saturation);
+};
 export const buildHarmonicVoiceIntervals = (scale = []) => {
   const third = scale.find(interval => interval === 3 || interval === 4) ?? 4;
   const fifth = scale.find(interval => interval === 7) ?? 7;
   const seventh = scale.find(interval => interval === 10 || interval === 11) ?? 10;
   return [0, third, fifth, 12, seventh, 12 + third, 12 + fifth, 24];
+};
+export const quantizeBackgroundRootToPalette = ({ backgroundRoot = 48, paletteRoot = 48, scale = [], clash = 0 } = {}) => {
+  const safeBackgroundRoot = Number.isFinite(Number(backgroundRoot)) ? Number(backgroundRoot) : 48;
+  const safePaletteRoot = Number.isFinite(Number(paletteRoot)) ? Number(paletteRoot) : 48;
+  const safeScale = Array.isArray(scale) && scale.length ? scale : [0, 4, 7, 10];
+  const tensionIntervals = clamp01(clash) > 0.72 ? [1, 6, 11] : [];
+  const pitchClasses = new Set([...safeScale, ...tensionIntervals].map(interval => {
+    const value = Math.round(Number(interval) || 0);
+    return ((safePaletteRoot + value) % 12 + 12) % 12;
+  }));
+  const candidates = [];
+  for (let midi = safePaletteRoot - 36; midi <= safePaletteRoot + 36; midi += 1) {
+    if (pitchClasses.has(((midi % 12) + 12) % 12)) candidates.push(midi);
+  }
+  return candidates.reduce((best, candidate) => (
+    Math.abs(candidate - safeBackgroundRoot) < Math.abs(best - safeBackgroundRoot) ? candidate : best
+  ), safePaletteRoot);
 };
 
 export const SoundscapeProvider = ({ children }) => {
@@ -291,10 +318,15 @@ export const SoundscapeProvider = ({ children }) => {
     const program = SOUND_PROGRAMS[programId] || SOUND_PROGRAMS.velvet;
     const soundMode = resolveSoundscapeMode({ mode: config.mode, blendMode: visual?.blendMode, isArcade });
     const harmonicMode = soundMode === 'harmonic';
+    const backgroundHsl = hexToHsl(visual?.backgroundColor);
+    const paletteHsl = (Array.isArray(visual?.paletteColors) ? visual.paletteColors : []).map(hexToHsl);
+    const backgroundClash = calculateBackgroundClash({ backgroundHsl, paletteHsl });
     const backgroundOverride = config.backgroundOverrides?.[String(visual?.backgroundColor || '').toLowerCase()] || {};
     const backgroundRoot = colorToRootMidi(visual?.backgroundColor) + (Number(backgroundOverride.rootOffset) || 0);
     const paletteRoot = paletteSound.rootMidi + (Number(paletteOverride.rootOffset) || 0);
-    const backgroundHsl = hexToHsl(visual?.backgroundColor);
+    const droneRoot = harmonicMode
+      ? quantizeBackgroundRootToPalette({ backgroundRoot, paletteRoot, scale: paletteSound.scale, clash: backgroundClash })
+      : backgroundRoot;
     const ramp = Math.max(0.08, config.smoothing);
     const tension = calculateSoundscapeTension({
       speed,
@@ -373,7 +405,7 @@ export const SoundscapeProvider = ({ children }) => {
       lastLivePublishRef.current = performance.now();
       setLiveValues({ sources, destinations, paletteIdentity, programId });
     }
-    const droneFrequency = midiToFrequency(backgroundRoot - 12);
+    const droneFrequency = midiToFrequency(droneRoot - 12);
     if (!nodes.droneStarted) {
       nodes.drone.triggerAttack(droneFrequency, undefined, 0.35);
       nodes.droneStarted = true;

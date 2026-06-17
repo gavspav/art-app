@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
 import defaultArcadePreset from '../../config/defaultArcadePreset.json';
-import { buildHarmonicVoiceIntervals, calculateSoundscapeMasterGain, resolveSoundscapeMode } from '../../context/SoundscapeContext.jsx';
+import {
+  buildHarmonicVoiceIntervals,
+  calculateBackgroundClash,
+  calculateSoundscapeMasterGain,
+  quantizeBackgroundRootToPalette,
+  resolveSoundscapeMode,
+} from '../../context/SoundscapeContext.jsx';
 import {
   colorToRootMidi,
   calculateSoundscapeTension,
@@ -60,6 +66,20 @@ describe('soundscape utilities', () => {
   test('builds harmonic voices as chord tones before upper octaves', () => {
     expect(buildHarmonicVoiceIntervals([0, 4, 7, 11])).toEqual([0, 4, 7, 12, 11, 16, 19, 24]);
     expect(buildHarmonicVoiceIntervals([0, 3, 7, 10])).toEqual([0, 3, 7, 12, 10, 15, 19, 24]);
+  });
+
+  test('keeps harmonic background roots mostly in the palette key', () => {
+    const paletteRoot = 48;
+    const scale = [0, 4, 7, 10];
+    const relatedRoot = quantizeBackgroundRootToPalette({ backgroundRoot: 50, paletteRoot, scale, clash: 0.2 });
+    const clashingRoot = quantizeBackgroundRootToPalette({ backgroundRoot: 49, paletteRoot, scale, clash: 0.9 });
+
+    expect([0, 4, 7, 10]).toContain(((relatedRoot - paletteRoot) % 12 + 12) % 12);
+    expect([1, 6, 11]).toContain(((clashingRoot - paletteRoot) % 12 + 12) % 12);
+    expect(calculateBackgroundClash({
+      backgroundHsl: { hue: 180, saturation: 1 },
+      paletteHsl: [{ hue: 0 }, { hue: 10 }],
+    })).toBeGreaterThan(0.72);
   });
 
   test('applies harmonic makeup gain while preserving mute and dynamics', () => {
