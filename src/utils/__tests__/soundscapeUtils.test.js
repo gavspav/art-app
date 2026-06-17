@@ -93,10 +93,11 @@ describe('soundscape utilities', () => {
       curviness: 0,
     });
 
-    expect(small.sizeOctave).toBe(12);
-    expect(large.sizeOctave).toBe(-12);
-    expect(animated.speedMovement).toBeGreaterThan(0);
-    expect(animated.wobbleDrift).toBeGreaterThan(0);
+    expect(small.sizePitchOffset).toBeGreaterThan(0);
+    expect(large.sizePitchOffset).toBeLessThan(0);
+    expect(animated.speedMovement).toBeGreaterThanOrEqual(0.5);
+    expect(animated.wobbleDrift).toBeGreaterThanOrEqual(0.9);
+    expect(animated.sideOpenness).toBeGreaterThanOrEqual(0.55);
     expect(animated.upperVoiceOctave).toBe(12);
     expect(animated.brightEdge).toBeGreaterThan(0);
   });
