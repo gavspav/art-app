@@ -3,6 +3,7 @@ import { SOUND_PROGRAMS } from '../../constants/soundscapeParams.js';
 import defaultArcadePreset from '../../config/defaultArcadePreset.json';
 import {
   buildHarmonicVoiceIntervals,
+  calculateHarmonicEffectProfile,
   calculateBackgroundClash,
   calculateSoundscapeMasterGain,
   quantizeBackgroundRootToPalette,
@@ -80,6 +81,24 @@ describe('soundscape utilities', () => {
       backgroundHsl: { hue: 180, saturation: 1 },
       paletteHsl: [{ hue: 0 }, { hue: 10 }],
     })).toBeGreaterThan(0.72);
+  });
+
+  test('maps harmonic controls to effects without changing chord tones', () => {
+    const small = calculateHarmonicEffectProfile({ size: 0.1 });
+    const large = calculateHarmonicEffectProfile({ size: 0.9 });
+    const animated = calculateHarmonicEffectProfile({
+      speed: 1,
+      wobble: 1,
+      sides: 1,
+      curviness: 0,
+    });
+
+    expect(small.sizeOctave).toBe(12);
+    expect(large.sizeOctave).toBe(-12);
+    expect(animated.speedMovement).toBeGreaterThan(0);
+    expect(animated.wobbleDrift).toBeGreaterThan(0);
+    expect(animated.upperVoiceOctave).toBe(12);
+    expect(animated.brightEdge).toBeGreaterThan(0);
   });
 
   test('applies harmonic makeup gain while preserving mute and dynamics', () => {

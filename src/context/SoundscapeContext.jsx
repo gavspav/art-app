@@ -151,6 +151,29 @@ export const quantizeBackgroundRootToPalette = ({ backgroundRoot = 48, paletteRo
     Math.abs(candidate - safeBackgroundRoot) < Math.abs(best - safeBackgroundRoot) ? candidate : best
   ), safePaletteRoot);
 };
+export const calculateHarmonicEffectProfile = ({
+  size = 0.5,
+  speed = 0,
+  wobble = 0,
+  sides = 0,
+  curviness = 1,
+} = {}) => {
+  const safeSize = clamp01(size, 0.5);
+  const safeSpeed = clamp01(speed);
+  const safeWobble = clamp01(wobble);
+  const safeSides = clamp01(sides);
+  const safeCurviness = clamp01(curviness, 1);
+  const sizeOctave = safeSize > 0.7 ? -12 : safeSize < 0.32 ? 12 : 0;
+  return {
+    sizeOctave,
+    reverbBoost: safeSize * 0.18,
+    speedMovement: safeSpeed * 0.22,
+    wobbleDrift: safeWobble * 0.42,
+    sideOpenness: safeSides * 0.2,
+    upperVoiceOctave: safeSides > 0.68 ? 12 : 0,
+    brightEdge: (1 - safeCurviness) * 0.28,
+  };
+};
 
 export const SoundscapeProvider = ({ children }) => {
   const isArcade = useMemo(() => getRuntimeProfile().isArcade, []);
@@ -356,6 +379,13 @@ export const SoundscapeProvider = ({ children }) => {
       tension,
       backgroundLightness: clamp01(backgroundHsl.lightness),
     };
+    const harmonicProfile = calculateHarmonicEffectProfile({
+      size: sources.size,
+      speed: sources.speed,
+      wobble: sources.wobble,
+      sides: sources.sides,
+      curviness: sources.curviness,
+    });
     const { destinations, smoothing } = resolveSoundscapeRoutes(sources, config.routes);
     const changed = (key, value, epsilon = 0.0001) => {
       const previous = last[key];
@@ -375,14 +405,14 @@ export const SoundscapeProvider = ({ children }) => {
       harmonicMode,
       screensaverMuted,
     }), 0.001, smoothing.masterGain);
-    rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset), 0.001, smoothing.reverbWet);
+    rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset + (harmonicMode ? harmonicProfile.reverbBoost : 0)), 0.001, smoothing.reverbWet);
     const distortionAmount = harmonicMode
       ? Math.min(0.28, (destinations.distortion ?? 0.05) * 0.35 + noiseAmount * 0.025 + chaos * 0.02)
       : Math.min(0.75, (destinations.distortion ?? 0.05) + noiseAmount * 0.1 + chaos * 0.08);
     if (changed('distortion', distortionAmount, 0.002)) nodes.distortion.distortion = distortionAmount;
     const sizeWarmth = 1 - clamp01(layers.size, 0.2);
-    rampIfChanged('filterFrequency', nodes.filter.frequency, Math.max(120, (destinations.filterFrequency ?? 900) + program.filterOffset - layers.size * 560 + sizeWarmth * 240 + (harmonicMode ? density * 240 : 0)), 1, smoothing.filterFrequency);
-    rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset + wobbleAmount * (harmonicMode ? 0.45 : 1.2)), 0.01, smoothing.filterQ);
+    rampIfChanged('filterFrequency', nodes.filter.frequency, Math.max(120, (destinations.filterFrequency ?? 900) + program.filterOffset - layers.size * 560 + sizeWarmth * 240 + (harmonicMode ? density * 240 + harmonicProfile.brightEdge * 1200 + harmonicProfile.speedMovement * 500 : 0)), 1, smoothing.filterFrequency);
+    rampIfChanged('filterQ', nodes.filter.Q, Math.max(0.2, (destinations.filterQ ?? 1) + program.filterQOffset + wobbleAmount * (harmonicMode ? 0.45 : 1.2) + (harmonicMode ? harmonicProfile.brightEdge * 1.6 : 0)), 0.01, smoothing.filterQ);
     rampIfChanged('noiseFilterFrequency', nodes.noiseFilter.frequency, (destinations.noiseFilterFrequency ?? 500) + noiseAmount * (harmonicMode ? 260 : 650), 1, smoothing.noiseFilterFrequency);
     rampIfChanged('noiseVolume', nodes.noise.volume, (destinations.noiseVolume ?? -42) + program.noiseOffset + noiseAmount * (harmonicMode ? 1.5 : 5) + chaos * (harmonicMode ? 1.5 : 6), 0.05, smoothing.noiseVolume);
     rampIfChanged('compressorThreshold', nodes.compressor.threshold, visual?.blendMode === 'difference' ? -30 : -18);
@@ -471,16 +501,17 @@ export const SoundscapeProvider = ({ children }) => {
       const sideHarmonicMotion = Math.sin((voice.x + voice.y) * Math.PI * (2 + Math.round(sidesComplexity * 5)));
       const detuneAmount = destinations.detuneAmount ?? 0.2;
       const motionDepth = harmonicMode
-        ? (program.motionDepth || 1) * role.motion * (0.18 + wobbleAmount * 0.38 + density * 0.16 + chaos * 0.14)
+        ? (program.motionDepth || 1) * role.motion * (0.18 + wobbleAmount * 0.38 + density * 0.16 + chaos * 0.14 + harmonicProfile.speedMovement + harmonicProfile.wobbleDrift)
         : (program.motionDepth || 1) * role.motion * (1 + wobbleAmount * 1.15 + noiseAmount * 0.35 + density * 0.35 + chaos * 0.65);
       const detuneSemitones = (
-        traversalCycle * detuneAmount * (harmonicMode ? 0.12 + wobbleAmount * 0.2 : 0.18 + tension * 0.82)
-        + verticalCycle * (harmonicMode ? wobbleAmount * 0.22 : tension + wobbleAmount * 0.5) * detuneAmount * 0.45
-        + sideHarmonicMotion * (harmonicMode ? density * 0.08 : discord + noiseAmount * 0.25 + chaos * 0.45) * detuneAmount * 0.75
+        traversalCycle * detuneAmount * (harmonicMode ? 0.12 + wobbleAmount * 0.38 + harmonicProfile.speedMovement * 0.24 : 0.18 + tension * 0.82)
+        + verticalCycle * (harmonicMode ? wobbleAmount * 0.36 + harmonicProfile.wobbleDrift * 0.35 : tension + wobbleAmount * 0.5) * detuneAmount * 0.45
+        + sideHarmonicMotion * (harmonicMode ? density * 0.08 + harmonicProfile.sideOpenness * 0.12 : discord + noiseAmount * 0.25 + chaos * 0.45) * detuneAmount * 0.75
       ) * motionDepth;
-      const sizeRegister = harmonicMode ? 0 : Math.round((0.5 - voice.size) * 18);
+      const sizeRegister = harmonicMode ? harmonicProfile.sizeOctave : Math.round((0.5 - voice.size) * 18);
       const roleOctave = harmonicMode ? 0 : role.octave;
-      const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + roleOctave + baseInterval + sizeRegister + detuneSemitones));
+      const upperVoiceOctave = harmonicMode && index >= 5 ? harmonicProfile.upperVoiceOctave : 0;
+      const targetMidi = Math.max(28, Math.min(92, paletteRoot + 12 + program.octaveOffset + roleOctave + baseInterval + sizeRegister + upperVoiceOctave + detuneSemitones));
       const targetFrequency = midiToFrequency(targetMidi);
       const padRamp = Math.max(0.12, 0.7 - speed * 0.08);
       const desiredOscillator = harmonicMode
@@ -519,20 +550,20 @@ export const SoundscapeProvider = ({ children }) => {
         pad.last[key] = value;
         param.rampTo(value, padRamp);
       };
-      const stereoSpread = destinations.stereoSpread ?? 1;
-      const panMotion = Math.sin((voice.x + voice.y + density) * Math.PI * 2 + hash) * density * 0.18;
+      const stereoSpread = (destinations.stereoSpread ?? 1) * (harmonicMode ? 1 + harmonicProfile.sideOpenness * 0.45 : 1);
+      const panMotion = Math.sin((voice.x + voice.y + density) * Math.PI * 2 + hash) * (density * 0.18 + (harmonicMode ? harmonicProfile.speedMovement * 0.35 + harmonicProfile.wobbleDrift * 0.25 : 0));
       const harmonicVoiceMakeup = harmonicMode ? 1.34 - density * 0.14 : 1;
       padRampIfChanged('pan', pad.panner.pan, Math.max(-1, Math.min(1, ((voice.x * 2 - 1) + panMotion) * stereoSpread * (program.stereoWidth || 1))), 0.002);
       padRampIfChanged(
         'filterFrequency',
         pad.filter.frequency,
-        Math.max(80, (240 + program.filterOffset + (1 - voice.y) * 1450 + (1 - voice.size) * 1100 + tension * (harmonicMode ? 650 : 1800) + sidesComplexity * (harmonicMode ? 420 : 1150) + discord * (harmonicMode ? 260 : 950) + density * (harmonicMode ? 520 : 650) + chaos * (harmonicMode ? 320 : 1100)) * role.filter),
+        Math.max(80, (240 + program.filterOffset + (1 - voice.y) * 1450 + (1 - voice.size) * 1100 + tension * (harmonicMode ? 650 : 1800) + sidesComplexity * (harmonicMode ? 420 : 1150) + discord * (harmonicMode ? 260 : 950) + density * (harmonicMode ? 520 : 650) + chaos * (harmonicMode ? 320 : 1100) + (harmonicMode ? harmonicProfile.brightEdge * 1200 + harmonicProfile.speedMovement * 520 + harmonicProfile.sideOpenness * 460 : 0)) * role.filter),
         1,
       );
-      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * (harmonicMode ? 1.1 : 3.2) + wobbleAmount * (harmonicMode ? 1.1 : 3.2) + noiseAmount * (harmonicMode ? 0.25 : 1.2) + discord * (harmonicMode ? 0.8 : 4) + chaos * (harmonicMode ? 0.55 : 2.2)), 0.01);
+      padRampIfChanged('filterQ', pad.filter.Q, Math.max(0.2, 0.45 + program.filterQOffset + role.q + tension * (harmonicMode ? 1.1 : 3.2) + wobbleAmount * (harmonicMode ? 1.1 : 3.2) + noiseAmount * (harmonicMode ? 0.25 : 1.2) + discord * (harmonicMode ? 0.8 : 4) + chaos * (harmonicMode ? 0.55 : 2.2) + (harmonicMode ? harmonicProfile.brightEdge * 2.4 : 0)), 0.01);
       const targetGain = performance.now() < (pad.transitionUntil || 0)
         ? 0
-        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.2 + sparseLift * 0.14 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * harmonicVoiceMakeup * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * (harmonicMode ? 0.7 : 0.45) + chaos * (harmonicMode ? 0.25 : 0.55) : 1);
+        : config.pulseLevel * (destinations.padLevel ?? 1) * voice.opacity * (0.2 + sparseLift * 0.14 + voice.size * 0.68) * voiceGainCompensation * role.gain * (program.voiceGain || 1) * (0.84 + calmness * 0.16) * harmonicVoiceMakeup * (1 + (harmonicMode ? harmonicProfile.speedMovement * 0.18 + harmonicProfile.brightEdge * 0.12 : 0)) * (role.name === 'shimmer' || role.name === 'texture' ? 1 + density * (harmonicMode ? 0.7 : 0.45) + chaos * (harmonicMode ? 0.25 : 0.55) + (harmonicMode ? harmonicProfile.sideOpenness * 0.55 : 0) : 1);
       padRampIfChanged('gain', pad.gain.gain, targetGain, 0.001);
       if (!pad.active || pad.layerId !== voice.id) {
         if (pad.active) pad.synth.triggerRelease();
