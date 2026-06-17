@@ -102,7 +102,8 @@ const VOICE_ROLES = Object.freeze([
   { name: 'shimmer', octave: 24, gain: 0.48, filter: 1.55, q: 0.45, motion: 1.15 },
   { name: 'texture', octave: 7, gain: 0.58, filter: 1.15, q: 0.65, motion: 1.35 },
 ]);
-const HARMONIC_OSCILLATORS = Object.freeze(['sine', 'sine2', 'sine4', 'sine2', 'sine']);
+const HARMONIC_OSCILLATORS = Object.freeze(['fatsawtooth', 'pulse', 'fatsawtooth', 'sine2', 'triangle']);
+const HARMONIC_OSCILLATOR_PULSE_WIDTH = 0.38;
 const HARMONIC_DENSITY_INTERVALS = Object.freeze([0, 4, 7, 9, 12, 16, 19, 24, 28, 31, 36]);
 const hashString = (value) => {
   let hash = 2166136261;
@@ -169,6 +170,9 @@ export const calculateHarmonicEffectProfile = ({
     reverbBoost: safeSize * 0.18,
     speedMovement: safeSpeed * 0.22,
     wobbleDrift: safeWobble * 0.42,
+    chorusWet: 0.16 + safeWobble * 0.28 + safeSpeed * 0.08,
+    chorusFrequency: 0.22 + safeWobble * 0.58 + safeSpeed * 0.24,
+    chorusDepth: 0.35 + safeWobble * 0.42,
     sideOpenness: safeSides * 0.2,
     upperVoiceOctave: safeSides > 0.68 ? 12 : 0,
     brightEdge: (1 - safeCurviness) * 0.28,
@@ -228,7 +232,9 @@ export const SoundscapeProvider = ({ children }) => {
     const master = new Tone.Gain(0).toDestination();
     const compressor = new Tone.Compressor(-18, 3).connect(master);
     const distortion = new Tone.Distortion(0.05).connect(compressor);
-    const reverb = new Tone.Reverb({ decay: 4, wet: 0.35 }).connect(distortion);
+    const chorus = new Tone.Chorus({ frequency: 0.35, delayTime: 3.5, depth: 0.55, wet: 0 }).connect(distortion);
+    const reverb = new Tone.Reverb({ decay: 4, wet: 0.35 }).connect(chorus);
+    try { chorus.start(); } catch { /* noop */ }
     const filter = new Tone.Filter(900, 'lowpass').connect(reverb);
     const drone = new Tone.Synth({
       oscillator: { type: 'sine' },
@@ -264,7 +270,7 @@ export const SoundscapeProvider = ({ children }) => {
     }).connect(compressor);
     collision.volume.value = -28;
     nodesRef.current = {
-      master, compressor, distortion, reverb, filter, drone, padVoices, noiseFilter, noise, collision,
+      master, compressor, distortion, chorus, reverb, filter, drone, padVoices, noiseFilter, noise, collision,
       droneStarted: false,
       droneOscillator: 'sine',
       noiseType: 'pink',
@@ -406,6 +412,9 @@ export const SoundscapeProvider = ({ children }) => {
       screensaverMuted,
     }), 0.001, smoothing.masterGain);
     rampIfChanged('reverbWet', nodes.reverb.wet, clamp01((destinations.reverbWet ?? 0.35) + program.reverbOffset + (harmonicMode ? harmonicProfile.reverbBoost : 0)), 0.001, smoothing.reverbWet);
+    rampIfChanged('chorusWet', nodes.chorus.wet, harmonicMode ? Math.min(0.62, harmonicProfile.chorusWet) : 0, 0.001, ramp);
+    rampIfChanged('chorusFrequency', nodes.chorus.frequency, harmonicProfile.chorusFrequency, 0.001, ramp);
+    if (changed('chorusDepth', harmonicProfile.chorusDepth, 0.001)) nodes.chorus.depth = harmonicProfile.chorusDepth;
     const distortionAmount = harmonicMode
       ? Math.min(0.28, (destinations.distortion ?? 0.05) * 0.35 + noiseAmount * 0.025 + chaos * 0.02)
       : Math.min(0.75, (destinations.distortion ?? 0.05) + noiseAmount * 0.1 + chaos * 0.08);
@@ -515,7 +524,7 @@ export const SoundscapeProvider = ({ children }) => {
       const targetFrequency = midiToFrequency(targetMidi);
       const padRamp = Math.max(0.12, 0.7 - speed * 0.08);
       const desiredOscillator = harmonicMode
-        ? HARMONIC_OSCILLATORS[(hash + index) % HARMONIC_OSCILLATORS.length]
+        ? HARMONIC_OSCILLATORS[index % HARMONIC_OSCILLATORS.length]
         : sidesComplexity > 0.72 && tension > 0.58
         ? 'fatsawtooth'
         : program.padOscillator || paletteSound.oscillator;
@@ -538,7 +547,11 @@ export const SoundscapeProvider = ({ children }) => {
         pad.gain.gain.rampTo(0, 0.12);
         window.setTimeout(() => {
           try {
-            pad.synth.set({ oscillator: { type: desiredOscillator } });
+            pad.synth.set({
+              oscillator: desiredOscillator === 'pulse'
+                ? { type: desiredOscillator, width: HARMONIC_OSCILLATOR_PULSE_WIDTH }
+                : { type: desiredOscillator },
+            });
             pad.oscillator = desiredOscillator;
           } catch { /* noop */ }
           pad.pendingOscillator = '';

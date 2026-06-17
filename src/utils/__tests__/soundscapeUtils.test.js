@@ -97,6 +97,9 @@ describe('soundscape utilities', () => {
     expect(large.sizeOctave).toBe(-12);
     expect(animated.speedMovement).toBeGreaterThan(0);
     expect(animated.wobbleDrift).toBeGreaterThan(0);
+    expect(animated.chorusWet).toBeGreaterThan(calculateHarmonicEffectProfile({}).chorusWet);
+    expect(animated.chorusFrequency).toBeGreaterThan(calculateHarmonicEffectProfile({}).chorusFrequency);
+    expect(animated.chorusDepth).toBeGreaterThan(calculateHarmonicEffectProfile({}).chorusDepth);
     expect(animated.upperVoiceOctave).toBe(12);
     expect(animated.brightEdge).toBeGreaterThan(0);
   });
