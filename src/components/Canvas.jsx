@@ -5,6 +5,7 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
+import { markKioskCanvasFrame } from '../utils/kioskDiagnostics.js';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
@@ -1961,6 +1962,7 @@ const Canvas = forwardRef(({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         const { width, height, ratio: canvasPixelRatio } = getCanvasLogicalDimensions(canvas);
+        markKioskCanvasFrame({ width, height, pixelRatio: canvasPixelRatio });
         // In node edit mode, preserve the animated/modulated appearance from `layersRef`,
         // but keep editable geometry (nodes/subpaths + core shape params) from React state
         // for the selected layer.

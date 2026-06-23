@@ -41,6 +41,7 @@ import { useTimelineModulation } from './hooks/useTimelineModulation.js';
 import defaultArcadePreset from './config/defaultArcadePreset.json';
 import { getRuntimeProfile } from './utils/runtimeProfile.js';
 import { summarizeSoundscapeLayers } from './utils/soundscapeUtils.js';
+import { incrementKioskCounter, updateKioskDiagnostic } from './utils/kioskDiagnostics.js';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -212,7 +213,9 @@ const MainApp = () => {
     setArcadeVirtualCcValue,
     setArcadeActionValue,
     setArcadeButtonCounterValue,
+    arcadeJoystickMidiEnabled,
     arcadeKeyboardMidiEnabled,
+    arcadeButtonPairsMidiEnabled,
   } = useMidi() || {};
 
   // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
@@ -624,6 +627,31 @@ const MainApp = () => {
     if (!isArcadeLaunch || parameterTargetMode === 'global') return;
     setParameterTargetMode?.('global');
   }, [isArcadeLaunch, parameterTargetMode, setParameterTargetMode]);
+
+  useEffect(() => {
+    updateKioskDiagnostic('app', {
+      ready: true,
+      arcade: isArcadeLaunch,
+      effectiveFullscreen,
+      parameterTargetMode,
+      layerCount: Array.isArray(layers) ? layers.length : 0,
+      globalSpeedMultiplier,
+      globalBlendMode,
+      arcadeJoystickMidiEnabled: !!arcadeJoystickMidiEnabled,
+      arcadeKeyboardMidiEnabled: !!arcadeKeyboardMidiEnabled,
+      arcadeButtonPairsMidiEnabled: !!arcadeButtonPairsMidiEnabled,
+    });
+  }, [
+    arcadeButtonPairsMidiEnabled,
+    arcadeJoystickMidiEnabled,
+    arcadeKeyboardMidiEnabled,
+    effectiveFullscreen,
+    globalBlendMode,
+    globalSpeedMultiplier,
+    isArcadeLaunch,
+    layers,
+    parameterTargetMode,
+  ]);
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
@@ -1311,6 +1339,7 @@ const MainApp = () => {
   // randomizeBackgroundColor handled within useRandomization
 
   const handleRandomizeAll = useCallback(() => {
+    incrementKioskCounter('randomize');
     if (classicMode) classicRandomizeAll();
     else modernRandomizeAll();
   }, [classicMode, classicRandomizeAll, modernRandomizeAll]);

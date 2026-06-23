@@ -4,6 +4,7 @@ import { DEFAULT_PROGRAM_IDS, SOUND_PROGRAMS } from '../constants/soundscapePara
 import { calculateSoundscapeTension, clamp01, colorToRootMidi, hexToHsl, paletteToSound } from '../utils/soundscapeUtils.js';
 import { migrateLegacySoundscapeRoutes, normalizeSoundscapeRoutes, resolveSoundscapeRoutes } from '../utils/soundscapeRouting.js';
 import { getRuntimeProfile } from '../utils/runtimeProfile.js';
+import { updateKioskDiagnostic } from '../utils/kioskDiagnostics.js';
 
 const SoundscapeContext = createContext(null);
 const STORAGE_KEY = 'artapp-soundscape-config';
@@ -309,6 +310,17 @@ export const SoundscapeProvider = ({ children }) => {
     if (!nodes || !started) return;
     nodes.master.gain.rampTo(config.enabled && !screensaverMuted ? config.masterVolume : 0, 0.15);
   }, [config.enabled, config.masterVolume, screensaverMuted, started]);
+
+  useEffect(() => {
+    updateKioskDiagnostic('sound', {
+      enabled: !!config.enabled,
+      started,
+      startError,
+      contextState: Tone.getContext()?.state || 'unknown',
+      screensaverMuted,
+      masterVolume: config.masterVolume,
+    });
+  }, [config.enabled, config.masterVolume, screensaverMuted, startError, started]);
 
   useEffect(() => disposeNodes, [disposeNodes]);
 

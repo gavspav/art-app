@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { updateKioskDiagnostic } from '../utils/kioskDiagnostics.js';
 
 const DEFAULT_IDLE_MS = 60_000;
 const DEBUG_IDLE_MS = 10_000;
@@ -91,7 +92,14 @@ const ArcadeScreensaver = ({ enabled = false, idleMs = DEFAULT_IDLE_MS, onActive
   useEffect(() => {
     if (!enabled) return;
     onActiveChange?.(active);
-  }, [active, enabled, onActiveChange]);
+    updateKioskDiagnostic('screensaver', {
+      active,
+      videoAvailable,
+      videoSrc,
+      idleMs: resolvedIdleMs,
+      changedAt: Date.now(),
+    });
+  }, [active, enabled, onActiveChange, resolvedIdleMs, videoAvailable, videoSrc]);
 
   useEffect(() => {
     const video = videoRef.current;

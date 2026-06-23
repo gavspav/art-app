@@ -1,5 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { PARAMETERS } from '../config/parameters.js';
+import {
+  incrementKioskCounter,
+  recordKioskMidiInput,
+  registerKioskMidiInjector,
+  updateKioskDiagnostic,
+} from '../utils/kioskDiagnostics.js';
 
 const MidiContext = createContext(null);
 
@@ -423,7 +429,21 @@ export const MidiProvider = ({ children }) => {
   const triggerHandlers = useCallback((paramId, value01, msg) => {
     if (!paramId) return;
     const handlers = handlersRef.current.get(paramId);
-    if (!handlers || handlers.size === 0) return;
+    if (!handlers || handlers.size === 0) {
+      updateKioskDiagnostic('midi', {
+        lastUnhandledParamId: paramId,
+        lastUnhandledMessage: msg ? {
+          type: msg.type,
+          channel: msg.channel,
+          number: msg.number,
+          value: msg.value,
+          source: msg.source || 'midi',
+        } : null,
+        lastUnhandledAt: Date.now(),
+      });
+      return;
+    }
+    incrementKioskCounter(`midi:${paramId}`);
     handlers.forEach(fn => {
       try { fn({ value01, raw: msg }); } catch { /* noop */ }
     });
@@ -491,6 +511,7 @@ export const MidiProvider = ({ children }) => {
         return;
       }
       arcadeJoystickValuesRef.current[cc] = next;
+      incrementKioskCounter(`arcadeJoystick:cc${cc}`);
       emitArcadeJoystickCc(cc, Math.round(next));
     });
 
@@ -512,6 +533,7 @@ export const MidiProvider = ({ children }) => {
       };
       if (action === 'wobbleNoise') {
         const value01 = Math.max(0, Math.min(1, Math.round(next) / 127));
+        incrementKioskCounter('arcadeJoystick:wobbleNoise');
         triggerHandlers('wobble', value01, raw);
         triggerHandlers('noiseAmount', value01, raw);
       }
@@ -565,7 +587,7 @@ export const MidiProvider = ({ children }) => {
       if (currentDirection === control.direction) {
         arcadeJoystickDirectionsRef.current.delete(control.cc);
       }
-      if (arcadeJoystickDirectionsRef.current.size === 0) {
+      if (arcadeJoystickDirectionsRef.current.size === 0 && arcadeJoystickActionDirectionsRef.current.size === 0) {
         stopArcadeJoystickTimer();
       }
     }
@@ -600,6 +622,7 @@ export const MidiProvider = ({ children }) => {
       const current = Number(arcadeButtonCounterValuesRef.current[action.counter] ?? ARCADE_JOYSTICK_DEFAULT_VALUE);
       const next = Math.max(0, Math.min(127, current + (action.direction * ARCADE_BUTTON_COUNTER_STEP)));
       arcadeButtonCounterValuesRef.current[action.counter] = next;
+      incrementKioskCounter(`arcadeButton:${action.counter}`);
       triggerHandlers(action.paramId, next / 127, {
         ...msg,
         source: msg.source || 'arcadeButtonPairs',
@@ -613,6 +636,7 @@ export const MidiProvider = ({ children }) => {
     if (action.toggle === 'curviness') {
       const next = !arcadeButtonToggleValuesRef.current.curviness;
       arcadeButtonToggleValuesRef.current.curviness = next;
+      incrementKioskCounter('arcadeButton:curviness');
       triggerHandlers(action.paramId, next ? 1 : 0, {
         ...msg,
         source: msg.source || 'arcadeButtonPairs',
@@ -623,6 +647,7 @@ export const MidiProvider = ({ children }) => {
     }
 
     if (action.toggle) {
+      incrementKioskCounter(`arcadeButton:${action.paramId}`);
       triggerHandlers(action.paramId, 1, {
         ...msg,
         source: msg.source || 'arcadeButtonPairs',
@@ -631,6 +656,7 @@ export const MidiProvider = ({ children }) => {
       return true;
     }
 
+    incrementKioskCounter(`arcadeButton:${action.paramId}`);
     triggerHandlers(action.paramId, action.direction > 0 ? 1 : 0, {
       ...msg,
       source: msg.source || 'arcadeButtonPairs',
@@ -647,12 +673,22 @@ export const MidiProvider = ({ children }) => {
     return undefined;
   }, [arcadeJoystickMidiEnabled, stopArcadeJoystickTimer]);
 
+  useEffect(() => {
+    if (arcadeButtonPairsMidiEnabled) return undefined;
+    arcadeJoystickActionDirectionsRef.current.clear();
+    if (arcadeJoystickDirectionsRef.current.size === 0) {
+      stopArcadeJoystickTimer();
+    }
+    return undefined;
+  }, [arcadeButtonPairsMidiEnabled, stopArcadeJoystickTimer]);
+
   useEffect(() => () => {
     stopArcadeJoystickTimer();
   }, [stopArcadeJoystickTimer]);
 
   const processMidiMessage = useCallback((msg) => {
     if (!msg) return;
+    recordKioskMidiInput(msg);
     emitMidiActivity(msg);
 
     // Learn mode: bind first incoming message
@@ -672,6 +708,27 @@ export const MidiProvider = ({ children }) => {
 
     dispatchMidiMessage(msg);
   }, [dispatchMidiMessage, getArcadeJoystickLearnMapping, handleArcadeButtonPairMessage, handleArcadeJoystickNote, learnParamId, setMapping]);
+
+  useEffect(() => registerKioskMidiInjector(processMidiMessage), [processMidiMessage]);
+
+  useEffect(() => {
+    updateKioskDiagnostic('midi', {
+      supported,
+      inputNames: inputs.map(input => input?.name || '').filter(Boolean),
+      selectedInputId,
+      selectedInputName: inputs.find(input => input?.id === selectedInputId)?.name || '',
+      arcadeJoystickMidiEnabled,
+      arcadeKeyboardMidiEnabled,
+      arcadeButtonPairsMidiEnabled,
+    });
+  }, [
+    arcadeButtonPairsMidiEnabled,
+    arcadeJoystickMidiEnabled,
+    arcadeKeyboardMidiEnabled,
+    inputs,
+    selectedInputId,
+    supported,
+  ]);
 
   const onMidiMessage = useCallback((e) => {
     const data = e.data; // Uint8Array [status, data1, data2]

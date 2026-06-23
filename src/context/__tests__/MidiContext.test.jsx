@@ -421,6 +421,42 @@ describe('MidiContext', () => {
     expect(screen.getByTestId('arcade-pair-hits')).toHaveTextContent('0');
   });
 
+  it('keeps the joystick timer running when a normal axis is released while an action axis remains held', async () => {
+    const { input, access } = createMidiAccess();
+    Object.defineProperty(navigator, 'requestMIDIAccess', {
+      configurable: true,
+      value: vi.fn(() => Promise.resolve(access)),
+    });
+
+    render(
+      <MidiProvider>
+        <ArcadeButtonPairsProbe />
+        <ArcadeJoystickProbe />
+      </MidiProvider>,
+    );
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Select input' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Enable arcade joystick' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable button pairs' }));
+
+    await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
+
+    sendNote(input, 45, 127);
+    await waitFor(() => expect(Number(screen.getByTestId('wobble-hits').textContent)).toBeGreaterThan(0));
+
+    sendNote(input, 36, 127);
+    await waitFor(() => expect(Number(screen.getByTestId('arcade-hits').textContent)).toBeGreaterThan(0));
+    sendNote(input, 36, 0);
+
+    const wobbleHitsAfterNormalAxisRelease = Number(screen.getByTestId('wobble-hits').textContent);
+    await waitFor(
+      () => expect(Number(screen.getByTestId('wobble-hits').textContent)).toBeGreaterThan(wobbleHitsAfterNormalAxisRelease),
+      { timeout: 1500 },
+    );
+
+    sendNote(input, 45, 0);
+  });
+
   it('does not reset a virtual joystick counter while its direction is held', async () => {
     const { input, access } = createMidiAccess();
     Object.defineProperty(navigator, 'requestMIDIAccess', {
