@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppState } from '../context/AppStateContext.jsx';
-import { applyModulationsToLayer } from './useModulationStore.js';
+import { applyModulationsToLayer, resolveModulationSources } from './useModulationStore.js';
 import { evaluateShapeTrackAtTime, evaluateGlobalShapeTrackAtTime } from '../utils/envelopes.js';
 import { getEnergyAtTime } from '../utils/audioTransients.js';
 import { lerpNodes, lerpSubpaths } from '../utils/nodeUtils.js';
@@ -443,6 +443,7 @@ const _applyAudioModulations = (layer, audioContext) => {
  * @param {Object} animatedLayersRef - Optional ref to write animated layers into (avoids React updates)
  * @param {Object} timelineContext - Optional timeline context for direct shape track evaluation
  * @param {Function} onBounceCollision - Optional callback for sound/feedback on wall hits
+ * @param {boolean} disableExternalModulation - Ignore Audio/BPM/Timeline visual modulation
  */
 export const useAnimation = (
     setLayers,
@@ -455,6 +456,7 @@ export const useAnimation = (
     animatedLayersRef = null,
     timelineContext = null,
     onBounceCollision = null,
+    disableExternalModulation = false,
 ) => {
     const animationFrameId = useRef(null);
     const {
@@ -487,6 +489,8 @@ export const useAnimation = (
     // Track user-interaction status in a ref so we can read it inside RAF loop
     const isUserInteractingRef = useRef(isUserInteracting);
     useEffect(() => { isUserInteractingRef.current = isUserInteracting; }, [isUserInteracting]);
+    const disableExternalModulationRef = useRef(disableExternalModulation);
+    useEffect(() => { disableExternalModulationRef.current = disableExternalModulation; }, [disableExternalModulation]);
 
     // Track node edit mode and context so we can avoid overwriting user-edited geometry
     const isNodeEditModeRef = useRef(isNodeEditMode);
@@ -598,9 +602,13 @@ export const useAnimation = (
         const store = modulationStoreRef.current;
         if (!store || !store.timelineModsRef) return layersIn;
 
-        const timelineMods = store.timelineModsRef.current || {};
-        const bpmMods = store.bpmModsRef?.current || {};
-        const audioMods = store.audioModsRef?.current || {};
+        const { timelineMods, bpmMods, audioMods } = resolveModulationSources({
+            timelineMods: store.timelineModsRef.current || {},
+            bpmMods: store.bpmModsRef?.current || {},
+            audioMods: store.audioModsRef?.current || {},
+            isArcade: disableExternalModulationRef.current,
+            isUserInteracting: typeof isUserInteractingRef.current === 'function' && isUserInteractingRef.current(),
+        });
 
         const hasTimelineMods = Object.keys(timelineMods).length > 0;
         const hasBpmMods = Object.keys(bpmMods).length > 0;
@@ -627,9 +635,13 @@ export const useAnimation = (
         const store = modulationStoreRef.current;
         if (!store || !store.timelineModsRef) return;
 
-        const timelineMods = store.timelineModsRef.current || {};
-        const bpmMods = store.bpmModsRef?.current || {};
-        const audioMods = store.audioModsRef?.current || {};
+        const { timelineMods, bpmMods, audioMods } = resolveModulationSources({
+            timelineMods: store.timelineModsRef.current || {},
+            bpmMods: store.bpmModsRef?.current || {},
+            audioMods: store.audioModsRef?.current || {},
+            isArcade: disableExternalModulationRef.current,
+            isUserInteracting: typeof isUserInteractingRef.current === 'function' && isUserInteractingRef.current(),
+        });
 
         // Check if there are any modulations to apply
         const hasTimelineMods = Object.keys(timelineMods).length > 0;
@@ -1194,9 +1206,17 @@ export const useAnimation = (
             // 3. Apply Audio/BPM/Timeline modulations from the store (single pass)
             const store = modulationStoreRef.current;
             if (store && store.bpmModsRef && store.audioModsRef) {
-                const timelineMods = store.timelineModsRef?.current || {};
-                const effectiveBpmMods = store.bpmModsRef.current;
-                const effectiveAudioMods = store.audioModsRef.current;
+                const {
+                    timelineMods,
+                    bpmMods: effectiveBpmMods,
+                    audioMods: effectiveAudioMods,
+                } = resolveModulationSources({
+                    timelineMods: store.timelineModsRef?.current || {},
+                    bpmMods: store.bpmModsRef.current,
+                    audioMods: store.audioModsRef.current,
+                    isArcade: disableExternalModulationRef.current,
+                    isUserInteracting: typeof isUserInteractingRef.current === 'function' && isUserInteractingRef.current(),
+                });
                 updatedLayer = applyModulationsToLayer(
                     updatedLayer,
                     effectiveBpmMods,

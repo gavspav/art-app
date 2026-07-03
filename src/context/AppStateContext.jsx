@@ -250,17 +250,20 @@ export const AppStateProvider = ({ children }) => {
     };
 
     const passiveOpts = { passive: true };
+    const handleMidiActivity = () => { noteUserInteraction(); };
 
     window.addEventListener('pointerdown', handlePointer, passiveOpts);
     window.addEventListener('pointerup', handlePointer, passiveOpts);
     window.addEventListener('pointermove', handlePointerMove, passiveOpts);
     window.addEventListener('keydown', handleKey, true);
+    window.addEventListener('artapp:midi-activity', handleMidiActivity);
 
     return () => {
       window.removeEventListener('pointerdown', handlePointer, passiveOpts);
       window.removeEventListener('pointerup', handlePointer, passiveOpts);
       window.removeEventListener('pointermove', handlePointerMove, passiveOpts);
       window.removeEventListener('keydown', handleKey, true);
+      window.removeEventListener('artapp:midi-activity', handleMidiActivity);
     };
   }, [noteUserInteraction]);
 

@@ -5,6 +5,21 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 // Rate-limit movement style switching to avoid rapid audio-driven visual popping.
 const movementStyleSwitchState = new Map(); // layerId -> { style, changedAtMs }
 
+export function resolveModulationSources({
+  bpmMods = {},
+  audioMods = {},
+  timelineMods = {},
+  isArcade = false,
+  isUserInteracting = false,
+} = {}) {
+  if (isArcade) return { bpmMods: {}, audioMods: {}, timelineMods: {} };
+  return {
+    bpmMods: isUserInteracting ? {} : bpmMods,
+    audioMods: isUserInteracting ? {} : audioMods,
+    timelineMods,
+  };
+}
+
 /**
  * useModulationStore - Centralized store for Audio/BPM/Timeline modulations
  * 

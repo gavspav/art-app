@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useBPMClock } from '../hooks/useBPMClock.js';
 import { evaluateEnvelope, DEFAULT_ENVELOPE } from '../components/common/BPMEnvelopeEditor.jsx';
+import { useAppState } from './AppStateContext.jsx';
 
 /**
  * BPMContext - Global BPM/beat sync state provider
@@ -88,6 +89,10 @@ const interpolate = (phase, loopMode, envelope = null) => {
 };
 
 export const BPMProvider = ({ children }) => {
+  const { isUserInteracting } = useAppState() || {};
+  const isUserInteractingRef = useRef(isUserInteracting);
+  isUserInteractingRef.current = isUserInteracting;
+
   // BPM settings state (persisted)
   const [settings, setSettings] = useState(() => {
     try {
@@ -279,6 +284,11 @@ export const BPMProvider = ({ children }) => {
     
     const dispatch = () => {
       const now = performance.now();
+
+      if (typeof isUserInteractingRef.current === 'function' && isUserInteractingRef.current()) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
       if (now - lastDispatchTime < THROTTLE_MS) {
         frameId = requestAnimationFrame(dispatch);
         return;

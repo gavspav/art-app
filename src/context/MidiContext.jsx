@@ -195,12 +195,13 @@ const shouldEmitMidiActivity = (msg) => {
   if (!msg) return false;
   const value = Number(msg.value) || 0;
   if (msg.type === 'note') return value > 0;
-  if (msg.type !== 'cc') return false;
+  if (msg.type !== 'cc' && msg.type !== 'arcade-action') return false;
 
   const key = `${msg.source || 'midi'}:${msg.channel}:${msg.number}`;
   const previous = midiActivityValues.get(key);
-  midiActivityValues.set(key, value);
-  return previous == null || Math.abs(value - previous) >= 4;
+  const shouldEmit = previous == null || Math.abs(value - previous) >= 4;
+  if (shouldEmit) midiActivityValues.set(key, value);
+  return shouldEmit;
 };
 
 const emitMidiActivity = (msg) => {
@@ -472,13 +473,15 @@ export const MidiProvider = ({ children }) => {
   }, [SECRET_CC_PARAMS, effectiveMappings, triggerHandlers]);
 
   const emitArcadeJoystickCc = useCallback((cc, value) => {
-    dispatchMidiMessage({
+    const message = {
       type: 'cc',
       channel: DEFAULT_MIDI_CHANNEL,
       number: cc,
       value,
       source: 'arcadeJoystick',
-    });
+    };
+    emitMidiActivity(message);
+    dispatchMidiMessage(message);
   }, [dispatchMidiMessage]);
 
   const stopArcadeJoystickTimer = useCallback(() => {
@@ -534,6 +537,7 @@ export const MidiProvider = ({ children }) => {
       if (action === 'wobbleNoise') {
         const value01 = Math.max(0, Math.min(1, Math.round(next) / 127));
         incrementKioskCounter('arcadeJoystick:wobbleNoise');
+        emitMidiActivity(raw);
         triggerHandlers('wobble', value01, raw);
         triggerHandlers('noiseAmount', value01, raw);
       }

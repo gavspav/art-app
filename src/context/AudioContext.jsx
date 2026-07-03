@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
 import { AudioModeProcessor, DEFAULT_MODE_SETTINGS } from '../utils/audioMappingModes.js';
+import { useAppState } from './AppStateContext.jsx';
 
 /**
  * AudioContext - Global audio reactive state provider
@@ -119,6 +120,10 @@ export const audioMappingLabel = (mapping) => {
 };
 
 export const AudioProvider = ({ children }) => {
+  const { isUserInteracting } = useAppState() || {};
+  const isUserInteractingRef = useRef(isUserInteracting);
+  isUserInteractingRef.current = isUserInteracting;
+
   // Audio settings state (persisted)
   const [settings, setSettings] = useState(() => {
     try {
@@ -385,6 +390,11 @@ export const AudioProvider = ({ children }) => {
 
     const dispatch = () => {
       const now = performance.now();
+
+      if (typeof isUserInteractingRef.current === 'function' && isUserInteractingRef.current()) {
+        frameId = requestAnimationFrame(dispatch);
+        return;
+      }
 
       // Throttle: skip if called too soon
       if (now - lastDispatchTime < THROTTLE_MS) {

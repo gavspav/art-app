@@ -611,10 +611,14 @@ const MainApp = () => {
     audioReactive?.stopAudio?.();
     bpmForAnimation?.pause?.();
     timelineContext?.stop?.();
+    modulationStore.clearAllMods?.('audio');
+    modulationStore.clearAllMods?.('bpm');
+    modulationStore.clearAllMods?.('timeline');
   }, [
     audioReactive,
     bpmForAnimation,
     isArcadeLaunch,
+    modulationStore,
     setAudioSpawnEnabled,
     setAudioSpawnPresetActive,
     setMorphEnabled,
@@ -888,6 +892,7 @@ const MainApp = () => {
     animatedLayersRef,
     timelineContext,
     soundscape?.triggerCollision,
+    isArcadeLaunch,
   );
 
   useEffect(() => {

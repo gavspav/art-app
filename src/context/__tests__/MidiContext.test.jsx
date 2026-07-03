@@ -386,11 +386,16 @@ describe('MidiContext', () => {
     await waitFor(() => expect(screen.getByTestId('arcade-enabled')).toHaveTextContent('yes'));
     await waitFor(() => expect(typeof input.onmidimessage).toBe('function'));
 
+    const activityListener = vi.fn();
+    window.addEventListener('artapp:midi-activity', activityListener);
+
     sendNote(input, 36, 127);
 
     await waitFor(() => expect(Number(screen.getByTestId('arcade-hits').textContent)).toBeGreaterThan(0));
+    await waitFor(() => expect(activityListener.mock.calls.length).toBeGreaterThan(1));
 
     sendNote(input, 36, 0);
+    window.removeEventListener('artapp:midi-activity', activityListener);
 
     expect(Number(screen.getByTestId('arcade-last-value').textContent)).toBeGreaterThan(64);
   });
@@ -552,10 +557,15 @@ describe('MidiContext', () => {
 
     await waitFor(() => expect(screen.getByTestId('curviness-values')).toHaveTextContent('1,0'));
 
+    const activityListener = vi.fn();
+    window.addEventListener('artapp:midi-activity', activityListener);
+
     fireEvent.keyDown(window, { code: 'KeyU', key: 'u' });
     await waitFor(() => expect(Number(screen.getByTestId('wobble-hits').textContent)).toBeGreaterThan(0));
     await waitFor(() => expect(Number(screen.getByTestId('noise-hits').textContent)).toBeGreaterThan(0));
+    await waitFor(() => expect(activityListener.mock.calls.length).toBeGreaterThan(1));
     fireEvent.keyUp(window, { code: 'KeyU', key: 'u' });
+    window.removeEventListener('artapp:midi-activity', activityListener);
   });
 
   it('routes mapped physical MIDI controls to paired actions when pair mode is enabled', async () => {
