@@ -18,6 +18,27 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const randomBetween = (min, max) => min + Math.random() * (max - min);
 const timestamp = () => new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
 
+const CONTROL_RESPONSE_PROBES = [
+  { name: 'speed', path: 'speed', midi: [36, 37], keys: ['s', 'a'], holdMs: 320 },
+  { name: 'size', path: 'size', midi: [38, 39], keys: ['w', 'z'], holdMs: 320 },
+  { name: 'layers', path: 'layerCount', midi: [44, 46], keys: ['j', 'h'], holdMs: 320 },
+  { name: 'wobble-noise', path: ['wobble', 'noise'], midi: [45, 56], keys: ['u', 'n'], holdMs: 320 },
+  { name: 'background', path: 'backgroundColor', midi: [30, 4], keys: ['e', 'c'], holdMs: 80 },
+  { name: 'palette', path: 'paletteIndex', midi: [32, 5], keys: ['r', 'v'], holdMs: 80 },
+  { name: 'sides', path: 'sides', midi: [51, 14], keys: ['i', 'm'], holdMs: 80 },
+  { name: 'opacity', path: 'opacity', midi: [40, 13], keys: ['o', ','], holdMs: 80 },
+  { name: 'blend', path: 'blendMode', midi: [6, 6], keys: ['t', 't'], holdMs: 80 },
+  { name: 'curviness', path: 'curviness', midi: [12, 12], keys: ['p', 'p'], holdMs: 80 },
+];
+
+const readControlValue = (snapshot, pathSpec) => {
+  const state = snapshot?.app?.controlState || {};
+  if (Array.isArray(pathSpec)) return pathSpec.map(key => state[key]);
+  return state[pathSpec];
+};
+
+const controlValueChanged = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
+
 export const withTimeout = async (promise, ms, label = 'operation') => {
   let timer;
   try {
@@ -82,7 +103,7 @@ export const buildReportHtml = (summary) => {
   <style>body{font:15px system-ui;margin:32px;color:#222}h1,h2{margin:0 0 16px}section{margin:28px 0}table{border-collapse:collapse;width:100%}th,td{padding:8px;border:1px solid #ccc;text-align:left}.pass{color:#08752d}.fail{color:#a31515}code{background:#eee;padding:2px 5px}</style></head><body>
   <h1>Art App Kiosk Report</h1><p class="${summary.passed ? 'pass' : 'fail'}"><strong>${summary.passed ? 'PASS' : 'FAIL'}</strong></p>
   <section><h2>Run</h2><p>Mode: <code>${escapeHtml(summary.mode)}</code><br>Started: ${escapeHtml(summary.startedAt)}<br>Finished: ${escapeHtml(summary.finishedAt)}<br>Duration: ${escapeHtml(summary.durationMinutes)} minutes<br>Organic failures: ${escapeHtml(summary.organicFailures || 0)}<br>Restarts: ${escapeHtml(summary.restarts || 0)}</p></section>
-  <section><h2>Coverage</h2><p>Inputs: ${escapeHtml(summary.inputCount || 0)} | Randomizations: ${escapeHtml(summary.randomizeCount || 0)} | Screensaver cycles: ${escapeHtml(summary.screensaverCycles || 0)} | Health probes: ${escapeHtml(summary.healthProbes || 0)}</p></section>
+  <section><h2>Coverage</h2><p>Inputs: ${escapeHtml(summary.inputCount || 0)} | Randomizations: ${escapeHtml(summary.randomizeCount || 0)} | Screensaver cycles: ${escapeHtml(summary.screensaverCycles || 0)} | Health probes: ${escapeHtml(summary.healthProbes || 0)} | Control probes: ${escapeHtml(summary.controlProbes || 0)} | Control failures: ${escapeHtml(summary.controlProbeFailures || 0)}</p></section>
   <section><h2>Recovery Drills</h2><table><thead><tr><th>Drill</th><th>Started</th><th>Recovery ms</th></tr></thead><tbody>${drills || '<tr><td colspan="3">None</td></tr>'}</tbody></table></section>
   <section><h2>Incidents</h2><table><thead><tr><th>Time</th><th>Kind</th><th>Reason</th><th>Recovery ms</th></tr></thead><tbody>${incidents || '<tr><td colspan="4">None</td></tr>'}</tbody></table></section>
   </body></html>`;
@@ -249,8 +270,12 @@ export class KioskSupervisor {
       organicFailures: 0,
       healthProbes: 0,
       screensaverCycles: 0,
+      controlProbes: 0,
+      controlProbeFailures: 0,
+      controlProbeResults: [],
     };
     this.pendingDrill = null;
+    this.controlProbeInProgress = false;
     this.caffeinate = null;
     this.finished = false;
     this.lastHealthSignature = '';
@@ -523,6 +548,50 @@ export class KioskSupervisor {
     await this.page.keyboard.up(key);
   }
 
+  async performProbeInput(probe, mode, directionIndex) {
+    if (mode === 'midi') {
+      const number = probe.midi[directionIndex];
+      await this.injectMidi({ type: 'note', channel: 1, number, value: 127, source: 'kioskTest' });
+      await sleep(probe.holdMs);
+      await this.injectMidi({ type: 'note', channel: 1, number, value: 0, source: 'kioskTest' });
+      return;
+    }
+    await this.keyboardTap(probe.keys[directionIndex], probe.holdMs);
+  }
+
+  async verifyControlResponse(mode, phase = 'periodic') {
+    if (this.controlProbeInProgress || this.pendingDrill || !this.page) return true;
+    this.controlProbeInProgress = true;
+    const failures = [];
+    try {
+      for (const probe of CONTROL_RESPONSE_PROBES) {
+        let before = readControlValue((await this.readHealth()).snapshot, probe.path);
+        let changed = false;
+        let after = before;
+        for (let directionIndex = 0; directionIndex < 2 && !changed; directionIndex += 1) {
+          await this.performProbeInput(probe, mode, directionIndex);
+          await sleep(180);
+          after = readControlValue((await this.readHealth()).snapshot, probe.path);
+          changed = controlValueChanged(before, after);
+          before = after;
+        }
+        const result = { at: new Date().toISOString(), mode, phase, control: probe.name, changed, value: after };
+        this.summary.controlProbeResults.push(result);
+        this.logger.event(changed ? 'control-probe-pass' : 'control-probe-fail', result);
+        if (!changed) failures.push(probe.name);
+      }
+      this.summary.controlProbes += CONTROL_RESPONSE_PROBES.length;
+      this.summary.controlProbeFailures += failures.length;
+      return failures.length === 0;
+    } catch (error) {
+      this.summary.controlProbeFailures += 1;
+      this.logger.event('control-probe-error', { mode, phase, reason: error.message });
+      return false;
+    } finally {
+      this.controlProbeInProgress = false;
+    }
+  }
+
   async runPlayer(player) {
     const keyboard = player === 1
       ? { joystick: ['w', 'a', 's', 'z'], buttons: ['e', 'r', 't', 'c', 'v'] }
@@ -561,10 +630,19 @@ export class KioskSupervisor {
 
   async runSimulation(endAt) {
     let nextRandomAt = Date.now() + (this.mode === 'drill' ? 5_000 : randomBetween(30_000, 90_000));
+    await sleep(3_000);
+    await this.verifyControlResponse('midi', 'startup');
+    await this.verifyControlResponse('keyboard', 'startup');
+    let nextControlProbeAt = Date.now() + (this.mode === 'drill' ? 30_000 : 60_000);
     while (!this.stopping && Date.now() < endAt) {
       const activeMs = this.mode === 'drill' ? 20_000 : randomBetween(120_000, 300_000);
       const activeUntil = Math.min(endAt, Date.now() + activeMs);
       while (!this.stopping && Date.now() < activeUntil) {
+        if (Date.now() >= nextControlProbeAt && !this.pendingDrill) {
+          const mode = this.summary.controlProbes % (CONTROL_RESPONSE_PROBES.length * 2) === 0 ? 'midi' : 'keyboard';
+          await this.verifyControlResponse(mode);
+          nextControlProbeAt = Date.now() + (this.mode === 'drill' ? 30_000 : 60_000);
+        }
         if (Date.now() >= nextRandomAt) {
           await this.injectMidi({ type: 'cc', channel: 2, number: 17, value: 127, source: 'kioskTest' }).catch(() => {});
           await this.injectMidi({ type: 'cc', channel: 2, number: 17, value: 0, source: 'kioskTest' }).catch(() => {});
@@ -581,10 +659,16 @@ export class KioskSupervisor {
       await this.keyboardTap('e', 80).catch(() => {});
       const exited = await this.waitForScreensaver(false, 5_000);
       this.logger.event(exited ? 'screensaver-cycle' : 'screensaver-cycle-failed', { entered, exited });
+      if (exited) {
+        await this.verifyControlResponse('midi', 'after-inactivity');
+        await this.verifyControlResponse('keyboard', 'after-inactivity');
+        nextControlProbeAt = Date.now() + (this.mode === 'drill' ? 30_000 : 60_000);
+      }
     }
   }
 
   async runDrill(kind) {
+    while (this.controlProbeInProgress && !this.stopping) await sleep(100);
     const drill = { kind, startedAt: new Date().toISOString(), startedMs: Date.now(), recoveredMs: null };
     this.summary.drills.push(drill);
     this.pendingDrill = drill;
@@ -661,8 +745,11 @@ export class KioskSupervisor {
     this.summary.durationMinutes = Math.round((Date.parse(this.summary.finishedAt) - Date.parse(this.summary.startedAt)) / 600) / 100;
     this.summary.inputCount ||= 0;
     this.summary.randomizeCount ||= 0;
+    this.summary.controlProbes ||= 0;
+    this.summary.controlProbeFailures ||= 0;
     const drillsPassed = this.summary.drills.every(drill => Number.isFinite(drill.recoveredMs) && drill.recoveredMs <= 45_000);
-    this.summary.passed = this.mode === 'start' || (this.summary.organicFailures === 0 && drillsPassed);
+    const controlsPassed = !this.testMode || (this.summary.controlProbes > 0 && this.summary.controlProbeFailures === 0);
+    this.summary.passed = this.mode === 'start' || (this.summary.organicFailures === 0 && drillsPassed && controlsPassed);
     fs.writeFileSync(path.join(this.logger.runDir, 'summary.json'), JSON.stringify(this.summary, null, 2));
     fs.writeFileSync(path.join(this.logger.runDir, 'report.html'), buildReportHtml(this.summary));
     this.logger.event('run-finished', { passed: this.summary.passed, report: path.join(this.logger.runDir, 'report.html') });

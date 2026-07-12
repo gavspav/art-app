@@ -125,3 +125,45 @@ test('preflight cleanup is safe before background processes start', async () => 
   expect(supervisor.finished).toBe(true);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('control response probe verifies actual state changes for every cabinet control', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'artapp-kiosk-controls-'));
+  const supervisor = new KioskSupervisor({
+    mode: 'soak',
+    appDir: root,
+    supportDir: path.join(root, 'support'),
+    logDir: path.join(root, 'logs'),
+  });
+  const controlState = {
+    speed: 1,
+    size: 0.4,
+    layerCount: 4,
+    wobble: 0.4,
+    noise: 1,
+    backgroundColor: '#000000',
+    paletteIndex: 0,
+    sides: 6,
+    opacity: 1,
+    blendMode: 'source-over',
+    curviness: 1,
+  };
+
+  supervisor.page = {};
+  supervisor.readHealth = async () => ({ snapshot: { app: { controlState } } });
+  supervisor.performProbeInput = async (probe) => {
+    const paths = Array.isArray(probe.path) ? probe.path : [probe.path];
+    paths.forEach((key) => {
+      const current = controlState[key];
+      controlState[key] = typeof current === 'number' ? current + 1 : `${current}-changed`;
+    });
+  };
+
+  await expect(supervisor.verifyControlResponse('midi', 'after-inactivity')).resolves.toBe(true);
+  expect(supervisor.summary.controlProbes).toBe(10);
+  expect(supervisor.summary.controlProbeFailures).toBe(0);
+  expect(supervisor.summary.controlProbeResults).toHaveLength(10);
+  expect(supervisor.summary.controlProbeResults.every(result => result.phase === 'after-inactivity')).toBe(true);
+
+  await supervisor.finish();
+  fs.rmSync(root, { recursive: true, force: true });
+});

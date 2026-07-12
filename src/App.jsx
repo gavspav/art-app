@@ -633,6 +633,7 @@ const MainApp = () => {
   }, [isArcadeLaunch, parameterTargetMode, setParameterTargetMode]);
 
   useEffect(() => {
+    const firstLayer = Array.isArray(layers) ? layers[0] : null;
     updateKioskDiagnostic('app', {
       ready: true,
       arcade: isArcadeLaunch,
@@ -644,13 +645,28 @@ const MainApp = () => {
       arcadeJoystickMidiEnabled: !!arcadeJoystickMidiEnabled,
       arcadeKeyboardMidiEnabled: !!arcadeKeyboardMidiEnabled,
       arcadeButtonPairsMidiEnabled: !!arcadeButtonPairsMidiEnabled,
+      controlState: {
+        backgroundColor,
+        paletteIndex: globalPaletteIndex,
+        speed: globalSpeedMultiplier,
+        layerCount: Array.isArray(layers) ? layers.length : 0,
+        size: Number(firstLayer?.radiusFactor),
+        wobble: Number(firstLayer?.wobble),
+        noise: Number(firstLayer?.noiseAmount),
+        sides: Number(firstLayer?.numSides),
+        opacity: Number(firstLayer?.opacity),
+        blendMode: globalBlendMode,
+        curviness: Number(firstLayer?.curviness),
+      },
     });
   }, [
     arcadeButtonPairsMidiEnabled,
     arcadeJoystickMidiEnabled,
     arcadeKeyboardMidiEnabled,
+    backgroundColor,
     effectiveFullscreen,
     globalBlendMode,
+    globalPaletteIndex,
     globalSpeedMultiplier,
     isArcadeLaunch,
     layers,
