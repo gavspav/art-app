@@ -786,7 +786,9 @@ const MainApp = () => {
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
   // Shape track updates are evaluated directly during playback for frame-accurate interpolation
-  useAnimation(null, isFrozen, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
+  // Hold the free-mode scene still while editing; preserve the user's playback setting.
+  const pauseForNodeEditing = isNodeEditMode && !timelineMode;
+  useAnimation(null, isFrozen || pauseForNodeEditing, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
 
   // Config save/load from contexts
   const {
@@ -2109,13 +2111,14 @@ const MainApp = () => {
     hideBaseLayers: audioSpawnPresetActive && audioSpawnEnabled && !timelineMode,
     hideLayerIndex: audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1,
     hideLayerId: audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null,
-    isFrozen,
+    isFrozen: isFrozen || pauseForNodeEditing,
     colorFadeWhileFrozen,
     backgroundColor,
     globalSeed,
     globalBlendMode,
     isNodeEditMode,
     selectedLayerIndex,
+    setIsNodeEditMode: handleSetNodeEditMode,
     setLayers,
     setSelectedLayerIndex,
     nodeEditDeleteHandlerRef,

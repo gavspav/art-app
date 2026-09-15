@@ -5,6 +5,9 @@ import { hexToRgb, rgbToHex } from '../utils/colorUtils.js';
 import { computeInitialNodes, resizeNodes } from '../utils/nodeUtils.js';
 import { getCanvasFps, subscribeCanvasFps } from '../utils/canvasFps.js';
 import { DEFAULT_LAYER } from '../constants/defaults.js';
+import { useNodeEditorPointers } from '../hooks/useNodeEditorPointers.js';
+import { findClosestPointIndex, getPointerHitRadius, getGesturePair, mapNodePoints, moveNodeTo, transformGesturePoint } from '../utils/nodeEditorGestures.js';
+import NodeEditorToolbar from './NodeEditorToolbar.jsx';
 
 // Image cache to avoid creating new Image() every frame
 const imageCache = new Map(); // key: src -> { img: HTMLImageElement, loaded: boolean }
@@ -220,8 +223,8 @@ const localNodeToWorldPoint = (node, geometry) => {
         cosR,
     } = geometry;
     return {
-        x: centerX + (node.x * cosR - node.y * sinR) * radiusX,
-        y: centerY + (node.x * sinR + node.y * cosR) * radiusY,
+        x: centerX + node.x * radiusX * cosR - node.y * radiusY * sinR,
+        y: centerY + node.x * radiusX * sinR + node.y * radiusY * cosR,
     };
 };
 
@@ -237,11 +240,11 @@ const worldPointToLocalNode = (point, geometry) => {
     } = geometry;
     const safeRadiusX = Math.abs(radiusX) > 1e-9 ? radiusX : 1e-9;
     const safeRadiusY = Math.abs(radiusY) > 1e-9 ? radiusY : 1e-9;
-    const lx = (point.x - centerX) / safeRadiusX;
-    const ly = (point.y - centerY) / safeRadiusY;
+    const lx = point.x - centerX;
+    const ly = point.y - centerY;
     return {
-        x: lx * cosR + ly * sinR,
-        y: -lx * sinR + ly * cosR,
+        x: (lx * cosR + ly * sinR) / safeRadiusX,
+        y: (-lx * sinR + ly * cosR) / safeRadiusY,
     };
 };
 
@@ -332,7 +335,7 @@ const cloneLayerDeep = (layer) => {
 
 const createLayerId = () => `layer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-const cloneNodes = (nodes = []) => (Array.isArray(nodes) ? nodes.map(n => ({ x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : []);
+const cloneNodes = (nodes = []) => (Array.isArray(nodes) ? nodes.map(n => ({ ...n, x: Number(n?.x) || 0, y: Number(n?.y) || 0 })) : []);
 
 const equalNodes = (a = [], b = []) => {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
@@ -343,6 +346,9 @@ const equalNodes = (a = [], b = []) => {
         const bx = Number(b[i]?.x);
         const by = Number(b[i]?.y);
         if (Math.abs(ax - bx) > 1e-9 || Math.abs(ay - by) > 1e-9) return false;
+        for (const key of ['cp1x', 'cp1y', 'cp2x', 'cp2y', 'isCurve']) {
+            if (a[i]?.[key] !== b[i]?.[key]) return false;
+        }
     }
     return true;
 };
@@ -1005,18 +1011,7 @@ const buildBaseNodePoints = (layer, geometry, renderedPoints) => {
     if (Array.isArray(renderedPoints) && renderedPoints.length === layer.nodes.length) {
         return renderedPoints;
     }
-    const {
-        centerX,
-        centerY,
-        radiusX,
-        radiusY,
-        sinR,
-        cosR,
-    } = geometry;
-    return layer.nodes.map((n) => ({
-        x: centerX + (n.x * cosR - n.y * sinR) * radiusX,
-        y: centerY + (n.x * sinR + n.y * cosR) * radiusY,
-    }));
+    return layer.nodes.map(node => localNodeToWorldPoint(node, geometry));
 };
 
 // Estimate half-extents of the drawn content for a layer in pixels
@@ -1478,6 +1473,7 @@ const Canvas = forwardRef(({
     globalSeed,
     globalBlendMode,
     isNodeEditMode,
+    setIsNodeEditMode,
     isFrozen = false,
     colorFadeWhileFrozen = true,
     selectedLayerIndex,
@@ -1548,6 +1544,10 @@ const Canvas = forwardRef(({
     const nodeEditPanRef = useRef(null);
     const nodeEditSpaceRef = useRef(false);
     const nodeEditTouchRef = useRef(null);
+    const pointerTypeRef = useRef('mouse');
+    const [touchControls, setTouchControls] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches);
+    const [nodeViewMode, setNodeViewMode] = useState(false);
+    const [pencilOnly, setPencilOnly] = useState(false);
     const bendingRef = useRef(false);
     const draftPathRef = useRef(null);
     const draftBackupRef = useRef(null);
@@ -2005,6 +2005,11 @@ const Canvas = forwardRef(({
                     };
 
                     if (i === selectedIndex) {
+                        if (isFrozen) {
+                            merged.position = layer.position;
+                            merged.orbitAngle = layer.orbitAngle;
+                            merged.spinAngle = layer.spinAngle;
+                        }
                         if (Array.isArray(layer?.subpaths) && layer.subpaths.length > 0) {
                             merged.subpaths = layer.subpaths;
                             merged.nodes = undefined;
@@ -2464,7 +2469,7 @@ const Canvas = forwardRef(({
                 ctx.fillStyle = '#ffffff';
                 ctx.strokeStyle = '#000000';
                 ctx.lineWidth = 2 * editorOverlayScale;
-                const r = 6 * editorOverlayScale;
+                const r = (touchControls ? 9 : 6) * editorOverlayScale;
                 points.forEach(p => {
                     ctx.beginPath();
                     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -2472,7 +2477,7 @@ const Canvas = forwardRef(({
                     ctx.stroke();
                 });
                 // Midpoint handles on the smoothed curve midpoints
-                const rMid = 5 * editorOverlayScale;
+                const rMid = (touchControls ? 7 : 5) * editorOverlayScale;
                 ctx.fillStyle = '#222';
                 ctx.strokeStyle = '#ffffff';
                 const midpointCount = points.length >= 2
@@ -2526,8 +2531,8 @@ const Canvas = forwardRef(({
                 ctx.restore();
             }
 
-            // Always draw Orbit center handle (white dot with red border)
-            {
+            // Touch editing prioritises the shape centre over the orbit handle.
+            if (!touchControls || sel.movementStyle === 'orbit') {
                 const { spanX, spanY, offsetX: ax, offsetY: ay } = mapping;
                 const offsetXPx = (Number(sel.xOffset) || 0) * spanX;
                 const offsetYPx = (Number(sel.yOffset) || 0) * spanY;
@@ -2605,6 +2610,7 @@ const Canvas = forwardRef(({
         showLayerOutlines,
         ensureInteractionFreezeTime,
         nodeEditView,
+        touchControls,
     ]);
 
     // Render on relevant changes (initial paint, resize, selection changes, etc.)
@@ -2820,6 +2826,7 @@ const Canvas = forwardRef(({
     const getNodeEditInteractiveLayer = useCallback((layerIndex) => {
         const base = layers[layerIndex];
         if (!base) return base;
+        if (isNodeEditMode && isFrozen) return base;
         const animatedLayers = (layersRef && Array.isArray(layersRef.current)) ? layersRef.current : null;
         if (!animatedLayers || animatedLayers.length === 0) return base;
         const animated = (base.id != null
@@ -2837,7 +2844,7 @@ const Canvas = forwardRef(({
             orbitAngle: animated.orbitAngle ?? base.orbitAngle,
             spinAngle: animated.spinAngle ?? base.spinAngle,
         };
-    }, [layers, layersRef]);
+    }, [isFrozen, isNodeEditMode, layers, layersRef]);
 
     const updateSingleLayer = useCallback((layerIndex, updater) => {
         setLayers(prev => prev.map((layer, index) => (
@@ -3077,8 +3084,8 @@ const Canvas = forwardRef(({
         if (!canvas || !layer || !geometry || !Array.isArray(layer.nodes) || layer.nodes.length < getMinimumNodeCount(layer)) return false;
 
         const zoom = clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1);
-        const nodeThreshold = 10 / zoom;
-        const segmentThreshold = 12 / zoom;
+        const nodeThreshold = getPointerHitRadius(pointerTypeRef.current) / zoom;
+        const segmentThreshold = Math.max(12, getPointerHitRadius(pointerTypeRef.current)) / zoom;
         const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
         const rendered = renderedPointsRef.current.get(layerIndex);
         const points = (Array.isArray(rendered) && rendered.length === layer.nodes.length)
@@ -3413,7 +3420,7 @@ const Canvas = forwardRef(({
 
         clearDragState();
 
-        if (e.button === 1 || nodeEditSpaceRef.current) {
+        if (e.button === 1 || nodeEditSpaceRef.current || nodeViewMode) {
             e.preventDefault();
             const screenPos = getCanvasScreenPos(e);
             const view = nodeEditViewRef.current || DEFAULT_NODE_EDIT_VIEW;
@@ -3450,7 +3457,7 @@ const Canvas = forwardRef(({
         const layerId = layer?.id ?? null;
         const pos = getMousePos(e);
         mouseDownRef.current = { x: pos.x, y: pos.y, t: Date.now() };
-        const hitRadius = 10 / clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1);
+        const hitRadius = getPointerHitRadius(e.pointerType) / clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1);
         const wrapOffset = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, canvas) : ZERO_WRAP_OFFSET;
         const wrapOx = wrapOffset.ox;
         const wrapOy = wrapOffset.oy;
@@ -3499,6 +3506,45 @@ const Canvas = forwardRef(({
             return;
         }
 
+        const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
+        clearSelectedCenterHandle();
+        if (bendLatch || capsActive) {
+            const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
+            const targetIndexes = [];
+            layers.forEach((candidate, candidateIndex) => {
+                if (!candidate || !Array.isArray(candidate.nodes) || candidate.nodes.length < getMinimumNodeCount(candidate)) return;
+                if (selectedIds.size > 1) {
+                    if (candidate.id && selectedIds.has(candidate.id)) targetIndexes.push(candidateIndex);
+                } else if (candidateIndex === layerIndex) {
+                    targetIndexes.push(candidateIndex);
+                }
+            });
+            if (targetIndexes.length === 0) targetIndexes.push(layerIndex);
+            const baselines = targetIndexes.map((targetIndex) => {
+                const targetLayer = getNodeEditInteractiveLayer(targetIndex);
+                const targetGeometry = getLayerGeometry(targetLayer, canvas);
+                if (!targetLayer || !targetGeometry || !Array.isArray(targetLayer.nodes)) return null;
+                return {
+                    layerIndex: targetIndex,
+                    geometry: targetGeometry,
+                    nodes: targetLayer.nodes.map(node => ({ ...node })),
+                    worldPoints: targetLayer.nodes.map(node => localNodeToWorldPoint(node, targetGeometry)),
+                };
+            }).filter(Boolean);
+            const centroid = getPathCentroid(baselines.flatMap(entry => entry.worldPoints));
+            bendGestureRef.current = {
+                startMouse: { ...pos },
+                centroid,
+                radiusPx: 120 / clampNodeEditZoom(nodeEditViewRef.current?.zoom ?? 1),
+                baselines,
+            };
+            bendingRef.current = true;
+            draggingKindRef.current = 'bend';
+            ensureInteractionFreezeTime();
+            return;
+        }
+
+
         // Orbit center handle can be dragged regardless of node presence
         {
             const ocxNorm = Number.isFinite(layer.orbitCenterX) ? layer.orbitCenterX : 0.5;
@@ -3506,7 +3552,7 @@ const Canvas = forwardRef(({
             const ox = artOffsetX + ocxNorm * spanX + offsetXPx + wrapOx;
             const oy = artOffsetY + ocyNorm * spanY + offsetYPx + wrapOy;
             const dx = ox - pos.x; const dy = oy - pos.y;
-            if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
+            if ((e.pointerType === 'mouse' || !e.pointerType || layer.movementStyle === 'orbit') && (dx * dx + dy * dy) <= hitRadius * hitRadius) {
                 clearSelectedCenterHandle();
                 draggingOrbitCenterRef.current = true;
                 draggingNodeIndexRef.current = null;
@@ -3548,22 +3594,13 @@ const Canvas = forwardRef(({
         const rendered = renderedPointsRef.current.get(layerIndex);
         let idx = -1;
         if (Array.isArray(rendered) && rendered.length === layer.nodes.length) {
-            idx = rendered.findIndex(p => {
-                const px = p.x + wrapOx;
-                const py = p.y + wrapOy;
-                return ((px - pos.x) ** 2 + (py - pos.y) ** 2) <= hitRadius * hitRadius;
-            });
+            idx = findClosestPointIndex(rendered.map(point => ({ x: point.x + wrapOx, y: point.y + wrapOy })), pos, hitRadius);
         }
         if (idx === -1) {
-            idx = layer.nodes.findIndex(n => {
-                const rx = n.x * cosR - n.y * sinR;
-                const ry = n.x * sinR + n.y * cosR;
-                const px = centerX + wrapOx + rx * radiusX;
-                const py = centerY + wrapOy + ry * radiusY;
-                const dx = px - pos.x;
-                const dy = py - pos.y;
-                return (dx * dx + dy * dy) <= hitRadius * hitRadius;
-            });
+            idx = findClosestPointIndex(layer.nodes.map(n => {
+                const world = localNodeToWorldPoint(n, gestureGeometry);
+                return { x: world.x + wrapOx, y: world.y + wrapOy };
+            }), pos, hitRadius);
         }
         if (idx !== -1) {
             clearSelectedCenterHandle();
@@ -3572,7 +3609,7 @@ const Canvas = forwardRef(({
             draggingCenterRef.current = false;
             draggingOrbitCenterRef.current = false;
             draggingKindRef.current = 'node';
-            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx, wrapOffset, geometry: gestureGeometry };
+            gestureRef.current = { layerId, layerIndex, type: 'node', nodeIndex: idx, wrapOffset, geometry: gestureGeometry, nodeDrag: { startMouse: pos, node: { ...layer.nodes[idx] } } };
             ensureInteractionFreezeTime();
             return;
         }
@@ -3580,12 +3617,12 @@ const Canvas = forwardRef(({
         const pts = (Array.isArray(rendered) && rendered.length === layer.nodes.length)
             ? rendered.map(p => ({ x: p.x + wrapOx, y: p.y + wrapOy }))
             : layer.nodes.map(n => {
-                const rx = n.x * cosR - n.y * sinR;
-                const ry = n.x * sinR + n.y * cosR;
-                return { x: centerX + wrapOx + rx * radiusX, y: centerY + wrapOy + ry * radiusY };
+                const world = localNodeToWorldPoint(n, gestureGeometry);
+                return { x: world.x + wrapOx, y: world.y + wrapOy };
             });
         const segmentCount = isClosedContourLayer(layer) ? pts.length : Math.max(0, pts.length - 1);
         let midIdx = -1;
+        let midDistance = hitRadius * hitRadius;
         for (let i = 0; i < segmentCount; i += 1) {
             const a = pts[i];
             const b = isClosedContourLayer(layer) ? pts[(i + 1) % pts.length] : pts[i + 1];
@@ -3593,9 +3630,9 @@ const Canvas = forwardRef(({
             const mx = (a.x + b.x) / 2;
             const my = (a.y + b.y) / 2;
             const dx = mx - pos.x; const dy = my - pos.y;
-            if ((dx * dx + dy * dy) <= hitRadius * hitRadius) {
+            if ((dx * dx + dy * dy) <= midDistance) {
                 midIdx = i;
-                break;
+                midDistance = dx * dx + dy * dy;
             }
         }
         if (midIdx !== -1) {
@@ -3609,8 +3646,8 @@ const Canvas = forwardRef(({
             const N = nodes.length;
             const aIdx = midIdx;
             const bIdx = (midIdx + 1) % (N || 1);
-            const startA = nodes[aIdx] ? { x: nodes[aIdx].x, y: nodes[aIdx].y } : { x: 0, y: 0 };
-            const startB = nodes[bIdx] ? { x: nodes[bIdx].x, y: nodes[bIdx].y } : { x: 0, y: 0 };
+            const startA = nodes[aIdx] ? { ...nodes[aIdx] } : { x: 0, y: 0 };
+            const startB = nodes[bIdx] ? { ...nodes[bIdx] } : { x: 0, y: 0 };
             gestureRef.current = {
                 layerId,
                 layerIndex,
@@ -3704,43 +3741,6 @@ const Canvas = forwardRef(({
             }
         }
 
-        const capsActive = !!(e.getModifierState && e.getModifierState('CapsLock'));
-        clearSelectedCenterHandle();
-        if (bendLatch || capsActive) {
-            const selectedIds = new Set(Array.isArray(selectedLayerIdsCtx) ? selectedLayerIdsCtx : []);
-            const targetIndexes = [];
-            layers.forEach((candidate, candidateIndex) => {
-                if (!candidate || !Array.isArray(candidate.nodes) || candidate.nodes.length < getMinimumNodeCount(candidate)) return;
-                if (selectedIds.size > 1) {
-                    if (candidate.id && selectedIds.has(candidate.id)) targetIndexes.push(candidateIndex);
-                } else if (candidateIndex === layerIndex) {
-                    targetIndexes.push(candidateIndex);
-                }
-            });
-            if (targetIndexes.length === 0) targetIndexes.push(layerIndex);
-            const baselines = targetIndexes.map((targetIndex) => {
-                const targetLayer = getNodeEditInteractiveLayer(targetIndex);
-                const targetGeometry = getLayerGeometry(targetLayer, canvas);
-                if (!targetLayer || !targetGeometry || !Array.isArray(targetLayer.nodes)) return null;
-                return {
-                    layerIndex: targetIndex,
-                    geometry: targetGeometry,
-                    nodes: targetLayer.nodes.map(node => ({ ...node })),
-                    worldPoints: targetLayer.nodes.map(node => localNodeToWorldPoint(node, targetGeometry)),
-                };
-            }).filter(Boolean);
-            const centroid = getPathCentroid(baselines.flatMap(entry => entry.worldPoints));
-            bendGestureRef.current = {
-                startMouse: { ...pos },
-                centroid,
-                radiusPx: 120,
-                baselines,
-            };
-            bendingRef.current = true;
-            draggingKindRef.current = 'bend';
-            ensureInteractionFreezeTime();
-            return;
-        }
 
         if (
             e.shiftKey &&
@@ -3841,8 +3841,6 @@ const Canvas = forwardRef(({
         const geometry = (gestureGeometry && gestureRef.current?.layerIndex === selIndex) ? gestureGeometry : liveGeometry;
         if (!geometry) return;
         const {
-            centerX,
-            centerY,
             radiusX,
             radiusY,
             sinR,
@@ -3895,6 +3893,7 @@ const Canvas = forwardRef(({
         if (bending) {
             const gesture = bendGestureRef.current;
             if (!gesture) return;
+            const dx = pos.x - gesture.startMouse.x;
             const dy = pos.y - gesture.startMouse.y;
             const sigma = Math.max(1, gesture.radiusPx * 0.45);
             setLayers(prev => prev.map((entry, index) => {
@@ -3912,9 +3911,10 @@ const Canvas = forwardRef(({
                             y: gesture.centroid.y + (worldPoint.y - gesture.centroid.y) * scaleFactor,
                         };
                     } else {
-                        nextWorld = { x: worldPoint.x, y: worldPoint.y + dy * falloff };
+                        nextWorld = { x: worldPoint.x + (e.pointerType !== 'mouse' ? dx * falloff : 0), y: worldPoint.y + dy * falloff };
                     }
-                    return worldPointToLocalNode(nextWorld, baseline.geometry);
+                    const local = worldPointToLocalNode(nextWorld, baseline.geometry);
+                    return moveNodeTo(baseline.nodes[pointIndex], local.x, local.y);
                 });
                 return { ...entry, nodes: nextNodes, numSides: nextNodes.length, syncNodesToNumSides: false };
             }));
@@ -3969,10 +3969,10 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            nodes[update.idx] = moveNodeTo(nodes[update.idx], update.nx, update.ny);
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
-                                cache[update.idx] = { x: update.nx, y: update.ny };
+                                cache[update.idx] = { ...nodes[update.idx] };
                             }
                             return { ...l, nodes, numSides: nodes.length, syncNodesToNumSides: false };
                         }));
@@ -4038,10 +4038,10 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            nodes[update.idx] = moveNodeTo(nodes[update.idx], update.nx, update.ny);
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
-                                cache[update.idx] = { x: update.nx, y: update.ny };
+                                cache[update.idx] = { ...nodes[update.idx] };
                             }
                             return { ...l, nodes, numSides: nodes.length, syncNodesToNumSides: false };
                         }));
@@ -4068,6 +4068,12 @@ const Canvas = forwardRef(({
             // Convert dragged canvas position back to unrotated local node coords
             let targetBaseX = posBaseX;
             let targetBaseY = posBaseY;
+            const nodeDrag = gestureRef.current?.nodeDrag;
+            if (nodeDrag && e.pointerType && e.pointerType !== 'mouse') {
+                const startWorld = localNodeToWorldPoint(nodeDrag.node, geometry);
+                targetBaseX = startWorld.x + pos.x - nodeDrag.startMouse.x;
+                targetBaseY = startWorld.y + pos.y - nodeDrag.startMouse.y;
+            }
             if (e.shiftKey && Array.isArray(layer.nodes) && layer.nodes.length >= 2) {
                 let anchorNode = null;
                 if (isOpenPathLayer(layer) && !isClosedContourLayer(layer)) {
@@ -4083,10 +4089,7 @@ const Canvas = forwardRef(({
                     targetBaseY = snapped.y;
                 }
             }
-            const lx = (targetBaseX - centerX) / radiusX;
-            const ly = (targetBaseY - centerY) / radiusY;
-            const nx = lx * cosR + ly * sinR;
-            const ny = -lx * sinR + ly * cosR;
+            const { x: nx, y: ny } = worldPointToLocalNode({ x: targetBaseX, y: targetBaseY }, geometry);
             // Store update for RAF batching
             pendingDragUpdateRef.current = { type: 'node', selIndex, idx, nx, ny };
             // If no RAF scheduled, apply immediately for responsive feedback
@@ -4094,10 +4097,10 @@ const Canvas = forwardRef(({
                 setLayers(prev => prev.map((l, i) => {
                     if (i !== selIndex) return l;
                     const nodes = [...(l.nodes || [])];
-                    nodes[idx] = { x: nx, y: ny };
+                    nodes[idx] = moveNodeTo(nodes[idx], nx, ny);
                     const cache = nodesCacheRef.current.get(selIndex);
                     if (Array.isArray(cache) && cache.length >= nodes.length) {
-                        cache[idx] = { x: nx, y: ny };
+                        cache[idx] = { ...nodes[idx] };
                     }
                     return { ...l, nodes, numSides: nodes.length, syncNodesToNumSides: false };
                 }));
@@ -4119,10 +4122,10 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            nodes[update.idx] = moveNodeTo(nodes[update.idx], update.nx, update.ny);
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
-                                cache[update.idx] = { x: update.nx, y: update.ny };
+                                cache[update.idx] = { ...nodes[update.idx] };
                             }
                             return { ...l, nodes, numSides: nodes.length, syncNodesToNumSides: false };
                         }));
@@ -4154,14 +4157,12 @@ const Canvas = forwardRef(({
             const startMouse = md?.startMouse || { x: pos.x, y: pos.y };
             const dxCanvas = pos.x - startMouse.x;
             const dyCanvas = pos.y - startMouse.y;
-            const dLocalX = radiusX !== 0 ? (dxCanvas / radiusX) : 0;
-            const dLocalY = radiusY !== 0 ? (dyCanvas / radiusY) : 0;
-            const invDx = dLocalX * cosR + dLocalY * sinR;
-            const invDy = -dLocalX * sinR + dLocalY * cosR;
+            const invDx = radiusX !== 0 ? (dxCanvas * cosR + dyCanvas * sinR) / radiusX : 0;
+            const invDy = radiusY !== 0 ? (-dxCanvas * sinR + dyCanvas * cosR) / radiusY : 0;
             const startA = md?.startA || layer.nodes?.[aIdx] || { x: 0, y: 0 };
             const startB = md?.startB || layer.nodes?.[bIdx] || { x: 0, y: 0 };
-            const nextA = { x: (Number(startA.x) || 0) + invDx, y: (Number(startA.y) || 0) + invDy };
-            const nextB = { x: (Number(startB.x) || 0) + invDx, y: (Number(startB.y) || 0) + invDy };
+            const nextA = moveNodeTo(startA, startA.x + invDx, startA.y + invDy);
+            const nextB = moveNodeTo(startB, startB.x + invDx, startB.y + invDy);
             
             // Store update for RAF batching
             pendingDragUpdateRef.current = { 
@@ -4177,8 +4178,8 @@ const Canvas = forwardRef(({
                 setLayers(prev => prev.map((l, i) => {
                     if (i !== selIndex) return l;
                     const nodes = [...(l.nodes || [])];
-                    if (nodes[aIdx]) nodes[aIdx] = { x: nextA.x, y: nextA.y };
-                    if (nodes[bIdx]) nodes[bIdx] = { x: nextB.x, y: nextB.y };
+                    if (nodes[aIdx]) nodes[aIdx] = { ...nextA };
+                    if (nodes[bIdx]) nodes[bIdx] = { ...nextB };
                     const cache = nodesCacheRef.current.get(selIndex);
                     if (Array.isArray(cache) && cache.length >= nodes.length) {
                         if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
@@ -4204,10 +4205,10 @@ const Canvas = forwardRef(({
                         setLayers(prev => prev.map((l, i) => {
                             if (i !== update.selIndex) return l;
                             const nodes = [...(l.nodes || [])];
-                            nodes[update.idx] = { x: update.nx, y: update.ny };
+                            nodes[update.idx] = moveNodeTo(nodes[update.idx], update.nx, update.ny);
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
-                                cache[update.idx] = { x: update.nx, y: update.ny };
+                                cache[update.idx] = { ...nodes[update.idx] };
                             }
                             return { ...l, nodes, numSides: nodes.length, syncNodesToNumSides: false };
                         }));
@@ -4233,8 +4234,8 @@ const Canvas = forwardRef(({
                             const nodes = [...(l.nodes || [])];
                             const aIdx = update.aIdx;
                             const bIdx = update.bIdx;
-                            if (nodes[aIdx] && update.a) nodes[aIdx] = { x: update.a.x, y: update.a.y };
-                            if (nodes[bIdx] && update.b) nodes[bIdx] = { x: update.b.x, y: update.b.y };
+                            if (nodes[aIdx] && update.a) nodes[aIdx] = { ...update.a };
+                            if (nodes[bIdx] && update.b) nodes[bIdx] = { ...update.b };
                             const cache = nodesCacheRef.current.get(update.selIndex);
                             if (Array.isArray(cache) && cache.length >= nodes.length) {
                                 if (nodes[aIdx]) cache[aIdx] = { ...nodes[aIdx] };
@@ -4456,80 +4457,112 @@ const Canvas = forwardRef(({
         zoomNodeEditViewAtScreenPoint(width / 2, height / 2, zoomMultiplier);
     }, [zoomNodeEditViewAtScreenPoint]);
 
-    const getTouchPairState = useCallback((touches) => {
-        if (!touches || touches.length < 2) return null;
-        const first = getCanvasScreenPos(touches[0]);
-        const second = getCanvasScreenPos(touches[1]);
-        const mid = {
-            x: (first.x + second.x) / 2,
-            y: (first.y + second.y) / 2,
-        };
-        const distance = Math.hypot(second.x - first.x, second.y - first.y);
-        return { first, second, mid, distance };
-    }, [getCanvasScreenPos]);
-
-    const onTouchStart = useCallback((e) => {
-        if (!isNodeEditMode || e.touches.length < 2) return;
-        e.preventDefault();
+    const finishInterruptedPointer = () => {
+        // Retain any edit already displayed, with an undo step; discard queued frames.
+        pushHistorySnapshot();
         clearDragState();
-        const pair = getTouchPairState(e.touches);
-        if (!pair || !(pair.distance > 0)) return;
-        const view = nodeEditViewRef.current || DEFAULT_NODE_EDIT_VIEW;
-        const startZoom = clampNodeEditZoom(view.zoom);
-        nodeEditTouchRef.current = {
-            startDistance: pair.distance,
-            startWorldX: (pair.mid.x - view.panX) / startZoom,
-            startWorldY: (pair.mid.y - view.panY) / startZoom,
-            startZoom,
-        };
-    }, [clearDragState, getTouchPairState, isNodeEditMode]);
+    };
 
-    const onTouchMove = useCallback((e) => {
-        const gesture = nodeEditTouchRef.current;
-        if (!isNodeEditMode || !gesture || e.touches.length < 2) return;
-        e.preventDefault();
-        const pair = getTouchPairState(e.touches);
-        if (!pair || !(pair.distance > 0)) return;
-        const nextZoom = clampNodeEditZoom(gesture.startZoom * (pair.distance / gesture.startDistance));
-        setNodeEditViewState({
-            zoom: nextZoom,
-            panX: pair.mid.x - gesture.startWorldX * nextZoom,
-            panY: pair.mid.y - gesture.startWorldY * nextZoom,
-        });
-    }, [getTouchPairState, isNodeEditMode, setNodeEditViewState]);
-
-    const onTouchEnd = useCallback((e) => {
-        if (e.touches.length < 2) {
+    const pointerHandlers = useNodeEditorPointers({
+        enabled: isNodeEditMode,
+        pencilOnly,
+        onStart: (event) => {
+            pointerTypeRef.current = event.pointerType || 'mouse';
+            if (event.pointerType === 'touch' || event.pointerType === 'pen') setTouchControls(true);
+            onMouseDown(event);
+        },
+        onMove: onMouseMove,
+        onHover: onMouseMove,
+        onFlush: (event) => {
+            // Apply the release position before recording history, even between frames.
+            if (dragUpdateRafRef.current) cancelAnimationFrame(dragUpdateRafRef.current);
+            dragUpdateRafRef.current = null;
+            pendingDragUpdateRef.current = null;
+            onMouseMove(event);
+        },
+        onEnd: (event) => {
+            onMouseUp(event);
+            if (event.pointerType !== 'mouse' && draftPathRef.current?.kind === 'polygon') commitPolygonDraft();
+        },
+        onCancel: finishInterruptedPointer,
+        canHold: () => !nodeViewMode && !bendLatch && nodeClickTool === 'select' && !draftPathRef.current,
+        onHold: (event) => {
+            clearDragState();
+            const index = Math.max(0, Math.min(selectedLayerIndex ?? 0, layers.length - 1));
+            return handleNodeClickEdit(index, getMousePos(event), 'auto');
+        },
+        onPairStart: (pointers) => {
+            clearDragState();
+            const pair = getGesturePair(pointers.map(getCanvasScreenPos));
+            const view = { ...nodeEditViewRef.current };
+            const index = Math.max(0, Math.min(selectedLayerIndex ?? 0, layers.length - 1));
+            const layer = getNodeEditInteractiveLayer(index);
+            const geometry = getLayerGeometry(layer, localCanvasRef.current);
+            const navigate = nodeViewMode || pencilOnly || !!draftPathRef.current || !layer?.nodes?.length || !geometry;
+            const wrap = layer?.movementStyle === 'drift' ? getDriftWrapOffset(layer, localCanvasRef.current) : ZERO_WRAP_OFFSET;
+            nodeEditTouchRef.current = {
+                pair, view, index, layerId: layer?.id, navigate,
+                geometry: geometry ? { ...geometry, centerX: geometry.centerX + wrap.ox, centerY: geometry.centerY + wrap.oy } : null,
+                nodes: cloneNodes(layer?.nodes),
+                lastNodes: null,
+            };
+            if (!navigate) ensureInteractionFreezeTime();
+        },
+        onPairMove: (pointers) => {
+            const gesture = nodeEditTouchRef.current;
+            if (!gesture || pointers.some(pointer => !pointer)) return;
+            const pair = getGesturePair(pointers.map(getCanvasScreenPos));
+            const { view } = gesture;
+            if (gesture.navigate) {
+                const zoom = clampNodeEditZoom(view.zoom * pair.distance / gesture.pair.distance);
+                setNodeEditViewState({
+                    zoom,
+                    panX: pair.mid.x - (gesture.pair.mid.x - view.panX) / view.zoom * zoom,
+                    panY: pair.mid.y - (gesture.pair.mid.y - view.panY) / view.zoom * zoom,
+                });
+                return;
+            }
+            const toWorldPair = value => ({
+                ...value,
+                distance: value.distance / view.zoom,
+                mid: { x: (value.mid.x - view.panX) / view.zoom, y: (value.mid.y - view.panY) / view.zoom },
+            });
+            const start = toWorldPair(gesture.pair);
+            const next = toWorldPair(pair);
+            const nodes = gesture.nodes.map(node => mapNodePoints(node, point => {
+                const world = localNodeToWorldPoint(point, gesture.geometry);
+                return worldPointToLocalNode(transformGesturePoint(world, start, next), gesture.geometry);
+            }));
+            gesture.lastNodes = nodes;
+            nodesCacheRef.current.set(gesture.index, cloneNodes(nodes));
+            setLayers(prev => prev.map((layer, index) => index === gesture.index && layer.id === gesture.layerId
+                ? { ...layer, nodes, numSides: nodes.length, syncNodesToNumSides: false }
+                : layer));
+        },
+        onPairEnd: () => {
+            const gesture = nodeEditTouchRef.current;
+            if (gesture?.lastNodes) pushHistoryNodes(gesture.index, gesture.lastNodes);
             nodeEditTouchRef.current = null;
-        }
-    }, []);
+            releaseInteractionFreezeTime();
+        },
+    });
 
     useEffect(() => {
         const canvas = localCanvasRef.current;
         if (!canvas) return undefined;
-        const nonPassive = { passive: false };
-        canvas.addEventListener('wheel', onWheel, nonPassive);
-        canvas.addEventListener('touchstart', onTouchStart, nonPassive);
-        canvas.addEventListener('touchmove', onTouchMove, nonPassive);
-        canvas.addEventListener('touchend', onTouchEnd, nonPassive);
-        canvas.addEventListener('touchcancel', onTouchEnd, nonPassive);
-        return () => {
-            canvas.removeEventListener('wheel', onWheel, nonPassive);
-            canvas.removeEventListener('touchstart', onTouchStart, nonPassive);
-            canvas.removeEventListener('touchmove', onTouchMove, nonPassive);
-            canvas.removeEventListener('touchend', onTouchEnd, nonPassive);
-            canvas.removeEventListener('touchcancel', onTouchEnd, nonPassive);
-        };
-    }, [onTouchEnd, onTouchMove, onTouchStart, onWheel]);
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        return () => canvas.removeEventListener('wheel', onWheel);
+    }, [onWheel]);
 
     return (
         <>
           <canvas
               ref={localCanvasRef}
-              style={{ display: 'block', pointerEvents: 'auto', touchAction: isNodeEditMode ? 'none' : 'auto' }}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
+              aria-label="Shape editing canvas"
+              style={{ display: 'block', pointerEvents: 'auto', touchAction: isNodeEditMode ? 'none' : 'auto', userSelect: 'none', WebkitTouchCallout: isNodeEditMode ? 'none' : undefined }}
+              {...pointerHandlers}
+              onMouseUp={isNodeEditMode ? undefined : onMouseUp}
+              onContextMenu={event => { if (isNodeEditMode) event.preventDefault(); }}
               onDoubleClick={() => {
                   if (draftPathRef.current) {
                       closeDraftPath();
@@ -4541,143 +4574,50 @@ const Canvas = forwardRef(({
                   }
               }}
           />
-          {isNodeEditMode && draftHint && (
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: 16,
-                transform: 'translateX(-50%)',
-                padding: '6px 12px',
-                background: 'rgba(20,20,22,0.85)',
-                color: '#ffd36b',
-                border: '1px solid rgba(255,180,0,0.45)',
-                borderRadius: 6,
-                fontSize: 12,
-                pointerEvents: 'none',
-                zIndex: 9001,
-              }}
-            >{draftHint}</div>
+          {!isNodeEditMode && setIsNodeEditMode && (
+            <button className="node-editor-open" type="button" onClick={() => setIsNodeEditMode(true)}>Edit shape</button>
           )}
           {isNodeEditMode && (
-            <div style={{ position: 'absolute', right: 16, bottom: 16, display: 'flex', gap: 10, zIndex: 9000, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 520 }}>
-              <button
-                className="fab"
-                style={{ width: 64, height: 48, border: nodeClickTool === 'newLine' ? '2px solid #ffb400' : undefined }}
-                title="Start a new line layer from the next canvas click"
-                aria-label="Start new line layer"
-                onClick={() => setNodeClickTool(value => (value === 'newLine' ? 'select' : 'newLine'))}
-              >Line</button>
-              <label
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    height: 48,
-                    padding: '0 8px',
-                    borderRadius: 999,
-                    background: 'rgba(20,20,22,0.72)',
-                    border: nodeClickTool === 'polygon' ? '2px solid #ffb400' : '1px solid rgba(255,255,255,0.18)',
-                    color: '#fff',
-                    fontSize: 12,
-                    pointerEvents: 'auto',
-                }}
-                title="Set polygon sides, then click Polygon and drag on canvas"
-              >
-                <span>Sides</span>
-                <input
-                    type="number"
-                    min="3"
-                    max="96"
-                    step="1"
-                    value={polygonSidesInput}
-                    onChange={(event) => setPolygonSidesInput(event.target.value)}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    style={{
-                        width: 46,
-                        height: 28,
-                        borderRadius: 8,
-                        border: '1px solid rgba(255,255,255,0.24)',
-                        background: 'rgba(0,0,0,0.32)',
-                        color: '#fff',
-                        padding: '0 6px',
-                    }}
-                    aria-label="Polygon sides"
-                />
-              </label>
-              <button
-                className="fab"
-                style={{ width: 64, height: 48, border: nodeClickTool === 'polygon' ? '2px solid #ffb400' : undefined }}
-                title="Create polygon: click canvas, move to size, hold Ctrl to rotate, press Enter to commit"
-                aria-label="Create polygon"
-                onClick={() => setNodeClickTool(value => (value === 'polygon' ? 'select' : 'polygon'))}
-              >Poly</button>
-              <button
-                className="fab"
-                style={{ width: 64, height: 48 }}
-                title="Duplicate active layer"
-                aria-label="Duplicate active layer"
-                onClick={duplicateActiveLayer}
-              >Copy</button>
-              <button
-                className="fab"
-                style={{ width: 56, height: 48, border: nodeClickTool === 'add' ? '2px solid #ffb400' : undefined }}
-                title="Add node tool: click a segment"
-                aria-label="Add node tool"
-                onClick={() => setNodeClickTool(value => (value === 'add' ? 'select' : 'add'))}
-              >+N</button>
-              <button
-                className="fab"
-                style={{ width: 56, height: 48, border: nodeClickTool === 'remove' ? '2px solid #ffb400' : undefined }}
-                title="Remove node tool: click a node"
-                aria-label="Remove node tool"
-                onClick={() => setNodeClickTool(value => (value === 'remove' ? 'select' : 'remove'))}
-              >-N</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48 }}
-                title="Zoom out"
-                aria-label="Zoom out"
-                onClick={() => zoomNodeEditViewAtCanvasCenter(1 / 1.2)}
-              >-</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48 }}
-                title={`Reset node edit zoom (${Math.round(nodeEditView.zoom * 100)}%)`}
-                aria-label="Reset node edit zoom"
-                onClick={() => setNodeEditViewState(DEFAULT_NODE_EDIT_VIEW)}
-              >{`${Math.round(nodeEditView.zoom * 100)}%`}</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48 }}
-                title="Zoom in"
-                aria-label="Zoom in"
-                onClick={() => zoomNodeEditViewAtCanvasCenter(1.2)}
-              >+</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48, border: bendLatch ? '2px solid #ffb400' : undefined }}
-                title="Toggle bend latch"
-                aria-label="Toggle bend latch"
-                onClick={() => setBendLatch(value => !value)}
-              >⌘</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48 }}
-                title="Undo node edit"
-                aria-label="Undo node edit"
-                onClick={undoOnce}
-                disabled={!(historyRef.current.layerIndex >= 0 && historyRef.current.index > 0)}
-              >↶</button>
-              <button
-                className="fab"
-                style={{ width: 48, height: 48 }}
-                title="Redo node edit"
-                aria-label="Redo node edit"
-                onClick={redoOnce}
-                disabled={!(historyRef.current.layerIndex >= 0 && historyRef.current.index < historyRef.current.stack.length - 1)}
-              >↷</button>
-            </div>
+            <NodeEditorToolbar
+              status={draftHint}
+              onDone={setIsNodeEditMode ? () => setIsNodeEditMode(false) : undefined}
+              tool={nodeClickTool}
+              onToolChange={tool => { setNodeClickTool(tool); setBendLatch(false); setNodeViewMode(false); }}
+              pull={bendLatch}
+              onPull={() => { setBendLatch(value => !value); setNodeClickTool('select'); setNodeViewMode(false); }}
+              viewMode={nodeViewMode}
+              onView={() => { setNodeViewMode(value => !value); setBendLatch(false); setNodeClickTool('select'); }}
+              pencilOnly={pencilOnly}
+              onPencilOnly={() => setPencilOnly(value => !value)}
+              sides={polygonSidesInput}
+              onSidesChange={setPolygonSidesInput}
+              onDuplicate={duplicateActiveLayer}
+              zoom={nodeEditView.zoom}
+              onZoom={zoomNodeEditViewAtCanvasCenter}
+              onResetView={() => setNodeEditViewState(DEFAULT_NODE_EDIT_VIEW)}
+              canUndo={historyRef.current.layerIndex >= 0 && historyRef.current.index > 0}
+              canRedo={historyRef.current.layerIndex >= 0 && historyRef.current.index < historyRef.current.stack.length - 1}
+              onUndo={undoOnce}
+              onRedo={redoOnce}
+              drafting={!!draftPathRef.current}
+              onFinish={() => {
+                if (draftPathRef.current?.kind === 'polygon') commitPolygonDraft();
+                else if (draftPathRef.current) {
+                  draftPathRef.current = null;
+                  draftBackupRef.current = null;
+                  draftMoveRef.current = false;
+                  pushHistorySnapshot();
+                  clearDragState();
+                  showDraftHint('Line finished');
+                }
+              }}
+              onClose={() => {
+                if (draftPathRef.current) closeDraftPath();
+                else closeOpenLayerAsShape(Math.max(0, selectedLayerIndex ?? 0));
+              }}
+              canClose={!!draftPathRef.current || isOpenPathLayer(layers[selectedLayerIndex])}
+              onCancel={() => { cancelDraftPath(); clearDragState(); showDraftHint('Draft cancelled'); }}
+            />
           )}
         </>
       );
@@ -4692,6 +4632,7 @@ const areCanvasPropsEqual = (prev, next) => {
     prev.globalSeed === next.globalSeed &&
     prev.globalBlendMode === next.globalBlendMode &&
     prev.isNodeEditMode === next.isNodeEditMode &&
+    prev.setIsNodeEditMode === next.setIsNodeEditMode &&
     prev.isFrozen === next.isFrozen &&
     prev.colorFadeWhileFrozen === next.colorFadeWhileFrozen &&
     prev.selectedLayerIndex === next.selectedLayerIndex &&

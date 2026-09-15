@@ -1,0 +1,87 @@
+.node-editor-toolbar {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  top: max(12px, env(safe-area-inset-top));
+  z-index: 9000;
+  box-sizing: border-box;
+  width: min(680px, calc(100% - 24px));
+  max-height: 45%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 8px;
+  border: 1px solid #555;
+  border-radius: 16px;
+  background: rgba(24, 24, 28, 0.94);
+  color: #f7f7fa;
+  box-shadow: 0 4px 20px #0005;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.node-editor-open {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #747480;
+  border-radius: 12px;
+  background: #24242bee;
+  color: #fff;
+  font: inherit;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.node-editor-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-editor-toolbar-row + .node-editor-toolbar-row { margin-top: 6px; }
+.node-editor-toolbar-spacer { flex: 1; }
+.node-editor-toolbar button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid #60606c;
+  border-radius: 10px;
+  background: #303039;
+  color: #f7f7fa;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.node-editor-toolbar button[aria-pressed='true'] {
+  background: #634919;
+  border-color: #ffca65;
+  color: #ffe2a9;
+}
+.node-editor-toolbar button:disabled { opacity: 0.4; cursor: default; }
+.node-editor-toolbar button:focus-visible,
+.node-editor-toolbar input:focus-visible { outline: 2px solid #ffca65; outline-offset: 2px; }
+.node-editor-sides { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.node-editor-sides input {
+  box-sizing: border-box;
+  width: 56px;
+  min-height: 44px;
+  padding: 4px;
+  border: 1px solid #60606c;
+  border-radius: 8px;
+  background: #202025;
+  color: #fff;
+  font-size: 16px;
+}
+.node-editor-gesture-hint { flex: 1 1 220px; margin: 0; font-size: 12px; line-height: 1.5; color: #d0d0db; }
+.node-editor-zoom { display: flex; gap: 4px; }
+
+@media (max-width: 600px) {
+  .node-editor-toolbar { padding: 6px; }
+  .node-editor-toolbar-spacer { display: none; }
+  .node-editor-toolbar button { padding: 6px 8px; }
+}
