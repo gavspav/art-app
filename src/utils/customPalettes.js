@@ -1,4 +1,4 @@
-const CUSTOM_PALETTES_KEY = 'artapp-custom-palettes-v1';
+const CUSTOM_PALETTES_KEY = 'artapp-studio-v1-custom-palettes-v1';
 
 const normalizeColor = (value) => {
   if (typeof value !== 'string') return '';

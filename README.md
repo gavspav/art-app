@@ -1,6 +1,6 @@
 # Art App (React + Vite)
 
-Interactive generative art app with layers, palettes, animation, MIDI control, and reproducible randomization.
+Interactive generative art studio with layers, palettes, animation, audio response, MIDI control, and iPad/Pencil editing.
 
 ## Beginner Installation Guide (Step by Step)
 
@@ -76,7 +76,7 @@ npm run dev
 
 ## Architecture Overview
 
-- `src/App.jsx` orchestrates contexts, hooks, and UI components.
+- `src/App.jsx` orchestrates document state, animation, import/export, and the workspace.
 - `src/context/` provides global state (`AppStateContext.jsx`) and parameter config (`ParameterContext.jsx`).
 - `src/components/` contains UI split by responsibility (global controls, canvas, controls sidebar, etc.).
 - `src/hooks/` contains extracted logic: keyboard shortcuts, randomization suite, MIDI handlers, etc.
@@ -84,11 +84,13 @@ npm run dev
 
 ### Key Components & Hooks
 
-- `components/global/GlobalControls.jsx` – global sliders and toggles (Freeze, Classic Mode, Z-Ignore, MIDI Learn, etc.).
+- `components/workspaces/FreeWorkspace.jsx` – canvas-first shell with the tool rail, top bar, and command search.
+- `components/workspaces/StudioInspector.jsx` – contextual Global, Layers, Shape, Colour, Motion, Audio, and Settings panels.
 - `components/Canvas.jsx` – canvas drawing, rotation, toroidal wrapping for drift, z-scaling.
 - `components/Controls.jsx` – per-layer controls (Shape/Colors/Animation), including rotate with dice/settings.
 - `hooks/useRandomization.js` – Randomize All (modern/classic), per-layer, palette gating via Include flags.
-- `hooks/useKeyboardShortcuts.js` – Space (Freeze), H (overlay), F (fullscreen), R (randomize all), M (MIDI), N (node edit), [ / ] and 1..9 (layers), Z (Z-Ignore).
+- `commands/studioCommands.js` – the shared command registry used by keyboard shortcuts and command search.
+- `hooks/useDocumentHistory.js` – 50-step undo/redo across artwork, parameters, and mappings.
 - `hooks/useAnimation.js` – animation loop, respects `zIgnore`.
 
 ## Seeded Randomness Policy
@@ -99,8 +101,8 @@ npm run dev
 
 ## Persistence
 
-- Parameters auto-save to `localStorage` under `artapp-parameters`.
-- Full configurations (including `appState`) are saved via `saveFullConfiguration()` and can be reloaded, preserving:
+- Projects, autosaves, parameters, mappings, and audio-file metadata use the isolated `artapp-studio-v1` browser-storage namespace. Older storage is left untouched.
+- Versioned project files preserve:
   - Layer stack, palettes, toggles (`randomizePalette`, `randomizeNumColors`, Include flags).
   - Global controls (Freeze, Classic Mode, Z-Ignore, speed, blend mode, background, etc.).
   - MIDI mappings and selected input.
@@ -111,19 +113,22 @@ npm run dev
 - **F** – Toggle fullscreen (`useFullscreen`)
 - **R** – Randomize all layers (`handleRandomizeAll()`)
 - **G** – Switch parameter target (Global ⇄ Individual)
-- **M** – Show or hide the global MIDI learn controls
 - **N** – Toggle Node Edit mode
 - **Z** – Toggle Z-Ignore (stop Z-axis motion)
 - **O** – Show or hide layer outlines
-- **S** – Quick-save the current setup to the in-memory slot
-- **Shift + A** – Recall the quick preset from memory
+- **Cmd/Ctrl + S** – Save a project file
+- **Cmd/Ctrl + O** – Open a project file
+- **Cmd/Ctrl + Z** – Undo
+- **Cmd/Ctrl + Shift + Z** – Redo
+- **Cmd/Ctrl + K** – Search all commands
+- **1…7** – Open Global, Layers, Shape, Colour, Motion, Audio, or Settings
+- **H** – Hide or show the inspector
+- **V** – Select tool
+- **E** – Export an image
 - **[** / **]** – Select the previous or next layer
 - **Shift + 1…9** – Jump to a specific layer (Layer 1..9)
 - **K** – Open/close the keyboard shortcuts overlay
 - **Esc** – Close the keyboard shortcuts overlay (when open)
-- **1…6** – Switch bottom panel tabs (Global, Shape, Animation, Colour, Presets, Groups)
-- **H** – Expand or collapse the bottom control panel (expanded ⇄ peek)
-- **L** – Lock or unlock the bottom control panel position
 - **Delete / Backspace** – Delete the active layer while in Node Edit mode (if more than one layer remains)
 
 ## Node Edit Drawing

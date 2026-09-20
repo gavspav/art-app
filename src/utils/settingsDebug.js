@@ -1,6 +1,6 @@
 // Shared helpers for ad-hoc settings performance debugging.
 // Enable by running in devtools: window.__artapp_debugSettings = true;
-// or localStorage.setItem('artapp-debug-settings', 'true') then reload.
+// or localStorage.setItem('artapp-studio-v1-debug-settings', 'true') then reload.
 
 let lastLogTs = 0;
 const LOG_THROTTLE_MS = 200;
@@ -9,7 +9,7 @@ export const isSettingsDebugEnabled = () => {
   if (typeof window === 'undefined') return false;
   if (window.__artapp_debugSettings === true) return true;
   try {
-    return localStorage.getItem('artapp-debug-settings') === 'true';
+    return localStorage.getItem('artapp-studio-v1-debug-settings') === 'true';
   } catch {
     return false;
   }

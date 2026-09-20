@@ -4,7 +4,6 @@ import { useAppState } from './context/AppStateContext.jsx';
 import { useMidi } from './context/MidiContext.jsx';
 import { useAudioReactive } from './context/AudioContext.jsx';
 import { useBPM } from './context/BPMContext.jsx';
-import { useTimeline } from './context/TimelineContext.jsx';
 import { palettes } from './constants/palettes';
 import { blendModes } from './constants/blendModes';
 import { DEFAULTS, DEFAULT_LAYER } from './constants/defaults';
@@ -23,19 +22,17 @@ import { useImportAdjust } from './hooks/useImportAdjust.js';
 import { useLayerManagement } from './hooks/useLayerManagement.js';
 import { useRandomization } from './hooks/useRandomization.js';
 import { useAutosave } from './hooks/useAutosave.js';
-import { useTimelineModeAutomationGate } from './hooks/useTimelineModeAutomationGate.js';
+import { useDocumentHistory } from './hooks/useDocumentHistory.js';
 import { useSceneSnapshots } from './hooks/useSceneSnapshots.js';
 import { useSvgImport } from './hooks/useSvgImport.js';
 import './App.css';
 import { sampleColorsEven as sampleColorsEvenUtil, distributeColorsAcrossLayers as distributeColorsAcrossLayersUtil, pickPaletteColors } from './utils/paletteUtils.js';
 import { buildVariedLayerFrom as buildVariedLayerFromUtil } from './utils/layerVariation.js';
-import { shouldBlurActiveTextInputOnPointerDown, shouldIgnoreGlobalKey } from './utils/domUtils.js';
+import { shouldBlurActiveTextInputOnPointerDown } from './utils/domUtils.js';
 import { createCustomPaletteEntry, loadCustomPalettes, mergeCustomPalettes, saveCustomPalettes } from './utils/customPalettes.js';
 import { createSeededRandom } from './utils/randomUtils.js';
-import KeyboardShortcutsOverlay from './components/global/KeyboardShortcutsOverlay.jsx';
 import AppProviders from './components/app/AppProviders.jsx';
 import WorkspaceRouter from './components/workspaces/WorkspaceRouter.jsx';
-import { useTimelineModulation } from './hooks/useTimelineModulation.js';
 // LayerList removed; layer management moved to Controls header
 // Settings page not used; quick export/import handled inline
 
@@ -93,7 +90,6 @@ const MainApp = () => {
   const {
     isFrozen, setIsFrozen,
 	    enableBreathing, setEnableBreathing,
-	    enableEnergyScaling,
 	    energyInfluence,
 	    setEnergyInfluence,
 	    audioSpawnEnabled,
@@ -161,35 +157,15 @@ const MainApp = () => {
     getActiveTargetLayerIds,
     clearSelection,
     setEditTarget,
-    // Group and selection state
     editTarget,
-    layerGroups,
     selectedLayerIds,
     toggleLayerSelection,
-    quickPreset,
-    setQuickPresetSnapshot,
     getCurrentAppState,
     loadAppState,
     isDirty,
     setIsDirty,
     lastSavedAt,
     setLastSavedAt,
-    // Preset/morph state for GlobalControls
-    presetSlots,
-    getPresetSlot,
-    morphEnabled,
-    morphRoute,
-    morphDurationPerLeg,
-    morphEasing,
-    morphLoopMode,
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    morphMode,
-    setMorphMode,
-    morphNodes,
     applyVariationInstantly,
     setApplyVariationInstantly,
   } = appStateCtx;
@@ -200,11 +176,8 @@ const MainApp = () => {
     setMappingsFromExternal,
     registerParamHandler,
   } = useMidi() || {};
-
-  // Timeline context (must be initialized before hooks that capture it, e.g., startRecording)
-  const timelineContext = useTimeline();
-  const timelineContextRef = useRef(timelineContext);
-  useEffect(() => { timelineContextRef.current = timelineContext; }, [timelineContext]);
+  const audioReactive = useAudioReactive();
+  const bpmForAnimation = useBPM();
 
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
@@ -212,13 +185,11 @@ const MainApp = () => {
   const colorRandomCallRef = useRef(0);
   const configFileInputRef = React.useRef(null);
   const svgFileInputRef = React.useRef(null);
-  // Shape track updates ref - shared between useTimelineModulation and useAnimation
-  const shapeTrackUpdatesRef = useRef(new Map());
   const nodeEditDeleteHandlerRef = useRef(null);
-  const variationBaseRef = useRef(new Map());
   // Removed Global Colours UI
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen(containerRef);
   const [isRecording, setIsRecording] = useState(false);
+  const [includeRecordingAudio, setIncludeRecordingAudio] = useState(false);
   const [suppressEphemeralOverlays, setSuppressEphemeralOverlays] = useState(false);
   const recorderRef = useRef({ mediaRecorder: null, stream: null });
   const recordedChunksRef = useRef([]);
@@ -233,11 +204,12 @@ const MainApp = () => {
         });
       }
     } catch { /* noop */ }
+	    try { audioReactive?.releaseRecordingStream?.(); } catch { /* noop */ }
 	    recorderRef.current = { mediaRecorder: null, stream: null };
 	    recordedChunksRef.current = [];
 	    setIsRecording(false);
 	    setSuppressEphemeralOverlays(false);
-	  }, []);
+	  }, [audioReactive]);
 
 	  const startRecording = useCallback(async () => {
 	    if (isRecording) {
@@ -293,9 +265,10 @@ const MainApp = () => {
 	      return;
 	    }
 
-    // Try to get audio stream from timeline (if audio is loaded and playing)
+    // Source audio is opt-in. The audio engine returns recording-only tracks,
+    // so cleanup never stops microphone listening or file playback.
     let combinedStream = videoStream;
-    const audioStream = timelineContext?.getAudioStream?.();
+    const audioStream = includeRecordingAudio ? audioReactive?.getRecordingStream?.() : null;
     if (audioStream && audioStream.getAudioTracks().length > 0) {
       try {
         // Combine video and audio tracks into a single stream
@@ -308,7 +281,7 @@ const MainApp = () => {
         combinedStream = videoStream;
       }
     } else {
-      console.log('Recording video only (no usable timeline audio stream available)');
+      console.log('Recording video only');
     }
 
     const preferredMime = pickBestRecorderMime();
@@ -387,7 +360,7 @@ const MainApp = () => {
 	    }
 
 	    setIsRecording(true);
-	  }, [cleanupRecorder, isRecording, suppressEphemeralOverlays, timelineContext]);
+	  }, [audioReactive, cleanupRecorder, includeRecordingAudio, isRecording, suppressEphemeralOverlays]);
 
   const stopRecording = useCallback(() => {
     const { mediaRecorder } = recorderRef.current || {};
@@ -413,36 +386,6 @@ const MainApp = () => {
     setParameterTargetMode(next);
   }, [parameterTargetMode, setParameterTargetMode]);
 
-  // Keyboard Shortcuts overlay
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  
-  // Panel layout sizes (persisted to localStorage)
-  const [leftPanelRatio, setLeftPanelRatio] = useState(() => {
-    try {
-      const saved = localStorage.getItem('artapp-left-panel-ratio');
-      const parsed = saved ? parseFloat(saved) : 0.25;
-      return Number.isFinite(parsed) ? Math.min(0.5, Math.max(0.15, parsed)) : 0.25;
-    } catch { return 0.25; }
-  });
-  const [topPanelRatio, setTopPanelRatio] = useState(() => {
-    try {
-      const saved = localStorage.getItem('artapp-top-panel-ratio');
-      const parsed = saved ? parseFloat(saved) : 0.5;
-      return Number.isFinite(parsed) ? Math.min(0.8, Math.max(0.2, parsed)) : 0.5;
-    } catch { return 0.5; }
-  });
-  const TOP_BAR_HEIGHT = 0;
-  const availableHeightExpr = `calc(100vh - ${TOP_BAR_HEIGHT}px)`; // exclude fixed top bar
-  const topPanelHeightExpr = `calc(${availableHeightExpr} * ${topPanelRatio})`;
-  const timelineHeightExpr = `calc(${availableHeightExpr} * ${1 - topPanelRatio})`;
-  
-  // Persist panel ratios
-  useEffect(() => {
-    try { localStorage.setItem('artapp-left-panel-ratio', String(leftPanelRatio)); } catch { /* noop */ }
-  }, [leftPanelRatio]);
-  useEffect(() => {
-    try { localStorage.setItem('artapp-top-panel-ratio', String(topPanelRatio)); } catch { /* noop */ }
-  }, [topPanelRatio]);
   // Keep latest values accessible to hotkeys without re-binding listeners
   const hotkeyRef = useRef({ selectedIndex: 0, layersLen: 0, overlayVisible: true, nodeEditMode: false, isolateMode: false });
   useEffect(() => {
@@ -508,24 +451,6 @@ const MainApp = () => {
     };
   }, [cleanupRecorder]);
 
-  // Global key handler for toggling shortcuts overlay
-  useEffect(() => {
-    const onKey = (e) => {
-      if (shouldIgnoreGlobalKey(e)) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return; // allow Shift-k as well
-      const key = (e.key || '').toLowerCase();
-      if (key === 'k') {
-        e.preventDefault();
-        setShowShortcuts(s => !s);
-      }
-      if (key === 'escape' && showShortcuts) {
-        setShowShortcuts(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showShortcuts]);
-
   // Sidebar resize handlers
   // --- Import adjust panel state (moved to hook) ---
   const {
@@ -538,29 +463,14 @@ const MainApp = () => {
   } = useImportAdjust({ setLayers });
 
   // Audio reactive context (for useAudioHandlers)
-  const audioReactive = useAudioReactive();
   const { getAudioSnapshot, applyAudioSnapshot } = audioReactive || {};
   
   // BPM context
-  const bpmForAnimation = useBPM();
   const { getBPMSnapshot, applyBPMSnapshot } = bpmForAnimation || {};
 
-  // Timeline context helpers
-  const {
-    getTimelineSnapshot,
-    applyTimelineSnapshot,
-    visible: timelineVisible,
-    setVisible: setTimelineVisible,
-    isPlaying: timelineIsPlaying,
-    positionSeconds: timelinePositionSeconds,
-    startPreset: timelineStartPreset,
-  } = timelineContext || {};
-
-  // Modulation store - centralizes Audio/BPM/Timeline modulations so they can be applied
+  // Modulation store centralizes Audio and BPM modulation.
   // in a single setLayers call per frame (instead of multiple calls causing UI clogging)
   const modulationStore = useModulationStore();
-
-  const { timelineMode, setTimelineMode } = appStateCtx;
 
   // Helper to evenly sample colors from a palette to a desired count (with repeats allowed)
   // Memoized to provide a stable function identity to child components/hooks
@@ -631,7 +541,7 @@ const MainApp = () => {
 	    overlayLayersRef: audioSpawnOverlayLayersRef,
 	    triggerAudioSpawn,
 	  } = useAudioSpawnLayers({
-	    enabled: !!audioSpawnEnabled && !timelineMode,
+	    enabled: !!audioSpawnEnabled,
 	    paused: !!suppressEphemeralOverlays || !!isRecording,
       zIgnore: !!zIgnore,
       getIsRnd: (id) => !!includeRndRef.current?.[id],
@@ -656,53 +566,12 @@ const MainApp = () => {
 	    directionSpreadDeg: audioSpawnDirectionSpread,
 	  });
 
-  // Two-mode switch: keep timeline panel visibility in sync with the chosen authority.
-  // When Timeline mode is active, disable competing automation sources (BPM + Audio),
-  // and restore previous runtime state when switching back to Free mode.
-  // Enforce "Timeline mode disables BPM + Audio" even if the user toggles them on.
-  // When audio is disabled in Free mode, clear audio mod state so layers don't keep stale values.
-  useTimelineModeAutomationGate({
-    timelineMode,
-    setTimelineVisible,
-    audioReactive,
-    bpmForAnimation,
-    modulationStore,
-  });
-
-  // When timeline playback starts from t=0 and a timeline start preset exists,
-  // recall that preset app state before timeline automation is applied.
-  const lastTimelinePlayingRef = useRef(false);
-  useEffect(() => {
-    if (!timelineStartPreset || !timelineStartPreset.appState || !loadAppState) {
-      lastTimelinePlayingRef.current = !!timelineIsPlaying;
-      return;
-    }
-
-    const wasPlaying = lastTimelinePlayingRef.current;
-    const nowPlaying = !!timelineIsPlaying;
-    const pos = typeof timelinePositionSeconds === 'number' ? timelinePositionSeconds : 0;
-
-    // Rising edge of play while at (or very near) t=0
-    if (!wasPlaying && nowPlaying && pos <= 0.001) {
-      loadAppState(timelineStartPreset.appState);
-    }
-
-    lastTimelinePlayingRef.current = nowPlaying;
-  }, [
-    timelineIsPlaying,
-    timelinePositionSeconds,
-    timelineStartPreset,
-    loadAppState,
-  ]);
-
-  // Wrapper for setIsNodeEditMode that sets context with layer info and timeline position
-  // When entering node edit mode, first sync animated positions to React state so Canvas
-  // (which switches to using `layers` in node edit mode) shows the correct positions
+  // Enter node editing without a visual jump by committing the currently rendered
+  // procedural position and geometry to the authored layer first.
   const handleSetNodeEditMode = useCallback((value, options = {}) => {
     if (value) {
       // CRITICAL: Sync the currently-rendered (animated) snapshot into React state before entering node edit mode.
       // Canvas uses `layers` (React state) in node edit mode, but `animatedLayersRef` in normal mode.
-      // Without this sync, entering node edit mode causes a visual jump (often to a timeline-evaluated shape).
       const animatedLayers = animatedLayersRef.current;
       const requestedIndex = Number.isFinite(options?.selectedIndex) ? Math.floor(options.selectedIndex) : null;
       const selectedIndex = requestedIndex != null
@@ -727,8 +596,7 @@ const MainApp = () => {
               spinAngle: animated.spinAngle ?? layer.spinAngle,
             };
 
-            // Also sync the currently-rendered geometry + key shape params for the active layer
-            // so entering node edit mode does not snap to a different evaluated timeline shape.
+            // Also sync the currently-rendered geometry and key shape parameters.
             if (i === selectedIndex) {
               // Geometry (nodes OR subpaths)
               if (Array.isArray(animated.subpaths) && animated.subpaths.length > 0) {
@@ -761,19 +629,10 @@ const MainApp = () => {
       }
 
       const layersNow = animatedLayersRef.current || layersRef.current || [];
-      const timelineNow = timelineContextRef.current;
-
-      // Entering node edit mode - capture context
       const layer = layersNow[selectedIndex];
-      
-      // Use getPositionSeconds() if available to get the most up-to-date time from the ref
-      // This avoids using stale state which updates less frequently
-      const positionSeconds = timelineNow?.getPositionSeconds?.() ?? timelineNow?.positionSeconds ?? 0;
-      
       const context = {
         layerId: layer?.id || null,
         layerName: layer?.name || null,
-        timelinePosition: positionSeconds,
       };
 
       setIsNodeEditMode(true, context);
@@ -785,10 +644,8 @@ const MainApp = () => {
 
   // Start animation loop (position, bounce/drift, z-scale)
   // Modulations are now read from the store and applied in a single pass
-  // Shape track updates are evaluated directly during playback for frame-accurate interpolation
-  // Hold the free-mode scene still while editing; preserve the user's playback setting.
-  const pauseForNodeEditing = isNodeEditMode && !timelineMode;
-  useAnimation(null, isFrozen || pauseForNodeEditing, globalSpeedMultiplier, zIgnore, modulationStore, shapeTrackUpdatesRef, layersRef, animatedLayersRef, timelineContext);
+  const pauseForNodeEditing = isNodeEditMode;
+  useAnimation(null, isFrozen || pauseForNodeEditing, globalSpeedMultiplier, zIgnore, modulationStore, null, layersRef, animatedLayersRef, null);
 
   // Config save/load from contexts
   const {
@@ -802,14 +659,14 @@ const MainApp = () => {
 	  // Randomize All include toggles (Global section) — store locally to control Randomize All behavior
 	  const [includeRnd, setIncludeRnd] = useState(() => {
       try {
-        const stored = window.localStorage.getItem('artapp-includeRnd');
+        const stored = window.localStorage.getItem('artapp-studio-v1-includeRnd');
         if (stored) return { ...DEFAULT_INCLUDE_RND, ...JSON.parse(stored) };
       } catch { /* ignore */ }
       return DEFAULT_INCLUDE_RND;
     });
     useEffect(() => {
       includeRndRef.current = includeRnd;
-      try { window.localStorage.setItem('artapp-includeRnd', JSON.stringify(includeRnd)); } catch { /* ignore */ }
+      try { window.localStorage.setItem('artapp-studio-v1-includeRnd', JSON.stringify(includeRnd)); } catch { /* ignore */ }
     }, [includeRnd]);
 	  const getIsRnd = React.useCallback((id) => !!includeRnd[id], [includeRnd]);
 	  const setIsRnd = React.useCallback((id, v) => setIncludeRnd(prev => ({ ...prev, [id]: !!v })), []);
@@ -827,19 +684,9 @@ const MainApp = () => {
       : uiLayers;
     if (!Array.isArray(layerSource) || layerSource.length === 0) return DEFAULT_LAYER;
 
-    // If a group is selected, find the first layer in that group (match by id from snapshot)
-    if (editTarget?.type === 'group' && editTarget.groupId) {
-      const group = (layerGroups || []).find(g => g.id === editTarget.groupId);
-      if (group && Array.isArray(group.memberIds) && group.memberIds.length > 0) {
-        const firstLayerId = group.memberIds[0];
-        const firstLayer = layerSource.find(l => l?.id === firstLayerId);
-        if (firstLayer) return firstLayer;
-      }
-    }
-
     // Default: use the selected layer index
     return layerSource[clampedSelectedIndex] || layerSource[0];
-  }, [layers, uiLayers, clampedSelectedIndex, editTarget, layerGroups]);
+  }, [layers, uiLayers, clampedSelectedIndex]);
 
   const baseColors = useMemo(() => (
     Array.isArray(uiLayers?.[0]?.colors) ? uiLayers[0].colors : []
@@ -856,13 +703,31 @@ const MainApp = () => {
     (Array.isArray(uiLayers) ? uiLayers : []).map((l, i) => l?.name || `Layer ${i + 1}`)
   ), [uiLayers]);
 
+  const documentHistory = useDocumentHistory({
+    capture: () => ({
+      parameters,
+      appState: { ...getCurrentAppState(), includeRnd },
+      audioConfig: getAudioSnapshot?.() || null,
+      bpmConfig: getBPMSnapshot?.() || null,
+      midiMappings: midiMappings || {},
+    }),
+    restore: snapshot => {
+      if (Array.isArray(snapshot?.parameters)) applyParametersSnapshot?.(snapshot.parameters);
+      if (snapshot?.appState) {
+        loadAppState?.(snapshot.appState);
+        if (snapshot.appState.includeRnd) setIncludeRnd({ ...DEFAULT_INCLUDE_RND, ...snapshot.appState.includeRnd });
+      }
+      if (snapshot?.audioConfig) applyAudioSnapshot?.(snapshot.audioConfig);
+      if (snapshot?.bpmConfig) applyBPMSnapshot?.(snapshot.bpmConfig);
+      if (snapshot?.midiMappings) setMappingsFromExternal?.(snapshot.midiMappings);
+    },
+  });
+
   const {
     getFullAppState,
     handleQuickSave,
     handleQuickLoad,
     handleImportFile,
-    handleRamPresetSave,
-    handleRamPresetRecall,
   } = useSceneSnapshots({
     canvasRef,
     configFileInputRef,
@@ -877,10 +742,6 @@ const MainApp = () => {
     applyAudioSnapshot,
     getBPMSnapshot,
     applyBPMSnapshot,
-    getTimelineSnapshot,
-    applyTimelineSnapshot,
-    quickPreset,
-    setQuickPresetSnapshot,
     applyParametersSnapshot,
     loadAppState,
     getSavedConfigList,
@@ -888,6 +749,7 @@ const MainApp = () => {
     loadParameters,
     setMappingsFromExternal,
     mergeCustomPaletteList,
+    resetDocumentHistory: documentHistory.reset,
   });
 
   // Distribute a color array across N layers as evenly as possible (round-robin)
@@ -906,28 +768,6 @@ const MainApp = () => {
     });
   };
   /* eslint-enable no-unused-vars */
-
-  // Timeline modulation - applies timeline track values to the modulation store
-  // Uses shapeTrackUpdatesRef for animation loop to consume shape track data
-  useTimelineModulation({
-    modulationStore,
-    layers,
-    bpmContext: bpmForAnimation,
-    audioContext: audioReactive,
-    midiContext: useMidi(),
-    setGlobalSpeedMultiplier,
-    setGlobalOpacity: undefined,
-    setBackgroundColor,
-    setGlobalBlendMode,
-    blendModes,
-    palettes,
-    sampleColorsEven,
-    setLayers,
-    getPresetSlot,
-    morphRoute,
-    morphNodes,
-    shapeTrackUpdatesRef, // Pass ref for shape track updates
-  });
 
   // Assign exactly ONE colour per layer (cycled) so Global palette preset can be detected reliably
   // Memoized to provide a stable function identity to child components/hooks
@@ -1162,617 +1002,6 @@ const MainApp = () => {
     else modernRandomizeAll();
   }, [classicMode, classicRandomizeAll, modernRandomizeAll]);
 
-  useEffect(() => {
-    variationBaseRef.current.clear();
-  }, [selectedLayerIndex]);
-
-  const findShapeTrackForLayer = useCallback((layer) => {
-    if (!layer || !timelineContext?.tracks) return null;
-    const layerName = layer.name;
-    const layerId = layer.id;
-    const shapeTracks = timelineContext.tracks.filter((t) => {
-      if (t?.type !== 'shape') return false;
-      const parts = String(t.targetId || '').split(':');
-      return parts.length >= 3 && parts[0] === 'layer' && parts[2] === 'shape';
-    });
-    if (!shapeTracks.length) return null;
-
-    // Prefer name-targeted tracks first; IDs can be stale if duplicates were normalized.
-    if (layerName) {
-      const byName = shapeTracks.find((t) => String(t.targetId || '').split(':')[1] === layerName);
-      if (byName) return byName;
-    }
-    if (layerId) {
-      return shapeTracks.find((t) => String(t.targetId || '').split(':')[1] === layerId) || null;
-    }
-    return null;
-  }, [timelineContext?.tracks]);
-
-  // --- Variation Keyframe Generation Handlers ---
-
-  // Generate a single variation keyframe at current playhead position
-  // Supports both single-layer shape tracks and global shape tracks
-  const handleGenerateVariationKeyframe = useCallback(() => {
-    if (!timelineContext?.visible) return;
-
-    let layer = layers[selectedLayerIndex];
-    let shapeTrack = findShapeTrackForLayer(layer);
-    let autoCreatedShapeTrackId = null;
-
-
-    // Auto-create a shape track for the selected layer if none exists
-    if (!shapeTrack && layer && timelineContext.addTrack) {
-      const layerName = layer.name || `Layer ${selectedLayerIndex + 1}`;
-      const newTrackId = timelineContext.addTrack(
-        `${layerName} Shape`,
-        `layer:${layerName}:shape`,
-        null, null, 'shape'
-      );
-      if (newTrackId) {
-        // Build a minimal track object so generateVariationKeyframe can find it
-        // (the real track is in React state which updates async, but addTrack returns the ID)
-        shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
-        autoCreatedShapeTrackId = newTrackId;
-        console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
-      }
-    }
-
-    if (shapeTrack && layer) {
-      const baseKey = layer.id || layer.name;
-      let baseLayer = variationBaseRef.current.get(baseKey);
-      if (!baseLayer) {
-        baseLayer = JSON.parse(JSON.stringify(layer));
-        variationBaseRef.current.set(baseKey, baseLayer);
-      }
-
-      const variationWeights = {
-        shape: layer.variationShape ?? layer.variation ?? 0.2,
-        anim: layer.variationAnim ?? layer.variation ?? 0.2,
-        color: layer.variationColor ?? layer.variation ?? 0.2,
-        position: layer.variationPosition ?? layer.variation ?? 0.2,
-        scale: layer.variationScale ?? 0,
-      };
-
-      const variationOptions = {
-        variationWeights,
-        isParamRandomizable,
-        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-        paletteColors: generationPaletteColors,
-        backgroundColor,
-      };
-
-      // Newly auto-created tracks are added via async React state update.
-      // Defer generation one frame so TimelineContext can find the track.
-      if (autoCreatedShapeTrackId) {
-        requestAnimationFrame(() => {
-          const deferredKeyframeId = timelineContext.generateVariationKeyframe?.(
-            autoCreatedShapeTrackId,
-            baseLayer,
-            variationOptions,
-          );
-          if (deferredKeyframeId) {
-            console.log('Generated variation keyframe:', deferredKeyframeId);
-          }
-        });
-        return;
-      }
-
-      const keyframeId = timelineContext.generateVariationKeyframe?.(shapeTrack.id, baseLayer, variationOptions);
-      if (keyframeId) {
-        console.log('Generated variation keyframe:', keyframeId);
-      }
-      return;
-    }
-
-    // Fallback: global shape track
-    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
-    
-    if (globalShapeTrack) {
-      // Global shape track: generate variation for ALL layers
-      const firstLayer = layers[0];
-      const variationWeights = {
-        shape: firstLayer?.variationShape ?? firstLayer?.variation ?? 0.2,
-        anim: firstLayer?.variationAnim ?? firstLayer?.variation ?? 0.2,
-        color: firstLayer?.variationColor ?? firstLayer?.variation ?? 0.2,
-        position: firstLayer?.variationPosition ?? firstLayer?.variation ?? 0.2,
-        scale: firstLayer?.variationScale ?? 0,
-      };
-
-      const time = timelineContext.generateGlobalVariationKeyframe?.(globalShapeTrack.id, layers, {
-        variationWeights,
-        isParamRandomizable,
-        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-        paletteColors: generationPaletteColors,
-        backgroundColor,
-      });
-      if (time != null) {
-        console.log('Generated global variation keyframe at', time);
-      }
-      return;
-    }
-
-    console.warn('No shape track found for selected layer, and no global shape track found');
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
-
-  // Ref that TimelinePanel populates with its settings-aware random handler
-  // so the keyboard shortcut (Shift+R) uses the panel's Random N, transients, etc.
-  const panelGenerateRandomRef = useRef(null);
-  const panelOverwriteSelectedKeyframeRef = useRef(null);
-
-  // Generate random keyframes (option-driven, no modal prompts)
-  // Supports both single-layer shape tracks and global shape tracks
-  const handleGenerateRandomKeyframes = useCallback((options = {}) => {
-    if (!timelineContext?.visible) return;
-
-    let layer = layers[selectedLayerIndex];
-    const allTracks = timelineContext.tracks || [];
-    const requestedTrackId = typeof options.targetTrackId === 'string' ? options.targetTrackId : null;
-    const requestedTrack = requestedTrackId
-      ? allTracks.find(t => t.id === requestedTrackId)
-      : null;
-    const requestedIsShape = !!(requestedTrack && (requestedTrack.type === 'shape' || requestedTrack.targetId?.endsWith(':shape')));
-    const requestedIsGlobal = requestedTrack?.type === 'globalShape';
-    if (requestedIsShape && requestedTrack?.targetId) {
-      const parts = String(requestedTrack.targetId).split(':');
-      const targetLayerIdOrName = parts.length >= 2 ? parts[1] : null;
-      const targetLayer = layers.find(l => l?.name === targetLayerIdOrName || l?.id === targetLayerIdOrName);
-      if (targetLayer) {
-        layer = targetLayer;
-      }
-    }
-    const selectedShapeTrack = requestedTrack
-      ? (requestedIsShape ? requestedTrack : null)
-      : findShapeTrackForLayer(layer);
-
-    // Prefer selected-layer shape track when available unless an explicit track is requested.
-    const globalShapeTrack = requestedIsGlobal
-      ? requestedTrack
-      : allTracks.find(t => t.type === 'globalShape');
-    const isGlobal = requestedTrack
-      ? requestedIsGlobal
-      : (!selectedShapeTrack && !!globalShapeTrack);
-
-    // For single-layer mode, get the selected layer's track
-    let shapeTrack = requestedTrack
-      ? ((requestedIsShape || requestedIsGlobal) ? requestedTrack : null)
-      : (isGlobal ? globalShapeTrack : selectedShapeTrack);
-    let autoCreatedShapeTrackId = null;
-    const regenerateExistingSequence = options.regenerateExistingSequence === true;
-
-    if (requestedTrack && !shapeTrack) {
-      console.warn('Requested track is not a shape/global-shape track:', requestedTrackId);
-      return;
-    }
-    if (requestedTrack && requestedIsShape && !layer) {
-      console.warn('Cannot resolve base layer for requested shape track:', requestedTrackId);
-      return;
-    }
-
-    if (!isGlobal) {
-      if (!layer) return;
-      if (!shapeTrack) {
-        // No shape track — look for numeric/color tracks targeting this layer
-        const layerName = layer.name || `Layer ${selectedLayerIndex + 1}`;
-        const layerId = layer.id;
-        const numericTracks = (timelineContext.tracks || []).filter(t => {
-          if (t.type === 'shape' || t.type === 'globalShape') return false;
-          const tid = String(t.targetId || '');
-          if (!tid.startsWith('layer:')) return false;
-          const parts = tid.split(':');
-          return parts[1] === layerName || parts[1] === layerId;
-        });
-
-        if (numericTracks.length > 0) {
-          // Compute timing
-          const rawCount = Number(options.count);
-          const count = Number.isFinite(rawCount) && rawCount >= 1
-            ? Math.max(1, Math.floor(rawCount))
-            : (options.useTransients ? undefined : 5);
-
-          const playheadSec = timelineContext?.getPositionSeconds?.()
-            ?? timelineContext?.positionSeconds
-            ?? timelinePositionSeconds
-            ?? 0;
-          const defStart = Number.isFinite(playheadSec) ? Math.max(0, playheadSec) : 0;
-          const tlEnd = timelineContext?.audio?.durationSeconds ?? timelineContext?.lengthSeconds ?? 0;
-
-          const startTime = Number.isFinite(Number(options.startTime)) ? Number(options.startTime) : defStart;
-          const endTime = Number.isFinite(Number(options.endTime)) ? Number(options.endTime) : (Number.isFinite(tlEnd) ? tlEnd : 0);
-
-          if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-            console.warn('Invalid time range for random keyframe generation');
-            return;
-          }
-
-          let totalAdded = 0;
-          for (const nt of numericTracks) {
-            const added = timelineContext.generateRandomNumericKeyframes?.(nt.id, count, {
-              useTransients: !!options.useTransients && (timelineContext.transients?.length > 0),
-              startTime,
-              endTime,
-              replaceExistingKeyframes: !!options.replaceTrackKeyframes,
-            });
-            totalAdded += (added || 0);
-          }
-          if (totalAdded > 0) {
-            console.log('Generated', totalAdded, 'random numeric keyframes across', numericTracks.length, 'track(s)');
-          }
-          return;
-        }
-
-        // Auto-create a shape track for the selected layer
-        if (timelineContext.addTrack) {
-          const newTrackId = timelineContext.addTrack(
-            `${layerName} Shape`,
-            `layer:${layerName}:shape`,
-            null, null, 'shape'
-          );
-          if (newTrackId) {
-            shapeTrack = { id: newTrackId, type: 'shape', targetId: `layer:${layerName}:shape`, categories: { shape: true, animation: false, color: true } };
-            autoCreatedShapeTrackId = newTrackId;
-            console.log(`Auto-created shape track for ${layerName}:`, newTrackId);
-            // Fall through to the shape track generation path below
-          } else {
-            console.warn('No shape or numeric track found for selected layer');
-            return;
-          }
-        } else {
-          console.warn('No shape or numeric track found for selected layer');
-          return;
-        }
-      }
-    }
-
-    // For single-layer, cache base layer
-    let baseLayer = layer;
-    if (!isGlobal && layer) {
-      const baseKey = layer.id || layer.name;
-      baseLayer = variationBaseRef.current.get(baseKey);
-      if (!baseLayer) {
-        baseLayer = JSON.parse(JSON.stringify(layer));
-        variationBaseRef.current.set(baseKey, baseLayer);
-      }
-    }
-
-    // Get variation weights from first layer (for global) or selected layer
-    const refLayer = isGlobal ? layers[0] : layer;
-    const variationWeights = {
-      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
-      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
-      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
-      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
-      scale: refLayer?.variationScale ?? 0,
-    };
-
-    // Node modulation only for single-layer tracks (not global)
-    let nodeMod = null;
-    if (!isGlobal && enableBreathing && !!options.nodeModEnabled) {
-      const amount = Number(options.nodeModAmount);
-      const cycles = Number(options.nodeModCycles);
-      nodeMod = {
-        enabled: true,
-        mode: 'sineRadial',
-        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
-        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
-        mask: 'all',
-        phaseSpread: 0.5,
-      };
-    }
-
-    let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
-      ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
-      : 0;
-    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
-      energyInfluenceValue = Number.isFinite(energyInfluence)
-        ? Math.max(0, Math.min(2, energyInfluence))
-        : 0.5;
-    }
-
-    if (regenerateExistingSequence) {
-      const keyframes = Array.isArray(shapeTrack?.keyframes) ? shapeTrack.keyframes : [];
-      const variationKeyframes = keyframes.filter(kf => !!kf?.variation);
-      if (!variationKeyframes.length) {
-        console.warn('No variation keyframes found to regenerate on track');
-        return;
-      }
-
-      const regenTimes = variationKeyframes
-        .map(kf => kf?.timeSeconds)
-        .filter(Number.isFinite)
-        .sort((a, b) => a - b);
-      const temporalReferenceTimes = keyframes
-        .filter(kf => !kf?.variation)
-        .map(kf => kf?.timeSeconds)
-        .filter(Number.isFinite);
-
-      if (isGlobal) {
-        const keyframeIds = timelineContext.generateGlobalVariationKeyframesAtTimes?.(
-          shapeTrack.id,
-          layers,
-          regenTimes,
-          {
-            variationWeights,
-            energyInfluence: energyInfluenceValue,
-            isParamRandomizable,
-            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-            paletteColors: generationPaletteColors,
-            temporalReferenceTimes,
-            baseSeed: Date.now(),
-            backgroundColor,
-          },
-        );
-        if (keyframeIds?.length) {
-          console.log('Regenerated', keyframeIds.length, 'global variation keyframes (sequence reroll)');
-        }
-      } else {
-        const keyframeIds = timelineContext.generateVariationKeyframesAtTimes?.(
-          shapeTrack.id,
-          baseLayer,
-          regenTimes,
-          {
-            evaluateAtTime: false,
-            nodeMod,
-            energyInfluence: energyInfluenceValue,
-            variationWeights,
-            isParamRandomizable,
-            constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-            paletteColors: generationPaletteColors,
-            temporalReferenceTimes,
-            baseSeed: Date.now(),
-            backgroundColor,
-          },
-        );
-        if (keyframeIds?.length) {
-          console.log('Regenerated', keyframeIds.length, 'variation keyframes (sequence reroll)');
-        }
-      }
-      return;
-    }
-
-    const rawCount = Number(options.count);
-    const count = Number.isFinite(rawCount) && rawCount >= 1
-      ? Math.max(1, Math.floor(rawCount))
-      : (options.useTransients ? undefined : 5);
-
-    const playheadSeconds = timelineContext?.getPositionSeconds?.()
-      ?? timelineContext?.positionSeconds
-      ?? timelinePositionSeconds
-      ?? 0;
-    const defaultStartTime = Number.isFinite(playheadSeconds) ? Math.max(0, playheadSeconds) : 0;
-
-    const sortedKeyframes = Array.isArray(shapeTrack.keyframes)
-      ? [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds)
-      : [];
-    const TIME_EPSILON = 0.01;
-    const nextKeyframe = sortedKeyframes.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > defaultStartTime + TIME_EPSILON);
-    const timelineEndSeconds =
-      timelineContext?.audio?.durationSeconds
-      ?? timelineContext?.lengthSeconds
-      ?? 0;
-    const defaultEndTime = nextKeyframe?.timeSeconds
-      ?? (Number.isFinite(timelineEndSeconds) ? timelineEndSeconds : 0);
-
-    const startTime = Number.isFinite(Number(options.startTime))
-      ? Number(options.startTime)
-      : defaultStartTime;
-    const endTime = Number.isFinite(Number(options.endTime))
-      ? Number(options.endTime)
-      : defaultEndTime;
-
-    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-      console.warn('Invalid time range for random keyframe generation');
-      return;
-    }
-
-    const useTransients = !!options.useTransients && (timelineContext.transients?.length > 0);
-
-    let keyframeIds;
-    if (isGlobal) {
-      // Global shape track: generate for all layers
-      keyframeIds = timelineContext.generateGlobalRandomKeyframes?.(globalShapeTrack.id, layers, count, {
-        useTransients,
-        startTime,
-        endTime,
-        energyInfluence: energyInfluenceValue,
-        variationWeights,
-        replaceExistingKeyframes: !!options.replaceTrackKeyframes,
-        isParamRandomizable,
-        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-        paletteColors: generationPaletteColors,
-        backgroundColor,
-      });
-    } else {
-      const shapeRandomOptions = {
-        useTransients,
-        startTime,
-        endTime,
-        nodeMod,
-        energyInfluence: energyInfluenceValue,
-        variationWeights,
-        replaceExistingKeyframes: !!options.replaceTrackKeyframes,
-        isParamRandomizable,
-        constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-        paletteColors: generationPaletteColors,
-        backgroundColor,
-      };
-
-      // Newly auto-created tracks are added via async React state update.
-      // Defer generation one frame so TimelineContext can see the new track.
-      if (autoCreatedShapeTrackId) {
-        requestAnimationFrame(() => {
-          const deferredKeyframeIds = timelineContext.generateRandomKeyframes?.(
-            autoCreatedShapeTrackId,
-            baseLayer,
-            count,
-            shapeRandomOptions,
-          );
-          if (deferredKeyframeIds?.length) {
-            console.log('Generated', deferredKeyframeIds.length, 'random keyframes',
-              nodeMod ? 'with node modulation' : '',
-              energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
-          }
-        });
-        return;
-      }
-
-      // Single-layer shape track
-      keyframeIds = timelineContext.generateRandomKeyframes?.(shapeTrack.id, baseLayer, count, shapeRandomOptions);
-    }
-
-    if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'random keyframes',
-        nodeMod ? 'with node modulation' : '',
-        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
-    }
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, isParamRandomizable, timelinePositionSeconds, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
-
-  // Fill keyframes between nearest keyframes around playhead (option-driven, no modal prompts)
-  // Supports both single-layer shape tracks and global shape tracks
-  const handleFillKeyframesBetween = useCallback((options = {}) => {
-    if (!timelineContext?.visible) return;
-
-    const layer = layers[selectedLayerIndex];
-    const selectedShapeTrack = findShapeTrackForLayer(layer);
-
-    // Prefer selected-layer shape track when available.
-    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
-    const isGlobal = !selectedShapeTrack && !!globalShapeTrack;
-    
-    // For single-layer mode, get the selected layer's track
-    let shapeTrack = isGlobal ? globalShapeTrack : selectedShapeTrack;
-    
-    if (!isGlobal) {
-      if (!layer) return;
-      if (!shapeTrack || !shapeTrack.keyframes?.length) {
-        console.warn('No shape track or keyframes found for selected layer');
-        return;
-      }
-    }
-
-    if (!shapeTrack?.keyframes?.length) {
-      console.warn('No keyframes found on track');
-      return;
-    }
-
-    const sorted = [...shapeTrack.keyframes].sort((a, b) => a.timeSeconds - b.timeSeconds);
-    if (sorted.length < 2) {
-      console.warn('Need at least 2 keyframes to fill between');
-      return;
-    }
-
-    const playheadSeconds = timelineContext?.getPositionSeconds?.()
-      ?? timelineContext?.positionSeconds
-      ?? timelinePositionSeconds
-      ?? 0;
-    const pos = Number.isFinite(playheadSeconds) ? playheadSeconds : 0;
-    const TIME_EPSILON = 0.01;
-
-    const left = [...sorted].reverse().find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds < pos - TIME_EPSILON);
-    const right = sorted.find(kf => Number.isFinite(kf?.timeSeconds) && kf.timeSeconds > pos + TIME_EPSILON);
-
-    if (!left || !right) {
-      console.warn('Need a keyframe on both sides of the playhead to fill between');
-      return;
-    }
-
-    const startTime = left.timeSeconds;
-    const endTime = right.timeSeconds;
-
-    const count = Math.max(1, Math.floor(Number(options.count) || 3));
-    if (!Number.isFinite(count) || count < 1) return;
-
-    // Get variation weights from first layer (for global) or selected layer
-    const refLayer = isGlobal ? layers[0] : layer;
-    const variationWeights = {
-      shape: refLayer?.variationShape ?? refLayer?.variation ?? 0.2,
-      anim: refLayer?.variationAnim ?? refLayer?.variation ?? 0.2,
-      color: refLayer?.variationColor ?? refLayer?.variation ?? 0.2,
-      position: refLayer?.variationPosition ?? refLayer?.variation ?? 0.2,
-      scale: refLayer?.variationScale ?? 0,
-    };
-
-    // Node modulation only for single-layer tracks (not global)
-    let nodeMod = null;
-    if (!isGlobal && enableBreathing && !!options.nodeModEnabled) {
-      const amount = Number(options.nodeModAmount);
-      const cycles = Number(options.nodeModCycles);
-      nodeMod = {
-        enabled: true,
-        mode: 'sineRadial',
-        amount: Number.isFinite(amount) ? Math.max(0.01, Math.min(0.5, amount)) : 0.15,
-        cycles: Number.isFinite(cycles) ? Math.max(0.25, cycles) : 1,
-        mask: 'all',
-        phaseSpread: 0.5,
-      };
-    }
-
-    let energyInfluenceValue = Number.isFinite(Number(options.energyInfluence))
-      ? Math.max(0, Math.min(2, Number(options.energyInfluence)))
-      : 0;
-    if (!Number.isFinite(Number(options.energyInfluence)) && enableEnergyScaling && timelineContext.energyMap?.total?.length > 0) {
-      energyInfluenceValue = Number.isFinite(energyInfluence)
-        ? Math.max(0, Math.min(2, energyInfluence))
-        : 0.5;
-    }
-
-    let keyframeIds;
-    if (isGlobal) {
-      // Global shape track: generate for all layers
-      keyframeIds = timelineContext.generateGlobalKeyframesBetween?.(
-        globalShapeTrack.id,
-        layers,
-        startTime,
-        endTime,
-        count,
-        {
-          energyInfluence: energyInfluenceValue,
-          variationWeights,
-          isParamRandomizable,
-          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-          paletteColors: generationPaletteColors,
-          backgroundColor,
-        }
-      );
-    } else {
-      // Single-layer shape track
-      keyframeIds = timelineContext.generateKeyframesBetween?.(
-        shapeTrack.id,
-        layer,
-        startTime,
-        endTime,
-        count,
-        {
-          nodeMod,
-          energyInfluence: energyInfluenceValue,
-          variationWeights,
-          isParamRandomizable,
-          constrainColorsToPalette: !!audioSpawnUseGlobalPalette,
-          paletteColors: generationPaletteColors,
-          backgroundColor,
-        }
-      );
-    }
-
-    if (keyframeIds?.length) {
-      console.log('Generated', keyframeIds.length, isGlobal ? 'global' : '', 'keyframes between', startTime, 'and', endTime,
-        nodeMod ? 'with node modulation' : '',
-        energyInfluenceValue > 0 ? `with energy influence ${energyInfluenceValue}` : '');
-    }
-}, [timelineContext, layers, selectedLayerIndex, findShapeTrackForLayer, timelinePositionSeconds, isParamRandomizable, enableBreathing, enableEnergyScaling, energyInfluence, audioSpawnUseGlobalPalette, generationPaletteColors, backgroundColor]);
-
-  // Shift+C: capture current layers to a global shape keyframe (if global track exists)
-  const handleCaptureGlobalKeyframe = useCallback(() => {
-    if (!timelineContext?.visible) return;
-    const globalShapeTrack = timelineContext.tracks?.find(t => t.type === 'globalShape');
-    if (!globalShapeTrack) return;
-    const time = timelineContext.captureGlobalShapeKeyframe?.(globalShapeTrack.id, layers, {
-      backgroundColor,
-    });
-    if (time != null) {
-      console.log('Captured global shape keyframe at', time);
-    }
-  }, [timelineContext, layers, backgroundColor]);
-
   // Keyboard shortcuts
 		  useKeyboardShortcuts({
     setIsFrozen,
@@ -1790,43 +1019,8 @@ const MainApp = () => {
     setIsolateMode,
     deleteLayer,
     nodeEditDeleteHandlerRef,
-    saveQuickPresetToMemory: handleRamPresetSave,
-    recallQuickPresetFromMemory: handleRamPresetRecall,
     toggleBPM: bpmForAnimation?.togglePlay,
 	    toggleAudio: audioReactive?.toggleAudio,
-	    // Timeline controls
-	    toggleTimeline: () => setTimelineMode?.((v) => !v),
-	    toggleTimelinePlay: timelineContext?.togglePlay,
-	    stopTimeline: timelineContext?.stop,
-	    timelineVisible: timelineContext?.visible,
-	    timelineIsPlaying: timelineContext?.isPlaying,
-    // Variation keyframe generation
-	    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
-	    onGenerateRandomKeyframes: () => {
-        const timelineEnd = timelineContext?.audio?.durationSeconds ?? timelineContext?.lengthSeconds;
-	      if (panelGenerateRandomRef.current) {
-	        panelGenerateRandomRef.current({
-            replaceTrackKeyframes: true,
-            regenerateExistingSequence: false,
-            useTransients: true,
-            count: undefined,
-            startTime: 0,
-            endTime: Number.isFinite(Number(timelineEnd)) ? Number(timelineEnd) : undefined,
-          });
-	      } else {
-	        handleGenerateRandomKeyframes({
-            replaceTrackKeyframes: true,
-            regenerateExistingSequence: false,
-            useTransients: true,
-            count: undefined,
-            startTime: 0,
-            endTime: Number.isFinite(Number(timelineEnd)) ? Number(timelineEnd) : undefined,
-          });
-	      }
-	    },
-	    onFillKeyframesBetween: handleFillKeyframesBetween,
-      overwriteSelectedTimelineKeyframe: () => panelOverwriteSelectedKeyframeRef.current?.() || false,
-      onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
 	  });
 
   // MIDI helper refs and handlers integration
@@ -2108,9 +1302,9 @@ const MainApp = () => {
     layersRef: animatedLayersRef,
     overlayLayersRef: audioSpawnOverlayLayersRef,
     renderOverlayLayers: !suppressEphemeralOverlays,
-    hideBaseLayers: audioSpawnPresetActive && audioSpawnEnabled && !timelineMode,
-    hideLayerIndex: audioSpawnEnabled && !timelineMode ? selectedLayerIndex : -1,
-    hideLayerId: audioSpawnEnabled && !timelineMode ? (layers?.[selectedLayerIndex]?.id || null) : null,
+    hideBaseLayers: audioSpawnPresetActive && audioSpawnEnabled,
+    hideLayerIndex: audioSpawnEnabled ? selectedLayerIndex : -1,
+    hideLayerId: audioSpawnEnabled ? (layers?.[selectedLayerIndex]?.id || null) : null,
     isFrozen: isFrozen || pauseForNodeEditing,
     colorFadeWhileFrozen,
     backgroundColor,
@@ -2146,11 +1340,17 @@ const MainApp = () => {
     onStartRecording: startRecording,
     onStopRecording: stopRecording,
     isRecording,
+    includeRecordingAudio,
+    setIncludeRecordingAudio,
     onToggleTargetMode: toggleParameterTargetMode,
     parameterTargetMode,
   };
 
   const bottomPanelProps = {
+    canUndo: documentHistory.canUndo,
+    canRedo: documentHistory.canRedo,
+    undo: documentHistory.undo,
+    redo: documentHistory.redo,
     backgroundColor,
     setBackgroundColor,
     backgroundImage,
@@ -2223,13 +1423,10 @@ const MainApp = () => {
     setAudioSpawnDirectionMode,
     audioSpawnDirectionSpread,
     setAudioSpawnDirectionSpread,
-    timelineMode,
-    setTimelineMode,
     layers: uiLayers,
     selectedLayerIds,
     toggleLayerSelection,
     clearSelection,
-    layerGroups,
     editTarget,
     setEditTarget,
     getActiveTargetLayerIds,
@@ -2267,42 +1464,12 @@ const MainApp = () => {
     moveSelectedLayerUp,
     moveSelectedLayerDown,
     handleImportSVGClick,
-    presetSlots,
-    getPresetSlot,
-    loadAppState,
-    morphEnabled,
-    morphRoute,
-    morphDurationPerLeg,
-    morphEasing,
-    morphLoopMode,
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    morphMode,
-    setMorphMode,
     applyVariationInstantly,
     setApplyVariationInstantly,
     randomizeColorsPerLayer,
     setRandomizeColorsPerLayer,
     uniformColorCount,
     setUniformColorCount,
-  };
-
-  const timelinePanelProps = {
-    layers,
-    animatedLayersRef,
-    onClose: () => setTimelineMode?.(false),
-    isRecording,
-    onStartRecording: startRecording,
-    onStopRecording: stopRecording,
-    onGenerateVariationKeyframe: handleGenerateVariationKeyframe,
-    onGenerateRandomKeyframes: handleGenerateRandomKeyframes,
-    onFillKeyframesBetween: handleFillKeyframesBetween,
-    onCaptureGlobalKeyframe: handleCaptureGlobalKeyframe,
-    panelGenerateRandomRef,
-    panelOverwriteSelectedKeyframeRef,
   };
 
   useEffect(() => {
@@ -2336,11 +1503,6 @@ const MainApp = () => {
       tabIndex={-1}
     >
       <main className="main-layout">
-        <KeyboardShortcutsOverlay
-          visible={showShortcuts}
-          onClose={() => setShowShortcuts(false)}
-        />
-        
         {/* Hidden file inputs */}
         <input
           ref={svgFileInputRef}
@@ -2360,37 +1522,12 @@ const MainApp = () => {
         />
 
         <WorkspaceRouter
-          isFullscreen={isFullscreen}
-          timelineMode={timelineMode}
-          timelineVisible={timelineVisible}
-          fullscreenWorkspaceProps={{
-            canvasRef,
-            canvasProps,
-            floatingActionProps,
-          }}
           freeWorkspaceProps={{
             canvasRef,
             canvasProps,
             importAdjustProps,
             floatingActionProps,
-            onToggleTimelineMode: () => setTimelineMode?.((v) => !v),
             bottomPanelProps,
-          }}
-          timelineWorkspaceProps={{
-            topBarHeight: TOP_BAR_HEIGHT,
-            topPanelHeightExpr,
-            timelineHeightExpr,
-            leftPanelRatio,
-            setLeftPanelRatio,
-            topPanelRatio,
-            setTopPanelRatio,
-            canvasRef,
-            canvasProps,
-            importAdjustProps,
-            floatingActionProps,
-            onToggleTimelineMode: () => setTimelineMode?.((v) => !v),
-            bottomPanelProps,
-            timelinePanelProps,
           }}
         />
       </main>

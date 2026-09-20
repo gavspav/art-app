@@ -37,7 +37,7 @@ const pitchHzTo01 = (hz) => {
 };
 
 // IndexedDB helpers for persisting audio file
-const DB_NAME = 'artapp-audio';
+const DB_NAME = 'artapp-studio-v1-audio';
 const DB_STORE = 'audioFile';
 const DB_VERSION = 1;
 
@@ -212,6 +212,7 @@ export const useAudio = ({
   // File playback refs
   const audioElementRef = useRef(null);
   const fileSourceRef = useRef(null);
+  const recordingDestinationRef = useRef(null);
   
   // Refs for settings to avoid stale closures in RAF loop
   const smoothingRef = useRef(smoothing);
@@ -760,6 +761,30 @@ export const useAudio = ({
     setFileProgress(progress);
   }, []);
 
+  const releaseRecordingStream = useCallback(() => {
+    const destination = recordingDestinationRef.current;
+    if (!destination) return;
+    try { analyserRef.current?.disconnect(destination); } catch { /* noop */ }
+    try { destination.stream?.getTracks?.().forEach(track => track.stop()); } catch { /* noop */ }
+    recordingDestinationRef.current = null;
+  }, []);
+
+  const getRecordingStream = useCallback(() => {
+    releaseRecordingStream();
+    if (!isActive) return null;
+    if (!isFileMode && streamRef.current) {
+      const clonedTracks = streamRef.current.getAudioTracks().map(track => track.clone());
+      return clonedTracks.length ? new MediaStream(clonedTracks) : null;
+    }
+    const audioContext = audioCtxRef.current;
+    const analyser = analyserRef.current;
+    if (!audioContext || !analyser || typeof audioContext.createMediaStreamDestination !== 'function') return null;
+    const destination = audioContext.createMediaStreamDestination();
+    analyser.connect(destination);
+    recordingDestinationRef.current = destination;
+    return destination.stream;
+  }, [isActive, isFileMode, releaseRecordingStream]);
+
   // Stop file playback and switch back to mic mode
   const stopFilePlayback = useCallback((clearStorage = true) => {
     const audio = audioElementRef.current;
@@ -825,9 +850,10 @@ export const useAudio = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      releaseRecordingStream();
       stopAudio();
     };
-  }, [stopAudio]);
+  }, [releaseRecordingStream, stopAudio]);
 
   // Refresh devices on mount
   useEffect(() => {
@@ -855,6 +881,8 @@ export const useAudio = ({
     toggleFilePlayback,
     seekFile,
     stopFilePlayback,
+    getRecordingStream,
+    releaseRecordingStream,
   };
 };
 

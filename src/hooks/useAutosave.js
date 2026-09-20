@@ -3,8 +3,8 @@ import { useEffect, useRef } from 'react';
 const AUTOSAVE_INTERVAL_MS = 30000; // 30s
 const MIN_GAP_BETWEEN_SAVES_MS = 10000; // 10s
 const AUTOSAVE_SLOT_COUNT = 3;
-const META_KEY = 'artapp-autosave-meta';
-const SLOT_PREFIX = 'artapp-autosave-';
+const META_KEY = 'artapp-studio-v1-autosave-meta';
+const SLOT_PREFIX = 'artapp-studio-v1-autosave-';
 
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 
@@ -44,20 +44,24 @@ const readMeta = () => {
 };
 
 const writeMeta = (meta) => {
-  if (!hasStorage()) return;
+  if (!hasStorage()) return false;
   try {
     localStorage.setItem(META_KEY, JSON.stringify(meta));
+    return true;
   } catch (error) {
     console.warn('[Autosave] Failed to persist meta', error);
+    return false;
   }
 };
 
 const writeSlot = (slotIndex, payload) => {
-  if (!hasStorage()) return;
+  if (!hasStorage()) return false;
   try {
     localStorage.setItem(`${SLOT_PREFIX}${slotIndex}`, JSON.stringify(payload));
+    return true;
   } catch (error) {
     console.warn('[Autosave] Failed to persist slot', slotIndex, error);
+    return false;
   }
 };
 
@@ -107,13 +111,11 @@ export const useAutosave = ({
         lastSavedAt: lastSaved,
         getCurrentAppState: snapshotFn,
         parameters: params,
-        isFrozen: frozen,
         getAudioSnapshot: audioSnapshotFn,
         getBPMSnapshot: bpmSnapshotFn,
       } = latestRef.current;
 
       if (!dirty) return;
-      if (frozen) return; // optional pause while frozen
       const now = Date.now();
       if (now - lastSaved < MIN_GAP_BETWEEN_SAVES_MS) return;
       if (typeof snapshotFn !== 'function') return;
@@ -125,22 +127,22 @@ export const useAutosave = ({
           audioConfig: typeof audioSnapshotFn === 'function' ? audioSnapshotFn() : null,
           bpmConfig: typeof bpmSnapshotFn === 'function' ? bpmSnapshotFn() : null,
           savedAt: new Date().toISOString(),
-          version: '2.1',
+          version: '3.0',
         };
 
         const meta = readMeta();
         const nextSlot = (meta.currentSlot + 1) % AUTOSAVE_SLOT_COUNT;
-        writeSlot(nextSlot, snapshot);
+        if (!writeSlot(nextSlot, snapshot)) throw new Error('Autosave storage is unavailable or full');
 
         const slots = Array.isArray(meta.slots) ? [...meta.slots] : [];
         slots[nextSlot] = {
           key: `${SLOT_PREFIX}${nextSlot}`,
           timestamp: snapshot.savedAt,
         };
-        writeMeta({
+        if (!writeMeta({
           currentSlot: nextSlot,
           slots,
-        });
+        })) throw new Error('Autosave metadata could not be stored');
 
         setIsDirty(false);
         setLastSavedAt(now);

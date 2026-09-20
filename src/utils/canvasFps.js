@@ -1,4 +1,4 @@
-const KEY = 'artapp-canvas-fps';
+const KEY = 'artapp-studio-v1-canvas-fps';
 const EVENT = 'artapp:canvas-fps';
 
 const clampFps = (value) => {

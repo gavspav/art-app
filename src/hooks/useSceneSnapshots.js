@@ -14,17 +14,11 @@ export function useSceneSnapshots({
   applyAudioSnapshot,
   getBPMSnapshot,
   applyBPMSnapshot,
-  getTimelineSnapshot,
-  applyTimelineSnapshot,
-  quickPreset,
-  setQuickPresetSnapshot,
   applyParametersSnapshot,
   loadAppState,
-  getSavedConfigList,
-  loadFullConfiguration,
-  loadParameters,
   setMappingsFromExternal,
   mergeCustomPaletteList,
+  resetDocumentHistory,
 }) {
   const parametersRef = useRef(parameters);
   const midiMappingsRef = useRef(midiMappings);
@@ -74,164 +68,91 @@ export function useSceneSnapshots({
   const handleQuickSave = useCallback(() => {
     const baseName = (window.prompt('Enter filename for export (no extension):', 'scene') || '').trim();
     if (!baseName) return;
-    const includeState = window.confirm('Include app state (layers, background, animation)?');
     const exportMeta = getExportMeta();
     const payload = {
       parameters: parametersRef.current,
-      appState: includeState ? (getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null) : null,
+      appState: getCurrentAppStateRef.current ? getCurrentAppStateRef.current() : null,
       customPalettes: Array.isArray(customPalettes) ? customPalettes : [],
       midiMappings: midiMappingsRef.current || {},
       audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
       bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
-      timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
       savedAt: new Date().toISOString(),
-      version: '2.2',
+      version: '3.0',
+      format: 'artapp-studio-project',
       exportMeta,
     };
     downloadJson(`${baseName}.json`, payload);
-  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot, customPalettes]);
-
-  const handleRamPresetSave = useCallback(() => {
-    if (typeof setQuickPresetSnapshot !== 'function') return;
-    try {
-      const snapshot = {
-        parameters: Array.isArray(parameters) ? parameters : [],
-        appState: typeof getFullAppState === 'function' ? getFullAppState() : null,
-        audioConfig: getAudioSnapshot ? getAudioSnapshot() : null,
-        bpmConfig: getBPMSnapshot ? getBPMSnapshot() : null,
-        timelineConfig: getTimelineSnapshot ? getTimelineSnapshot() : null,
-        exportMeta: getExportMeta(),
-        savedAt: new Date().toISOString(),
-      };
-      setQuickPresetSnapshot(snapshot);
-    } catch (error) {
-      console.warn('[RAM Preset] Failed to capture snapshot', error);
-    }
-  }, [getFullAppState, getExportMeta, parameters, setQuickPresetSnapshot, getAudioSnapshot, getBPMSnapshot, getTimelineSnapshot]);
-
-  const handleRamPresetRecall = useCallback(() => {
-    if (!quickPreset) {
-      console.info('[RAM Preset] No snapshot stored yet');
-      return;
-    }
-    try {
-      if (Array.isArray(quickPreset.parameters) && typeof applyParametersSnapshot === 'function') {
-        applyParametersSnapshot(quickPreset.parameters);
-      }
-      if (quickPreset.appState && typeof loadAppState === 'function') {
-        loadAppState(quickPreset.appState);
-        if (quickPreset.appState.includeRnd && typeof quickPreset.appState.includeRnd === 'object') {
-          setIncludeRnd({ ...defaultIncludeRnd, ...quickPreset.appState.includeRnd });
-        }
-      }
-      if (quickPreset.exportMeta && typeof window !== 'undefined') {
-        window.__artapp_lastImportMeta = quickPreset.exportMeta;
-      }
-      if (quickPreset.audioConfig && applyAudioSnapshot) {
-        applyAudioSnapshot(quickPreset.audioConfig);
-      }
-      if (quickPreset.bpmConfig && applyBPMSnapshot) {
-        applyBPMSnapshot(quickPreset.bpmConfig);
-      }
-      if (quickPreset.timelineConfig && applyTimelineSnapshot) {
-        applyTimelineSnapshot(quickPreset.timelineConfig);
-      }
-    } catch (error) {
-      console.warn('[RAM Preset] Failed to recall snapshot', error);
-    }
-  }, [applyParametersSnapshot, loadAppState, quickPreset, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, setIncludeRnd, defaultIncludeRnd]);
+  }, [downloadJson, getExportMeta, getAudioSnapshot, getBPMSnapshot, customPalettes]);
 
   const handleImportFile = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const beforeImport = {
+      parameters: parametersRef.current,
+      appState: getCurrentAppStateRef.current?.(),
+      midiMappings: midiMappingsRef.current,
+      audioConfig: getAudioSnapshot?.(),
+      bpmConfig: getBPMSnapshot?.(),
+    };
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-      if (data?.customPalettes) {
-        mergeCustomPaletteList(data.customPalettes);
+      if (!data || typeof data !== 'object' || (!Array.isArray(data.parameters) && !data.appState)) {
+        throw new Error('This file does not contain an Art Studio project');
       }
-      try {
-        if (data && data.midiMappings && setMappingsFromExternal) setMappingsFromExternal(data.midiMappings);
-      } catch { /* noop */ }
+      const omittedLegacyFeatures = [
+        data.timelineConfig ? 'timeline' : null,
+        data.appState?.layerGroups?.length ? 'layer groups' : null,
+        data.appState?.morphEnabled || data.appState?.morphRoute?.length ? 'preset morphing' : null,
+      ].filter(Boolean);
+      if (data.parameters != null && !Array.isArray(data.parameters)) throw new Error('Project parameters are invalid');
+      if (data.appState != null && typeof data.appState !== 'object') throw new Error('Project state is invalid');
 
-      try {
-        if (data && data.audioConfig && applyAudioSnapshot) applyAudioSnapshot(data.audioConfig);
-      } catch { /* noop */ }
-
-      try {
-        if (data && data.bpmConfig && applyBPMSnapshot) applyBPMSnapshot(data.bpmConfig);
-      } catch { /* noop */ }
-
-      try {
-        if (data && data.timelineConfig && applyTimelineSnapshot) applyTimelineSnapshot(data.timelineConfig);
-      } catch { /* noop */ }
+      if (Array.isArray(data.parameters)) applyParametersSnapshot?.(data.parameters);
+      if (data.appState) loadAppState?.(data.appState);
+      if (data.appState?.includeRnd && typeof data.appState.includeRnd === 'object') {
+        setIncludeRnd({ ...defaultIncludeRnd, ...data.appState.includeRnd });
+      }
+      if (data.midiMappings) setMappingsFromExternal?.(data.midiMappings);
+      if (data.audioConfig) applyAudioSnapshot?.(data.audioConfig);
+      if (data.bpmConfig) applyBPMSnapshot?.(data.bpmConfig);
+      if (data.customPalettes) mergeCustomPaletteList(data.customPalettes);
 
       const base = file.name.replace(/\.json$/i, '') || 'imported';
-      const existing = new Set(getSavedConfigList());
-      let name = base;
-      let i = 1;
-      while (existing.has(name)) { name = `${base}-${i++}`; }
-
-      let persistedName = null;
+      const name = base;
+      let persisted = true;
       try {
-        const key = `artapp-config-${name}`;
+        const key = `artapp-studio-v1-config-${name}`;
         localStorage.setItem(key, JSON.stringify(data));
-        const list = getSavedConfigList();
+        const list = JSON.parse(localStorage.getItem('artapp-studio-v1-config-list') || '[]');
         if (!list.includes(name)) {
-          localStorage.setItem('artapp-config-list', JSON.stringify([...list, name]));
+          localStorage.setItem('artapp-studio-v1-config-list', JSON.stringify([...list, name]));
         }
-        persistedName = name;
       } catch (storageError) {
         console.warn('[Import] Failed to persist config to localStorage; proceeding without saving', storageError);
+        persisted = false;
       }
-
-      const loadState = window.confirm('Load app state if available?');
-      let res = null;
-
-      if (persistedName) {
-        res = loadState ? loadFullConfiguration(persistedName) : loadParameters(persistedName);
-        if (res?.success && loadState && res.appState && typeof loadAppState === 'function') {
-          loadAppState(res.appState);
-          if (res.appState.includeRnd && typeof res.appState.includeRnd === 'object') {
-            setIncludeRnd({ ...defaultIncludeRnd, ...res.appState.includeRnd });
-          }
-        }
-      } else {
-        if (loadState) {
-          if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
-            try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
-          }
-          if (data?.appState && typeof loadAppState === 'function') {
-            try { loadAppState(data.appState); } catch { /* noop */ }
-          }
-        } else if (Array.isArray(data?.parameters) && typeof applyParametersSnapshot === 'function') {
-          try { applyParametersSnapshot(data.parameters); } catch { /* noop */ }
-        }
-
-        res = { success: true, exportMeta: data?.exportMeta, appState: data?.appState };
+      if (data.exportMeta && typeof window !== 'undefined') {
+        window.__artapp_lastImportMeta = data.exportMeta;
       }
-
-      const loadedAppState = res?.appState || data?.appState;
-      if (loadState && loadedAppState?.includeRnd && typeof loadedAppState.includeRnd === 'object') {
-        setIncludeRnd({ ...defaultIncludeRnd, ...loadedAppState.includeRnd });
-      }
-
-      if (res?.exportMeta && typeof window !== 'undefined') {
-        window.__artapp_lastImportMeta = res.exportMeta;
-      }
-
-      if (persistedName) {
-        alert(`Imported '${persistedName}'`);
-      } else {
-        alert('Imported (local save skipped: storage is full)');
-      }
+      alert(`Imported '${name}'${persisted ? '' : ' (local save skipped: storage is full)'}${omittedLegacyFeatures.length ? `. Skipped retired features: ${omittedLegacyFeatures.join(', ')}.` : ''}`);
+      resetDocumentHistory?.();
     } catch (err) {
       console.warn('Failed to import JSON', err);
-      alert('Failed to import JSON');
+      try {
+        if (Array.isArray(beforeImport.parameters)) applyParametersSnapshot?.(beforeImport.parameters);
+        if (beforeImport.appState) loadAppState?.(beforeImport.appState);
+        if (beforeImport.midiMappings) setMappingsFromExternal?.(beforeImport.midiMappings);
+        if (beforeImport.audioConfig) applyAudioSnapshot?.(beforeImport.audioConfig);
+        if (beforeImport.bpmConfig) applyBPMSnapshot?.(beforeImport.bpmConfig);
+      } catch (rollbackError) {
+        console.warn('[Import] Failed to restore the previous document', rollbackError);
+      }
+      alert(`Failed to import project: ${err?.message || 'invalid file'}`);
     } finally {
       e.target.value = '';
     }
-  }, [applyParametersSnapshot, getSavedConfigList, loadAppState, loadFullConfiguration, loadParameters, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, applyTimelineSnapshot, mergeCustomPaletteList, setIncludeRnd, defaultIncludeRnd]);
+  }, [applyParametersSnapshot, loadAppState, setMappingsFromExternal, applyAudioSnapshot, applyBPMSnapshot, mergeCustomPaletteList, resetDocumentHistory, setIncludeRnd, defaultIncludeRnd, getAudioSnapshot, getBPMSnapshot]);
 
   const handleQuickLoad = useCallback(() => {
     configFileInputRef.current?.click();
@@ -242,7 +163,5 @@ export function useSceneSnapshots({
     handleQuickSave,
     handleQuickLoad,
     handleImportFile,
-    handleRamPresetSave,
-    handleRamPresetRecall,
   };
 }

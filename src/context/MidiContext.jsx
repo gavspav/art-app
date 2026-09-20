@@ -5,8 +5,8 @@ const MidiContext = createContext(null);
 
 export const useMidi = () => useContext(MidiContext);
 
-const LS_MIDI_MAPPINGS = 'artapp-midi-mappings';
-const LS_MIDI_SELECTED = 'artapp-midi-selected-input';
+const LS_MIDI_MAPPINGS = 'artapp-studio-v1-midi-mappings';
+const LS_MIDI_SELECTED = 'artapp-studio-v1-midi-selected-input';
 
 const DEFAULT_MIDI_CHANNEL = 1;
 

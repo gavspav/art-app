@@ -64,7 +64,7 @@ export const ParameterProvider = ({ children }) => {
   const [parameters, setParameters] = useState(() => {
     // Try to load saved parameters from localStorage
     try {
-      const saved = localStorage.getItem('artapp-parameters');
+      const saved = localStorage.getItem('artapp-studio-v1-parameters');
       if (saved) {
         const savedParams = JSON.parse(saved);
         return mergeWithDefaults(savedParams);
@@ -100,7 +100,7 @@ export const ParameterProvider = ({ children }) => {
       
       // Auto-save to localStorage
       try {
-        localStorage.setItem('artapp-parameters', JSON.stringify(nextParams));
+        localStorage.setItem('artapp-studio-v1-parameters', JSON.stringify(nextParams));
       } catch (error) {
         console.warn('Failed to save parameters:', error);
       }
@@ -111,7 +111,7 @@ export const ParameterProvider = ({ children }) => {
 
   const saveParameters = (filename = 'default') => {
     try {
-      const key = `artapp-config-${filename}`;
+      const key = `artapp-studio-v1-config-${filename}`;
       const configData = {
         parameters,
         savedAt: new Date().toISOString(),
@@ -124,7 +124,7 @@ export const ParameterProvider = ({ children }) => {
       const configList = getSavedConfigList();
       if (!configList.includes(filename)) {
         configList.push(filename);
-        localStorage.setItem('artapp-config-list', JSON.stringify(configList));
+        localStorage.setItem('artapp-studio-v1-config-list', JSON.stringify(configList));
       }
       
       return { success: true, message: `Configuration '${filename}' saved successfully!` };
@@ -136,7 +136,7 @@ export const ParameterProvider = ({ children }) => {
 
   const saveFullConfiguration = (filename = 'default', appState = null, exportMetaArg = null) => {
     try {
-      const key = `artapp-config-${filename}`;
+      const key = `artapp-studio-v1-config-${filename}`;
       const configData = {
         parameters,
         appState: appState || null,
@@ -151,7 +151,7 @@ export const ParameterProvider = ({ children }) => {
       const configList = getSavedConfigList();
       if (!configList.includes(filename)) {
         configList.push(filename);
-        localStorage.setItem('artapp-config-list', JSON.stringify(configList));
+        localStorage.setItem('artapp-studio-v1-config-list', JSON.stringify(configList));
       }
       
       const stateMsg = appState ? ' (including app state)' : '';
@@ -164,7 +164,7 @@ export const ParameterProvider = ({ children }) => {
 
   const loadParameters = (filename = 'default') => {
     try {
-      const key = `artapp-config-${filename}`;
+      const key = `artapp-studio-v1-config-${filename}`;
       const saved = localStorage.getItem(key);
       if (saved) {
         const configData = JSON.parse(saved);
@@ -187,7 +187,7 @@ export const ParameterProvider = ({ children }) => {
 
   const loadFullConfiguration = (filename = 'default') => {
     try {
-      const key = `artapp-config-${filename}`;
+      const key = `artapp-studio-v1-config-${filename}`;
       const saved = localStorage.getItem(key);
       if (saved) {
         const configData = JSON.parse(saved);
@@ -213,12 +213,12 @@ export const ParameterProvider = ({ children }) => {
 
   const deleteConfiguration = (filename) => {
     try {
-      const key = `artapp-config-${filename}`;
+      const key = `artapp-studio-v1-config-${filename}`;
       localStorage.removeItem(key);
       
       // Update the list of saved configurations
       const configList = getSavedConfigList().filter(name => name !== filename);
-      localStorage.setItem('artapp-config-list', JSON.stringify(configList));
+      localStorage.setItem('artapp-studio-v1-config-list', JSON.stringify(configList));
       
       return { success: true, message: `Configuration '${filename}' deleted successfully!` };
     } catch (error) {
@@ -229,7 +229,7 @@ export const ParameterProvider = ({ children }) => {
 
   const getSavedConfigList = () => {
     try {
-      const saved = localStorage.getItem('artapp-config-list');
+      const saved = localStorage.getItem('artapp-studio-v1-config-list');
       return saved ? JSON.parse(saved) : [];
     } catch (error) {
       console.warn('Failed to get config list:', error);

@@ -1032,7 +1032,7 @@ const AUDIO_DEMO_PRESETS = [
 ];
 
 const DEFAULT_DEMO_PRESET_ID = AUDIO_DEMO_PRESETS?.[0]?.id || '';
-const AUDIO_DEMO_UI_STATE_KEY = 'artapp-audio-demo-ui-v2';
+const AUDIO_DEMO_UI_STATE_KEY = 'artapp-studio-v1-audio-demo-ui-v2';
 const DEMO_PRESET_KIND_MOD = 'mod';
 const DEMO_PRESET_KIND_SPAWN = 'spawn';
 const DEFAULT_COMBINED_PRESET_KEY = DEFAULT_DEMO_PRESET_ID

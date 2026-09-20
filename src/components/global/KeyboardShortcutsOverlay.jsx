@@ -1,33 +1,41 @@
+import { useEffect } from 'react';
+
 const SHORTCUT_SECTIONS = [
   {
     title: 'Workspace',
     items: [
-      [['1'], 'Global tab'],
-      [['2'], 'Layer Shape tab'],
-      [['3'], 'Layer Animation tab'],
-      [['4'], 'Layer Colour tab'],
-      [['5'], 'Audio tab'],
-      [['6'], 'Presets tab'],
-      [['7'], 'Groups tab'],
-      [['H'], 'Hide / show control panel'],
-      [['F'], 'Toggle fullscreen'],
-      [['T'], 'Show / hide timeline'],
-      [['K'], 'Toggle this shortcuts panel'],
+      [['Cmd/Ctrl', 'K'], 'Search every command and inspector section'],
+      [['1'], 'Open Global controls'],
+      [['2'], 'Open Layers'],
+      [['3'], 'Open Shape'],
+      [['4'], 'Open Colour'],
+      [['5'], 'Open Motion'],
+      [['6'], 'Open Audio'],
+      [['7'], 'Open Settings'],
+      [['K'], 'Show or hide this shortcut reference'],
+      [['H'], 'Hide or show the inspector'],
+      [['F'], 'Toggle presentation view'],
+      [['V'], 'Select tool'],
+      [['N'], 'Toggle node editing'],
+      [['E'], 'Export image'],
     ],
   },
   {
-    title: 'Scene',
+    title: 'Project and scene',
     items: [
+      [['Cmd/Ctrl', 'S'], 'Save versioned project'],
+      [['Cmd/Ctrl', 'O'], 'Open project'],
+      [['Cmd/Ctrl', 'Z'], 'Undo document change'],
+      [['Cmd/Ctrl', 'Shift', 'Z'], 'Redo document change'],
       [['G'], 'Toggle target Individual / Global'],
       [['I'], 'Toggle isolate mode'],
       [['O'], 'Show / hide layer outlines'],
-      [['R'], 'Randomize all'],
-      [['S'], 'Quick-save RAM preset'],
-      [['Shift', 'A'], 'Recall RAM preset'],
-      [['L'], 'Lock / unlock control panel'],
-      [['N'], 'Toggle node edit mode'],
+      [['R'], 'Randomise scene'],
       [['Z'], 'Toggle Z-scale ignore'],
-      [['Space'], 'Freeze / unfreeze, or timeline play / pause when visible'],
+      [['Space'], 'Pause or play animation'],
+      [['['], 'Select previous layer'],
+      [[']'], 'Select next layer'],
+      [['Shift', '1..9'], 'Select Layers 1–9'],
     ],
   },
   {
@@ -35,25 +43,6 @@ const SHORTCUT_SECTIONS = [
     items: [
       [['B'], 'Toggle BPM play / pause'],
       [['A'], 'Toggle audio reactive input'],
-      [['P'], 'Timeline play / pause'],
-      [['Home'], 'Stop timeline and go to start'],
-      [['C'], 'Capture active layer to shape keyframe'],
-      [['Delete'], 'Delete selected layer in node edit mode'],
-      [['['], 'Select previous layer'],
-      [[']'], 'Select next layer'],
-      [['Shift', '1..9'], 'Activate Layers 1-9'],
-      [['Esc'], 'Close dialogs and overlays'],
-    ],
-  },
-  {
-    title: 'Timeline',
-    items: [
-      [['Ctrl/Cmd', 'Drag'], 'Marquee-select timeline keyframes'],
-      [['Ctrl/Cmd', 'C/X/V'], 'Copy, cut, or paste keyframes at the playhead'],
-      [['Shift', 'C'], 'Overwrite selected keyframe or capture a global keyframe'],
-      [['Shift', 'V'], 'Generate variation keyframe at playhead'],
-      [['Shift', 'R'], 'Generate N random keyframes'],
-      [['Shift', 'F'], 'Fill variation keyframes between first and last keyframe'],
     ],
   },
   {
@@ -68,6 +57,8 @@ const SHORTCUT_SECTIONS = [
       [['Alt/Option', 'Click node/segment'], 'Remove a node, or add one on a segment'],
       [['Wheel / pinch'], 'Zoom the node-edit viewport'],
       [['Space', 'Drag'], 'Pan the node-edit viewport'],
+      [['Delete'], 'Delete selected node or layer'],
+      [['Esc'], 'Cancel the current draft, then close dialogs'],
     ],
   },
 ];
@@ -91,6 +82,18 @@ const NODE_EDIT_TIPS = [
 ];
 
 export default function KeyboardShortcutsOverlay({ visible, onClose }) {
+  useEffect(() => {
+    if (!visible) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape, true);
+    return () => window.removeEventListener('keydown', closeOnEscape, true);
+  }, [visible, onClose]);
+
   if (!visible) return null;
 
   const handleBackgroundClick = (event) => {
@@ -111,7 +114,7 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
         <div className="shortcuts-header">
           <div>
             <div className="shortcuts-title">Keyboard Shortcuts</div>
-            <div className="shortcuts-subtitle">Core navigation, audio, and timeline controls in one place.</div>
+            <div className="shortcuts-subtitle">Project, workspace, audio, and drawing controls.</div>
           </div>
           {typeof onClose === 'function' && (
             <button type="button" className="control-button" onClick={onClose}>

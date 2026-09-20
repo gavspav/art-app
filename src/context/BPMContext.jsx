@@ -18,8 +18,8 @@ const BPMContext = createContext();
 export const useBPM = () => useContext(BPMContext);
 
 // LocalStorage keys
-const LS_BPM_SETTINGS = 'artapp-bpm-settings';
-const LS_BPM_MAPPINGS = 'artapp-bpm-mappings';
+const LS_BPM_SETTINGS = 'artapp-studio-v1-bpm-settings';
+const LS_BPM_MAPPINGS = 'artapp-studio-v1-bpm-mappings';
 
 // Available beat speeds (in beats)
 export const BEAT_SPEEDS = [

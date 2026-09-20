@@ -19,58 +19,38 @@ export function useKeyboardShortcuts({
   setIsolateMode,
   deleteLayer,
   nodeEditDeleteHandlerRef,
-  saveQuickPresetToMemory,
-  recallQuickPresetFromMemory,
   toggleBPM,
   toggleAudio,
-  // Timeline controls
-  toggleTimeline,
-  toggleTimelinePlay,
-  stopTimeline,
-  timelineVisible,
-  timelineIsPlaying,
-  // Variation keyframe generation
-  onGenerateVariationKeyframe,
-  onGenerateRandomKeyframes,
-  onFillKeyframesBetween,
-  // Timeline global track capture
-  overwriteSelectedTimelineKeyframe,
-  onCaptureGlobalKeyframe,
 }) {
   useEffect(() => {
     const handleKeyDown = (e) => {
       const key = (e.key || '').toLowerCase();
+
+      // Native controls and editable fields always keep their normal keyboard
+      // behaviour. Workspace commands are handled only when focus is on the canvas.
+      if (shouldIgnoreGlobalKey(e)) return;
       
-      // F key for fullscreen should ALWAYS work, even when inputs are focused
-      // Use plain "f" only so Shift+F can be used for other actions (e.g. timeline fill)
+      // Use plain "f" only so modified browser/editor commands remain available.
       if (key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         toggleFullscreen?.();
         return;
       }
       
-      if (shouldIgnoreGlobalKey(e)) return;
-      // Spacebar -> toggle Freeze, and when timeline is visible also toggle timeline play/pause
+      // Spacebar toggles the live procedural animation.
       if (e.code === 'Space') {
         e.preventDefault();
-        if (timelineVisible) {
-          const willPlay = !timelineIsPlaying;
-          // Keep global freeze in sync with timeline play/pause
-          setIsFrozen?.(!willPlay);
-          toggleTimelinePlay?.();
-        } else {
-          setIsFrozen?.(prev => !prev);
-        }
+        setIsFrozen?.(prev => !prev);
         return;
       }
 
-      if (key === 'o') {
+      if (key === 'o' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         setShowLayerOutlines?.(prev => !prev);
         return;
       }
 
-      if (key === 'g') {
+      if (key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         const cur = (hotkeyRef?.current?.parameterTargetMode === 'global') ? 'global' : 'individual';
         const next = cur === 'global' ? 'individual' : 'global';
@@ -78,7 +58,7 @@ export function useKeyboardShortcuts({
         return;
       }
 
-      if (key === 'i') {
+      if (key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         const cur = !!hotkeyRef?.current?.isolateMode;
         try {
@@ -92,18 +72,6 @@ export function useKeyboardShortcuts({
 
       // F -> toggle fullscreen (handled above, before shouldIgnoreGlobalKey check)
 
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && key === 's') {
-        e.preventDefault();
-        saveQuickPresetToMemory?.();
-        return;
-      }
-
-      if (!e.metaKey && !e.ctrlKey && key === 'a' && e.shiftKey) {
-        e.preventDefault();
-        recallQuickPresetFromMemory?.();
-        return;
-      }
-
       // R -> Randomize All
       if (key === 'r' && !e.shiftKey) {
         e.preventDefault();
@@ -113,7 +81,7 @@ export function useKeyboardShortcuts({
 
 
       // N -> Toggle Node Edit mode
-      if (key === 'n') {
+      if (key === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         const cur = !!hotkeyRef?.current?.nodeEditMode;
         setIsNodeEditMode?.(!cur);
@@ -121,7 +89,7 @@ export function useKeyboardShortcuts({
       }
 
       // Z -> Toggle Z-Ignore (disable Z scaling movement)
-      if (key === 'z') {
+      if (key === 'z' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         const cur = !!hotkeyRef?.current?.zIgnore;
         setZIgnore?.(!cur);
@@ -129,7 +97,7 @@ export function useKeyboardShortcuts({
       }
 
       // B -> Toggle BPM play/pause
-      if (key === 'b') {
+      if (key === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         toggleBPM?.();
         return;
@@ -139,29 +107,6 @@ export function useKeyboardShortcuts({
       if (key === 'a' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         toggleAudio?.();
-        return;
-      }
-
-      // T -> Toggle Timeline visibility
-      if (key === 't' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        toggleTimeline?.();
-        return;
-      }
-
-      // P -> Toggle Timeline play/pause (when timeline is visible)
-      if (key === 'p' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        const willPlay = !timelineIsPlaying;
-        setIsFrozen?.(!willPlay);
-        toggleTimelinePlay?.();
-        return;
-      }
-
-      // Home -> Stop timeline and go to start
-      if (key === 'home') {
-        e.preventDefault();
-        stopTimeline?.();
         return;
       }
 
@@ -210,36 +155,6 @@ export function useKeyboardShortcuts({
         }
       }
 
-      // Shift+V -> Generate variation keyframe at current position (when timeline visible)
-      if (e.shiftKey && key === 'v' && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        onGenerateVariationKeyframe?.();
-        return;
-      }
-
-      // Shift+R -> Generate random keyframes on active track (when timeline visible)
-      if (e.shiftKey && key === 'r' && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        onGenerateRandomKeyframes?.();
-        return;
-      }
-
-      // Shift+F -> Fill keyframes between two selected keyframes (when timeline visible)
-      if (e.shiftKey && key === 'f' && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        onFillKeyframesBetween?.();
-        return;
-      }
-
-      // Shift+C -> Capture current layers to global shape track (when present)
-      if (e.shiftKey && key === 'c' && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (overwriteSelectedTimelineKeyframe?.()) {
-          return;
-        }
-        onCaptureGlobalKeyframe?.();
-        return;
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
@@ -262,19 +177,7 @@ export function useKeyboardShortcuts({
     setIsolateMode,
     deleteLayer,
     nodeEditDeleteHandlerRef,
-    saveQuickPresetToMemory,
-    recallQuickPresetFromMemory,
     toggleBPM,
     toggleAudio,
-    toggleTimeline,
-    toggleTimelinePlay,
-    stopTimeline,
-    timelineVisible,
-    timelineIsPlaying,
-    onGenerateVariationKeyframe,
-    onGenerateRandomKeyframes,
-    onFillKeyframesBetween,
-    overwriteSelectedTimelineKeyframe,
-    onCaptureGlobalKeyframe,
   ]);
 }

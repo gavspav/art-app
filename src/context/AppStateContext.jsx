@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps -- setAppState is a stable history-aware setter. */
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef, useMemo } from 'react';
 import { DEFAULTS, DEFAULT_LAYER } from '../constants/defaults';
 
@@ -15,52 +16,32 @@ const AppStateContext = createContext();
 // Create a custom hook for easy access to the context
 export const useAppState = () => useContext(AppStateContext);
 
-// Presets persistence key
-const PRESET_SLOTS_KEY = 'artapp-presets-v1';
-
-// Build default 16 preset slots
-const buildDefaultPresetSlots = () => (
-  Array.from({ length: 16 }, (_, i) => ({
-    id: i + 1,
-    name: `P${i + 1}`,
-    color: '#4fc3f7',
-    savedAt: null,
-    payload: null,
-    version: '1.0',
-  }))
-);
-
 const pruneLayerScopedState = (state, layers) => {
   const liveIds = new Set((Array.isArray(layers) ? layers : []).map(layer => layer?.id).filter(Boolean));
   const selectedLayerIds = Array.isArray(state?.selectedLayerIds)
     ? state.selectedLayerIds.filter(id => liveIds.has(id))
     : [];
-  const layerGroups = Array.isArray(state?.layerGroups)
-    ? state.layerGroups.map(group => ({
-      ...group,
-      memberIds: Array.from(new Set(
-        (Array.isArray(group?.memberIds) ? group.memberIds : []).filter(id => liveIds.has(id))
-      )),
-    }))
-    : [];
-
   let editTarget = state?.editTarget || { type: 'single' };
   if (editTarget?.type === 'selection' && selectedLayerIds.length === 0) {
     editTarget = { type: 'single' };
-  } else if (editTarget?.type === 'group' && !layerGroups.some(group => group.id === editTarget.groupId)) {
+  } else if (editTarget?.type !== 'single' && editTarget?.type !== 'selection') {
     editTarget = { type: 'single' };
   }
 
   return {
     ...state,
     selectedLayerIds,
-    layerGroups,
     editTarget,
   };
 };
 
 // Create the provider component
 export const AppStateProvider = ({ children }) => {
+  const historyRef = useRef({ undo: [], redo: [], lastCapturedAt: 0 });
+  const historyReadyRef = useRef(false);
+  const historySuspendedRef = useRef(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const lastInteractionRef = useRef(0);
   // Simple unique id generator for layers
   const uidSeedRef = useRef(Math.floor(Math.random() * 1e6));
   const uidCounterRef = useRef(0);
@@ -107,12 +88,12 @@ export const AppStateProvider = ({ children }) => {
   }, [ensureLayerId, makeLayerId]);
 
   // Main app state that should be saveable
-  const [appState, setAppState] = useState({
+  const [appState, setAppStateRaw] = useState({
     isFrozen: DEFAULTS.isFrozen,
     enableBreathing: false,
     enableEnergyScaling: false,
     energyInfluence: 0.5,
-    // Live audio spawn mode (non-timeline, runtime-only layers)
+    // Live audio-spawn overlay layers.
     audioSpawnEnabled: false,
     audioSpawnTriggerMode: 'level',
     audioSpawnRepeatWhileAbove: true,
@@ -143,9 +124,7 @@ export const AppStateProvider = ({ children }) => {
     selectedLayerIndex: DEFAULTS.selectedLayerIndex,
     isOverlayVisible: true,
     isNodeEditMode: false,
-    // Node edit context: tracks which layer and timeline position is being edited
-    // This allows timeline to know whether to apply geometry updates
-    nodeEditContext: null, // { layerId: string, layerName: string, timelinePosition: number | null }
+    nodeEditContext: null, // { layerId: string, layerName: string }
     classicMode: false,
     // Z-axis movement ignore (disable all Z scaling movement)
     zIgnore: true,
@@ -170,22 +149,9 @@ export const AppStateProvider = ({ children }) => {
     showLayerOutlines: false,
     isolateMode: false,
 
-    // Multi-select and Layer Groups
+    // Temporary multi-selection
     selectedLayerIds: [], // array of layer.id
-    layerGroups: [], // { id, name, color?, memberIds: string[] }
-    editTarget: { type: 'single' }, // 'single' | 'selection' | 'group'
-
-    // Preset morphing (Phase 3)
-    morphEnabled: false,
-    morphRoute: [1, 2], // array of preset ids (1..8)
-    morphDurationPerLeg: 5, // seconds
-    morphEasing: 'linear', // 'linear' | future: 'easeInOut'
-    morphLoopMode: 'loop', // 'loop' | 'pingpong'
-    morphMode: 'tween', // 'tween' | 'fade'
-    morphNodes: false, // interpolate node geometry (requires matching topology)
-
-    // Two-mode UI: when true, timeline is the authority.
-    timelineMode: false,
+    editTarget: { type: 'single' }, // 'single' | 'selection'
   });
   const appStateRef = useRef(appState);
   useEffect(() => { appStateRef.current = appState; }, [appState]);
@@ -193,14 +159,76 @@ export const AppStateProvider = ({ children }) => {
   // Stable getter for layers - use this instead of context.layers to avoid re-renders
   const getLayers = useCallback(() => appStateRef.current.layers, []);
 
-  // RAM preset slot stored in-memory only
-  const [quickPreset, setQuickPreset] = useState(null);
-
   // Autosave tracking
   const [isDirty, setIsDirty] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState(Date.now());
   const dirtyGuardRef = useRef(0);
-  const lastInteractionRef = useRef(0);
+
+  const cloneState = useCallback((value) => {
+    try {
+      return typeof structuredClone === 'function'
+        ? structuredClone(value)
+        : JSON.parse(JSON.stringify(value));
+    } catch {
+      return value;
+    }
+  }, []);
+
+  const setAppState = useCallback((value) => {
+    setAppStateRaw(previous => {
+      const next = typeof value === 'function' ? value(previous) : value;
+      if (!next || Object.is(previous, next)) return previous;
+      const now = Date.now();
+      const userInitiated = lastInteractionRef.current > 0 && (now - lastInteractionRef.current) < INTERACTION_WINDOW_MS;
+      if (historyReadyRef.current && !historySuspendedRef.current && userInitiated) {
+        const history = historyRef.current;
+        // Continuous sliders and pointer gestures become one transaction.
+        if ((now - history.lastCapturedAt) > 350 || history.undo.length === 0) {
+          history.undo.push(cloneState(previous));
+          if (history.undo.length > 50) history.undo.shift();
+        }
+        history.redo = [];
+        history.lastCapturedAt = now;
+        setHistoryVersion(version => version + 1);
+      }
+      return next;
+    });
+  }, [cloneState]);
+
+  const resetHistory = useCallback(() => {
+    historyRef.current = { undo: [], redo: [], lastCapturedAt: 0 };
+    setHistoryVersion(version => version + 1);
+  }, []);
+
+  const undo = useCallback(() => {
+    const history = historyRef.current;
+    const snapshot = history.undo.pop();
+    if (!snapshot) return;
+    history.redo.push(cloneState(appStateRef.current));
+    history.lastCapturedAt = 0;
+    historySuspendedRef.current = true;
+    setAppStateRaw(snapshot);
+    queueMicrotask(() => { historySuspendedRef.current = false; });
+    setHistoryVersion(version => version + 1);
+    setIsDirty(true);
+  }, [cloneState]);
+
+  const redo = useCallback(() => {
+    const history = historyRef.current;
+    const snapshot = history.redo.pop();
+    if (!snapshot) return;
+    history.undo.push(cloneState(appStateRef.current));
+    history.lastCapturedAt = 0;
+    historySuspendedRef.current = true;
+    setAppStateRaw(snapshot);
+    queueMicrotask(() => { historySuspendedRef.current = false; });
+    setHistoryVersion(version => version + 1);
+    setIsDirty(true);
+  }, [cloneState]);
+
+  useEffect(() => {
+    historyReadyRef.current = true;
+  }, []);
 
   const markDirty = useCallback(() => {
     if (dirtyGuardRef.current > 0) return;
@@ -263,73 +291,6 @@ export const AppStateProvider = ({ children }) => {
       window.removeEventListener('keydown', handleKey, true);
     };
   }, [noteUserInteraction]);
-
-  const setQuickPresetSnapshot = useCallback((snapshot) => {
-    if (!snapshot || typeof snapshot !== 'object') {
-      setQuickPreset(null);
-      return;
-    }
-    try {
-      const cloned = typeof structuredClone === 'function'
-        ? structuredClone(snapshot)
-        : JSON.parse(JSON.stringify(snapshot));
-      setQuickPreset(cloned);
-    } catch {
-      setQuickPreset(snapshot);
-    }
-  }, []);
-
-  const clearQuickPresetSnapshot = useCallback(() => {
-    setQuickPreset(null);
-  }, []);
-
-  // Preset slots state (16 slots), persisted to localStorage
-  const [presetSlots, setPresetSlots] = useState(() => {
-    try {
-      const raw = localStorage.getItem(PRESET_SLOTS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          // Migrate: if there are 8 slots, append 9..16 empty slots
-          if (parsed.length < 16) {
-            const next = [...parsed];
-            for (let i = parsed.length; i < 16; i++) {
-              next.push({ id: i + 1, name: `P${i + 1}`, color: '#4fc3f7', savedAt: null, payload: null, version: '1.0' });
-            }
-            return next.slice(0, 16);
-          }
-          return parsed.slice(0, 16);
-        }
-      }
-    } catch (e) {
-      console.warn('[AppState] Failed to load preset slots; using defaults', e);
-    }
-    return buildDefaultPresetSlots();
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(PRESET_SLOTS_KEY, JSON.stringify(presetSlots));
-    } catch (e) {
-      console.warn('[AppState] Failed to persist preset slots', e);
-    }
-  }, [presetSlots]);
-
-  const setPresetSlot = useCallback((slotId, updater) => {
-    setPresetSlots(prev => prev.map(s => (
-      s.id === slotId ? (typeof updater === 'function' ? updater(s) : { ...s, ...updater }) : s
-    )));
-  }, []);
-
-  const clearPresetSlot = useCallback((slotId) => {
-    setPresetSlots(prev => prev.map(s => (
-      s.id === slotId ? { ...s, payload: null, savedAt: null } : s
-    )));
-  }, []);
-
-  const getPresetSlot = useCallback((slotId) => (
-    (presetSlots || []).find(s => s.id === slotId) || null
-  ), [presetSlots]);
 
   // Individual state setters for backward compatibility
   const setIsFrozen = useCallback((value) => {
@@ -612,14 +573,6 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  const setTimelineMode = useCallback((value) => {
-    setAppState(prev => ({
-      ...prev,
-      timelineMode: (typeof value === 'function') ? !!value(!!prev.timelineMode) : !!value,
-    }));
-    markDirty();
-  }, [markDirty]);
-
   // Global toggles for color randomization behavior
   const setRandomizePalette = useCallback((value) => {
     setAppState(prev => ({ ...prev, randomizePalette: !!value }));
@@ -702,40 +655,6 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  // Morph setters
-  const setMorphEnabled = useCallback((value) => {
-    setAppState(prev => ({ ...prev, morphEnabled: !!value }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphRoute = useCallback((value) => {
-    setAppState(prev => ({ ...prev, morphRoute: Array.isArray(value) ? value.slice(0, 16) : prev.morphRoute }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphDurationPerLeg = useCallback((value) => {
-    const v = parseFloat(value);
-    setAppState(prev => ({ ...prev, morphDurationPerLeg: Number.isFinite(v) ? Math.max(0.2, Math.min(120, v)) : prev.morphDurationPerLeg }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphEasing = useCallback((value) => {
-    const allowed = ['linear'];
-    setAppState(prev => ({ ...prev, morphEasing: allowed.includes(value) ? value : prev.morphEasing }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphLoopMode = useCallback((value) => {
-    const allowed = ['loop', 'pingpong'];
-    setAppState(prev => ({ ...prev, morphLoopMode: allowed.includes(value) ? value : prev.morphLoopMode }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphMode = useCallback((value) => {
-    const allowed = ['tween', 'fade'];
-    setAppState(prev => ({ ...prev, morphMode: allowed.includes(value) ? value : prev.morphMode }));
-    markDirty();
-  }, [markDirty]);
-  const setMorphNodes = useCallback((value) => {
-    setAppState(prev => ({ ...prev, morphNodes: !!value }));
-    markDirty();
-  }, [markDirty]);
-
   // Function to get current app state for saving
   const getCurrentAppState = useCallback(() => {
     // Omit deprecated legacy fields from layers
@@ -811,6 +730,18 @@ export const AppStateProvider = ({ children }) => {
         return layerOut;
       };
       runWithoutDirty(() => {
+        const {
+          timelineMode: _timelineMode,
+          layerGroups: _layerGroups,
+          morphEnabled: _morphEnabled,
+          morphRoute: _morphRoute,
+          morphDurationPerLeg: _morphDurationPerLeg,
+          morphEasing: _morphEasing,
+          morphLoopMode: _morphLoopMode,
+          morphMode: _morphMode,
+          morphNodes: _morphNodes,
+          ...supportedState
+        } = newState;
         const rawGlobalPaletteIndex = newState.globalPaletteIndex;
         const normalizedPaletteIndex = (rawGlobalPaletteIndex === 'custom')
           ? 'custom'
@@ -824,7 +755,8 @@ export const AppStateProvider = ({ children }) => {
             : prevState.layers.map(normalizeLayer);
           return pruneLayerScopedState({
           ...prevState,
-          ...newState,
+          ...supportedState,
+          editTarget: newState.editTarget?.type === 'selection' ? { type: 'selection' } : { type: 'single' },
           audioSpawnMicReactive: typeof newState.audioSpawnMicReactive === 'boolean'
             ? newState.audioSpawnMicReactive
             : !!prevState.audioSpawnMicReactive,
@@ -870,10 +802,11 @@ export const AppStateProvider = ({ children }) => {
       });
       setIsDirty(false);
       setLastSavedAt(Date.now());
+      resetHistory();
       return true;
     }
     return false;
-  }, [makeLayerId, runWithoutDirty, setIsDirty, setLastSavedAt]);
+  }, [makeLayerId, resetHistory, runWithoutDirty, setIsDirty, setLastSavedAt]);
 
   // Selection helpers
   const toggleLayerSelection = useCallback((layerId) => {
@@ -889,70 +822,16 @@ export const AppStateProvider = ({ children }) => {
     markDirty();
   }, [markDirty]);
 
-  // Groups CRUD
-  const createGroup = useCallback(({ name, color = '#7c84ff', memberIds = [] } = {}) => {
-    const id = `group-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4)}`;
-    setAppState(prev => {
-      const liveIds = new Set((prev.layers || []).map(layer => layer?.id).filter(Boolean));
-      const validMemberIds = Array.from(new Set((memberIds || []).filter(memberId => liveIds.has(memberId))));
-      return { ...prev, layerGroups: [...(prev.layerGroups || []), { id, name: name || 'Group', color, memberIds: validMemberIds }] };
-    });
-    markDirty();
-    return id;
-  }, [markDirty]);
-  const renameGroup = useCallback((groupId, name) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, name } : g) }));
-    markDirty();
-  }, [markDirty]);
-  const setGroupColor = useCallback((groupId, color) => {
-    setAppState(prev => ({ ...prev, layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, color } : g) }));
-    markDirty();
-  }, [markDirty]);
-  const addMembersToGroup = useCallback((groupId, ids = []) => {
-    setAppState(prev => ({
-      ...prev,
-      layerGroups: (prev.layerGroups || []).map(g => {
-        if (g.id !== groupId) return g;
-        const liveIds = new Set((prev.layers || []).map(layer => layer?.id).filter(Boolean));
-        const nextIds = Array.from(new Set([...(g.memberIds || []), ...ids])).filter(id => liveIds.has(id));
-        return { ...g, memberIds: nextIds };
-      })
-    }));
-    markDirty();
-  }, [markDirty]);
-  const removeMembersFromGroup = useCallback((groupId, ids = []) => {
-    const remove = new Set(ids);
-    setAppState(prev => ({
-      ...prev,
-      layerGroups: (prev.layerGroups || []).map(g => g.id === groupId ? { ...g, memberIds: (g.memberIds || []).filter(id => !remove.has(id)) } : g)
-    }));
-    markDirty();
-  }, [markDirty]);
-  const deleteGroup = useCallback((groupId) => {
-    setAppState(prev => ({
-      ...prev,
-      layerGroups: (prev.layerGroups || []).filter(g => g.id !== groupId),
-      editTarget: prev.editTarget?.type === 'group' && prev.editTarget.groupId === groupId
-        ? { type: 'single' }
-        : prev.editTarget,
-    }));
-    markDirty();
-  }, [markDirty]);
-
   // Edit target
   const setEditTarget = useCallback((target) => {
-    // target: { type: 'single'|'selection'|'group', groupId? }
-    setAppState(prev => ({ ...prev, editTarget: target && target.type ? target : { type: 'single' } }));
+    const type = target?.type === 'selection' ? 'selection' : 'single';
+    setAppState(prev => ({ ...prev, editTarget: { type } }));
     markDirty();
   }, [markDirty]);
   const getActiveTargetLayerIds = useCallback(() => {
     const state = appStateRef.current;
     if (!state) return [];
     if (state.editTarget?.type === 'selection') return state.selectedLayerIds || [];
-    if (state.editTarget?.type === 'group') {
-      const g = (state.layerGroups || []).find(x => x.id === state.editTarget.groupId);
-      return g ? (g.memberIds || []) : [];
-    }
     // single -> current selectedLayerIndex
     const idx = Math.max(0, Math.min(Number(state.selectedLayerIndex) || 0, Math.max(0, (state.layers || []).length - 1)));
     const l = (state.layers || [])[idx];
@@ -1006,21 +885,19 @@ export const AppStateProvider = ({ children }) => {
       showLayerOutlines: false,
       isolateMode: false,
       syncLayerColorsToFirst: false,
-      timelineMode: false,
     });
     markDirty();
   }, [markDirty]);
 
   // Context value - we include appState but consumers should use React.memo
   // with custom comparators to avoid re-rendering on every frame
+  const canUndo = historyRef.current.undo.length > 0;
+  const canRedo = historyRef.current.redo.length > 0;
   const value = useMemo(() => ({
     // Current state
     ...appState,
     // Also provide getLayers() for components that need stable access
     getLayers,
-    quickPreset,
-    setQuickPresetSnapshot,
-    clearQuickPresetSnapshot,
     isDirty,
     setIsDirty,
     lastSavedAt,
@@ -1028,11 +905,11 @@ export const AppStateProvider = ({ children }) => {
     markDirty,
     noteUserInteraction,
     isUserInteracting,
-    presetSlots,
-    setPresetSlots,
-    setPresetSlot,
-    clearPresetSlot,
-    getPresetSlot,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    resetHistory,
 
     // Individual setters
     setIsFrozen,
@@ -1067,7 +944,6 @@ export const AppStateProvider = ({ children }) => {
     setIsNodeEditMode,
     setClassicMode,
     setZIgnore,
-    setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
     setGlobalPaletteIndex,
@@ -1085,24 +961,9 @@ export const AppStateProvider = ({ children }) => {
     setShowLayerOutlines,
     setIsolateMode,
 
-    // Morph setters
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    setMorphMode,
-    setMorphNodes,
-
-    // Selection & Groups API
+    // Temporary selection API
     toggleLayerSelection,
     clearSelection,
-    createGroup,
-    renameGroup,
-    setGroupColor,
-    addMembersToGroup,
-    removeMembersFromGroup,
-    deleteGroup,
     setEditTarget,
     getActiveTargetLayerIds,
 
@@ -1113,10 +974,8 @@ export const AppStateProvider = ({ children }) => {
     runWithoutDirty,
   }), [
     appState,
+    historyVersion,
     getLayers,
-    quickPreset,
-    setQuickPresetSnapshot,
-    clearQuickPresetSnapshot,
     isDirty,
     setIsDirty,
     lastSavedAt,
@@ -1124,11 +983,11 @@ export const AppStateProvider = ({ children }) => {
     markDirty,
     noteUserInteraction,
     isUserInteracting,
-    presetSlots,
-    setPresetSlots,
-    setPresetSlot,
-    clearPresetSlot,
-    getPresetSlot,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    resetHistory,
     setIsFrozen,
     setEnableBreathing,
     setEnableEnergyScaling,
@@ -1161,7 +1020,6 @@ export const AppStateProvider = ({ children }) => {
     setIsNodeEditMode,
     setClassicMode,
     setZIgnore,
-    setTimelineMode,
     setRandomizePalette,
     setRandomizeNumColors,
     setGlobalPaletteIndex,
@@ -1174,21 +1032,8 @@ export const AppStateProvider = ({ children }) => {
     setParameterTargetMode,
     setShowLayerOutlines,
     setIsolateMode,
-    setMorphEnabled,
-    setMorphRoute,
-    setMorphDurationPerLeg,
-    setMorphEasing,
-    setMorphLoopMode,
-    setMorphMode,
-    setMorphNodes,
     toggleLayerSelection,
     clearSelection,
-    createGroup,
-    renameGroup,
-    setGroupColor,
-    addMembersToGroup,
-    removeMembersFromGroup,
-    deleteGroup,
     setEditTarget,
     getActiveTargetLayerIds,
     getCurrentAppState,

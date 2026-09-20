@@ -18,9 +18,9 @@ export const useAudioReactive = () => useContext(AudioReactiveContext);
 export const AUDIO_BANDS = ['none', 'rms', 'bass', 'mids', 'highs', 'pitch', 'transient', 'beat', 'waveformEnergy'];
 
 // LocalStorage keys
-const LS_AUDIO_MAPPINGS = 'artapp-audio-mappings';
-const LS_AUDIO_SETTINGS = 'artapp-audio-settings';
-const LS_AUDIO_FILE = 'artapp-audio-file'; // Stores file mode preference
+const LS_AUDIO_MAPPINGS = 'artapp-studio-v1-audio-mappings';
+const LS_AUDIO_SETTINGS = 'artapp-studio-v1-audio-settings';
+const LS_AUDIO_FILE = 'artapp-studio-v1-audio-file'; // Stores file mode preference
 
 // Default range mapping for a parameter
 // Simplified: just outputMin/outputMax (the parameter value range)
@@ -184,6 +184,8 @@ export const AudioProvider = ({ children }) => {
     toggleFilePlayback,
     seekFile,
     stopFilePlayback,
+    getRecordingStream,
+    releaseRecordingStream,
   } = useAudio({
     enabled: settings.enabled,
     sensitivity: settings.sensitivity,
@@ -716,6 +718,8 @@ export const AudioProvider = ({ children }) => {
     toggleFilePlayback,
     seekFile,
     stopFilePlayback,
+    getRecordingStream,
+    releaseRecordingStream,
 
     // Snapshot for export/import
     getAudioSnapshot,
@@ -772,6 +776,8 @@ export const AudioProvider = ({ children }) => {
     toggleFilePlayback,
     seekFile,
     stopFilePlayback,
+    getRecordingStream,
+    releaseRecordingStream,
     getAudioSnapshot,
     applyAudioSnapshot,
     clearAllMappings,

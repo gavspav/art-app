@@ -1569,6 +1569,33 @@ const Canvas = forwardRef(({
         draftHintTimerRef.current = setTimeout(() => setDraftHint(''), 2200);
     }, []);
     const [nodeEditView, setNodeEditView] = useState(DEFAULT_NODE_EDIT_VIEW);
+
+    // The studio tool rail and the in-canvas toolbar share the same editor state.
+    // Keeping the event payload intentionally small avoids coupling Canvas to the
+    // surrounding workspace layout.
+    useEffect(() => {
+        const handleStudioTool = (event) => {
+            const nextTool = event?.detail?.tool;
+            if (!nextTool) return;
+            if (nextTool === 'pull') {
+                setBendLatch(true);
+                setNodeViewMode(false);
+                setNodeClickTool('select');
+                return;
+            }
+            if (nextTool === 'view') {
+                setNodeViewMode(true);
+                setBendLatch(false);
+                setNodeClickTool('select');
+                return;
+            }
+            setNodeViewMode(false);
+            setBendLatch(false);
+            setNodeClickTool(nextTool);
+        };
+        window.addEventListener('artapp:node-tool', handleStudioTool);
+        return () => window.removeEventListener('artapp:node-tool', handleStudioTool);
+    }, []);
     const nodeEditViewRef = useRef(DEFAULT_NODE_EDIT_VIEW);
     // Drive re-render for color fade while frozen so colours visibly animate
     const [, setColorTick] = useState(0);

@@ -1498,7 +1498,6 @@ const Controls = forwardRef(({
   randomizeAnimationOnly,
   setLayers,
   isNodeEditMode,
-  layerGroups = [],
   editTarget,
   setEditTarget,
   selectedLayerIds = [],
@@ -1571,7 +1570,7 @@ const Controls = forwardRef(({
     if (typeof window === 'undefined') return false;
     if (window.__artapp_debugSettings === true) return true;
     try {
-      return localStorage.getItem('artapp-debug-settings') === 'true';
+      return localStorage.getItem('artapp-studio-v1-debug-settings') === 'true';
     } catch {
       return false;
     }
@@ -1595,45 +1594,23 @@ const Controls = forwardRef(({
       });
     }
     
-    if (Array.isArray(layerGroups) && layerGroups.length > 0) {
-      groups.push({
-        label: 'Groups',
-        items: layerGroups.map(group => ({
-          value: `group:${group.id}`,
-          label: `${group.name || 'Group'} (${Array.isArray(group.memberIds) ? group.memberIds.length : 0})`,
-        })),
-      });
-    }
-    
     return groups;
-  }, [layerOptions, selectionCount, layerGroups]);
+  }, [layerOptions, selectionCount]);
 
   const targetSelectValue = useMemo(() => {
-    if (editTarget?.type === 'group' && editTarget.groupId && layerGroups.some(g => g.id === editTarget.groupId)) {
-      return `group:${editTarget.groupId}`;
-    }
     if (editTarget?.type === 'selection' && selectionCount > 0) {
       return 'selection';
     }
     const idx = Number.isFinite(selectedLayerIndex) ? Math.max(0, selectedLayerIndex) : 0;
     return `layer:${idx}`;
-  }, [editTarget, layerGroups, selectionCount, selectedLayerIndex]);
+  }, [editTarget, selectionCount, selectedLayerIndex]);
 
   const activeTargetBadge = useMemo(() => {
-    if (editTarget?.type === 'group' && editTarget.groupId) {
-      const group = layerGroups.find(g => g.id === editTarget.groupId);
-      if (group) {
-        return {
-          color: group.color || '#7c84ff',
-          label: `Editing group: ${group.name || 'Group'} (${Array.isArray(group.memberIds) ? group.memberIds.length : 0})`,
-        };
-      }
-    }
     if (editTarget?.type === 'selection' && selectionCount > 0) {
       return { color: '#4fc3f7', label: `Editing selection (${selectionCount})` };
     }
     return null;
-  }, [editTarget, layerGroups, selectionCount]);
+  }, [editTarget, selectionCount]);
 
   const { buildTargetSet, applyTargetedUpdate } = useLayerTargeting({
     currentLayer,
@@ -1672,20 +1649,8 @@ const Controls = forwardRef(({
       if (selectionCount > 0) {
         setEditTarget && setEditTarget({ type: 'selection' });
       }
-    } else if (value.startsWith('group:')) {
-      const id = value.slice(6);
-      if (id) {
-        const group = layerGroups.find(g => g.id === id);
-        if (clearSelection) clearSelection();
-        if (group && Array.isArray(group.memberIds) && toggleLayerSelection) {
-          for (const memberId of group.memberIds) {
-            toggleLayerSelection(memberId);
-          }
-        }
-        setEditTarget && setEditTarget({ type: 'group', groupId: id });
-      }
     }
-  }, [onSelectLayer, selectionCount, setEditTarget, clearSelection, toggleLayerSelection, layerIds, layerGroups]);
+  }, [onSelectLayer, selectionCount, setEditTarget, clearSelection, toggleLayerSelection, layerIds]);
 
   // Keyboard shortcuts while delete popover is open: Enter=Delete, Esc=Cancel
   useEffect(() => {
@@ -2193,7 +2158,6 @@ const areControlsPropsEqual = (prev, next) => {
   if (!Object.is(prev.baseNumColors, next.baseNumColors)) return fail('baseNumColors changed');
   if (!Object.is(prev.selectedLayerIndex, next.selectedLayerIndex)) return fail('selectedLayerIndex changed');
   if (!Object.is(prev.isNodeEditMode, next.isNodeEditMode)) return fail('isNodeEditMode changed');
-  if (!isArrayShallowEqual(prev.layerGroups, next.layerGroups)) return fail('layerGroups changed');
   if (!isArrayShallowEqual(prev.selectedLayerIds, next.selectedLayerIds)) return fail('selectedLayerIds changed');
   if (!Object.is(prev.editTarget, next.editTarget)) return fail('editTarget changed');
   if (!Object.is(prev.parameterTargetMode, next.parameterTargetMode)) return fail('parameterTargetMode changed');
