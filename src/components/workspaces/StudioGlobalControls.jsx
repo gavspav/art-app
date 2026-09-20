@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { Dices } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { ChevronDown, Dices } from 'lucide-react';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import RangeSlider from '../common/RangeSlider.jsx';
 
@@ -15,7 +15,30 @@ const UnifiedRangeControl = ({
   id, label, min, max, step, value, onChange, included, onIncludedChange,
   randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
 }) => (
-  <div className="studio-global-control">
+  <UnifiedRangeControlBody
+    id={id}
+    label={label}
+    min={min}
+    max={max}
+    step={step}
+    value={value}
+    onChange={onChange}
+    included={included}
+    onIncludedChange={onIncludedChange}
+    randomMin={randomMin}
+    randomMax={randomMax}
+    onRandomMinChange={onRandomMinChange}
+    onRandomMaxChange={onRandomMaxChange}
+    onStepChange={onStepChange}
+  />
+);
+
+function UnifiedRangeControlBody({
+  id, label, min, max, step, value, onChange, included, onIncludedChange,
+  randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
+}) {
+  const [boundsOpen, setBoundsOpen] = useState(false);
+  return <div className="studio-global-control">
     <div className="studio-global-control-label">
       <label htmlFor={`global-${id}`}>{label}</label>
       <input
@@ -44,13 +67,17 @@ const UnifiedRangeControl = ({
       onRangeMaxChange={onRandomMaxChange}
       aria-label={label}
     />
-    <div className="studio-random-bounds" aria-label={`${label} randomisation limits`}>
+    <button type="button" className="studio-bounds-toggle" onClick={() => setBoundsOpen(open => !open)} aria-expanded={boundsOpen} aria-controls={`bounds-${id}`}>
+      <ChevronDown size={14} className={boundsOpen ? 'is-open' : ''} />
+      <span>{boundsOpen ? 'Hide randomisation limits' : 'Show randomisation limits'}</span>
+    </button>
+    {boundsOpen && <div id={`bounds-${id}`} className="studio-random-bounds" aria-label={`${label} randomisation limits`}>
       <label>Random min<input type="number" min={min} max={randomMax} step={step} value={randomMin} onChange={event => onRandomMinChange(Number(event.target.value))} /></label>
       <label>Random max<input type="number" min={randomMin} max={max} step={step} value={randomMax} onChange={event => onRandomMaxChange(Number(event.target.value))} /></label>
       <label>Step<input type="number" min={id === 'layersCount' ? 1 : 0.0001} step={id === 'layersCount' ? 1 : 0.001} value={step} onChange={event => onStepChange(Number(event.target.value))} /></label>
-    </div>
-  </div>
-);
+    </div>}
+  </div>;
+}
 
 export default function StudioGlobalControls({ props }) {
   const { parameters = [], updateParameter } = useParameters() || {};

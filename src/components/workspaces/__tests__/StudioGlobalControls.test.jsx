@@ -27,9 +27,12 @@ describe('StudioGlobalControls', () => {
 
   test('shows persistent randomisation limits for every numeric global control', () => {
     render(<ParameterProvider><StudioGlobalControls props={props} /></ParameterProvider>);
-    expect(screen.getAllByText('Random min')).toHaveLength(8);
-    expect(screen.getAllByText('Random max')).toHaveLength(8);
-    expect(screen.getAllByText('Step')).toHaveLength(8);
+    expect(screen.queryAllByText('Random min')).toHaveLength(0);
+    expect(screen.getAllByText('Show randomisation limits')).toHaveLength(8);
+    fireEvent.click(screen.getAllByText('Show randomisation limits')[0]);
+    expect(screen.getAllByText('Random min')).toHaveLength(1);
+    expect(screen.getAllByText('Random max')).toHaveLength(1);
+    expect(screen.getAllByText('Step')).toHaveLength(1);
 
     fireEvent.change(screen.getAllByLabelText('Random max')[0], { target: { value: '4' } });
     const stored = JSON.parse(localStorage.getItem('artapp-studio-v1-parameters'));
