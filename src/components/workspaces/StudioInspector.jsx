@@ -144,15 +144,9 @@ function SettingsPanel({ props }) {
 
 function TargetScopeControl({ props }) {
   const mode = props.parameterTargetMode === 'global' ? 'global' : 'individual';
-  const layers = Array.isArray(props.layers) ? props.layers : [];
-  const selectionCount = Array.isArray(props.selectedLayerIds) ? props.selectedLayerIds.length : 0;
-  const selectedName = layers[props.selectedLayerIndex]?.name || `Layer ${(props.selectedLayerIndex ?? 0) + 1}`;
-  const targetLabel = mode === 'global'
-    ? `All layers (${layers.length})`
-    : (props.editTarget?.type === 'selection' && selectionCount > 0 ? `Selection (${selectionCount})` : selectedName);
 
   return <section className="studio-target-scope" aria-label="Parameter target scope">
-    <div className="studio-target-heading"><span className="eyebrow">Parameter target</span><strong>{targetLabel}</strong><kbd>G</kbd></div>
+    <div className="studio-target-heading"><span className="eyebrow">Apply edits to</span><kbd>G</kbd></div>
     <div className="studio-target-buttons" role="group" aria-label="Choose parameter target">
       <button type="button" className={mode === 'individual' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('individual')} aria-pressed={mode === 'individual'}><Crosshair size={15} /> Individual</button>
       <button type="button" className={mode === 'global' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('global')} aria-pressed={mode === 'global'}><Globe2 size={15} /> Global</button>
@@ -162,12 +156,6 @@ function TargetScopeControl({ props }) {
 
 export default function StudioInspector({ activeSection, onClose, props }) {
   const layerSection = ['Layers', 'Shape', 'Colour', 'Motion'].includes(activeSection);
-  const layers = Array.isArray(props.layers) ? props.layers : [];
-  const selectionCount = Array.isArray(props.selectedLayerIds) ? props.selectedLayerIds.length : 0;
-  const selectedName = layers[props.selectedLayerIndex]?.name || `Layer ${(props.selectedLayerIndex ?? 0) + 1}`;
-  const targetLabel = props.parameterTargetMode === 'global'
-    ? 'All layers'
-    : (props.editTarget?.type === 'selection' && selectionCount > 0 ? `${selectionCount} selected` : selectedName);
   const commonLayerProps = {
     currentLayer: props.currentLayer, updateLayer: props.updateCurrentLayer,
     randomizeCurrentLayer: props.randomizeCurrentLayer,
@@ -196,7 +184,7 @@ export default function StudioInspector({ activeSection, onClose, props }) {
 
   return (
     <aside className="studio-inspector" aria-label={`${activeSection} inspector`}>
-      <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><div className="studio-inspector-header-actions"><span className="studio-target-pill">{layerSection ? targetLabel : activeSection === 'Global' ? 'Scene' : 'Workspace'}</span><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></div></header>
+      <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><div className="studio-inspector-header-actions"><span className="studio-target-pill">{layerSection ? (props.parameterTargetMode === 'global' ? 'Global' : 'Individual') : activeSection === 'Global' ? 'Scene' : 'Workspace'}</span><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></div></header>
       <div className="studio-inspector-scroll">
         {layerSection && <TargetScopeControl props={props} />}
         {activeSection === 'Global' && <StudioGlobalControls props={props} />}

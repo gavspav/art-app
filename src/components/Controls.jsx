@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
-import { Dices, Music2, Settings2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Dices, FilePlus2, MoreHorizontal, Music2, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import ColorPicker from './ColorPicker';
 import BufferedNumberInput from './common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../utils/parameterOperationalHints.js';
@@ -1456,7 +1456,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               rangeMax={param.randomMax}
               onRangeMinChange={onMetaChange('randomMin')}
               onRangeMaxChange={onMetaChange('randomMax')}
-              showRangeHandles={!!param.isRandomizable}
+              showRangeHandles={!!param.isRandomizable && showSettings}
               className="dc-slider"
             />
           </div>
@@ -1606,13 +1606,6 @@ const Controls = forwardRef(({
     const idx = Number.isFinite(selectedLayerIndex) ? Math.max(0, selectedLayerIndex) : 0;
     return `layer:${idx}`;
   }, [editTarget, selectionCount, selectedLayerIndex]);
-
-  const activeTargetBadge = useMemo(() => {
-    if (editTarget?.type === 'selection' && selectionCount > 0) {
-      return { color: '#4fc3f7', label: `Editing selection (${selectionCount})` };
-    }
-    return null;
-  }, [editTarget, selectionCount]);
 
   const { buildTargetSet, applyTargetedUpdate } = useLayerTargeting({
     currentLayer,
@@ -1908,14 +1901,13 @@ const Controls = forwardRef(({
     learnParamId,
   } = useMidi() || {};
   const midiRandomizeCurrentLayerId = buildMidiRandomizeId('currentLayer');
-  const midiRandomizeCurrentLayerMapped = !!midiMappings?.[midiRandomizeCurrentLayerId];
 
   return (
     <div className="controls-panel">
       <div className="controls-header compact" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
           <h2 style={{ margin: 0, fontSize: '1rem' }}>Active Layer</h2>
-          <div style={{ gap: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+          <div className="studio-layer-selector-row" style={{ gap: '0.4rem', display: 'flex', alignItems: 'center' }}>
             <HoverDropdown
               value={targetSelectValue}
               options={dropdownOptions}
@@ -1923,31 +1915,7 @@ const Controls = forwardRef(({
                 handleTargetSelect({ target: { value } });
               }}
             />
-            {activeTargetBadge && (
-              <div
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  alignSelf: 'flex-start',
-                  maxWidth: '100%',
-                  padding: '0.25rem 0.45rem',
-                  border: `1px solid ${activeTargetBadge.color}`,
-                  borderRadius: 6,
-                  background: 'rgba(255,255,255,0.045)',
-                  color: '#f3f3f3',
-                  fontSize: '0.82rem',
-                  lineHeight: 1.2,
-                }}
-                title={activeTargetBadge.label}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: 999, background: activeTargetBadge.color, flex: '0 0 auto' }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTargetBadge.label}</span>
-              </div>
-            )}
-          </div>
-          <div className="compact-row" style={{ gap: '0.4rem', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <div className="studio-layer-actions" aria-label="Layer actions">
               <button
                 type="button"
                 className="icon-btn sm"
@@ -1955,7 +1923,7 @@ const Controls = forwardRef(({
                 aria-label="Add a layer"
                 onClick={() => onAddLayer && onAddLayer()}
               >
-                +
+                <Plus size={15} aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -1965,7 +1933,7 @@ const Controls = forwardRef(({
                 onClick={() => onMoveLayerUp && onMoveLayerUp()}
                 disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex >= Math.max(0, (layerNames || []).length - 1)}
               >
-                ↑
+                <ArrowUp size={15} aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -1975,7 +1943,7 @@ const Controls = forwardRef(({
                 onClick={() => onMoveLayerDown && onMoveLayerDown()}
                 disabled={!Number.isFinite(selectedLayerIndex) || selectedLayerIndex <= 0}
               >
-                ↓
+                <ArrowDown size={15} aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -1985,55 +1953,31 @@ const Controls = forwardRef(({
                 onClick={() => setShowDeletePicker(true)}
                 disabled={((layerNames || []).length) <= 1}
               >
-                -
+                <Trash2 size={15} aria-hidden="true" />
               </button>
-            </div>
-            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Import SVG as nodes (adds new layer)"
-                aria-label="Import SVG"
-                onClick={() => onImportSVG && onImportSVG()}
-              >
-                SVG
-              </button>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title="Edit nodes"
-                aria-label="Edit nodes"
-                onClick={() => setIsNodeEditMode(!isNodeEditMode)}
-              >
-                {isNodeEditMode ? '⛔' : '✎'}
-              </button>
-              <button
-                type="button"
-                className="icon-btn sm"
-                title={midiSupported ? 'Randomize selected layer. Shift-click to MIDI learn; Alt-click to clear MIDI.' : 'Randomize selected layer'}
-                aria-label="Randomize selected layer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (e.altKey) {
-                    clearMapping && clearMapping(midiRandomizeCurrentLayerId);
-                    return;
-                  }
-                  if (e.shiftKey) {
-                    beginLearn && beginLearn(midiRandomizeCurrentLayerId);
-                    return;
-                  }
-                  randomizeCurrentLayer(false);
-                }}
-              >
-                <Dices size={15} aria-hidden="true" />
-              </button>
-              {learnParamId === midiRandomizeCurrentLayerId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
-              {midiSupported && (
-                <>
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); beginLearn && beginLearn(midiRandomizeCurrentLayerId); }}>Learn</button>
-                  <button type="button" className="btn-compact-secondary" onClick={(e) => { e.stopPropagation(); clearMapping && clearMapping(midiRandomizeCurrentLayerId); }} disabled={!midiRandomizeCurrentLayerMapped}>Clear</button>
-                </>
-              )}
+              <details className="studio-layer-more">
+                <summary className="icon-btn sm" title="More layer actions" aria-label="More layer actions"><MoreHorizontal size={15} aria-hidden="true" /></summary>
+                <div className="studio-layer-more-menu">
+                  <button type="button" onClick={() => onImportSVG && onImportSVG()}><FilePlus2 size={15} /> Import SVG</button>
+                  <button type="button" onClick={() => setIsNodeEditMode(!isNodeEditMode)}><Pencil size={15} /> {isNodeEditMode ? 'Exit node editing' : 'Edit nodes'}</button>
+                  <button
+                    type="button"
+                    title={midiSupported ? 'Shift-click to MIDI learn; Alt-click to clear MIDI.' : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (e.altKey) {
+                        clearMapping && clearMapping(midiRandomizeCurrentLayerId);
+                        return;
+                      }
+                      if (e.shiftKey) {
+                        beginLearn && beginLearn(midiRandomizeCurrentLayerId);
+                        return;
+                      }
+                      randomizeCurrentLayer(false);
+                    }}
+                  ><Dices size={15} /> Randomise layer</button>
+                </div>
+              </details>
             </div>
           </div>
         </div>

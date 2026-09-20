@@ -262,7 +262,7 @@ export default function LayerShapeSection({
               rangeMax={rotateMax}
               onRangeMinChange={setRotateMin}
               onRangeMaxChange={setRotateMax}
-              showRangeHandles={!!(getIsRnd && getIsRnd('rotation'))}
+              showRangeHandles={!!(getIsRnd && getIsRnd('rotation')) && showRotateSettings}
             />
             {showRotateSettings && (
               <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>

@@ -73,7 +73,7 @@ function UnifiedRangeControlBody({
       rangeMax={randomMax}
       onRangeMinChange={onRandomMinChange}
       onRangeMaxChange={onRandomMaxChange}
-      showRangeHandles={included}
+      showRangeHandles={included && boundsOpen}
       aria-label={label}
     />
     <button type="button" className="studio-bounds-toggle" onClick={() => setBoundsOpen(open => !open)} aria-expanded={boundsOpen} aria-label={`${boundsOpen ? 'Hide' : 'Show'} ${label} randomisation limits`} aria-controls={`bounds-${id}`}>
