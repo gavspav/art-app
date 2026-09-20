@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ChevronDown, Layers3, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, Crosshair, Globe2, Layers3, Plus, Trash2, X } from 'lucide-react';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import LayerSectionView from '../LayerSectionView.jsx';
@@ -151,6 +151,25 @@ function SettingsPanel({ props }) {
   </>;
 }
 
+function TargetScopeControl({ props }) {
+  const mode = props.parameterTargetMode === 'global' ? 'global' : 'individual';
+  const layers = Array.isArray(props.layers) ? props.layers : [];
+  const selectionCount = Array.isArray(props.selectedLayerIds) ? props.selectedLayerIds.length : 0;
+  const selectedName = layers[props.selectedLayerIndex]?.name || `Layer ${(props.selectedLayerIndex ?? 0) + 1}`;
+  const targetLabel = mode === 'global'
+    ? `All layers (${layers.length})`
+    : (props.editTarget?.type === 'selection' && selectionCount > 0 ? `Selection (${selectionCount})` : selectedName);
+
+  return <section className="studio-target-scope" aria-label="Parameter target scope">
+    <div className="studio-target-heading"><span className="eyebrow">Parameter target</span><strong>{targetLabel}</strong><kbd>G</kbd></div>
+    <div className="studio-target-buttons" role="group" aria-label="Choose parameter target">
+      <button type="button" className={mode === 'individual' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('individual')} aria-pressed={mode === 'individual'}><Crosshair size={15} /> Individual</button>
+      <button type="button" className={mode === 'global' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('global')} aria-pressed={mode === 'global'}><Globe2 size={15} /> Global</button>
+    </div>
+    <p>{mode === 'global' ? 'Layer controls apply to every layer.' : 'Layer controls apply to the selected layer or temporary selection.'}</p>
+  </section>;
+}
+
 export default function StudioInspector({ activeSection, onClose, props }) {
   const commonLayerProps = {
     currentLayer: props.currentLayer, updateLayer: props.updateCurrentLayer,
@@ -182,6 +201,7 @@ export default function StudioInspector({ activeSection, onClose, props }) {
     <aside className="studio-inspector" aria-label={`${activeSection} inspector`}>
       <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></header>
       <div className="studio-inspector-scroll">
+        <TargetScopeControl props={props} />
         {activeSection === 'Global' && <StudioGlobalControls props={props} />}
         {activeSection === 'Layers' && <LayerList props={props} />}
         {activeSection === 'Shape' && <LayerSectionView {...commonLayerProps} visibleSection="shape" />}
