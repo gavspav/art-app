@@ -5,6 +5,7 @@ const actions = () => ({
   save: vi.fn(), open: vi.fn(), exportImage: vi.fn(), undo: vi.fn(), redo: vi.fn(),
   canUndo: true, canRedo: true, toggleAnimation: vi.fn(), randomize: vi.fn(),
   presentation: vi.fn(), record: vi.fn(), isRecording: false, tool: vi.fn(), openSection: vi.fn(),
+  toggleTarget: vi.fn(),
 });
 
 describe('studio command registry', () => {
@@ -12,7 +13,7 @@ describe('studio command registry', () => {
     const commands = buildStudioCommands(actions());
     expect(new Set(commands.map(command => command.id)).size).toBe(commands.length);
     expect(commands.filter(command => command.group === 'Inspector').map(command => command.label)).toEqual([
-      'Open Global', 'Open Layers', 'Open Shape', 'Open Colour', 'Open Motion', 'Open Audio', 'Open Settings',
+      'Toggle Individual / Global target', 'Open Global', 'Open Layers', 'Open Shape', 'Open Colour', 'Open Motion', 'Open Audio', 'Open Settings',
     ]);
     expect(commands.filter(command => command.group === 'Tools')).toHaveLength(6);
   });
@@ -26,6 +27,7 @@ describe('studio command registry', () => {
     expect(matchesStudioShortcut(key('z'), 'history.undo')).toBe(false);
     expect(matchesStudioShortcut(key('h'), 'view.inspector')).toBe(true);
     expect(matchesStudioShortcut(key('k'), 'view.shortcuts')).toBe(true);
+    expect(matchesStudioShortcut(key('g'), 'target.toggle')).toBe(true);
     expect(matchesStudioShortcut(key('e'), 'project.export')).toBe(true);
     expect(matchesStudioShortcut(key('v'), 'tool.select')).toBe(true);
     expect(matchesStudioShortcut(key('k', { metaKey: true }), 'view.shortcuts')).toBe(false);

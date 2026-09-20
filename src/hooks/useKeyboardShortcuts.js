@@ -51,6 +51,9 @@ export function useKeyboardShortcuts({
       }
 
       if (key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // The streamlined workspace owns this command through the shared
+        // registry. Keep the legacy handler for the older workspace shell.
+        if (typeof document !== 'undefined' && document.querySelector('.studio-workspace')) return;
         e.preventDefault();
         const cur = (hotkeyRef?.current?.parameterTargetMode === 'global') ? 'global' : 'individual';
         const next = cur === 'global' ? 'individual' : 'global';

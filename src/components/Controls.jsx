@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
+import { Dices, Music2, Settings2 } from 'lucide-react';
 import ColorPicker from './ColorPicker';
 import BufferedNumberInput from './common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../utils/parameterOperationalHints.js';
@@ -1209,7 +1210,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               lineHeight: 1,
             }}
           >
-            ♪
+            <Music2 size={14} aria-hidden="true" />
           </span>
         )}
         {learnParamId === midiRandomizeId && midiSupported && (
@@ -1225,7 +1226,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           style={{ padding: '0 0.4rem', pointerEvents: 'auto' }}
           tabIndex={0}
         >
-          🎲
+          <Dices size={15} aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -1238,7 +1239,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
           style={{ padding: '0 0.4rem', pointerEvents: 'auto' }}
           tabIndex={0}
         >
-          ⚙{showSettings ? '•' : ''}
+          <Settings2 size={15} aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -1455,6 +1456,7 @@ const DynamicControlBase = ({ param, currentLayer, updateLayer, setLayers, build
               rangeMax={param.randomMax}
               onRangeMinChange={onMetaChange('randomMin')}
               onRangeMaxChange={onMetaChange('randomMax')}
+              showRangeHandles={!!param.isRandomizable}
               className="dc-slider"
             />
           </div>
@@ -2023,7 +2025,7 @@ const Controls = forwardRef(({
                   randomizeCurrentLayer(false);
                 }}
               >
-                🎲
+                <Dices size={15} aria-hidden="true" />
               </button>
               {learnParamId === midiRandomizeCurrentLayerId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
               {midiSupported && (

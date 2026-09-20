@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dices } from 'lucide-react';
 import ControlSectionCard from '../../controls/common/ControlSectionCard.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { useMidi } from '../../../context/MidiContext.jsx';
@@ -53,7 +54,7 @@ export default function LayerAnimationSection({
                 randomizeAnimationOnly && randomizeAnimationOnly();
               }}
             >
-              🎲
+              <Dices size={15} aria-hidden="true" />
             </button>
             {midiSupported && (
               <>

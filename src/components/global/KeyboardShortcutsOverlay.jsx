@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-const SHORTCUT_SECTIONS = [
+const LEGACY_SHORTCUT_SECTIONS = [
   {
     title: 'Workspace',
     items: [
@@ -81,7 +81,7 @@ const NODE_EDIT_TIPS = [
   'Shift-drag one open-path endpoint onto another open endpoint to join them, or onto its opposite endpoint to close the path.',
 ];
 
-export default function KeyboardShortcutsOverlay({ visible, onClose }) {
+export default function KeyboardShortcutsOverlay({ visible, onClose, commands = [] }) {
   useEffect(() => {
     if (!visible) return undefined;
     const closeOnEscape = event => {
@@ -95,6 +95,16 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
   }, [visible, onClose]);
 
   if (!visible) return null;
+
+  const commandSections = commands.length
+    ? Object.entries(commands.reduce((groups, command) => {
+      if (!command.shortcut) return groups;
+      const group = command.group || 'Workspace';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push([[command.shortcut], command.label]);
+      return groups;
+    }, {})).map(([title, items]) => ({ title, items }))
+    : LEGACY_SHORTCUT_SECTIONS;
 
   const handleBackgroundClick = (event) => {
     if (event.target === event.currentTarget && typeof onClose === 'function') {
@@ -123,7 +133,7 @@ export default function KeyboardShortcutsOverlay({ visible, onClose }) {
           )}
         </div>
         <div className="shortcuts-body">
-          {SHORTCUT_SECTIONS.map((section) => (
+          {commandSections.map((section) => (
             <section key={section.title} className="shortcuts-section">
               <div className="shortcuts-section-title">{section.title}</div>
               <div className="shortcuts-grid">

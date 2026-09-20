@@ -28,13 +28,17 @@ describe('StudioGlobalControls', () => {
   test('shows persistent randomisation limits for every numeric global control', () => {
     render(<ParameterProvider><StudioGlobalControls props={props} /></ParameterProvider>);
     expect(screen.queryAllByText('Random min')).toHaveLength(0);
-    expect(screen.getAllByText('Show randomisation limits')).toHaveLength(8);
-    fireEvent.click(screen.getAllByText('Show randomisation limits')[0]);
+    const disclosureButtons = screen.getAllByRole('button', { name: /Show .* randomisation limits/ });
+    expect(disclosureButtons).toHaveLength(8);
+    fireEvent.click(disclosureButtons[0]);
     expect(screen.getAllByText('Random min')).toHaveLength(1);
     expect(screen.getAllByText('Random max')).toHaveLength(1);
     expect(screen.getAllByText('Step')).toHaveLength(1);
 
-    fireEvent.change(screen.getAllByLabelText('Random max')[0], { target: { value: '4' } });
+    const randomMax = screen.getAllByLabelText('Random max')[0];
+    fireEvent.focus(randomMax);
+    fireEvent.change(randomMax, { target: { value: '4' } });
+    fireEvent.blur(randomMax);
     const stored = JSON.parse(localStorage.getItem('artapp-studio-v1-parameters'));
     expect(stored.find(parameter => parameter.id === 'globalSpeedMultiplier').randomMax).toBe(4);
   });

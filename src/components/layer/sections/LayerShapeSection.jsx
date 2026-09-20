@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dices, Settings2 } from 'lucide-react';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { getOperationalMaxHint } from '../../../utils/parameterOperationalHints.js';
 import RangeSlider from '../../common/RangeSlider.jsx';
@@ -230,7 +231,7 @@ export default function LayerShapeSection({
                     randomizeRotation();
                   }}
                 >
-                  🎲
+                  <Dices size={15} aria-hidden="true" />
                 </button>
                 {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
                 <button
@@ -240,7 +241,7 @@ export default function LayerShapeSection({
                   aria-label="Rotation settings"
                   onClick={(e) => { e.stopPropagation(); setShowRotateSettings(s => !s); }}
                 >
-                  ⚙
+                  <Settings2 size={15} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -261,6 +262,7 @@ export default function LayerShapeSection({
               rangeMax={rotateMax}
               onRangeMinChange={setRotateMin}
               onRangeMaxChange={setRotateMax}
+              showRangeHandles={!!(getIsRnd && getIsRnd('rotation'))}
             />
             {showRotateSettings && (
               <div className="dc-settings" style={{ marginTop: '0.5rem', padding: '0.5rem', borderRadius: 6, background: 'rgba(255,255,255,0.05)' }}>

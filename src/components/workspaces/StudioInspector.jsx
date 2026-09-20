@@ -125,16 +125,7 @@ function SettingsPanel({ props }) {
   const midi = useMidi() || {};
   return <>
     <section className="studio-card studio-settings-grid">
-      <span className="eyebrow">Canvas</span><h3>Scene</h3>
-      <label>Background<input type="color" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /></label>
-      <label>Blend mode<select value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>
-        {(props.blendModes || []).map(mode => {
-          const value = typeof mode === 'string' ? mode : mode.value;
-          const label = typeof mode === 'string' ? mode : mode.label;
-          return <option key={value} value={value}>{label}</option>;
-        })}
-      </select></label>
-      <label>Global speed<input type="range" min="0" max="4" step="0.05" value={props.globalSpeedMultiplier ?? 1} onChange={event => props.setGlobalSpeedMultiplier?.(Number(event.target.value))} /></label>
+      <span className="eyebrow">Workspace</span><h3>Canvas behaviour</h3>
       <label>Random seed<input type="number" value={props.globalSeed ?? 1} onChange={event => props.setGlobalSeed?.(Number(event.target.value))} /></label>
       <label className="studio-check"><input type="checkbox" checked={!!props.zIgnore} onChange={event => props.setZIgnore?.(event.target.checked)} /> Ignore depth movement</label>
       <label className="studio-check"><input type="checkbox" checked={!!props.colorFadeWhileFrozen} onChange={event => props.setColorFadeWhileFrozen?.(event.target.checked)} /> Continue colour fades while paused</label>
@@ -166,11 +157,17 @@ function TargetScopeControl({ props }) {
       <button type="button" className={mode === 'individual' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('individual')} aria-pressed={mode === 'individual'}><Crosshair size={15} /> Individual</button>
       <button type="button" className={mode === 'global' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('global')} aria-pressed={mode === 'global'}><Globe2 size={15} /> Global</button>
     </div>
-    <p>{mode === 'global' ? 'Layer controls apply to every layer.' : 'Layer controls apply to the selected layer or temporary selection.'}</p>
   </section>;
 }
 
 export default function StudioInspector({ activeSection, onClose, props }) {
+  const layerSection = ['Layers', 'Shape', 'Colour', 'Motion'].includes(activeSection);
+  const layers = Array.isArray(props.layers) ? props.layers : [];
+  const selectionCount = Array.isArray(props.selectedLayerIds) ? props.selectedLayerIds.length : 0;
+  const selectedName = layers[props.selectedLayerIndex]?.name || `Layer ${(props.selectedLayerIndex ?? 0) + 1}`;
+  const targetLabel = props.parameterTargetMode === 'global'
+    ? 'All layers'
+    : (props.editTarget?.type === 'selection' && selectionCount > 0 ? `${selectionCount} selected` : selectedName);
   const commonLayerProps = {
     currentLayer: props.currentLayer, updateLayer: props.updateCurrentLayer,
     randomizeCurrentLayer: props.randomizeCurrentLayer,
@@ -199,9 +196,9 @@ export default function StudioInspector({ activeSection, onClose, props }) {
 
   return (
     <aside className="studio-inspector" aria-label={`${activeSection} inspector`}>
-      <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></header>
+      <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><div className="studio-inspector-header-actions"><span className="studio-target-pill">{layerSection ? targetLabel : activeSection === 'Global' ? 'Scene' : 'Workspace'}</span><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></div></header>
       <div className="studio-inspector-scroll">
-        <TargetScopeControl props={props} />
+        {layerSection && <TargetScopeControl props={props} />}
         {activeSection === 'Global' && <StudioGlobalControls props={props} />}
         {activeSection === 'Layers' && <LayerList props={props} />}
         {activeSection === 'Shape' && <LayerSectionView {...commonLayerProps} visibleSection="shape" />}

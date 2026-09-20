@@ -1385,6 +1385,19 @@ const MainApp = () => {
     setGlobalBlendMode,
     parameterTargetMode,
     setParameterTargetMode,
+    toggleParameterTargetMode,
+    toggleOutlines: () => setShowLayerOutlines(value => !value),
+    toggleIsolate: () => setIsolateMode(value => !value),
+    toggleZIgnore: () => setZIgnore(value => !value),
+    toggleBPM: bpmForAnimation?.togglePlay,
+    toggleAudio: audioReactive?.toggleAudio,
+    previousLayer: () => setSelectedLayerIndex(value => Math.max(0, Number(value || 0) - 1)),
+    nextLayer: () => setSelectedLayerIndex(value => Math.min(Math.max(0, uiLayers.length - 1), Number(value || 0) + 1)),
+    selectLayerNumber: key => {
+      const index = Math.max(0, Math.min(Math.max(0, uiLayers.length - 1), Number(key) - 1));
+      setSelectedLayerIndex(index);
+    },
+    deleteSelection: () => deleteLayer?.(clampedSelectedIndex),
     onQuickSave: handleQuickSave,
     onQuickLoad: handleQuickLoad,
     energyInfluence,

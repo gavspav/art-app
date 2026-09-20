@@ -2,6 +2,8 @@ import React, { useCallback, useState } from 'react';
 import { ChevronDown, Dices } from 'lucide-react';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import RangeSlider from '../common/RangeSlider.jsx';
+import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
+import { blendModeLabel } from '../../constants/blendModes.js';
 
 const VARIATIONS = [
   ['variationPosition', 'Position', 0, 5],
@@ -41,18 +43,24 @@ function UnifiedRangeControlBody({
   return <div className="studio-global-control">
     <div className="studio-global-control-label">
       <label htmlFor={`global-${id}`}>{label}</label>
-      <input
+      <BufferedNumberInput
+        id={`global-${id}`}
         aria-label={`${label} value`}
-        type="number"
         min={min}
         max={max}
         step={step}
         value={Number(value ?? 0)}
-        onChange={event => onChange(Number(event.target.value))}
+        onCommit={onChange}
+        className="studio-number-input"
       />
-      <label className="studio-rnd-toggle" title="Include when Randomise scene runs">
-        <input type="checkbox" checked={included} onChange={event => onIncludedChange(event.target.checked)} /> Rnd
-      </label>
+      <button
+        type="button"
+        className={`studio-dice-toggle${included ? ' active' : ''}`}
+        aria-label={`${included ? 'Exclude' : 'Include'} ${label} from randomisation`}
+        aria-pressed={included}
+        title={`${included ? 'Exclude from' : 'Include in'} scene randomisation`}
+        onClick={() => onIncludedChange(!included)}
+      ><Dices size={15} /></button>
     </div>
     <RangeSlider
       id={`global-${id}`}
@@ -65,16 +73,16 @@ function UnifiedRangeControlBody({
       rangeMax={randomMax}
       onRangeMinChange={onRandomMinChange}
       onRangeMaxChange={onRandomMaxChange}
+      showRangeHandles={included}
       aria-label={label}
     />
-    <button type="button" className="studio-bounds-toggle" onClick={() => setBoundsOpen(open => !open)} aria-expanded={boundsOpen} aria-controls={`bounds-${id}`}>
+    <button type="button" className="studio-bounds-toggle" onClick={() => setBoundsOpen(open => !open)} aria-expanded={boundsOpen} aria-label={`${boundsOpen ? 'Hide' : 'Show'} ${label} randomisation limits`} aria-controls={`bounds-${id}`}>
       <ChevronDown size={14} className={boundsOpen ? 'is-open' : ''} />
-      <span>{boundsOpen ? 'Hide randomisation limits' : 'Show randomisation limits'}</span>
     </button>
     {boundsOpen && <div id={`bounds-${id}`} className="studio-random-bounds" aria-label={`${label} randomisation limits`}>
-      <label>Random min<input type="number" min={min} max={randomMax} step={step} value={randomMin} onChange={event => onRandomMinChange(Number(event.target.value))} /></label>
-      <label>Random max<input type="number" min={randomMin} max={max} step={step} value={randomMax} onChange={event => onRandomMaxChange(Number(event.target.value))} /></label>
-      <label>Step<input type="number" min={id === 'layersCount' ? 1 : 0.0001} step={id === 'layersCount' ? 1 : 0.001} value={step} onChange={event => onStepChange(Number(event.target.value))} /></label>
+      <label>Random min<BufferedNumberInput min={min} max={randomMax} step={step} value={randomMin} onCommit={onRandomMinChange} /></label>
+      <label>Random max<BufferedNumberInput min={randomMin} max={max} step={step} value={randomMax} onCommit={onRandomMaxChange} /></label>
+      <label>Step<BufferedNumberInput min={id === 'layersCount' ? 1 : 0.0001} step={id === 'layersCount' ? 1 : 0.001} value={step} onCommit={onStepChange} /></label>
     </div>}
   </div>;
 }
@@ -171,16 +179,16 @@ export default function StudioGlobalControls({ props }) {
     <section className="studio-card">
       <div className="studio-card-heading"><div><span className="eyebrow">Scene</span><h3>Global controls</h3></div><button type="button" className="studio-small-action" onClick={props.handleRandomizeAll}><Dices size={16} /> Randomise</button></div>
       <div className="studio-global-controls">
-        <label>Background<input type="color" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /></label>
-        <label>Palette<select value={String(props.globalPaletteIndex ?? 0)} onChange={event => {
+        <label className="studio-color-row"><span>Background</span><span className="studio-color-chip"><input id="global-background" type="color" aria-label="Background colour" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /><output>{props.backgroundColor || '#000000'}</output></span></label>
+        <label>Palette<select id="global-palette" value={String(props.globalPaletteIndex ?? 0)} onChange={event => {
           const index = Number(event.target.value);
           props.setGlobalPaletteRef?.(null); props.setGlobalPaletteIndex?.(index);
           const palette = props.palettes?.[index];
           if (palette) props.assignOneColorPerLayer?.(props.sampleColorsEven?.(palette.colors || palette, Math.max(1, layers.length)) || palette.colors || palette);
         }}>{(props.palettes || []).map((palette, index) => <option key={palette.name || index} value={index}>{palette.name || `Palette ${index + 1}`}</option>)}</select></label>
-        <label>Blend mode<select value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>{(props.blendModes || []).map(mode => {
+        <label>Blend mode<select id="global-blend-mode" value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>{(props.blendModes || []).map(mode => {
           const value = typeof mode === 'string' ? mode : mode.value;
-          return <option key={value} value={value}>{typeof mode === 'string' ? mode : mode.label}</option>;
+          return <option key={value} value={value}>{typeof mode === 'string' ? blendModeLabel(mode) : mode.label}</option>;
         })}</select></label>
       </div>
       <div className="studio-variation-controls">

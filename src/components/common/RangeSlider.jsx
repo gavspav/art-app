@@ -31,6 +31,7 @@ export default function RangeSlider({
   rangeMax,
   onRangeMinChange,
   onRangeMaxChange,
+  showRangeHandles = false,
   className = 'dc-slider',
   sliderKey,
   style,
@@ -131,7 +132,7 @@ export default function RangeSlider({
   const valuePct = toPercent(Number(value));
 
   // Show the highlighted band when the range is narrower than the full slider range
-  const rangeIsCustom = effectiveRangeMin > lo + span * 0.001 || effectiveRangeMax < hi - span * 0.001;
+  const rangeIsCustom = showRangeHandles && (effectiveRangeMin > lo + span * 0.001 || effectiveRangeMax < hi - span * 0.001);
   const activeDragType = draggingRef.current || (isMainDragging ? 'value' : null);
   const activeValue = activeDragType === 'rangeMin'
     ? effectiveRangeMin
@@ -178,20 +179,20 @@ export default function RangeSlider({
           }}
         />
       )}
-      {/* Min handle — always visible */}
-      <div
-        className={`range-slider-handle range-slider-handle--min${draggingRef.current === 'rangeMin' ? ' active' : ''}${!rangeIsCustom ? ' at-edge' : ''}`}
-        style={{ left: `calc(${minPct}% + ${9 - minPct * 0.18}px)` }}
-        onPointerDown={onPointerDown('rangeMin')}
-        title={`Rand Min: ${effectiveRangeMin.toFixed(2)}`}
-      />
-      {/* Max handle — always visible */}
-      <div
-        className={`range-slider-handle range-slider-handle--max${draggingRef.current === 'rangeMax' ? ' active' : ''}${!rangeIsCustom ? ' at-edge' : ''}`}
-        style={{ left: `calc(${maxPct}% + ${9 - maxPct * 0.18}px)` }}
-        onPointerDown={onPointerDown('rangeMax')}
-        title={`Rand Max: ${effectiveRangeMax.toFixed(2)}`}
-      />
+      {showRangeHandles && <>
+        <div
+          className={`range-slider-handle range-slider-handle--min${draggingRef.current === 'rangeMin' ? ' active' : ''}${!rangeIsCustom ? ' at-edge' : ''}`}
+          style={{ left: `calc(${minPct}% + ${9 - minPct * 0.18}px)` }}
+          onPointerDown={onPointerDown('rangeMin')}
+          title={`Rand Min: ${effectiveRangeMin.toFixed(2)}`}
+        />
+        <div
+          className={`range-slider-handle range-slider-handle--max${draggingRef.current === 'rangeMax' ? ' active' : ''}${!rangeIsCustom ? ' at-edge' : ''}`}
+          style={{ left: `calc(${maxPct}% + ${9 - maxPct * 0.18}px)` }}
+          onPointerDown={onPointerDown('rangeMax')}
+          title={`Rand Max: ${effectiveRangeMax.toFixed(2)}`}
+        />
+      </>}
     </div>
   );
 }

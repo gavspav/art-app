@@ -9,6 +9,16 @@ export const buildStudioCommands = actions => [
   { id: 'view.presentation', group: 'View', label: 'Toggle presentation view', shortcut: 'F', run: actions.presentation },
   { id: 'view.inspector', group: 'View', label: 'Hide or show inspector', shortcut: 'H', run: actions.toggleInspector },
   { id: 'view.shortcuts', group: 'View', label: 'Show keyboard shortcuts', shortcut: 'K', run: actions.shortcutHelp },
+  { id: 'target.toggle', group: 'Inspector', label: 'Toggle Individual / Global target', shortcut: 'G', run: actions.toggleTarget },
+  { id: 'view.outlines', group: 'View', label: 'Show or hide layer outlines', shortcut: 'O', run: actions.toggleOutlines },
+  { id: 'view.isolate', group: 'View', label: 'Toggle isolate mode', shortcut: 'I', run: actions.toggleIsolate },
+  { id: 'scene.zIgnore', group: 'Scene', label: 'Toggle Z-scale ignore', shortcut: 'Z', run: actions.toggleZIgnore },
+  { id: 'audio.bpm', group: 'Audio', label: 'Toggle BPM play / pause', shortcut: 'B', run: actions.toggleBPM },
+  { id: 'audio.input', group: 'Audio', label: 'Toggle audio reactive input', shortcut: 'A', run: actions.toggleAudio },
+  { id: 'layer.previous', group: 'Layers', label: 'Select previous layer', shortcut: '[', run: actions.previousLayer },
+  { id: 'layer.next', group: 'Layers', label: 'Select next layer', shortcut: ']', run: actions.nextLayer },
+  { id: 'layer.select-number', group: 'Layers', label: 'Select layer 1–9', shortcut: 'Shift 1..9', run: event => actions.selectLayerNumber?.(event?.key) },
+  { id: 'layer.delete', group: 'Layers', label: 'Delete selected layer or node', shortcut: 'Delete', run: actions.deleteSelection },
   { id: 'record.toggle', group: 'Export', label: actions.isRecording ? 'Stop recording' : 'Start recording', run: actions.record },
   { id: 'tool.select', group: 'Tools', label: 'Select tool', shortcut: 'V', run: () => actions.tool('select') },
   { id: 'tool.nodes', group: 'Tools', label: 'Edit nodes', shortcut: 'N', run: () => actions.tool('nodes') },
@@ -23,6 +33,11 @@ export const buildStudioCommands = actions => [
     shortcut: String(index + 1),
     run: () => actions.openSection(label),
   })),
+  { id: 'setting.background', group: 'Settings', label: 'Background colour', run: () => actions.focusControl?.('global-background', 'Global') },
+  { id: 'setting.palette', group: 'Settings', label: 'Global palette', run: () => actions.focusControl?.('global-palette', 'Global') },
+  { id: 'setting.blend', group: 'Settings', label: 'Blend mode', run: () => actions.focusControl?.('global-blend-mode', 'Global') },
+  { id: 'setting.speed', group: 'Settings', label: 'Global speed', run: () => actions.focusControl?.('global-globalSpeedMultiplier', 'Global') },
+  { id: 'setting.opacity', group: 'Settings', label: 'Global opacity', run: () => actions.focusControl?.('global-globalOpacity', 'Global') },
 ];
 
 export const matchesStudioShortcut = (event, commandId) => {
@@ -37,6 +52,8 @@ export const matchesStudioShortcut = (event, commandId) => {
   if (commandId === 'tool.select') return key === 'v';
   if (commandId === 'view.inspector') return key === 'h';
   if (commandId === 'view.shortcuts') return key === 'k';
+  if (commandId === 'target.toggle') return key === 'g';
+  if (commandId === 'layer.select-number') return event.shiftKey && /^[1-9]$/.test(key);
   if (commandId.startsWith('panel.')) {
     const panelKeys = { global: '1', layers: '2', shape: '3', colour: '4', motion: '5', audio: '6', settings: '7' };
     return panelKeys[commandId.slice('panel.'.length)] === key;

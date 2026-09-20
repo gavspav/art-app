@@ -34,6 +34,10 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
 
   const openSection = useCallback(section => { setActiveSection(section); setInspectorOpen(true); }, []);
+  const focusControl = useCallback((id, section = 'Global') => {
+    openSection(section);
+    requestAnimationFrame(() => document.getElementById(id)?.focus());
+  }, [openSection]);
   const chooseTool = useCallback(tool => {
     setActiveTool(tool);
     if (tool === 'select') {
@@ -52,9 +56,20 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
     presentation: floatingActionProps.onToggleFullscreen,
     record: floatingActionProps.isRecording ? floatingActionProps.onStopRecording : floatingActionProps.onStartRecording,
     isRecording: floatingActionProps.isRecording, tool: chooseTool, openSection,
+    toggleTarget: bottomPanelProps.toggleParameterTargetMode,
+    focusControl,
+    toggleOutlines: bottomPanelProps.toggleOutlines,
+    toggleIsolate: bottomPanelProps.toggleIsolate,
+    toggleZIgnore: bottomPanelProps.toggleZIgnore,
+    toggleBPM: bottomPanelProps.toggleBPM,
+    toggleAudio: bottomPanelProps.toggleAudio,
+    previousLayer: bottomPanelProps.previousLayer,
+    nextLayer: bottomPanelProps.nextLayer,
+    selectLayerNumber: bottomPanelProps.selectLayerNumber,
+    deleteSelection: bottomPanelProps.deleteSelection,
     toggleInspector: () => setInspectorOpen(value => !value),
     shortcutHelp: () => setShortcutHelpOpen(value => !value),
-  }), [bottomPanelProps, chooseTool, floatingActionProps, openSection]);
+  }), [bottomPanelProps, chooseTool, floatingActionProps, focusControl, openSection]);
 
   useEffect(() => {
     const onKeyDown = event => {
@@ -64,7 +79,7 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
       if (commandOpen || shouldIgnoreGlobalKey(event)) return;
       const command = commands.find(item => matchesStudioShortcut(event, item.id));
       if (!command || command.enabled === false) return;
-      event.preventDefault(); command.run?.();
+      event.preventDefault(); command.run?.(event);
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -113,7 +128,7 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
         onReset={() => applyImportAdjust({ dx: 0, dy: 0, s: 1 })} onClose={() => setShowImportAdjust(false)}
       /></div>}
       <StudioCommandPalette open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
-      <KeyboardShortcutsOverlay visible={shortcutHelpOpen} onClose={() => setShortcutHelpOpen(false)} />
+      <KeyboardShortcutsOverlay visible={shortcutHelpOpen} commands={commands} onClose={() => setShortcutHelpOpen(false)} />
     </div>
   );
 };

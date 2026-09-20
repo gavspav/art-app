@@ -1,4 +1,5 @@
 import React from 'react';
+import { Dices, Settings2 } from 'lucide-react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import { buildMidiRandomizeId } from '../../../hooks/useMidiTrigger.js';
@@ -172,7 +173,7 @@ export default function LayerColorSection({
                   onRandomizeLayerColors && onRandomizeLayerColors();
                 }}
               >
-                🎲
+                <Dices size={15} aria-hidden="true" />
               </button>
               {learnParamId === midiRandomizeId && midiSupported && <span style={{ color: '#4fc3f7', fontSize: '0.75rem' }}>MIDI…</span>}
               {midiSupported && (
@@ -188,7 +189,7 @@ export default function LayerColorSection({
                 aria-label="Colour settings"
                 onClick={(e) => { e.stopPropagation(); setShowColourSettings(s => !s); }}
               >
-                ⚙
+                <Settings2 size={15} aria-hidden="true" />
               </button>
             </div>
           </div>
