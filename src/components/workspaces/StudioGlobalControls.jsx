@@ -1,5 +1,7 @@
 import React, { useCallback } from 'react';
 import { Dices } from 'lucide-react';
+import { useParameters } from '../../context/ParameterContext.jsx';
+import RangeSlider from '../common/RangeSlider.jsx';
 
 const VARIATIONS = [
   ['variationPosition', 'Position', 0, 5],
@@ -9,16 +11,19 @@ const VARIATIONS = [
   ['variationScale', 'Scale', -5, 5],
 ];
 
-const VariationControl = ({ id, label, min, max, value, onChange, included, onIncludedChange }) => (
+const UnifiedRangeControl = ({
+  id, label, min, max, step, value, onChange, included, onIncludedChange,
+  randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
+}) => (
   <div className="studio-global-control">
     <div className="studio-global-control-label">
       <label htmlFor={`global-${id}`}>{label}</label>
       <input
-        aria-label={`${label} variation value`}
+        aria-label={`${label} value`}
         type="number"
         min={min}
         max={max}
-        step="0.01"
+        step={step}
         value={Number(value ?? 0)}
         onChange={event => onChange(Number(event.target.value))}
       />
@@ -26,13 +31,63 @@ const VariationControl = ({ id, label, min, max, value, onChange, included, onIn
         <input type="checkbox" checked={included} onChange={event => onIncludedChange(event.target.checked)} /> Rnd
       </label>
     </div>
-    <input id={`global-${id}`} type="range" min={min} max={max} step="0.01" value={Number(value ?? 0)} onChange={event => onChange(Number(event.target.value))} />
+    <RangeSlider
+      id={`global-${id}`}
+      min={min}
+      max={max}
+      step={step}
+      value={Number(value ?? 0)}
+      onChange={event => onChange(Number(event.target.value))}
+      rangeMin={randomMin}
+      rangeMax={randomMax}
+      onRangeMinChange={onRandomMinChange}
+      onRangeMaxChange={onRandomMaxChange}
+      aria-label={label}
+    />
+    <div className="studio-random-bounds" aria-label={`${label} randomisation limits`}>
+      <label>Random min<input type="number" min={min} max={randomMax} step={step} value={randomMin} onChange={event => onRandomMinChange(Number(event.target.value))} /></label>
+      <label>Random max<input type="number" min={randomMin} max={max} step={step} value={randomMax} onChange={event => onRandomMaxChange(Number(event.target.value))} /></label>
+      <label>Step<input type="number" min={id === 'layersCount' ? 1 : 0.0001} step={id === 'layersCount' ? 1 : 0.001} value={step} onChange={event => onStepChange(Number(event.target.value))} /></label>
+    </div>
   </div>
 );
 
 export default function StudioGlobalControls({ props }) {
+  const { parameters = [], updateParameter } = useParameters() || {};
   const layers = Array.isArray(props.layers) ? props.layers : [];
   const firstLayer = layers[0] || props.DEFAULT_LAYER || {};
+
+  const controlConfig = useCallback((id, physicalMin, physicalMax, fallbackStep) => {
+    const parameter = parameters.find(item => item.id === id) || {};
+    const randomMin = Number.isFinite(parameter.randomMin)
+      ? parameter.randomMin
+      : (Number.isFinite(parameter.min) ? parameter.min : physicalMin);
+    const randomMax = Number.isFinite(parameter.randomMax)
+      ? parameter.randomMax
+      : (Number.isFinite(parameter.max) ? parameter.max : physicalMax);
+    const step = Number.isFinite(parameter.step) && parameter.step > 0 ? parameter.step : fallbackStep;
+    return {
+      min: physicalMin,
+      max: physicalMax,
+      step,
+      randomMin: Math.max(physicalMin, Math.min(randomMin, physicalMax)),
+      randomMax: Math.max(physicalMin, Math.min(randomMax, physicalMax)),
+    };
+  }, [parameters]);
+
+  const rangeProps = useCallback((id, label, physicalMin, physicalMax, fallbackStep, value, onChange) => {
+    const config = controlConfig(id, physicalMin, physicalMax, fallbackStep);
+    const setRandomMin = next => updateParameter?.(id, 'randomMin', Math.max(physicalMin, Math.min(Number(next), config.randomMax)));
+    const setRandomMax = next => updateParameter?.(id, 'randomMax', Math.min(physicalMax, Math.max(Number(next), config.randomMin)));
+    return {
+      id, label, ...config, value, onChange,
+      included: !!props.getIsRnd?.(id),
+      onIncludedChange: next => props.setIsRnd?.(id, next),
+      onRandomMinChange: setRandomMin,
+      onRandomMaxChange: setRandomMax,
+      onStepChange: next => updateParameter?.(id, 'step', Math.max(id === 'layersCount' ? 1 : 0.0001, Number(next) || fallbackStep)),
+    };
+  }, [controlConfig, props, updateParameter]);
 
   const applyVariation = useCallback((property, value) => {
     props.setLayers?.(previous => {
@@ -100,9 +155,11 @@ export default function StudioGlobalControls({ props }) {
           const value = typeof mode === 'string' ? mode : mode.value;
           return <option key={value} value={value}>{typeof mode === 'string' ? mode : mode.label}</option>;
         })}</select></label>
-        <label>Global speed <output>{Number(props.globalSpeedMultiplier ?? 1).toFixed(2)}</output><input type="range" min="0" max="10" step="0.01" value={props.globalSpeedMultiplier ?? 1} onChange={event => props.setGlobalSpeedMultiplier?.(Number(event.target.value))} /></label>
-        <label>Global opacity <output>{globalOpacity.toFixed(2)}</output><input type="range" min="0" max="1" step="0.01" value={globalOpacity} onChange={event => setOpacity(Number(event.target.value))} /></label>
-        <label>Layers <output>{layers.length}</output><input type="range" min="1" max="100" step="1" value={layers.length || 1} onChange={event => setLayerCount(event.target.value)} /></label>
+      </div>
+      <div className="studio-variation-controls">
+        <UnifiedRangeControl {...rangeProps('globalSpeedMultiplier', 'Global speed', 0, 10, 0.01, props.globalSpeedMultiplier ?? 1, value => props.setGlobalSpeedMultiplier?.(value))} />
+        <UnifiedRangeControl {...rangeProps('globalOpacity', 'Global opacity', 0, 1, 0.01, globalOpacity, setOpacity)} />
+        <UnifiedRangeControl {...rangeProps('layersCount', 'Layers', 1, 400, 1, layers.length || 1, setLayerCount)} />
       </div>
     </section>
     <section className="studio-card">
@@ -110,7 +167,7 @@ export default function StudioGlobalControls({ props }) {
       <p className="studio-help">These controls vary successive layers from Layer 1. Enable instant variation to rebuild the affected part as you drag.</p>
       <label className="studio-check"><input type="checkbox" checked={!!props.applyVariationInstantly} onChange={event => props.setApplyVariationInstantly?.(event.target.checked)} /> Apply variation instantly</label>
       <div className="studio-variation-controls">
-        {VARIATIONS.map(([id, label, min, max]) => <VariationControl key={id} id={id} label={label} min={min} max={max} value={firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0} onChange={value => applyVariation(id, value)} included={!!props.getIsRnd?.(id)} onIncludedChange={value => props.setIsRnd?.(id, value)} />)}
+        {VARIATIONS.map(([id, label, min, max]) => <UnifiedRangeControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value))} />)}
       </div>
       <div className="studio-global-options">
         <label className="studio-check"><input type="checkbox" checked={!!props.syncLayerColorsToFirst} onChange={event => props.setSyncLayerColorsToFirst?.(event.target.checked)} /> Match colours to Layer 1</label>
