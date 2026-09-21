@@ -1,15 +1,20 @@
 import React, { useMemo } from 'react';
-import { ChevronDown, Crosshair, Globe2, Layers3, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
-import LayerSectionView from '../LayerSectionView.jsx';
 import StudioGlobalControls from './StudioGlobalControls.jsx';
+import LayerStrip from '../inspector/LayerStrip.jsx';
+import ShapeSection from '../inspector/sections/ShapeSection.jsx';
+import ColourSection from '../inspector/sections/ColourSection.jsx';
+import MotionSection from '../inspector/sections/MotionSection.jsx';
+import RoutingLists from '../inspector/RoutingLists.jsx';
 import {
   AudioReactiveSection,
   AudioSpawnSection,
   BPMSection,
 } from '../global/sections/GlobalAutomationSections.jsx';
 import '../BottomPanel.css';
+import '../inspector/Inspector.css';
 
 const DESTINATIONS = [
   ['radiusFactor', 'Size', 0.05, 1.2],
@@ -46,13 +51,12 @@ function AudioLinks({ layers }) {
   };
 
   return (
-    <section className="studio-card audio-links-card">
-      <div className="studio-card-heading">
-        <div><span className="eyebrow">Signal routing</span><h3>Audio links</h3></div>
-        <button type="button" className="studio-small-action" onClick={addLink} disabled={!firstLayer}><Plus size={16} /> Add link</button>
+    <section className="insp-section audio-links-card">
+      <div className="insp-section-head">
+        <h3>Audio links</h3>
+        <button type="button" className="insp-chip" onClick={addLink} disabled={!firstLayer}><Plus size={14} /> Add link</button>
       </div>
-      <p className="studio-help">Connect one sound signal to one visual control. A destination can have one link.</p>
-      {activeLinks.length === 0 && <div className="studio-empty">No links yet. Add one, then choose its signal and range.</div>}
+      {activeLinks.length === 0 && <p className="insp-empty">No links yet. Add one here, or open a control's details and pick an audio signal.</p>}
       {activeLinks.map(([id, mapping]) => {
         const decoded = decode(id);
         const range = mapping.range || { outputMin: 0, outputMax: 1 };
@@ -86,116 +90,52 @@ function AudioLinks({ layers }) {
   );
 }
 
-function LayerList({ props }) {
-  const { layers, selectedLayerIndex, selectedLayerIds, selectLayer, toggleLayerSelection, addNewLayer, deleteLayer, moveSelectedLayerUp, moveSelectedLayerDown, handleImportSVGClick, setEditTarget } = props;
-  const selectedIds = new Set(selectedLayerIds || []);
-  return (
-    <section className="studio-card">
-      <div className="studio-card-heading"><div><span className="eyebrow">Document</span><h3>Layers</h3></div><button type="button" className="studio-small-action" onClick={addNewLayer}><Plus size={16} /> Layer</button></div>
-      <p className="studio-help">Tap a layer to edit it. Shift-click to build a temporary selection.</p>
-      <div className="studio-layer-list">
-        {(layers || []).map((layer, index) => (
-          <button
-            type="button"
-            key={layer.id || index}
-            className={`${selectedLayerIndex === index ? 'active' : ''} ${selectedIds.has(layer.id) ? 'selected' : ''}`}
-            onClick={event => {
-              if (event.shiftKey) {
-                toggleLayerSelection?.(layer.id);
-                setEditTarget?.({ type: 'selection' });
-              } else {
-                selectLayer?.(index);
-                setEditTarget?.({ type: 'single' });
-              }
-            }}
-          ><Layers3 size={17} /><span>{layer.name || `Layer ${index + 1}`}</span><small>{index + 1}</small></button>
-        ))}
-      </div>
-      <div className="studio-inline-actions">
-        <button type="button" onClick={moveSelectedLayerUp}>Move up</button>
-        <button type="button" onClick={moveSelectedLayerDown}>Move down</button>
-        <button type="button" onClick={handleImportSVGClick}>Import SVG</button>
-        <button type="button" onClick={() => deleteLayer?.(selectedLayerIndex)} disabled={(layers || []).length <= 1}>Delete</button>
-      </div>
-    </section>
-  );
-}
-
 function SettingsPanel({ props }) {
   const midi = useMidi() || {};
   return <>
-    <section className="studio-card studio-settings-grid">
-      <span className="eyebrow">Workspace</span><h3>Canvas behaviour</h3>
-      <label>Random seed<input type="number" value={props.globalSeed ?? 1} onChange={event => props.setGlobalSeed?.(Number(event.target.value))} /></label>
-      <label className="studio-check"><input type="checkbox" checked={!!props.zIgnore} onChange={event => props.setZIgnore?.(event.target.checked)} /> Ignore depth movement</label>
-      <label className="studio-check"><input type="checkbox" checked={!!props.colorFadeWhileFrozen} onChange={event => props.setColorFadeWhileFrozen?.(event.target.checked)} /> Continue colour fades while paused</label>
+    <section className="insp-section">
+      <div className="insp-section-head"><h3>Canvas</h3></div>
+      <div className="insp-field-row">
+        <label className="insp-field grow">Random seed<input type="number" value={props.globalSeed ?? 1} onChange={event => props.setGlobalSeed?.(Number(event.target.value))} /></label>
+      </div>
+      <div className="insp-check-row">
+        <label className={`insp-check${props.zIgnore ? ' on' : ''}`}><input type="checkbox" checked={!!props.zIgnore} onChange={event => props.setZIgnore?.(event.target.checked)} />Ignore depth movement</label>
+        <label className={`insp-check${props.colorFadeWhileFrozen ? ' on' : ''}`}><input type="checkbox" checked={!!props.colorFadeWhileFrozen} onChange={event => props.setColorFadeWhileFrozen?.(event.target.checked)} />Keep colours fading while paused</label>
+      </div>
     </section>
-    <section className="studio-card studio-settings-grid">
-      <span className="eyebrow">Control</span><h3>MIDI</h3>
-      <label>Input<select value={midi.selectedInputId || ''} onChange={event => midi.setSelectedInputId?.(event.target.value)} disabled={!midi.supported}>
-        <option value="">{midi.supported ? 'No MIDI input' : 'Web MIDI unavailable'}</option>
-        {(midi.inputs || []).map(input => <option key={input.id} value={input.id}>{input.name || input.id}</option>)}
-      </select></label>
-      <p className="studio-help">Use the Learn control beside a parameter to map it to your controller.</p>
-      <button type="button" className="studio-danger" disabled={!Object.keys(midi.mappings || {}).length} onClick={() => Object.keys(midi.mappings || {}).forEach(id => midi.clearMapping?.(id))}>Clear MIDI mappings</button>
+    <section className="insp-section">
+      <div className="insp-section-head"><h3>MIDI</h3></div>
+      <div className="insp-field-row">
+        <label className="insp-field grow">Input<select value={midi.selectedInputId || ''} onChange={event => midi.setSelectedInputId?.(event.target.value)} disabled={!midi.supported}>
+          <option value="">{midi.supported ? 'No MIDI input' : 'Web MIDI unavailable in this browser'}</option>
+          {(midi.inputs || []).map(input => <option key={input.id} value={input.id}>{input.name || input.id}</option>)}
+        </select></label>
+      </div>
     </section>
+    <RoutingLists layers={props.layers || []} />
   </>;
 }
 
-function TargetScopeControl({ props }) {
-  const mode = props.parameterTargetMode === 'global' ? 'global' : 'individual';
-
-  return <section className="studio-target-scope" aria-label="Parameter target scope">
-    <div className="studio-target-heading"><span className="eyebrow">Apply edits to</span><kbd>G</kbd></div>
-    <div className="studio-target-buttons" role="group" aria-label="Choose parameter target">
-      <button type="button" className={mode === 'individual' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('individual')} aria-pressed={mode === 'individual'}><Crosshair size={15} /> Individual</button>
-      <button type="button" className={mode === 'global' ? 'active' : ''} onClick={() => props.setParameterTargetMode?.('global')} aria-pressed={mode === 'global'}><Globe2 size={15} /> Global</button>
-    </div>
-  </section>;
-}
+const LAYER_SECTIONS = ['Shape', 'Colour', 'Motion'];
 
 export default function StudioInspector({ activeSection, onClose, props }) {
-  const layerSection = ['Layers', 'Shape', 'Colour', 'Motion'].includes(activeSection);
-  const commonLayerProps = {
-    currentLayer: props.currentLayer, updateLayer: props.updateCurrentLayer,
-    randomizeCurrentLayer: props.randomizeCurrentLayer,
-    randomizeAnimationOnly: props.randomizeAnimationForCurrentLayer,
-    randomizeAll: props.handleRandomizeAll, isFrozen: props.isFrozen, setIsFrozen: props.setIsFrozen,
-    globalSpeedMultiplier: props.globalSpeedMultiplier, setGlobalSpeedMultiplier: props.setGlobalSpeedMultiplier,
-    setLayers: props.setLayers, baseColors: props.baseColors, baseNumColors: props.baseNumColors,
-    isNodeEditMode: props.isNodeEditMode, setIsNodeEditMode: props.setIsNodeEditMode,
-    classicMode: props.classicMode, setClassicMode: props.setClassicMode,
-    randomizePalette: props.randomizePalette, setRandomizePalette: props.setRandomizePalette,
-    randomizeNumColors: props.randomizeNumColors, setRandomizeNumColors: props.setRandomizeNumColors,
-    colorCountMin: props.colorCountMin, colorCountMax: props.colorCountMax,
-    setColorCountMin: props.setColorCountMin, setColorCountMax: props.setColorCountMax,
-    onRandomizeLayerColors: props.randomizeCurrentLayerColors, getIsRnd: props.getIsRnd, setIsRnd: props.setIsRnd,
-    layerNames: props.layerNames, layerIds: (props.layers || []).map(layer => layer?.id),
-    selectedLayerIndex: props.selectedLayerIndex, onSelectLayer: props.selectLayer,
-    onAddLayer: props.addNewLayer, onDeleteLayer: props.deleteLayer,
-    onMoveLayerUp: props.moveSelectedLayerUp, onMoveLayerDown: props.moveSelectedLayerDown,
-    onImportSVG: props.handleImportSVGClick, parameterTargetMode: props.parameterTargetMode,
-    selectedLayerIds: props.selectedLayerIds, toggleLayerSelection: props.toggleLayerSelection,
-    clearSelection: props.clearSelection, editTarget: props.editTarget,
-    setEditTarget: props.setEditTarget, getActiveTargetLayerIds: props.getActiveTargetLayerIds,
-    palettes: props.palettes, automationPalettes: props.automationPalettes, onSaveCustomPalette: props.onSaveCustomPalette,
-    hideTabbar: true,
-  };
-
+  const layerSection = LAYER_SECTIONS.includes(activeSection);
   return (
     <aside className="studio-inspector" aria-label={`${activeSection} inspector`}>
-      <header><div><span className="eyebrow">Inspector</span><h2>{activeSection}</h2></div><div className="studio-inspector-header-actions"><span className="studio-target-pill">{layerSection ? (props.parameterTargetMode === 'global' ? 'Global' : 'Individual') : activeSection === 'Global' ? 'Scene' : 'Workspace'}</span><button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button></div></header>
+      <header>
+        <h2>{activeSection}</h2>
+        <button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button>
+      </header>
+      {layerSection && <LayerStrip props={props} />}
       <div className="studio-inspector-scroll">
-        {layerSection && <TargetScopeControl props={props} />}
         {activeSection === 'Global' && <StudioGlobalControls props={props} />}
-        {activeSection === 'Layers' && <LayerList props={props} />}
-        {activeSection === 'Shape' && <LayerSectionView {...commonLayerProps} visibleSection="shape" />}
-        {activeSection === 'Colour' && <LayerSectionView {...commonLayerProps} visibleSection="colour" />}
-        {activeSection === 'Motion' && <><LayerSectionView {...commonLayerProps} visibleSection="animation" /><section className="studio-card"><h3>Tempo</h3><BPMSection /></section></>}
+        {activeSection === 'Shape' && <ShapeSection props={props} />}
+        {activeSection === 'Colour' && <ColourSection props={props} />}
+        {activeSection === 'Motion' && <><MotionSection props={props} /><section className="insp-section"><div className="insp-section-head"><h3>Tempo</h3></div><BPMSection /></section></>}
         {activeSection === 'Audio' && <>
-          <section className="studio-card"><span className="eyebrow">Source</span><h3>Audio input</h3><AudioReactiveSection isActiveTab /></section>
+          <section className="insp-section"><div className="insp-section-head"><h3>Audio input</h3></div><AudioReactiveSection isActiveTab /></section>
           <AudioLinks layers={props.layers || []} />
-          <details className="studio-card studio-collapsible"><summary>Audio-triggered layer spawning <ChevronDown size={16} /></summary><AudioSpawnSection {...props} isActiveTab timelineMode={false} /></details>
+          <details className="insp-section studio-collapsible"><summary>Audio-triggered layer spawning <ChevronDown size={16} /></summary><AudioSpawnSection {...props} isActiveTab timelineMode={false} /></details>
         </>}
         {activeSection === 'Settings' && <SettingsPanel props={props} />}
       </div>

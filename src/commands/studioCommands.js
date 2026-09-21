@@ -26,7 +26,7 @@ export const buildStudioCommands = actions => [
   { id: 'tool.polygon', group: 'Tools', label: 'Draw polygon', run: () => actions.tool('polygon') },
   { id: 'tool.pull', group: 'Tools', label: 'Pull nodes', run: () => actions.tool('pull') },
   { id: 'tool.pan', group: 'Tools', label: 'Pan and zoom', run: () => actions.tool('view') },
-  ...['Global', 'Layers', 'Shape', 'Colour', 'Motion', 'Audio', 'Settings'].map((label, index) => ({
+  ...['Global', 'Shape', 'Colour', 'Motion', 'Audio', 'Settings'].map((label, index) => ({
     id: `panel.${label.toLowerCase()}`,
     group: 'Inspector',
     label: `Open ${label}`,
@@ -55,7 +55,7 @@ export const matchesStudioShortcut = (event, commandId) => {
   if (commandId === 'target.toggle') return key === 'g';
   if (commandId === 'layer.select-number') return event.shiftKey && /^[1-9]$/.test(key);
   if (commandId.startsWith('panel.')) {
-    const panelKeys = { global: '1', layers: '2', shape: '3', colour: '4', motion: '5', audio: '6', settings: '7' };
+    const panelKeys = { global: '1', shape: '2', colour: '3', motion: '4', audio: '5', settings: '6' };
     return panelKeys[commandId.slice('panel.'.length)] === key;
   }
   return false;

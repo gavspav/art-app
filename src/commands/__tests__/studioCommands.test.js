@@ -13,7 +13,7 @@ describe('studio command registry', () => {
     const commands = buildStudioCommands(actions());
     expect(new Set(commands.map(command => command.id)).size).toBe(commands.length);
     expect(commands.filter(command => command.group === 'Inspector').map(command => command.label)).toEqual([
-      'Toggle Individual / Global target', 'Open Global', 'Open Layers', 'Open Shape', 'Open Colour', 'Open Motion', 'Open Audio', 'Open Settings',
+      'Toggle Individual / Global target', 'Open Global', 'Open Shape', 'Open Colour', 'Open Motion', 'Open Audio', 'Open Settings',
     ]);
     expect(commands.filter(command => command.group === 'Tools')).toHaveLength(6);
   });
@@ -32,7 +32,7 @@ describe('studio command registry', () => {
     expect(matchesStudioShortcut(key('v'), 'tool.select')).toBe(true);
     expect(matchesStudioShortcut(key('k', { metaKey: true }), 'view.shortcuts')).toBe(false);
     expect(matchesStudioShortcut(key('1'), 'panel.global')).toBe(true);
-    expect(matchesStudioShortcut(key('6'), 'panel.audio')).toBe(true);
-    expect(matchesStudioShortcut(key('7'), 'panel.settings')).toBe(true);
+    expect(matchesStudioShortcut(key('5'), 'panel.audio')).toBe(true);
+    expect(matchesStudioShortcut(key('6'), 'panel.settings')).toBe(true);
   });
 });

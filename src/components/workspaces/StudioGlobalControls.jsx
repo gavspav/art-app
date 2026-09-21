@@ -1,9 +1,11 @@
-import React, { useCallback, useState } from 'react';
-import { ChevronDown, Dices } from 'lucide-react';
+import React, { useCallback } from 'react';
+import { Dices } from 'lucide-react';
 import { useParameters } from '../../context/ParameterContext.jsx';
-import RangeSlider from '../common/RangeSlider.jsx';
-import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
+import { useMidi } from '../../context/MidiContext.jsx';
 import { blendModeLabel } from '../../constants/blendModes.js';
+import ParameterRow from '../inspector/ParameterRow.jsx';
+import LimitsFields from '../inspector/LimitsFields.jsx';
+import MidiMappingRow from '../inspector/modulation/MidiMappingRow.jsx';
 
 const VARIATIONS = [
   ['variationPosition', 'Position', 0, 5],
@@ -42,78 +44,25 @@ function mergeVariedCategory(original, varied, source, category) {
   return next;
 }
 
-const UnifiedRangeControl = ({
-  id, label, min, max, step, value, onChange, included, onIncludedChange,
-  randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
-}) => (
-  <UnifiedRangeControlBody
-    id={id}
-    label={label}
-    min={min}
-    max={max}
-    step={step}
-    value={value}
-    onChange={onChange}
-    included={included}
-    onIncludedChange={onIncludedChange}
-    randomMin={randomMin}
-    randomMax={randomMax}
-    onRandomMinChange={onRandomMinChange}
-    onRandomMaxChange={onRandomMaxChange}
-    onStepChange={onStepChange}
-  />
-);
-
-function UnifiedRangeControlBody({
-  id, label, min, max, step, value, onChange, included, onIncludedChange,
-  randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
-}) {
-  const [boundsOpen, setBoundsOpen] = useState(false);
-  return <div className="studio-global-control">
-    <div className="studio-global-control-label">
-      <label htmlFor={`global-${id}`}>{label}</label>
-      <BufferedNumberInput
-        id={`global-${id}`}
-        aria-label={`${label} value`}
-        min={min}
-        max={max}
-        step={step}
-        value={Number(value ?? 0)}
-        onCommit={onChange}
-        className="studio-number-input"
-      />
-      <button
-        type="button"
-        className={`studio-dice-toggle${included ? ' active' : ''}`}
-        aria-label={`${included ? 'Exclude' : 'Include'} ${label} from randomisation`}
-        aria-pressed={included}
-        title={`${included ? 'Exclude from' : 'Include in'} scene randomisation`}
-        onClick={() => onIncludedChange(!included)}
-      ><Dices size={15} /></button>
-    </div>
-    <RangeSlider
-      id={`global-${id}`}
-      min={min}
-      max={max}
-      step={step}
-      value={Number(value ?? 0)}
-      onChange={event => onChange(Number(event.target.value))}
-      rangeMin={randomMin}
-      rangeMax={randomMax}
-      onRangeMinChange={onRandomMinChange}
-      onRangeMaxChange={onRandomMaxChange}
-      showRangeHandles={included && boundsOpen}
-      aria-label={label}
+// Scene-level slider: random bounds live on the track; precise numbers, step
+// and MIDI assignment sit in the details popover.
+function GlobalControl({ id, label, min, max, step, value, onChange, included, onIncludedChange, randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange }) {
+  const midi = useMidi() || {};
+  return (
+    <ParameterRow
+      id={id} inputId={`global-${id}`} label={label} value={Number(value ?? 0)} min={min} max={max} step={step}
+      precision={step >= 1 ? 0 : 2} onChange={onChange}
+      included={included} onIncludedChange={onIncludedChange}
+      randomMin={randomMin} randomMax={randomMax} onRandomMinChange={onRandomMinChange} onRandomMaxChange={onRandomMaxChange}
+      mapped={midi.mappings?.[id] ? ['midi'] : []} listening={midi.learnParamId === id}
+      detailsTitle="Limits and mapping"
+      details={<>
+        <LimitsFields min={min} max={max} step={step} randomMin={randomMin} randomMax={randomMax}
+          onStep={onStepChange} onRandomMin={onRandomMinChange} onRandomMax={onRandomMaxChange} />
+        <div className="mod-stack"><MidiMappingRow paramId={id} /></div>
+      </>}
     />
-    <button type="button" className="studio-bounds-toggle" onClick={() => setBoundsOpen(open => !open)} aria-expanded={boundsOpen} aria-label={`${boundsOpen ? 'Hide' : 'Show'} ${label} randomisation limits`} aria-controls={`bounds-${id}`}>
-      <ChevronDown size={14} className={boundsOpen ? 'is-open' : ''} />
-    </button>
-    {boundsOpen && <div id={`bounds-${id}`} className="studio-random-bounds" aria-label={`${label} randomisation limits`}>
-      <label>Random min<BufferedNumberInput min={min} max={randomMax} step={step} value={randomMin} onCommit={onRandomMinChange} /></label>
-      <label>Random max<BufferedNumberInput min={randomMin} max={max} step={step} value={randomMax} onCommit={onRandomMaxChange} /></label>
-      <label>Step<BufferedNumberInput min={id === 'layersCount' ? 1 : 0.0001} step={id === 'layersCount' ? 1 : 0.001} value={step} onCommit={onStepChange} /></label>
-    </div>}
-  </div>;
+  );
 }
 
 export default function StudioGlobalControls({ props }) {
@@ -211,39 +160,44 @@ export default function StudioGlobalControls({ props }) {
   const setOpacity = value => props.setLayers?.(previous => previous.map(layer => ({ ...layer, opacity: value })));
   const globalOpacity = layers.length ? Math.min(...layers.map(layer => Number(layer.opacity ?? 1))) : 1;
 
+  const toggle = (label, checked, onChange) => (
+    <label className={`insp-check${checked ? ' on' : ''}`}><input type="checkbox" checked={!!checked} onChange={event => onChange?.(event.target.checked)} />{label}</label>
+  );
+
   return <>
-    <section className="studio-card">
-      <div className="studio-card-heading"><div><span className="eyebrow">Scene</span><h3>Global controls</h3></div><button type="button" className="studio-small-action" onClick={props.handleRandomizeAll}><Dices size={16} /> Randomise</button></div>
-      <div className="studio-global-controls">
-        <label className="studio-color-row"><span>Background</span><span className="studio-color-chip"><input id="global-background" type="color" aria-label="Background colour" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /><output>{props.backgroundColor || '#000000'}</output></span></label>
-        <label>Palette<select id="global-palette" value={String(props.globalPaletteIndex ?? 0)} onChange={event => {
+    <section className="insp-section">
+      <div className="insp-section-head">
+        <h3>Scene</h3>
+        <button type="button" className="insp-chip accent" onClick={props.handleRandomizeAll} title="Randomise every included control (R)"><Dices size={14} /> Randomise</button>
+      </div>
+      <div className="insp-field-row">
+        <label className="insp-field grow">Palette<select id="global-palette" value={String(props.globalPaletteIndex ?? 0)} onChange={event => {
           const index = Number(event.target.value);
           props.setGlobalPaletteRef?.(null); props.setGlobalPaletteIndex?.(index);
           const palette = props.palettes?.[index];
           if (palette) props.assignOneColorPerLayer?.(props.sampleColorsEven?.(palette.colors || palette, Math.max(1, layers.length)) || palette.colors || palette);
         }}>{(props.palettes || []).map((palette, index) => <option key={palette.name || index} value={index}>{palette.name || `Palette ${index + 1}`}</option>)}</select></label>
-        <label>Blend mode<select id="global-blend-mode" value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>{(props.blendModes || []).map(mode => {
+        <label className="insp-field grow">Blend<select id="global-blend-mode" value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>{(props.blendModes || []).map(mode => {
           const value = typeof mode === 'string' ? mode : mode.value;
           return <option key={value} value={value}>{typeof mode === 'string' ? blendModeLabel(mode) : mode.label}</option>;
         })}</select></label>
+        <label className="insp-field colour">Background<span className="insp-colour-chip"><input id="global-background" type="color" aria-label="Background colour" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /></span></label>
       </div>
-      <div className="studio-variation-controls">
-        <UnifiedRangeControl {...rangeProps('globalSpeedMultiplier', 'Global speed', 0, 10, 0.01, props.globalSpeedMultiplier ?? 1, value => props.setGlobalSpeedMultiplier?.(value))} />
-        <UnifiedRangeControl {...rangeProps('globalOpacity', 'Global opacity', 0, 1, 0.01, globalOpacity, setOpacity)} />
-        <UnifiedRangeControl {...rangeProps('layersCount', 'Layers', 1, 400, 1, layers.length || 1, setLayerCount)} />
-      </div>
+      <GlobalControl {...rangeProps('globalSpeedMultiplier', 'Speed', 0, 10, 0.01, props.globalSpeedMultiplier ?? 1, value => props.setGlobalSpeedMultiplier?.(value))} />
+      <GlobalControl {...rangeProps('globalOpacity', 'Opacity', 0, 1, 0.01, globalOpacity, setOpacity)} />
+      <GlobalControl {...rangeProps('layersCount', 'Layers', 1, 400, 1, layers.length || 1, setLayerCount)} />
     </section>
-    <section className="studio-card">
-      <div className="studio-card-heading"><div><span className="eyebrow">Layer generation</span><h3>Variation</h3></div></div>
-      <p className="studio-help">Layer 1 is the source; variation changes Layers 2 onward. Enable instant variation to rebuild the affected part as you drag.</p>
-      <label className="studio-check"><input type="checkbox" checked={!!props.applyVariationInstantly} onChange={event => props.setApplyVariationInstantly?.(event.target.checked)} /> Apply variation instantly</label>
-      <div className="studio-variation-controls">
-        {VARIATIONS.map(([id, label, min, max]) => <UnifiedRangeControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value))} />)}
+    <section className="insp-section">
+      <div className="insp-section-head">
+        <h3>Variation</h3>
+        {toggle('Live', props.applyVariationInstantly, props.setApplyVariationInstantly)}
       </div>
-      <div className="studio-global-options">
-        <label className="studio-check"><input type="checkbox" checked={!!props.syncLayerColorsToFirst} onChange={event => props.setSyncLayerColorsToFirst?.(event.target.checked)} /> Match colours to Layer 1</label>
-        <label className="studio-check"><input type="checkbox" checked={!!props.randomizeColorsPerLayer} onChange={event => props.setRandomizeColorsPerLayer?.(event.target.checked)} /> Randomise colours per layer</label>
-        <label className="studio-check"><input type="checkbox" checked={!!props.audioSpawnUseGlobalPalette} onChange={event => props.setAudioSpawnUseGlobalPalette?.(event.target.checked)} /> Use global palette for generation</label>
+      <p className="insp-help">Layer 1 is the source; variation shapes Layers 2 onward. Live rebuilds them as you drag.</p>
+      {VARIATIONS.map(([id, label, min, max]) => <GlobalControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value))} />)}
+      <div className="insp-check-row">
+        {toggle('Match colours to Layer 1', props.syncLayerColorsToFirst, props.setSyncLayerColorsToFirst)}
+        {toggle('Randomise colours per layer', props.randomizeColorsPerLayer, props.setRandomizeColorsPerLayer)}
+        {toggle('Generate from global palette', props.audioSpawnUseGlobalPalette, props.setAudioSpawnUseGlobalPalette)}
       </div>
     </section>
   </>;

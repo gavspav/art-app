@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AudioLines, CirclePause, CirclePlay, Download, Dices, FolderOpen, Fullscreen,
-  Hand, Layers3, Menu, MousePointer2, Palette, Pentagon, Play, Radio, Redo2,
+  Hand, Menu, MousePointer2, Palette, Pentagon, Play, Radio, Redo2,
   Save, Search, Settings2, Share2, Sparkles, Square, Undo2, Waypoints, X,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -15,7 +15,7 @@ import { shouldIgnoreGlobalKey } from '../../utils/domUtils.js';
 import './StudioWorkspace.css';
 
 const inspectorItems = [
-  ['Global', SlidersHorizontal], ['Layers', Layers3], ['Shape', Pentagon], ['Colour', Palette],
+  ['Global', SlidersHorizontal], ['Shape', Pentagon], ['Colour', Palette],
   ['Motion', Play], ['Audio', AudioLines], ['Settings', Settings2],
 ];
 const editorTools = [

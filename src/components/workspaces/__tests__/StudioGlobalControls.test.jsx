@@ -25,22 +25,27 @@ const props = {
 describe('StudioGlobalControls', () => {
   beforeEach(() => localStorage.clear());
 
-  test('shows persistent randomisation limits for every numeric global control', () => {
-    render(<ParameterProvider><StudioGlobalControls props={props} /></ParameterProvider>);
-    expect(screen.queryAllByText('Random min')).toHaveLength(0);
-    const disclosureButtons = screen.getAllByRole('button', { name: /Show .* randomisation limits/ });
-    expect(disclosureButtons).toHaveLength(8);
-    fireEvent.click(disclosureButtons[0]);
-    expect(screen.getAllByText('Random min')).toHaveLength(1);
-    expect(screen.getAllByText('Random max')).toHaveLength(1);
-    expect(screen.getAllByText('Step')).toHaveLength(1);
+  test('always shows randomisation bounds on every numeric control, with precise entry in details', () => {
+    const { container } = render(<ParameterProvider><StudioGlobalControls props={props} /></ParameterProvider>);
+    expect(screen.getAllByRole('slider')).toHaveLength(8);
+    expect(container.querySelectorAll('.range-slider-handle--min')).toHaveLength(8);
+    expect(container.querySelectorAll('.range-slider-handle--max')).toHaveLength(8);
+    expect(screen.queryByRole('button', { name: /Show .* randomisation limits/ })).toBeNull();
 
-    const randomMax = screen.getAllByLabelText('Random max')[0];
+    fireEvent.click(screen.getByRole('button', { name: 'Speed details and mapping' }));
+    const randomMax = screen.getByLabelText('Random max');
     fireEvent.focus(randomMax);
     fireEvent.change(randomMax, { target: { value: '4' } });
     fireEvent.blur(randomMax);
     const stored = JSON.parse(localStorage.getItem('artapp-studio-v1-parameters'));
     expect(stored.find(parameter => parameter.id === 'globalSpeedMultiplier').randomMax).toBe(4);
+  });
+
+  test('dice toggle reports inclusion changes', () => {
+    const setIsRnd = vi.fn();
+    render(<ParameterProvider><StudioGlobalControls props={{ ...props, getIsRnd: () => false, setIsRnd }} /></ParameterProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Include Opacity in randomisation' }));
+    expect(setIsRnd).toHaveBeenCalledWith('globalOpacity', true);
   });
 
   test('scale variation keeps each layer’s colours, identity, and unrelated settings', () => {
