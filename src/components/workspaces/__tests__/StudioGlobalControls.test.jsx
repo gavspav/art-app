@@ -42,4 +42,53 @@ describe('StudioGlobalControls', () => {
     const stored = JSON.parse(localStorage.getItem('artapp-studio-v1-parameters'));
     expect(stored.find(parameter => parameter.id === 'globalSpeedMultiplier').randomMax).toBe(4);
   });
+
+  test('scale variation keeps each layer’s colours, identity, and unrelated settings', () => {
+    const layers = [
+      { ...layer, colors: ['#111111'], position: { x: 0.2, y: 0.3, scale: 1 }, wobble: 0.1 },
+      { ...layer, id: 'layer-two', name: 'Second', colors: ['#ff0000'], numColors: 1, position: { x: 0.4, y: 0.5, scale: 1.2 }, wobble: 0.4 },
+      { ...layer, id: 'layer-three', name: 'Third', colors: ['#0000ff'], numColors: 1, position: { x: 0.6, y: 0.7, scale: 0.8 }, wobble: 0.8 },
+    ];
+    let current = layers;
+    const setLayers = vi.fn(update => { current = update(current); });
+    const buildVariedLayerFrom = vi.fn(previous => ({
+      ...previous,
+      colors: [...previous.colors],
+      position: { ...previous.position, scale: previous.position.scale * 1.5 },
+    }));
+    render(<ParameterProvider><StudioGlobalControls props={{
+      ...props, layers, setLayers, buildVariedLayerFrom, applyVariationInstantly: true,
+    }} /></ParameterProvider>);
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Scale' }), { target: { value: '2' } });
+
+    expect(current[0].position).toEqual(layers[0].position);
+    expect(current.map(item => item.variationScale)).toEqual([2, 2, 2]);
+    expect(current[1]).toMatchObject({ id: 'layer-two', name: 'Second', colors: ['#ff0000'], numColors: 1, wobble: 0.4 });
+    expect(current[2]).toMatchObject({ id: 'layer-three', name: 'Third', colors: ['#0000ff'], numColors: 1, wobble: 0.8 });
+    expect(current[1].position.x).toBe(0.4);
+    expect(current[2].position.y).toBe(0.7);
+    expect(current[1].position.scale).toBeCloseTo(1.8);
+    expect(current[2].position.scale).toBeCloseTo(1.2);
+    expect(buildVariedLayerFrom).toHaveBeenCalledTimes(2);
+  });
+
+  test('colour variation leaves geometry and existing layer settings alone', () => {
+    const layers = [
+      { ...layer, colors: ['#111111'], position: { x: 0.2, y: 0.3, scale: 1 } },
+      { ...layer, id: 'layer-two', colors: ['#ff0000'], position: { x: 0.4, y: 0.5, scale: 1.2 }, wobble: 0.4 },
+    ];
+    let current = layers;
+    render(<ParameterProvider><StudioGlobalControls props={{
+      ...props, layers, applyVariationInstantly: true,
+      setLayers: update => { current = update(current); },
+      buildVariedLayerFrom: previous => ({ ...previous, colors: ['#00ff00'], position: { x: 0.9, y: 0.9, scale: 2 }, wobble: 0.9 }),
+    }} /></ParameterProvider>);
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Colour' }), { target: { value: '2' } });
+
+    expect(current[1].colors).toEqual(['#00ff00']);
+    expect(current[1].position).toEqual(layers[1].position);
+    expect(current[1].wobble).toBe(0.4);
+  });
 });

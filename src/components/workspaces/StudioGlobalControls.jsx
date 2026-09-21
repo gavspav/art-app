@@ -13,6 +13,35 @@ const VARIATIONS = [
   ['variationScale', 'Scale', -5, 5],
 ];
 
+const VARIATION_FIELDS = {
+  position: ['xOffset', 'yOffset'],
+  shape: ['numSides', 'curviness', 'wobble', 'noiseAmount', 'width', 'height', 'radiusFactor', 'radiusFactorX', 'radiusFactorY', 'nodes', 'syncNodesToNumSides', 'viewBoxMapped'],
+  anim: ['movementStyle', 'movementSpeed', 'movementAngle', 'noiseScale', 'wobbleSpeed', 'symmetry', 'freqJitter', 'scaleSpeed', 'scaleMin', 'scaleMax', 'imageBlur', 'imageBrightness', 'imageContrast', 'imageHue', 'imageSaturation', 'imageDistortion', 'vx', 'vy', 'orbitCenterX', 'orbitCenterY', 'orbitAngle', 'orbitRadiusX', 'orbitRadiusY'],
+  color: ['colors', 'numColors'],
+};
+
+function mergeVariedCategory(original, varied, source, category) {
+  const next = { ...original };
+  for (const field of VARIATION_FIELDS[category] || []) {
+    if (Object.hasOwn(varied, field)) next[field] = varied[field];
+  }
+  if (category === 'position') {
+    next.position = { ...original.position, x: varied.position?.x ?? original.position?.x, y: varied.position?.y ?? original.position?.y };
+  } else if (category === 'scale') {
+    // The generator varies from the preceding layer. Apply its ratio to this
+    // layer's own scale so a change does not flatten individually sized layers.
+    const sourceScale = Number(source.position?.scale);
+    const generatedScale = Number(varied.position?.scale);
+    const originalScale = Number(original.position?.scale);
+    const ratio = sourceScale > 0 && Number.isFinite(generatedScale) ? generatedScale / sourceScale : 1;
+    next.position = {
+      ...original.position,
+      scale: originalScale > 0 ? Math.max(0.05, Math.min(5, originalScale * ratio)) : (varied.position?.scale ?? original.position?.scale),
+    };
+  }
+  return next;
+}
+
 const UnifiedRangeControl = ({
   id, label, min, max, step, value, onChange, included, onIncludedChange,
   randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange,
@@ -127,6 +156,7 @@ export default function StudioGlobalControls({ props }) {
   const applyVariation = useCallback((property, value) => {
     props.setLayers?.(previous => {
       if (!Array.isArray(previous) || !previous.length) return previous;
+      if (previous.every(layer => layer?.[property] === value)) return previous;
       const updated = previous.map(layer => ({ ...layer, [property]: value }));
       if (!props.applyVariationInstantly || updated.length < 2 || typeof props.buildVariedLayerFrom !== 'function') return updated;
       const base = updated[0];
@@ -144,10 +174,13 @@ export default function StudioGlobalControls({ props }) {
       const rebuilt = [base];
       for (let index = 1; index < updated.length; index += 1) {
         const original = updated[index];
-        const varied = props.buildVariedLayerFrom(rebuilt[index - 1], index + 1, weights, {
+        const source = rebuilt[index - 1];
+        const varied = props.buildVariedLayerFrom(source, index + 1, weights, {
           affectCategories: [category], preserveSeeds: true,
+          constrainColorsToPalette: !!props.audioSpawnUseGlobalPalette,
+          paletteColors: props.paletteColorsForVariation,
         });
-        rebuilt.push({ ...original, ...varied, id: original.id, name: original.name });
+        rebuilt.push(varied ? mergeVariedCategory(original, varied, source, category) : original);
       }
       return rebuilt;
     });
@@ -162,11 +195,14 @@ export default function StudioGlobalControls({ props }) {
       while (next.length < target) {
         const prior = next[next.length - 1];
         const weights = {
-          position: Number(firstLayer.variationPosition ?? 0), shape: Number(firstLayer.variationShape ?? 0),
-          anim: Number(firstLayer.variationAnim ?? 0), color: Number(firstLayer.variationColor ?? 0),
-          scale: Number(firstLayer.variationScale ?? 0),
+          position: Number(source[0].variationPosition ?? 0), shape: Number(source[0].variationShape ?? 0),
+          anim: Number(source[0].variationAnim ?? 0), color: Number(source[0].variationColor ?? 0),
+          scale: Number(source[0].variationScale ?? 0),
         };
-        next.push(props.buildVariedLayerFrom?.(prior, next.length + 1, weights) || { ...prior, id: undefined, name: `Layer ${next.length + 1}` });
+        next.push(props.buildVariedLayerFrom?.(prior, next.length + 1, weights, {
+          constrainColorsToPalette: !!props.audioSpawnUseGlobalPalette,
+          paletteColors: props.paletteColorsForVariation,
+        }) || { ...prior, id: undefined, name: `Layer ${next.length + 1}` });
       }
       return next;
     });
@@ -199,7 +235,7 @@ export default function StudioGlobalControls({ props }) {
     </section>
     <section className="studio-card">
       <div className="studio-card-heading"><div><span className="eyebrow">Layer generation</span><h3>Variation</h3></div></div>
-      <p className="studio-help">These controls vary successive layers from Layer 1. Enable instant variation to rebuild the affected part as you drag.</p>
+      <p className="studio-help">Layer 1 is the source; variation changes Layers 2 onward. Enable instant variation to rebuild the affected part as you drag.</p>
       <label className="studio-check"><input type="checkbox" checked={!!props.applyVariationInstantly} onChange={event => props.setApplyVariationInstantly?.(event.target.checked)} /> Apply variation instantly</label>
       <div className="studio-variation-controls">
         {VARIATIONS.map(([id, label, min, max]) => <UnifiedRangeControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value))} />)}
