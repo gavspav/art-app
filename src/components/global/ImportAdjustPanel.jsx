@@ -1,4 +1,5 @@
 import React from 'react';
+import RangeOrDial from '../common/RangeOrDial.jsx';
 
 const ImportAdjustPanel = ({
   importAdjust,
@@ -16,17 +17,17 @@ const ImportAdjustPanel = ({
       <div className="row"><strong>Adjust Imported Layers</strong></div>
       <div className="row">
         <label>dx</label>
-        <input type="range" min={-1} max={1} step={0.001} value={dx}
+        <RangeOrDial min={-1} max={1} step={0.001} value={dx}
           onChange={e => onChange?.({ ...importAdjust, dx: Number(e.target.value) })} />
       </div>
       <div className="row">
         <label>dy</label>
-        <input type="range" min={-1} max={1} step={0.001} value={dy}
+        <RangeOrDial min={-1} max={1} step={0.001} value={dy}
           onChange={e => onChange?.({ ...importAdjust, dy: Number(e.target.value) })} />
       </div>
       <div className="row">
         <label>scale</label>
-        <input type="range" min={0.05} max={5} step={0.001} value={s}
+        <RangeOrDial min={0.05} max={5} step={0.001} value={s}
           onChange={e => onChange?.({ ...importAdjust, s: Number(e.target.value) })} />
       </div>
       <div className="row">

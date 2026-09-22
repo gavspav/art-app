@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
+import { useUiPreferences } from '../../context/UiPreferencesContext.jsx';
 import StudioGlobalControls from './StudioGlobalControls.jsx';
 import LayerStrip from '../inspector/LayerStrip.jsx';
 import ShapeSection from '../inspector/sections/ShapeSection.jsx';
@@ -92,7 +93,19 @@ function AudioLinks({ layers }) {
 
 function SettingsPanel({ props }) {
   const midi = useMidi() || {};
+  const { controlStyle, setControlStyle } = useUiPreferences();
   return <>
+    <section className="insp-section">
+      <div className="insp-section-head"><h3>Interface</h3></div>
+      <div className="insp-field-row">
+        <div className="insp-field grow">Parameter controls
+          <div className="scope-toggle">
+            <button type="button" className={controlStyle === 'sliders' ? 'active' : ''} aria-pressed={controlStyle === 'sliders'} onClick={() => setControlStyle('sliders')}>Sliders</button>
+            <button type="button" className={controlStyle === 'dials' ? 'active' : ''} aria-pressed={controlStyle === 'dials'} onClick={() => setControlStyle('dials')}>Dials</button>
+          </div>
+        </div>
+      </div>
+    </section>
     <section className="insp-section">
       <div className="insp-section-head"><h3>Canvas</h3></div>
       <div className="insp-field-row">

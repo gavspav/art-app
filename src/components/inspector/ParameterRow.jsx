@@ -2,11 +2,13 @@ import React, { useId, useRef, useState } from 'react';
 import { Dices, SlidersHorizontal } from 'lucide-react';
 import BufferedNumberInput from '../common/BufferedNumberInput.jsx';
 import RangeSlider from '../common/RangeSlider.jsx';
+import Knob from '../common/Knob.jsx';
 import Popover from './Popover.jsx';
+import { useUiPreferences } from '../../context/UiPreferencesContext.jsx';
 
 // Compact parameter control: label · value · include-in-randomise · details.
-// Randomisation bounds are always shown as handles on the slider itself;
-// the details popover holds precise numbers plus mapping (MIDI / audio / tempo).
+// Randomisation bounds are always shown as draggable handles — on the slider
+// track, or on the dial's outer ring when dials are enabled; the details popover holds precise numbers plus mapping (MIDI / audio / tempo).
 export default function ParameterRow({
   id, label, type = 'slider', value, min, max, step, precision, onChange, options = [],
   included, onIncludedChange,
@@ -19,12 +21,26 @@ export default function ParameterRow({
   const uid = useId();
   const inputId = inputIdProp || `${id || 'param'}-${uid}`;
   const numeric = type === 'slider';
+  const { controlStyle } = useUiPreferences();
+  const useDial = numeric && controlStyle === 'dials';
   const shown = numeric ? Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min)) : value;
   const hasMapping = mapped.length > 0;
 
   return (
-    <div className={`param-row${open ? ' open' : ''}`} data-param={id}>
+    <div className={`param-row${useDial ? ' dial' : ''}${open ? ' open' : ''}`} data-param={id}>
       <div className="param-head">
+        {useDial && (
+          <Knob
+            min={min} max={max} step={step} value={shown}
+            onChange={next => onChange(next)}
+            rangeMin={randomMin} rangeMax={randomMax}
+            onRangeMinChange={onRandomMinChange} onRangeMaxChange={onRandomMaxChange}
+            showRangeBand={!!(onRandomMinChange && onRandomMaxChange)}
+            size={48}
+            label={label}
+            className={`knob-in-row${included === false ? ' excluded' : ''}`}
+          />
+        )}
         <label htmlFor={inputId} className="param-label">{label}</label>
         {numeric
           ? <BufferedNumberInput id={inputId} aria-label={`${label} value`} min={min} max={max} step={step} precision={precision} value={shown} onCommit={onChange} className="param-value" />
@@ -47,7 +63,7 @@ export default function ParameterRow({
           </button>
         )}
       </div>
-      {numeric && (
+      {numeric && !useDial && (
         <RangeSlider
           sliderKey={sliderKey}
           min={min} max={max} step={step} value={shown}

@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ParameterProvider } from '../../../context/ParameterContext.jsx';
+import { UiPreferencesProvider } from '../../../context/UiPreferencesContext.jsx';
 import ParameterRow from '../ParameterRow.jsx';
 import LayerStrip from '../LayerStrip.jsx';
 import ShapeSection from '../sections/ShapeSection.jsx';
@@ -46,6 +47,20 @@ describe('ParameterRow', () => {
     expect(screen.queryByText('Details body')).toBeNull();
     fireEvent.change(screen.getByRole('slider', { name: 'Size' }), { target: { value: '0.7' } });
     expect(onChange).toHaveBeenCalledWith(0.7);
+  });
+
+  it('renders a knob inside the row head and no slider track in dials mode', () => {
+    const { container } = render(
+      <UiPreferencesProvider initialControlStyle="dials">
+        <ParameterRow id="x" label="Size" value={0.5} min={0} max={1} step={0.01} onChange={vi.fn()}
+          randomMin={0.2} randomMax={0.8} onRandomMinChange={vi.fn()} onRandomMaxChange={vi.fn()} />
+      </UiPreferencesProvider>
+    );
+    expect(container.querySelector('.param-row.dial')).toBeTruthy();
+    expect(container.querySelector('.knob')).toBeTruthy();
+    expect(container.querySelector('path.knob-range')).toBeTruthy();
+    expect(container.querySelector('.range-slider-wrap')).toBeNull();
+    expect(screen.getByRole('slider', { name: 'Size' })).toBeTruthy();
   });
 });
 

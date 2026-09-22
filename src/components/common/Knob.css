@@ -1,0 +1,15 @@
+/* Rotary dial ("pot") control — compact alternative to sliders. */
+.knob { position: relative; display: inline-block; line-height: 0; color: var(--studio-text, #f4f4f5); touch-action: none; cursor: ns-resize; user-select: none; -webkit-user-select: none; }
+.knob:focus-visible { outline: 2px solid rgba(121,168,255,.55); outline-offset: 1px; border-radius: 6px; }
+.knob.disabled { opacity: .4; cursor: default; }
+.knob.excluded { opacity: .55; }
+.knob svg { display: block; overflow: visible; }
+.knob-track { fill: none; stroke: rgba(255,255,255,.14); stroke-width: 3.5; stroke-linecap: round; }
+.knob-range { fill: none; stroke: rgba(242,180,95,.75); stroke-width: 2; stroke-linecap: round; }
+.knob-value { fill: none; stroke: var(--studio-accent, #79a8ff); stroke-width: 3.5; stroke-linecap: round; }
+.knob-pointer { stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+.knob-handle { fill: #f2b45f; stroke: rgba(0,0,0,.45); stroke-width: .8; cursor: grab; }
+.knob-handle.at-edge { opacity: .5; }
+.knob-handle.active { opacity: 1; stroke: #fff; }
+.knob.excluded .knob-handle { opacity: .35; }
+.knob-pop { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -4px); padding: 2px 6px; border-radius: 5px; background: #202126; border: 1px solid rgba(242,180,95,.6); color: #f2b45f; font-size: 10px; line-height: 1.4; white-space: nowrap; pointer-events: none; z-index: 5; }

@@ -74,6 +74,11 @@
 .studio-inspector .dc-slider.excluded ~ .range-slider-handle { opacity: .25; }
 .studio-inspector .dc-slider.excluded ~ .range-slider-band { opacity: .4; }
 
+/* Dial layout: the rotary knob replaces the track row and sits in the head. */
+.param-row.dial { padding: 4px 0; }
+.param-row.dial .param-head { grid-template-columns: 52px minmax(0,1fr) 72px 30px 30px; }
+.knob-in-row { justify-self: start; }
+
 /* Popover: details beneath a control -------------------------------------- */
 .insp-popover { margin: 6px 0 4px; padding: 8px 10px 10px; border: 1px solid rgba(255,255,255,.1); border-left: 2px solid rgba(121,168,255,.55); border-radius: var(--insp-radius); background: rgba(255,255,255,.03); }
 .insp-popover-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: var(--studio-muted); font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }

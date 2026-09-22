@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { Dices, SlidersHorizontal } from 'lucide-react';
 import ColorPicker from '../../ColorPicker.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
+import RangeOrDial from '../../common/RangeOrDial.jsx';
 import { useMidi } from '../../../context/MidiContext.jsx';
 import { hexToRgb, rgbToHex } from '../../../utils/colorUtils.js';
 import { buildLayerParamIds, findFirstMappedParamId } from '../../../utils/paramAliases.js';
@@ -54,13 +55,13 @@ function MidiColourChannels({ layer, applyTargetedUpdate, updateLayer }) {
       {enabled && ['r', 'g', 'b'].map(channel => (
         <div className="mod-row channel" key={channel}>
           <span className="mod-row-label">{channel.toUpperCase()}</span>
-          <input type="range" min={0} max={255} step={1} value={rgb[channel]} onChange={event => setChannel(channel)(event.target.value)} aria-label={`${channel.toUpperCase()} channel`} className="dc-slider" />
+          <RangeOrDial min={0} max={255} step={1} value={rgb[channel]} onChange={event => setChannel(channel)(event.target.value)} aria-label={`${channel.toUpperCase()} channel`} className="dc-slider" size={30} />
           <MidiMappingRow paramId={aliases[channel.toUpperCase()][0]} paramAliases={aliases[channel.toUpperCase()]} label="" />
         </div>
       ))}
       {enabled && <div className="mod-row channel">
         <span className="mod-row-label">A</span>
-        <input type="range" min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(layer?.opacity ?? 1)))} onChange={event => applyTargetedUpdate(() => ({ opacity: Math.max(0, Math.min(1, parseFloat(event.target.value) || 0)) }))} aria-label="Alpha channel" className="dc-slider" />
+        <RangeOrDial min={0} max={1} step={0.001} value={Math.max(0, Math.min(1, Number(layer?.opacity ?? 1)))} onChange={event => applyTargetedUpdate(() => ({ opacity: Math.max(0, Math.min(1, parseFloat(event.target.value) || 0)) }))} aria-label="Alpha channel" className="dc-slider" size={30} />
         <MidiMappingRow paramId={aliases.A[0]} paramAliases={aliases.A} label="" />
       </div>}
     </div>

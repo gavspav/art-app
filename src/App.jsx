@@ -1448,6 +1448,7 @@ const MainApp = () => {
     setLayers,
     DEFAULT_LAYER,
     buildVariedLayerFrom,
+    paletteColorsForVariation: generationPaletteColors,
     setSelectedLayerIndex,
     handleRandomizeAll,
     currentLayer,
