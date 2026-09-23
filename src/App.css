@@ -1502,3 +1502,10 @@ button:focus-visible {
     height: 42px;
   }
 }
+
+/* Larger touch targets on coarse-pointer devices ---------------------------- */
+@media (pointer: coarse) {
+  .color-picker__swatch-btn,
+  .color-picker__add-btn { width: 46px; height: 46px; }
+  .color-picker__remove-btn { width: 32px; height: 32px; }
+}

@@ -66,16 +66,38 @@ kbd { border:1px solid rgba(255,255,255,.12); border-radius:5px; padding:2px 5px
 /* Floating extras ---------------------------------------------------------- */
 .studio-import-adjust { position:fixed; z-index:90; right:400px; bottom:20px; }
 .studio-exit-presentation { position:fixed; z-index:100; top:max(14px,env(safe-area-inset-top)); right:max(14px,env(safe-area-inset-right)); min-height:44px; padding:0 14px; display:flex; align-items:center; gap:7px; border:1px solid var(--studio-line); border-radius:10px; background:rgba(25,26,30,.82); color:white; backdrop-filter:blur(12px); }
+.studio-tool-toast { position:fixed; z-index:85; top:76px; left:50%; transform:translateX(-50%); padding:6px 12px; border:1px solid var(--studio-line); border-radius:999px; background:rgba(25,26,30,.9); font-size:12px; pointer-events:none; }
+
+/* Icon labels (touch discoverability) --------------------------------------- */
+.studio-rail-label,.studio-top-label { display:none; }
+.studio-workspace.show-labels .studio-toolrail { width:64px; }
+.studio-workspace.show-labels .studio-toolrail button { width:58px; height:52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:10px; }
+.studio-workspace.show-labels .studio-rail-label { display:block; line-height:1.1; color:var(--studio-muted); }
+.studio-workspace.show-labels .studio-toolrail button.active .studio-rail-label { color:#fff; }
+.studio-workspace.show-labels .studio-topbar { left:88px; }
+.studio-workspace.show-labels .studio-top-label { display:inline; font-size:12px; }
+.studio-workspace.show-labels .studio-top-actions button { padding:0 10px; }
+
+/* Bottom-sheet grip (shown only in the small-width sheet layout) ------------- */
+.studio-sheet-grip { display:none; }
 
 @media (max-width:1023px) {
   .studio-topbar { left:64px; right:10px; grid-template-columns:auto 1fr auto; }
   .studio-brand span,.studio-command-button span,.studio-command-button kbd { display:none; }
   .studio-top-actions { justify-self:center; }
   .studio-toolrail { left:8px; bottom:8px; }
-  .studio-inspector { top:auto; left:64px; right:8px; bottom:max(8px,env(safe-area-inset-bottom)); width:auto; max-height:min(68vh,620px); border-radius:15px; }
+  .studio-inspector { top:auto; left:64px; right:8px; bottom:max(8px,env(safe-area-inset-bottom)); width:auto; height:var(--sheet-h,auto); max-height:var(--sheet-h,min(68vh,620px)); border-radius:15px; transition:background .15s; }
+  .studio-inspector.scrubbing { background:rgba(24,24,27,.35); backdrop-filter:none; }
+  .studio-inspector.scrubbing .param-row:not(.scrubbing-row),.studio-inspector.scrubbing>header,.studio-inspector.scrubbing .layer-strip { opacity:.25; }
+  .studio-sheet-grip { display:block; flex:0 0 auto; height:18px; touch-action:none; cursor:ns-resize; }
+  .studio-sheet-grip::before { content:''; display:block; width:40px; height:4px; margin:7px auto; border-radius:2px; background:rgba(255,255,255,.28); }
+  .studio-workspace.show-labels .studio-toolrail { left:8px; }
+  .studio-workspace.show-labels .studio-topbar { left:80px; }
+  .studio-workspace.show-labels .studio-inspector { left:80px; }
   .studio-inspector-scroll { padding-bottom:calc(12px + env(safe-area-inset-bottom)); }
   .studio-import-adjust { right:12px; bottom:12px; }
   .studio-topbar button { min-height:44px; }
   .studio-top-actions .studio-divider { display:none; }
 }
+@media (max-width:820px) { .studio-workspace.show-labels .studio-top-label { display:none; } }
 @media (max-width:640px) { .studio-top-actions button:nth-of-type(2),.studio-top-actions button:nth-of-type(4) { display:none; }.audio-link-grid { grid-template-columns:1fr; } }

@@ -27,14 +27,18 @@ export default function MotionSection({ props }) {
           <button type="button" className="insp-chip" onClick={() => props.randomizeAnimationForCurrentLayer?.()} title="Randomise movement for the targeted layers"><Dices size={14} /> Randomise</button>
         </div>
       </div>
+      <div className="param-list">
       {movementParams.map(param => (
         <LayerParameterControl key={`${param.id}-${key}`} param={param} currentLayer={layer} updateLayer={props.updateCurrentLayer} setLayers={props.setLayers}
           buildTargetSet={buildTargetSet} targetMode={targetMode} editTarget={props.editTarget} selectedLayerIndex={props.selectedLayerIndex} />
       ))}
+      </div>
       {layer?.movementStyle === 'orbit' && <>
         <div className="insp-section-head sub"><h4>Orbit</h4></div>
-        <ParameterRow id="orbitRadiusX" label="Radius X" value={Number(layer?.orbitRadiusX ?? 0.15)} min={0} max={0.5} step={0.001} precision={3} sliderKey={`orbitX-${key}`} onChange={setOrbit('x')} />
-        <ParameterRow id="orbitRadiusY" label="Radius Y" value={Number(layer?.orbitRadiusY ?? 0.15)} min={0} max={0.5} step={0.001} precision={3} sliderKey={`orbitY-${key}`} onChange={setOrbit('y')} />
+        <div className="param-list">
+          <ParameterRow id="orbitRadiusX" label="Radius X" value={Number(layer?.orbitRadiusX ?? 0.15)} min={0} max={0.5} step={0.001} precision={3} defaultValue={0.15} sliderKey={`orbitX-${key}`} onChange={setOrbit('x')} />
+          <ParameterRow id="orbitRadiusY" label="Radius Y" value={Number(layer?.orbitRadiusY ?? 0.15)} min={0} max={0.5} step={0.001} precision={3} defaultValue={0.15} sliderKey={`orbitY-${key}`} onChange={setOrbit('y')} />
+        </div>
       </>}
     </section>
   );

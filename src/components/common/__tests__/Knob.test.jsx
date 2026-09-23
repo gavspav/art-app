@@ -132,4 +132,49 @@ describe('Knob', () => {
       expect(onRangeMaxChange).not.toHaveBeenCalled();
     });
   });
+
+  describe('precision and reset', () => {
+    it('moving sideways while dragging makes the value change finer', () => {
+      const near = vi.fn();
+      const far = vi.fn();
+      render(<>
+        <Knob value={0.5} min={0} max={1} step={0.001} onChange={near} label="Near" />
+        <Knob value={0.5} min={0} max={1} step={0.001} onChange={far} label="Far" />
+      </>);
+      const [nearKnob, farKnob] = screen.getAllByRole('slider');
+
+      firePointer(nearKnob, 'pointerdown', { clientX: 100, clientY: 100 });
+      firePointer(window, 'pointermove', { clientX: 100, clientY: 50 });
+      firePointer(window, 'pointerup', { clientX: 100, clientY: 50 });
+
+      firePointer(farKnob, 'pointerdown', { clientX: 100, clientY: 100 });
+      firePointer(window, 'pointermove', { clientX: 300, clientY: 50 });
+      firePointer(window, 'pointerup', { clientX: 300, clientY: 50 });
+
+      expect(near).toHaveBeenCalled();
+      expect(far).toHaveBeenCalled();
+      expect(far.mock.calls.at(-1)[0]).toBeLessThan(near.mock.calls.at(-1)[0]);
+      expect(far.mock.calls.at(-1)[0]).toBeGreaterThan(0.5);
+    });
+
+    it('double-tapping the dial resets to the default value', () => {
+      const onChange = vi.fn();
+      render(<Knob value={0.9} min={0} max={1} step={0.01} defaultValue={0.5} onChange={onChange} label="Size" />);
+      const knob = screen.getByRole('slider');
+      firePointer(knob, 'pointerdown', { clientX: 50, clientY: 50 });
+      firePointer(window, 'pointerup', { clientX: 50, clientY: 50 });
+      firePointer(knob, 'pointerdown', { clientX: 51, clientY: 50 });
+      firePointer(window, 'pointerup', { clientX: 51, clientY: 50 });
+      expect(onChange).toHaveBeenCalledWith(0.5);
+    });
+
+    it('a single tap does not reset the value', () => {
+      const onChange = vi.fn();
+      render(<Knob value={0.9} min={0} max={1} step={0.01} defaultValue={0.5} onChange={onChange} label="Size" />);
+      const knob = screen.getByRole('slider');
+      firePointer(knob, 'pointerdown', { clientX: 50, clientY: 50 });
+      firePointer(window, 'pointerup', { clientX: 50, clientY: 50 });
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
 });

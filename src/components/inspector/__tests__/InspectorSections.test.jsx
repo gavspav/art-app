@@ -62,6 +62,23 @@ describe('ParameterRow', () => {
     expect(container.querySelector('.range-slider-wrap')).toBeNull();
     expect(screen.getByRole('slider', { name: 'Size' })).toBeTruthy();
   });
+
+  it('renders a compact cell with actions in dial-grid mode', () => {
+    const { container } = render(
+      <UiPreferencesProvider initialPreferences={{ controlStyle: 'dials', dialLayout: 'grid' }}>
+        <ParameterRow id="x" label="Size" value={0.5} min={0} max={1} step={0.01} onChange={vi.fn()}
+          included onIncludedChange={vi.fn()}
+          randomMin={0.2} randomMax={0.8} onRandomMinChange={vi.fn()} onRandomMaxChange={vi.fn()}
+          details={<p>Details body</p>} />
+      </UiPreferencesProvider>
+    );
+    expect(container.querySelector('.param-row.dial.cell')).toBeTruthy();
+    expect(container.querySelector('.param-cell-actions')).toBeTruthy();
+    expect(container.querySelector('.knob')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Size details and mapping' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Size details and mapping' }));
+    expect(screen.getByText('Details body')).toBeTruthy();
+  });
 });
 
 describe('LayerStrip', () => {
@@ -114,6 +131,18 @@ describe('layer sections', () => {
     expect(props.setRandomizePalette).toHaveBeenCalledWith(true);
     fireEvent.click(screen.getByRole('button', { name: /Randomise/ }));
     expect(props.randomizeCurrentLayerColors).toHaveBeenCalledTimes(1);
+  });
+
+  it('Colour names a saved palette inline instead of using a prompt', () => {
+    const onSaveCustomPalette = vi.fn();
+    const props = { ...baseProps(), onSaveCustomPalette };
+    wrap(<ColourSection props={props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const input = screen.getByLabelText('Palette name');
+    fireEvent.change(input, { target: { value: 'Sunset fade' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSaveCustomPalette).toHaveBeenCalledWith({ name: 'Sunset fade', colors: ['#ff0000'] });
+    expect(screen.queryByLabelText('Palette name')).toBeNull();
   });
 });
 

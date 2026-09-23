@@ -3,6 +3,7 @@ import { hslToHex, hexToHsl } from '../utils/colorUtils.js';
 import { clamp } from '../utils/mathUtils.js';
 import { createSeededRandom } from '../utils/random.js';
 import { getColorsFromPalette, pickPaletteColors, pickPaletteWithIndex } from '../utils/paletteUtils.js';
+import { snapToStep } from '../utils/stepPrecision.js';
 // Randomization hook: provides modern/classic/randomize-layer/scene functions
 export function useRandomization({
   // inputs and helpers
@@ -112,7 +113,7 @@ export function useRandomization({
           const high = Math.max(rmin ?? param.min, rmax ?? param.max);
           let rawValue = low + rand() * (high - low);
           rawValue = Math.min(param.max, Math.max(param.min, rawValue));
-          const finalValue = param.step === 1 ? Math.round(rawValue) : rawValue;
+          const finalValue = Math.min(param.max, Math.max(param.min, snapToStep(rawValue, param.step, param.min)));
           newProps[param.id] = finalValue;
           break;
         }
@@ -171,7 +172,8 @@ export function useRandomization({
         const high = Math.max(rmin ?? p.min, rmax ?? p.max);
         let v = low + rand() * (high - low);
         v = Math.min(p.max, Math.max(p.min, v));
-        return p.step === 1 || roundInt ? Math.round(v) : v;
+        const snapped = roundInt ? Math.round(v) : snapToStep(v, p.step, p.min);
+        return Math.min(p.max, Math.max(p.min, snapped));
       }
       let v = defMin + rand() * (defMax - defMin);
       return roundInt ? Math.round(v) : v;
@@ -308,7 +310,11 @@ export function useRandomization({
         if (!p || !p.isRandomizable) return currentValue;
         const rmin = Number.isFinite(p.randomMin) ? p.randomMin : (Number.isFinite(p.min) ? p.min : fallbackMin);
         const rmax = Number.isFinite(p.randomMax) ? p.randomMax : (Number.isFinite(p.max) ? p.max : fallbackMax);
-        return mixRand(currentValue, rmin, rmax, weight, isInteger);
+        const next = mixRand(currentValue, rmin, rmax, weight, isInteger);
+        if (isInteger) return next;
+        const lo = Number.isFinite(p.min) ? p.min : fallbackMin;
+        const hi = Number.isFinite(p.max) ? p.max : fallbackMax;
+        return clamp(snapToStep(next, p.step, lo), lo, hi);
       };
       
       varied.numSides = Math.max(3, Math.round(randomizeParam('numSides', prev.numSides ?? DEFAULT_LAYER.numSides, 3, 20, wShape, true)));

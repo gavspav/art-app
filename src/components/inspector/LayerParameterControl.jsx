@@ -10,6 +10,7 @@ import { buildRadiusFactorPatch, getEffectiveRadiusFactor } from '../../utils/la
 import { getOperationalMaxHint } from '../../utils/parameterOperationalHints.js';
 import { buildLayerParamIds, findFirstMappedParamId } from '../../utils/paramAliases.js';
 import { buildMidiRandomizeId } from '../../hooks/useMidiTrigger.js';
+import { decimalsForStep, snapToStep } from '../../utils/stepPrecision.js';
 import ParameterRow from './ParameterRow.jsx';
 import LimitsFields from './LimitsFields.jsx';
 import MidiMappingRow from './modulation/MidiMappingRow.jsx';
@@ -117,7 +118,7 @@ export default function LayerParameterControl({ param, currentLayer, updateLayer
       const lo = Math.min(param.randomMin ?? min, param.randomMax ?? max);
       const hi = Math.max(param.randomMin ?? min, param.randomMax ?? max);
       let rnd = lo + Math.random() * (hi - lo);
-      if (step === 1) rnd = Math.round(rnd);
+      rnd = snapToStep(rnd, step, min);
       const next = clamp(rnd);
       if (id === 'scale') applyToTargets(layer => ({ position: { ...(layer?.position || {}), scale: next } }));
       else if (id === 'radiusFactor') applyToTargets(layer => {
@@ -175,7 +176,8 @@ export default function LayerParameterControl({ param, currentLayer, updateLayer
     <ParameterRow
       id={id} label={label} type={type === 'slider' ? 'slider' : 'select'} options={effectiveOptions}
       value={value} min={min} max={max} step={step}
-      precision={(id.includes('Speed') || id === 'curviness') ? 3 : 2}
+      precision={decimalsForStep(step)}
+      defaultValue={id === 'scale' ? 1 : param.defaultValue}
       onChange={setValue}
       sliderKey={`${id}-${currentLayer?.id || 'none'}-${editTarget?.type || 'single'}-${editTarget?.groupId || ''}`}
       included={!!param.isRandomizable} onIncludedChange={meta('isRandomizable')}

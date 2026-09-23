@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AudioLines, CirclePause, CirclePlay, Download, Dices, FolderOpen, Fullscreen,
   Hand, Menu, MousePointer2, Palette, Pentagon, Play, Radio, Redo2,
@@ -12,6 +12,7 @@ import StudioInspector from './StudioInspector.jsx';
 import KeyboardShortcutsOverlay from '../global/KeyboardShortcutsOverlay.jsx';
 import { buildStudioCommands, matchesStudioShortcut } from '../../commands/studioCommands.js';
 import { shouldIgnoreGlobalKey } from '../../utils/domUtils.js';
+import { useUiPreferences } from '../../context/UiPreferencesContext.jsx';
 import './StudioWorkspace.css';
 
 const inspectorItems = [
@@ -19,9 +20,9 @@ const inspectorItems = [
   ['Motion', Play], ['Audio', AudioLines], ['Settings', Settings2],
 ];
 const editorTools = [
-  ['select', MousePointer2, 'Select'], ['nodes', Waypoints, 'Edit nodes'],
-  ['newLine', Share2, 'Draw line'], ['polygon', Pentagon, 'Draw polygon'],
-  ['pull', Sparkles, 'Pull nodes'], ['view', Hand, 'Pan and zoom'],
+  ['select', MousePointer2, 'Select', 'Select'], ['nodes', Waypoints, 'Edit nodes', 'Nodes'],
+  ['newLine', Share2, 'Draw line', 'Line'], ['polygon', Pentagon, 'Draw polygon', 'Polygon'],
+  ['pull', Sparkles, 'Pull nodes', 'Pull'], ['view', Hand, 'Pan and zoom', 'Pan'],
 ];
 const fireNodeTool = tool => window.dispatchEvent(new CustomEvent('artapp:node-tool', { detail: { tool } }));
 
@@ -32,6 +33,9 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [activeTool, setActiveTool] = useState('select');
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [toolToast, setToolToast] = useState(null);
+  const toastTimerRef = useRef(null);
+  const { showLabels } = useUiPreferences();
 
   const openSection = useCallback(section => { setActiveSection(section); setInspectorOpen(true); }, []);
   const focusControl = useCallback((id, section = 'Global') => {
@@ -40,6 +44,12 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
   }, [openSection]);
   const chooseTool = useCallback(tool => {
     setActiveTool(tool);
+    const label = editorTools.find(item => item[0] === tool)?.[2];
+    if (label) {
+      setToolToast(label);
+      clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => setToolToast(null), 1200);
+    }
     if (tool === 'select') {
       bottomPanelProps.setIsNodeEditMode?.(false);
       return;
@@ -47,6 +57,19 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
     bottomPanelProps.setIsNodeEditMode?.(true);
     fireNodeTool(tool === 'nodes' ? 'select' : tool);
   }, [bottomPanelProps]);
+
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
+
+  // Keep the rail highlight in sync when node-edit mode changes elsewhere
+  // (N shortcut, layer menu "Edit nodes", inspector controls).
+  useEffect(() => {
+    const nodeEdit = !!bottomPanelProps.isNodeEditMode;
+    setActiveTool(current => {
+      if (!nodeEdit && current !== 'select') return 'select';
+      if (nodeEdit && current === 'select') return 'nodes';
+      return current;
+    });
+  }, [bottomPanelProps.isNodeEditMode]);
 
   const commands = useMemo(() => buildStudioCommands({
     save: bottomPanelProps.onQuickSave, open: bottomPanelProps.onQuickLoad,
@@ -89,7 +112,7 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
   const presentation = !!floatingActionProps.isFullscreen;
 
   return (
-    <div className={`studio-workspace${presentation ? ' presentation' : ''}`}>
+    <div className={`studio-workspace${presentation ? ' presentation' : ''}${showLabels ? ' show-labels' : ''}`}>
       <div className="studio-canvas"><Canvas ref={canvasRef} {...canvasProps} /></div>
       {!presentation && <>
         <header className="studio-topbar">
@@ -103,21 +126,22 @@ const FreeWorkspace = ({ canvasRef, canvasProps, importAdjustProps, floatingActi
             </div>}
           </div>
           <div className="studio-top-actions">
-            <button type="button" onClick={bottomPanelProps.undo} disabled={!bottomPanelProps.canUndo} title="Undo (Cmd/Ctrl+Z)"><Undo2 size={18} /></button>
-            <button type="button" onClick={bottomPanelProps.redo} disabled={!bottomPanelProps.canRedo} title="Redo (Cmd/Ctrl+Shift+Z)"><Redo2 size={18} /></button>
+            <button type="button" onClick={bottomPanelProps.undo} disabled={!bottomPanelProps.canUndo} title="Undo (Cmd/Ctrl+Z)"><Undo2 size={18} /><span className="studio-top-label">Undo</span></button>
+            <button type="button" onClick={bottomPanelProps.redo} disabled={!bottomPanelProps.canRedo} title="Redo (Cmd/Ctrl+Shift+Z)"><Redo2 size={18} /><span className="studio-top-label">Redo</span></button>
             <span className="studio-divider" />
-            <button type="button" onClick={() => bottomPanelProps.setIsFrozen?.(value => !value)} title={bottomPanelProps.isFrozen ? 'Play animation' : 'Pause animation'}>{bottomPanelProps.isFrozen ? <CirclePlay size={19} /> : <CirclePause size={19} />}</button>
-            <button type="button" onClick={floatingActionProps.onRandomize} title="Randomise scene (R)"><Dices size={19} /></button>
-            <button type="button" className={floatingActionProps.isRecording ? 'active recording' : ''} onClick={floatingActionProps.isRecording ? floatingActionProps.onStopRecording : floatingActionProps.onStartRecording} title={floatingActionProps.isRecording ? 'Stop recording' : `Record${floatingActionProps.includeRecordingAudio ? ' with source audio' : ' silent video'}`}>{floatingActionProps.isRecording ? <Square size={17} /> : <Radio size={18} />}</button>
-            <button type="button" onClick={floatingActionProps.onToggleFullscreen} title="Presentation view (F)"><Fullscreen size={18} /></button>
+            <button type="button" onClick={() => bottomPanelProps.setIsFrozen?.(value => !value)} title={bottomPanelProps.isFrozen ? 'Play animation' : 'Pause animation'}>{bottomPanelProps.isFrozen ? <CirclePlay size={19} /> : <CirclePause size={19} />}<span className="studio-top-label">{bottomPanelProps.isFrozen ? 'Play' : 'Pause'}</span></button>
+            <button type="button" onClick={floatingActionProps.onRandomize} title="Randomise scene (R)"><Dices size={19} /><span className="studio-top-label">Random</span></button>
+            <button type="button" className={floatingActionProps.isRecording ? 'active recording' : ''} onClick={floatingActionProps.isRecording ? floatingActionProps.onStopRecording : floatingActionProps.onStartRecording} title={floatingActionProps.isRecording ? 'Stop recording' : `Record${floatingActionProps.includeRecordingAudio ? ' with source audio' : ' silent video'}`}>{floatingActionProps.isRecording ? <Square size={17} /> : <Radio size={18} />}<span className="studio-top-label">{floatingActionProps.isRecording ? 'Stop' : 'Record'}</span></button>
+            <button type="button" onClick={floatingActionProps.onToggleFullscreen} title="Presentation view (F)"><Fullscreen size={18} /><span className="studio-top-label">Present</span></button>
           </div>
           <button type="button" className="studio-command-button" onClick={() => setCommandOpen(true)}><Search size={17} /><span>Commands</span><kbd>⌘K</kbd></button>
         </header>
         <nav className="studio-toolrail" aria-label="Studio tools">
-          {editorTools.map(([id, Icon, label]) => <button key={id} type="button" className={activeTool === id ? 'active' : ''} onClick={() => chooseTool(id)} title={label} aria-label={label}>{React.createElement(Icon, { size: 21 })}</button>)}
+          {editorTools.map(([id, Icon, label, short]) => <button key={id} type="button" className={activeTool === id ? 'active' : ''} onClick={() => chooseTool(id)} title={label} aria-label={label}>{React.createElement(Icon, { size: 21 })}<span className="studio-rail-label">{short}</span></button>)}
           <span className="studio-rail-divider" />
-          {inspectorItems.map(([label, Icon]) => <button key={label} type="button" className={inspectorOpen && activeSection === label ? 'active' : ''} onClick={() => openSection(label)} title={label} aria-label={`Open ${label}`}>{React.createElement(Icon, { size: 20 })}</button>)}
+          {inspectorItems.map(([label, Icon]) => <button key={label} type="button" className={inspectorOpen && activeSection === label ? 'active' : ''} onClick={() => openSection(label)} title={label} aria-label={`Open ${label}`}>{React.createElement(Icon, { size: 20 })}<span className="studio-rail-label">{label}</span></button>)}
         </nav>
+        {toolToast && <div className="studio-tool-toast" role="status">{toolToast}</div>}
         {inspectorOpen && <StudioInspector activeSection={activeSection} onClose={() => setInspectorOpen(false)} props={bottomPanelProps} />}
       </>}
       {presentation && <button type="button" className="studio-exit-presentation" onClick={floatingActionProps.onToggleFullscreen}><X size={18} /> Exit presentation</button>}

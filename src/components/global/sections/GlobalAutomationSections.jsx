@@ -5,6 +5,7 @@ import { useAudioReactive } from '../../../context/AudioContext.jsx';
 import { useBPM } from '../../../context/BPMContext.jsx';
 import BufferedNumberInput from '../../common/BufferedNumberInput.jsx';
 import RangeOrDial from '../../common/RangeOrDial.jsx';
+import './AudioPanel.css';
 import BPMEnvelopeEditor, { DEFAULT_ENVELOPE } from '../../common/BPMEnvelopeEditor.jsx';
 import { AUDIO_MAPPING_MODES, DEFAULT_MODE_SETTINGS } from '../../../utils/audioMappingModes.js';
 import {
@@ -2069,7 +2070,7 @@ const AudioReactiveSection = () => {
               value={fileProgress}
               onChange={(e) => seekFile(parseFloat(e.target.value))}
               style={{ flex: 1, height: 4 }}
-              className="compact-range"
+              className="compact-range dc-slider"
             />
             <span style={{ fontSize: '0.7rem', opacity: 0.7, minWidth: '3rem', textAlign: 'right' }}>
               {formatTime(fileProgress * fileInfo.duration)} / {formatTime(fileInfo.duration)}
@@ -2112,7 +2113,7 @@ const AudioReactiveSection = () => {
               <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.sensitivity.toFixed(2)}</span>
             </div>
             <RangeOrDial
-              className="compact-range"
+              className="compact-range dc-slider"
               min={0}
               max={3}
               step={0.05}
@@ -2130,7 +2131,7 @@ const AudioReactiveSection = () => {
                 <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.bassSensitivity ?? 1).toFixed(2)}</span>
               </div>
               <RangeOrDial
-                className="compact-range"
+                className="compact-range dc-slider"
                 min={0}
                 max={3}
                 step={0.05}
@@ -2145,7 +2146,7 @@ const AudioReactiveSection = () => {
                 <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.midsSensitivity ?? 1).toFixed(2)}</span>
               </div>
               <RangeOrDial
-                className="compact-range"
+                className="compact-range dc-slider"
                 min={0}
                 max={3}
                 step={0.05}
@@ -2160,7 +2161,7 @@ const AudioReactiveSection = () => {
                 <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>{Number(settings.highsSensitivity ?? 1).toFixed(2)}</span>
               </div>
               <RangeOrDial
-                className="compact-range"
+                className="compact-range dc-slider"
                 min={0}
                 max={3}
                 step={0.05}
@@ -2177,7 +2178,7 @@ const AudioReactiveSection = () => {
               <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.smoothing.toFixed(2)}</span>
             </div>
             <RangeOrDial
-              className="compact-range"
+              className="compact-range dc-slider"
               min={0.05}
               max={1}
               step={0.05}
@@ -2193,7 +2194,7 @@ const AudioReactiveSection = () => {
               <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{settings.release.toFixed(2)}</span>
             </div>
             <RangeOrDial
-              className="compact-range"
+              className="compact-range dc-slider"
               min={0.05}
               max={0.98}
               step={0.05}
@@ -3061,7 +3062,7 @@ const AudioSpawnSection = ({
             />
           </div>
           <input
-            className="compact-range"
+            className="compact-range dc-slider"
             type="range"
             min="0"
             max="1"
@@ -3103,7 +3104,7 @@ const AudioSpawnSection = ({
           <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{directionSpreadValue.toFixed(0)}°</span>
         </div>
         <RangeOrDial
-          className="compact-range"
+          className="compact-range dc-slider"
           min="0"
           max="180"
           step="1"
@@ -3171,7 +3172,7 @@ const AudioSpawnSection = ({
           </span>
         </div>
         <RangeOrDial
-          className="compact-range"
+          className="compact-range dc-slider"
           min="0"
           max="100"
           step="1"
@@ -3277,7 +3278,7 @@ const AudioSpawnSection = ({
           <span className="compact-label" style={{ fontSize: '0.75rem', opacity: 0.7 }}>{Number.isFinite(energyInfluence) ? Number(energyInfluence).toFixed(2) : '0.00'}</span>
         </div>
         <RangeOrDial
-          className="compact-range"
+          className="compact-range dc-slider"
           min="0"
           max="2"
           step="0.01"

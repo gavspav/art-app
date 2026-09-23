@@ -72,6 +72,8 @@ export default function ColourSection({ props }) {
   const midi = useMidi() || {};
   const { applyTargetedUpdate } = useInspectorTargeting(props);
   const [open, setOpen] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [draftName, setDraftName] = useState('Custom palette');
   const anchorRef = useRef(null);
   const layer = props.currentLayer;
   const colors = Array.isArray(layer?.colors) ? layer.colors : [];
@@ -101,11 +103,12 @@ export default function ColourSection({ props }) {
     if (!entry) return;
     applyTargetedUpdate(() => ({ colors: sampleColors(entry.colors, count), numColors: count, selectedColor: 0 }));
   };
-  const saveCustom = () => {
+  const commitSave = () => {
     const safe = colors.filter(c => typeof c === 'string' && c.trim());
-    if (!safe.length || typeof props.onSaveCustomPalette !== 'function') return;
-    const name = (window.prompt('Name this palette:', 'Custom palette') || '').trim();
-    if (name) props.onSaveCustomPalette({ name, colors: safe });
+    const name = draftName.trim();
+    if (!safe.length || !name || typeof props.onSaveCustomPalette !== 'function') return;
+    props.onSaveCustomPalette({ name, colors: safe });
+    setNaming(false);
   };
   const fadeEnabled = !!layer?.colorFadeEnabled;
   const toggleFade = () => {
@@ -160,8 +163,21 @@ export default function ColourSection({ props }) {
         <label className="insp-field">Count
           <BufferedNumberInput key={`numColors-${key}`} min={1} step={1} value={count} onCommit={setCount} inputMode="numeric" aria-label="Number of colours" />
         </label>
-        <button type="button" className="insp-chip" onClick={saveCustom} disabled={!colors.length} title="Save these colours as a custom palette">Save</button>
+        <button type="button" className="insp-chip" onClick={() => { setDraftName('Custom palette'); setNaming(true); }} disabled={!colors.length || naming} title="Save these colours as a custom palette">Save</button>
       </div>
+      {naming && (
+        <div className="insp-field-row">
+          <input className="insp-palette-name" aria-label="Palette name" autoFocus value={draftName}
+            onChange={event => setDraftName(event.target.value)}
+            onKeyDown={event => {
+              event.stopPropagation();
+              if (event.key === 'Enter') { event.preventDefault(); commitSave(); }
+              if (event.key === 'Escape') { event.preventDefault(); setNaming(false); }
+            }} />
+          <button type="button" className="insp-chip accent" onClick={commitSave} disabled={!draftName.trim()}>Save</button>
+          <button type="button" className="insp-chip" onClick={() => setNaming(false)}>Cancel</button>
+        </div>
+      )}
 
       <ColorPicker key={`colorpicker-${key}`} label="" colors={colors} onChange={next => applyTargetedUpdate(() => ({ colors: [...(next || [])], numColors: Math.max(1, (next || []).length), selectedColor: 0 }))} layerId={layer?.id} />
 
@@ -170,13 +186,15 @@ export default function ColourSection({ props }) {
         <button type="button" className={`insp-chip${fadeEnabled ? ' active' : ''}`} aria-pressed={fadeEnabled} onClick={toggleFade}>{fadeEnabled ? 'On' : 'Off'}</button>
       </div>
       {fadeEnabled && (
-        <ParameterRow id="colorFadeSpeed" label="Fade speed (colours / s)" value={Number(layer?.colorFadeSpeed ?? 0.5)} min={0} max={4} step={0.01} precision={2} sliderKey={`fade-${key}`}
+        <div className="param-list">
+        <ParameterRow id="colorFadeSpeed" label="Fade speed (colours / s)" value={Number(layer?.colorFadeSpeed ?? 0.5)} min={0} max={4} step={0.01} precision={2} defaultValue={0.5} sliderKey={`fade-${key}`}
           onChange={value => applyTargetedUpdate(() => ({ colorFadeSpeed: value }))}
           details={<div className="mod-stack">
             <MidiMappingRow paramId={fadeAliases[0]} paramAliases={fadeAliases} />
             <AudioMappingRow paramId={fadeAliases[0]} paramAliases={fadeAliases} min={0} max={4} />
             <BpmMappingRow paramId={fadeAliases[0]} paramAliases={fadeAliases} min={0} max={4} />
           </div>} />
+        </div>
       )}
     </section>
   );

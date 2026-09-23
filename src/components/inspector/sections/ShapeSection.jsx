@@ -53,13 +53,14 @@ export default function ShapeSection({ props }) {
           {visible ? <Eye size={14} /> : <EyeOff size={14} />} {visible ? 'Visible' : 'Hidden'}
         </button>
       </div>
+      <div className="param-list">
       {shapeParams.map(param => (
         <LayerParameterControl key={`${param.id}-${key}`} param={param} currentLayer={layer} updateLayer={revivingUpdate} setLayers={revivingSetLayers}
           buildTargetSet={buildTargetSet} targetMode={targetMode} editTarget={props.editTarget} selectedLayerIndex={props.selectedLayerIndex} />
       ))}
       {layer?.layerType === 'shape' && (
         <ParameterRow
-          id="rotation" label="Rotation" value={Number(layer?.rotation ?? 0)} min={-180} max={180} step={1} precision={0}
+          id="rotation" label="Rotation" value={Number(layer?.rotation ?? 0)} min={-180} max={180} step={1} precision={0} defaultValue={0}
           sliderKey={`rotation-${key}`} onChange={setRotation}
           included={!!props.getIsRnd?.('rotation')} onIncludedChange={next => props.setIsRnd?.('rotation', next)}
           randomMin={rotationMin} randomMax={rotationMax}
@@ -83,6 +84,7 @@ export default function ShapeSection({ props }) {
           </>}
         />
       )}
+      </div>
     </section>
   );
 }

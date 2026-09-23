@@ -1,0 +1,47 @@
+/* Audio panel restyle — scoped to the studio inspector only.
+   Brings the audio sections in line with the inspector design system:
+   readable text (>= 11px), inspector-style buttons, selects and fields.
+   Styles only — no behaviour changes. */
+
+/* Floor for inline-styled text below ~11px (0.5x–0.6x rem). */
+.studio-inspector [style*="font-size: 0.5"],
+.studio-inspector [style*="font-size: 0.6"] { font-size: 11px !important; }
+
+/* Labels and readouts. */
+.studio-inspector .compact-label { font-size: 12px; line-height: 1.3; color: var(--studio-text); }
+
+/* Buttons match .mod-btn. */
+.studio-inspector .btn-compact-secondary,
+.studio-inspector .btn-compact-primary {
+  min-height: 30px;
+  border-radius: 6px;
+  border-color: var(--studio-line);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.studio-inspector .btn-compact-secondary { background: rgba(255,255,255,.045); color: var(--studio-text); }
+.studio-inspector .btn-compact-secondary:hover { background: rgba(255,255,255,.09); }
+
+/* Selects match .mod-select. */
+.studio-inspector .compact-select {
+  min-height: 30px;
+  height: auto;
+  border-color: var(--studio-line);
+  border-radius: 6px;
+  background: #202126;
+  color: var(--studio-text);
+  font-size: 12px;
+}
+
+/* Number inputs match .param-value. */
+.studio-inspector .compact-number {
+  min-height: 30px;
+  border-color: var(--studio-line);
+  border-radius: 6px;
+  background: #202126;
+  color: var(--studio-text);
+  font-size: 12px;
+}
+
+/* Sliders fill their row and match the inspector track. */
+.studio-inspector .compact-range { width: 100%; }

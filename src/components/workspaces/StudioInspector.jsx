@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, Trash2, X } from 'lucide-react';
 import { useAudioReactive } from '../../context/AudioContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
@@ -93,7 +93,7 @@ function AudioLinks({ layers }) {
 
 function SettingsPanel({ props }) {
   const midi = useMidi() || {};
-  const { controlStyle, setControlStyle } = useUiPreferences();
+  const { controlStyle, dialLayout, showLabels, setControlStyle, setPreference, resetPreferences } = useUiPreferences();
   return <>
     <section className="insp-section">
       <div className="insp-section-head"><h3>Interface</h3></div>
@@ -104,6 +104,25 @@ function SettingsPanel({ props }) {
             <button type="button" className={controlStyle === 'dials' ? 'active' : ''} aria-pressed={controlStyle === 'dials'} onClick={() => setControlStyle('dials')}>Dials</button>
           </div>
         </div>
+      </div>
+      <div className="insp-field-row">
+        <div className="insp-field grow">Dial layout
+          <div className="scope-toggle">
+            <button type="button" className={dialLayout === 'rows' ? 'active' : ''} aria-pressed={dialLayout === 'rows'} disabled={controlStyle !== 'dials'} onClick={() => setPreference('dialLayout', 'rows')}>Rows</button>
+            <button type="button" className={dialLayout === 'grid' ? 'active' : ''} aria-pressed={dialLayout === 'grid'} disabled={controlStyle !== 'dials'} onClick={() => setPreference('dialLayout', 'grid')}>Grid</button>
+          </div>
+        </div>
+      </div>
+      <div className="insp-field-row">
+        <div className="insp-field grow">Button labels
+          <div className="scope-toggle">
+            <button type="button" className={!showLabels ? 'active' : ''} aria-pressed={!showLabels} onClick={() => setPreference('showLabels', false)}>Off</button>
+            <button type="button" className={showLabels ? 'active' : ''} aria-pressed={showLabels} onClick={() => setPreference('showLabels', true)}>On</button>
+          </div>
+        </div>
+      </div>
+      <div className="insp-field-row">
+        <button type="button" className="insp-chip" onClick={resetPreferences}>Reset interface</button>
       </div>
     </section>
     <section className="insp-section">
@@ -133,8 +152,75 @@ const LAYER_SECTIONS = ['Shape', 'Colour', 'Motion'];
 
 export default function StudioInspector({ activeSection, onClose, props }) {
   const layerSection = LAYER_SECTIONS.includes(activeSection);
+  const { controlStyle, dialLayout } = useUiPreferences();
+  const gridMode = controlStyle === 'dials' && dialLayout === 'grid';
+
+  const asideRef = useRef(null);
+  const dragRef = useRef(null);
+  const scrubRowRef = useRef(null);
+  const [sheetHeight, setSheetHeight] = useState(null);
+  const [scrubbing, setScrubbing] = useState(false);
+
+  const onGripPointerDown = (event) => {
+    if (!asideRef.current) return;
+    const drag = { startY: event.clientY, startH: asideRef.current.getBoundingClientRect().height };
+    dragRef.current = drag;
+    const heightAt = (clientY) => Math.min(window.innerHeight - 90, Math.max(140, drag.startH + (drag.startY - clientY)));
+    const onMove = (ev) => { if (dragRef.current) setSheetHeight(`${heightAt(ev.clientY)}px`); };
+    const onUp = (ev) => {
+      dragRef.current = null;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      // Store the snap as a viewport fraction so it scales on rotate/resize.
+      const fraction = heightAt(ev.clientY) / window.innerHeight;
+      const snap = [0.32, 0.6, 0.88].reduce((best, f) => (Math.abs(f - fraction) < Math.abs(best - fraction) ? f : best));
+      setSheetHeight(`${snap * 100}vh`);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  const onScrubStart = (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (!target.closest('.knob, input[type="range"], .range-slider-handle')) return;
+    scrubRowRef.current = target.closest('.param-row');
+    scrubRowRef.current?.classList.add('scrubbing-row');
+    setScrubbing(true);
+  };
+
+  useEffect(() => {
+    if (!scrubbing) return undefined;
+    const end = () => {
+      scrubRowRef.current?.classList.remove('scrubbing-row');
+      scrubRowRef.current = null;
+      setScrubbing(false);
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => {
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+    };
+  }, [scrubbing]);
+
   return (
-    <aside className="studio-inspector" aria-label={`${activeSection} inspector`}>
+    <aside
+      ref={asideRef}
+      className={`studio-inspector${gridMode ? ' dial-grid' : ''}${scrubbing ? ' scrubbing' : ''}`}
+      style={sheetHeight ? { '--sheet-h': sheetHeight } : undefined}
+      onPointerDownCapture={onScrubStart}
+      aria-label={`${activeSection} inspector`}
+    >
+      <div
+        className="studio-sheet-grip"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize inspector"
+        onPointerDown={onGripPointerDown}
+      />
       <header>
         <h2>{activeSection}</h2>
         <button type="button" onClick={onClose} aria-label="Close inspector"><X size={19} /></button>

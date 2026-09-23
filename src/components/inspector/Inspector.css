@@ -161,3 +161,40 @@
   .layer-strip-select { flex-basis: 100%; }
   .scope-toggle { margin-right: auto; }
 }
+
+/* Inline palette naming ----------------------------------------------------- */
+.insp-palette-name { flex: 1; min-width: 0; min-height: var(--insp-row); padding: 0 8px; border: 1px solid var(--studio-line); border-radius: var(--insp-radius); background: var(--insp-field); color: var(--studio-text); font: inherit; font-size: 12px; }
+
+/* Randomise dice: quiet when included, lock + dimmed label when excluded ---- */
+.param-icon.dice.active { color: var(--studio-muted); border-color: transparent; background: transparent; }
+.param-icon.dice.active:hover { color: var(--insp-amber); border-color: rgba(242,180,95,.6); background: rgba(242,180,95,.12); }
+.param-icon.dice.locked { color: var(--insp-amber); border-color: rgba(242,180,95,.45); }
+.param-row.excluded .param-label { color: var(--studio-muted); }
+
+/* Dial grid layout ---------------------------------------------------------- */
+.dial-grid .param-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px 8px; }
+.dial-grid .param-list > .param-row:not(.cell),
+.dial-grid .param-list > .param-row.cell.open { grid-column: 1 / -1; }
+.param-row.cell { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border: 1px solid rgba(255,255,255,.06); border-radius: var(--insp-radius); }
+.param-row.cell .param-label { max-width: 100%; font-size: 11px; text-align: center; }
+.param-row.cell .param-value { width: 100%; text-align: center; }
+.param-cell-actions { display: flex; gap: 4px; }
+.param-row.cell .param-icon { width: 30px; height: 30px; }
+.param-row.cell .insp-popover { align-self: stretch; }
+
+/* Larger touch targets on coarse-pointer devices ---------------------------- */
+@media (pointer: coarse) {
+  .studio-inspector { --insp-row: 38px; }
+  .param-icon { width: 38px; height: 38px; }
+  .param-head { grid-template-columns: minmax(0,1fr) 76px 38px 38px; }
+  .param-head:has(.param-select) { grid-template-columns: minmax(0,1fr) minmax(120px,1.4fr) 38px 38px; }
+  .param-row.dial .param-head { grid-template-columns: 56px minmax(0,1fr) 76px 38px 38px; }
+  .param-row.cell .param-icon { width: 36px; height: 36px; }
+  .param-value, .param-select { min-height: 34px; font-size: 13px; }
+  .insp-chip, .insp-check, .option-chips label, .mod-btn, .mod-select { min-height: 36px; }
+  .scope-toggle button { min-height: 34px; }
+  .layer-strip-select { min-height: 40px; }
+  .studio-inspector .range-slider-wrap,
+  .studio-inspector .range-slider-wrap .dc-slider { min-height: 34px; height: 34px; }
+  .studio-inspector .range-slider-handle { width: 10px; height: 22px; }
+}

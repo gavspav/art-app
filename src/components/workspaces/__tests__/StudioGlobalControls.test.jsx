@@ -41,6 +41,30 @@ describe('StudioGlobalControls', () => {
     expect(stored.find(parameter => parameter.id === 'globalSpeedMultiplier').randomMax).toBe(4);
   });
 
+  test('global palette select shows and chooses custom palettes', () => {
+    const setGlobalPaletteIndex = vi.fn();
+    const setGlobalPaletteRef = vi.fn();
+    const assignOneColorPerLayer = vi.fn();
+    const palettes = [
+      { name: 'Warm', colors: ['#ff0000', '#ffaa00'], __source: 'builtin', __index: 0 },
+      { name: 'Mine', id: 'c1', colors: ['#112233'], __source: 'custom' },
+    ];
+    render(<ParameterProvider><StudioGlobalControls props={{
+      ...props, palettes, globalPaletteIndex: 'custom', globalPaletteRef: 'c1',
+      setGlobalPaletteIndex, setGlobalPaletteRef, assignOneColorPerLayer,
+    }} /></ParameterProvider>);
+
+    const select = screen.getByLabelText('Palette');
+    expect(select.value).toBe('custom:c1');
+
+    fireEvent.change(select, { target: { value: 'builtin:0' } });
+    expect(setGlobalPaletteIndex).toHaveBeenCalledWith(0);
+    expect(assignOneColorPerLayer).toHaveBeenCalled();
+
+    fireEvent.change(select, { target: { value: 'custom:c1' } });
+    expect(setGlobalPaletteRef).toHaveBeenCalledWith('c1');
+  });
+
   test('dice toggle reports inclusion changes', () => {
     const setIsRnd = vi.fn();
     render(<ParameterProvider><StudioGlobalControls props={{ ...props, getIsRnd: () => false, setIsRnd }} /></ParameterProvider>);

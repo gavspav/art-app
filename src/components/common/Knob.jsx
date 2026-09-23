@@ -21,15 +21,19 @@ const arcPath = (cx, cy, r, a0, a1) => {
 /**
  * Knob - a rotary dial ("pot") control, compact alternative to a slider.
  *
- * Drag vertically (or horizontally) to change the value; hold Shift for fine
- * control. Arrow keys step, PageUp/PageDown jump 10 steps, Home/End go to the
- * limits. Optional amber band on the outer ring shows the randomisation range
- * (rangeMin/rangeMax); when range callbacks are supplied its two ends become
- * draggable handles (grab within ~6 viewBox units of a handle).
+ * Drag up/down to change the value; moving sideways away from the dial while
+ * dragging progressively increases precision (touch-friendly fine control),
+ * and Shift gives the finest control. Double-tap resets to `defaultValue`
+ * when supplied. Arrow keys step, PageUp/PageDown jump 10 steps, Home/End go
+ * to the limits. Optional amber band on the outer ring shows the
+ * randomisation range (rangeMin/rangeMax); when range callbacks are supplied
+ * its two ends become draggable handles (grab within ~6 viewBox units of a
+ * handle).
  *
  * Props:
  *  - value, min, max, step   numeric range (numbers or numeric strings)
  *  - onChange(next: number)  called with the snapped/clamped value
+ *  - defaultValue            enables double-tap to reset
  *  - rangeMin, rangeMax      randomisation bounds for the band
  *  - onRangeMinChange(v), onRangeMaxChange(v)  make the bounds draggable
  *  - showRangeBand           render the amber band when the range is narrowed
@@ -45,6 +49,7 @@ export default function Knob({
   max = 1,
   step = 0,
   onChange,
+  defaultValue,
   rangeMin,
   rangeMax,
   onRangeMinChange,
@@ -81,7 +86,9 @@ export default function Knob({
   // Drag mode: null | 'value' | 'rangeMin' | 'rangeMax'.
   const [dragMode, setDragMode] = useState(null);
   const dragging = dragMode !== null;
-  const startRef = useRef({ value: 0, x: 0, y: 0, cx: 0, cy: 0 });
+  const startRef = useRef({ value: 0, current: 0, x: 0, y: 0, lastY: 0, cx: 0, cy: 0 });
+  const lastTapRef = useRef({ t: 0, x: 0, y: 0 });
+  const hasDefault = Number.isFinite(Number(defaultValue));
 
   const snapClamp = useCallback((next) => {
     let snapped = next;
@@ -121,11 +128,19 @@ export default function Knob({
       } else if (nearMin) mode = 'rangeMin';
       else if (nearMax) mode = 'rangeMax';
     }
-    startRef.current = { value: shown, x: clientX, y: clientY, cx, cy };
+    if (mode === 'value' && hasDefault) {
+      const lt = lastTapRef.current;
+      if (performance.now() - lt.t < 300 && Math.hypot(clientX - lt.x, clientY - lt.y) < 10) {
+        lastTapRef.current = { t: 0, x: 0, y: 0 };
+        emit(Number(defaultValue));
+        return;
+      }
+    }
+    startRef.current = { value: shown, current: shown, x: clientX, y: clientY, lastY: clientY, cx, cy };
     setDragMode(mode);
     document.body.style.cursor = mode === 'value' ? 'ns-resize' : 'grabbing';
     document.body.style.userSelect = 'none';
-  }, [disabled, shown, rangeEditable, minAngle, maxAngle, rMin, rMax, lo, hi]);
+  }, [disabled, shown, rangeEditable, minAngle, maxAngle, rMin, rMax, lo, hi, hasDefault, defaultValue, emit]);
 
   // Reset global cursor/selection when a drag ends or the component unmounts.
   useEffect(() => {
@@ -140,9 +155,15 @@ export default function Knob({
     if (!dragMode) return undefined;
     const onMove = (e) => {
       if (dragMode === 'value') {
-        const deltaPx = (startRef.current.y - (e.clientY || 0)) + ((e.clientX || 0) - startRef.current.x);
-        const pxPerSpan = e.shiftKey ? 1500 : 150;
-        emit(startRef.current.value + (deltaPx / pxPerSpan) * span);
+        // Vertical drag changes the value; horizontal distance from the
+        // start point increases precision (Pencil-friendly fine control).
+        const dx = Math.abs((e.clientX || 0) - startRef.current.x);
+        const precision = Math.min(10, 1 + Math.max(0, dx - 20) / 30);
+        const pxPerSpan = 150 * precision * (e.shiftKey ? 10 : 1);
+        const dy = startRef.current.lastY - (e.clientY || 0);
+        startRef.current.lastY = e.clientY || 0;
+        startRef.current.current += (dy / pxPerSpan) * span;
+        emit(startRef.current.current);
         return;
       }
       const { cx, cy } = startRef.current;
@@ -152,7 +173,11 @@ export default function Knob({
       if (dragMode === 'rangeMin') onRangeMinChange?.(Math.min(v, rMax));
       else onRangeMaxChange?.(Math.max(v, rMin));
     };
-    const onUp = () => {
+    const onUp = (e) => {
+      if (dragMode === 'value' && e && Number.isFinite(e.clientX)) {
+        const moved = Math.hypot((e.clientX || 0) - startRef.current.x, (e.clientY || 0) - startRef.current.y);
+        if (moved < 4) lastTapRef.current = { t: performance.now(), x: e.clientX, y: e.clientY };
+      }
       setDragMode(null);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -221,6 +246,7 @@ export default function Knob({
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       {...rest}
+      title={rest.title ?? (hasDefault ? 'Drag up/down · double-tap to reset' : undefined)}
     >
       <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
         <path className="knob-track" d={arcPath(20, 20, 13.5, -135, 135)} />

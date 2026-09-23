@@ -3,6 +3,7 @@ import { Dices } from 'lucide-react';
 import { useParameters } from '../../context/ParameterContext.jsx';
 import { useMidi } from '../../context/MidiContext.jsx';
 import { blendModeLabel } from '../../constants/blendModes.js';
+import { decimalsForStep } from '../../utils/stepPrecision.js';
 import ParameterRow from '../inspector/ParameterRow.jsx';
 import LimitsFields from '../inspector/LimitsFields.jsx';
 import MidiMappingRow from '../inspector/modulation/MidiMappingRow.jsx';
@@ -46,12 +47,12 @@ function mergeVariedCategory(original, varied, source, category) {
 
 // Scene-level slider: random bounds live on the track; precise numbers, step
 // and MIDI assignment sit in the details popover.
-function GlobalControl({ id, label, min, max, step, value, onChange, included, onIncludedChange, randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange }) {
+function GlobalControl({ id, label, min, max, step, value, onChange, included, onIncludedChange, randomMin, randomMax, onRandomMinChange, onRandomMaxChange, onStepChange, defaultValue }) {
   const midi = useMidi() || {};
   return (
     <ParameterRow
       id={id} inputId={`global-${id}`} label={label} value={Number(value ?? 0)} min={min} max={max} step={step}
-      precision={step >= 1 ? 0 : 2} onChange={onChange}
+      precision={decimalsForStep(step)} defaultValue={defaultValue} onChange={onChange}
       included={included} onIncludedChange={onIncludedChange}
       randomMin={randomMin} randomMax={randomMax} onRandomMinChange={onRandomMinChange} onRandomMaxChange={onRandomMaxChange}
       mapped={midi.mappings?.[id] ? ['midi'] : []} listening={midi.learnParamId === id}
@@ -88,12 +89,12 @@ export default function StudioGlobalControls({ props }) {
     };
   }, [parameters]);
 
-  const rangeProps = useCallback((id, label, physicalMin, physicalMax, fallbackStep, value, onChange) => {
+  const rangeProps = useCallback((id, label, physicalMin, physicalMax, fallbackStep, value, onChange, defaultValue) => {
     const config = controlConfig(id, physicalMin, physicalMax, fallbackStep);
     const setRandomMin = next => updateParameter?.(id, 'randomMin', Math.max(physicalMin, Math.min(Number(next), config.randomMax)));
     const setRandomMax = next => updateParameter?.(id, 'randomMax', Math.min(physicalMax, Math.max(Number(next), config.randomMin)));
     return {
-      id, label, ...config, value, onChange,
+      id, label, ...config, value, onChange, defaultValue,
       included: !!props.getIsRnd?.(id),
       onIncludedChange: next => props.setIsRnd?.(id, next),
       onRandomMinChange: setRandomMin,
@@ -164,6 +165,30 @@ export default function StudioGlobalControls({ props }) {
     <label className={`insp-check${checked ? ' on' : ''}`}><input type="checkbox" checked={!!checked} onChange={event => onChange?.(event.target.checked)} />{label}</label>
   );
 
+  const paletteOptions = (props.palettes || []).flatMap((palette, index) => {
+    const custom = palette?.__source === 'custom' && palette?.id;
+    const builtinIndex = Number.isFinite(palette?.__index) ? palette.__index : index;
+    const colors = Array.isArray(palette) ? palette : palette?.colors;
+    return [{
+      value: custom ? `custom:${palette.id}` : `builtin:${builtinIndex}`,
+      label: palette?.name || (custom ? 'Custom palette' : `Palette ${builtinIndex + 1}`),
+      colors: Array.isArray(colors) ? colors : [],
+      custom: !!custom,
+    }];
+  });
+  const paletteValue = props.globalPaletteIndex === 'custom'
+    ? (props.globalPaletteRef ? `custom:${props.globalPaletteRef}` : '')
+    : (Number.isFinite(Number(props.globalPaletteIndex)) ? `builtin:${Number(props.globalPaletteIndex)}` : '');
+  const choosePalette = (value) => {
+    const entry = paletteOptions.find(item => item.value === value);
+    if (value.startsWith('builtin:')) props.setGlobalPaletteIndex?.(Number(value.slice(8)));
+    else if (value.startsWith('custom:')) props.setGlobalPaletteRef?.(value.slice(7));
+    else props.setGlobalPaletteIndex?.('custom');
+    if (entry?.colors?.length) {
+      props.assignOneColorPerLayer?.(props.sampleColorsEven?.(entry.colors, Math.max(1, layers.length)) || entry.colors);
+    }
+  };
+
   return <>
     <section className="insp-section">
       <div className="insp-section-head">
@@ -171,21 +196,22 @@ export default function StudioGlobalControls({ props }) {
         <button type="button" className="insp-chip accent" onClick={props.handleRandomizeAll} title="Randomise every included control (R)"><Dices size={14} /> Randomise</button>
       </div>
       <div className="insp-field-row">
-        <label className="insp-field grow">Palette<select id="global-palette" value={String(props.globalPaletteIndex ?? 0)} onChange={event => {
-          const index = Number(event.target.value);
-          props.setGlobalPaletteRef?.(null); props.setGlobalPaletteIndex?.(index);
-          const palette = props.palettes?.[index];
-          if (palette) props.assignOneColorPerLayer?.(props.sampleColorsEven?.(palette.colors || palette, Math.max(1, layers.length)) || palette.colors || palette);
-        }}>{(props.palettes || []).map((palette, index) => <option key={palette.name || index} value={index}>{palette.name || `Palette ${index + 1}`}</option>)}</select></label>
+        <label className="insp-field grow">Palette<select id="global-palette" value={paletteValue} onChange={event => choosePalette(event.target.value)}>
+          <option value="">Custom (from layers)</option>
+          {paletteOptions.some(option => !option.custom) && <optgroup label="Built-in">{paletteOptions.filter(option => !option.custom).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>}
+          {paletteOptions.some(option => option.custom) && <optgroup label="Custom">{paletteOptions.filter(option => option.custom).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>}
+        </select></label>
         <label className="insp-field grow">Blend<select id="global-blend-mode" value={props.globalBlendMode || 'source-over'} onChange={event => props.setGlobalBlendMode?.(event.target.value)}>{(props.blendModes || []).map(mode => {
           const value = typeof mode === 'string' ? mode : mode.value;
           return <option key={value} value={value}>{typeof mode === 'string' ? blendModeLabel(mode) : mode.label}</option>;
         })}</select></label>
         <label className="insp-field colour">Background<span className="insp-colour-chip"><input id="global-background" type="color" aria-label="Background colour" value={props.backgroundColor || '#000000'} onChange={event => props.setBackgroundColor?.(event.target.value)} /></span></label>
       </div>
-      <GlobalControl {...rangeProps('globalSpeedMultiplier', 'Speed', 0, 10, 0.01, props.globalSpeedMultiplier ?? 1, value => props.setGlobalSpeedMultiplier?.(value))} />
-      <GlobalControl {...rangeProps('globalOpacity', 'Opacity', 0, 1, 0.01, globalOpacity, setOpacity)} />
-      <GlobalControl {...rangeProps('layersCount', 'Layers', 1, 400, 1, layers.length || 1, setLayerCount)} />
+      <div className="param-list">
+        <GlobalControl {...rangeProps('globalSpeedMultiplier', 'Speed', 0, 10, 0.01, props.globalSpeedMultiplier ?? 1, value => props.setGlobalSpeedMultiplier?.(value), 1)} />
+        <GlobalControl {...rangeProps('globalOpacity', 'Opacity', 0, 1, 0.01, globalOpacity, setOpacity, 1)} />
+        <GlobalControl {...rangeProps('layersCount', 'Layers', 1, 400, 1, layers.length || 1, setLayerCount)} />
+      </div>
     </section>
     <section className="insp-section">
       <div className="insp-section-head">
@@ -193,7 +219,9 @@ export default function StudioGlobalControls({ props }) {
         {toggle('Live', props.applyVariationInstantly, props.setApplyVariationInstantly)}
       </div>
       <p className="insp-help">Layer 1 is the source; variation shapes Layers 2 onward. Live rebuilds them as you drag.</p>
-      {VARIATIONS.map(([id, label, min, max]) => <GlobalControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value))} />)}
+      <div className="param-list">
+        {VARIATIONS.map(([id, label, min, max]) => <GlobalControl key={id} {...rangeProps(id, label, min, max, 0.1, firstLayer[id] ?? props.DEFAULT_LAYER?.[id] ?? 0, value => applyVariation(id, value), props.DEFAULT_LAYER?.[id] ?? 0)} />)}
+      </div>
       <div className="insp-check-row">
         {toggle('Match colours to Layer 1', props.syncLayerColorsToFirst, props.setSyncLayerColorsToFirst)}
         {toggle('Randomise colours per layer', props.randomizeColorsPerLayer, props.setRandomizeColorsPerLayer)}
